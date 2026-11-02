@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { countryFromEmployeeCode, formatNumber, periodKey, type Prefix } from "./numbering";
 
 /**
@@ -6,7 +6,7 @@ import { countryFromEmployeeCode, formatNumber, periodKey, type Prefix } from ".
  * so a failed insert never burns a serial. Voided documents keep their number (set voidedAt), never delete.
  */
 export async function allocateNumber(
-  tx: PrismaClient | Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
+  tx: PrismaClient | Prisma.TransactionClient,
   opts: { prefix: Prefix; createdByEmployeeCode: string; entityId: string; date?: Date },
 ): Promise<string> {
   const date = opts.date ?? new Date();

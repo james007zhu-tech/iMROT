@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { currentContact } from "@/server/auth";
 import { OrderProgress } from "@/components/OrderProgress";
 import { recordAcceptance } from "@/server/slm-docs";
+import { advanceServiceOrder } from "@/server/slm";
 import type { OrderStatus } from "@/lib/lifecycle";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,6 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
     const o = await prisma.serviceOrder.findFirstOrThrow({ where: { no, customerId: me.customerId } });
     if (o.status !== "QUOTE_PENDING") return;
     const desk = await prisma.employee.findFirstOrThrow({ where: { entityId: o.entityId, active: true }, orderBy: { code: "asc" } });
-    const { advanceServiceOrder } = await import("@/server/slm");
     await advanceServiceOrder(no, "IN_PROGRESS", desk.code, `客户 ${me.name} 在门户确认报价`);
     redirect(`/portal/orders/${no}`);
   }

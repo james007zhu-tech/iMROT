@@ -13,12 +13,13 @@ export default async function CustomerDetail({ params }: { params: Promise<{ cod
   const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: true, assets: { include: { model: true }, orderBy: { code: "asc" } }, serviceOrders: { orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
   if (!c) notFound();
   const t = await getTranslations("common");
-  async function addPlant(form: FormData) { "use server"; await prisma.plant.create({ data: { customerId: c!.id, code: String(form.get("code")), name: String(form.get("name")), address: String(form.get("address") || "") || undefined } }); redirect(`/customers/${code}`); }
+  const customerId = c.id; // actions close over strings only
+  async function addPlant(form: FormData) { "use server"; await prisma.plant.create({ data: { customerId, code: String(form.get("code")), name: String(form.get("name")), address: String(form.get("address") || "") || undefined } }); redirect(`/customers/${code}`); }
   async function addContact(form: FormData) {
     "use server";
     const login = String(form.get("portalLogin") || "") || undefined;
     const pw = String(form.get("password") || "");
-    await prisma.contact.create({ data: { customerId: c!.id, plantId: String(form.get("plantId") || "") || undefined, name: String(form.get("name")), title: String(form.get("title") || "") || undefined, phone: String(form.get("phone") || "") || undefined, email: String(form.get("email") || "") || undefined, portalLogin: login, portalPasswordHash: login && pw ? hashPassword(pw) : undefined } });
+    await prisma.contact.create({ data: { customerId, plantId: String(form.get("plantId") || "") || undefined, name: String(form.get("name")), title: String(form.get("title") || "") || undefined, phone: String(form.get("phone") || "") || undefined, email: String(form.get("email") || "") || undefined, portalLogin: login, portalPasswordHash: login && pw ? hashPassword(pw) : undefined } });
     redirect(`/customers/${code}`);
   }
   const input = "rounded border px-2 py-1.5 text-sm";

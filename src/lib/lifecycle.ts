@@ -56,5 +56,5 @@ export function assetStatusForWork(kind: "REPAIR" | "MAINTENANCE" | "OVERHAUL" |
 /** The customer-facing progress bar: index of the status among the nine visible words (CANCELLED → -1). */
 export function portalStep(status: OrderStatus): number {
   const visible = ORDER_STATUSES.filter((s) => s !== "CANCELLED");
-  return visible.indexOf(status);
+  return (visible as readonly OrderStatus[]).indexOf(status);
 }

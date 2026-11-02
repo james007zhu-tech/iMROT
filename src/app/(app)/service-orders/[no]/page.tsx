@@ -34,6 +34,7 @@ export default async function OrderDetail({ params }: { params: Promise<{ no: st
   const primaryAsset = order.assets[0]?.asset;
 
   // ── server actions (each one is a thin call into the service layer) ──
+  // Actions only close over `no` (a string); anything else is re-read, because closed-over Prisma objects are not serializable.
   async function advance(form: FormData) {
     "use server";
     const me = await currentEmployee();
@@ -44,8 +45,9 @@ export default async function OrderDetail({ params }: { params: Promise<{ no: st
     "use server";
     const me = await currentEmployee();
     const tests = ["Visual condition", "Power supply", "Fault history", "Functional check"].map((test) => ({ test, criterion: String(form.get(`c_${test}`) || ""), result: String(form.get(`r_${test}`) || "") })).filter((r) => r.criterion || r.result);
-    await createInspection({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), engineerCode: me.code, symptoms: order!.reportedSymptom ?? undefined, conditions: str(form, "conditions"), findings: str(form, "findings"), probableCause: str(form, "probableCause"), recommendation: str(form, "recommendation"), instruments: str(form, "instruments"), openIssues: str(form, "openIssues"), conclusion: str(form, "conclusion"), tests });
-    if (order!.status === "ASSIGNED") await advanceServiceOrder(no, "DIAGNOSING", me.code);
+    const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true, reportedSymptom: true } });
+    await createInspection({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), engineerCode: me.code, symptoms: cur.reportedSymptom ?? undefined, conditions: str(form, "conditions"), findings: str(form, "findings"), probableCause: str(form, "probableCause"), recommendation: str(form, "recommendation"), instruments: str(form, "instruments"), openIssues: str(form, "openIssues"), conclusion: str(form, "conclusion"), tests });
+    if (cur.status === "ASSIGNED") await advanceServiceOrder(no, "DIAGNOSING", me.code);
     redirect(`/service-orders/${no}`);
   }
   async function quote(form: FormData) {
@@ -53,7 +55,8 @@ export default async function OrderDetail({ params }: { params: Promise<{ no: st
     const me = await currentEmployee();
     const lines = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ assetCode: str(form, `a${i}`), description: str(form, `d${i}`) ?? "", descriptionLocal: str(form, `l${i}`), qty: Number(form.get(`q${i}`) || 0), unit: "pcs", unitPrice: Number(form.get(`p${i}`) || 0) })).filter((l) => l.description && l.qty > 0);
     await setQuoteLines({ serviceOrderNo: no, actorCode: me.code, lines });
-    if (order!.status === "DIAGNOSING") await advanceServiceOrder(no, "QUOTE_PENDING", me.code);
+    const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
+    if (cur.status === "DIAGNOSING") await advanceServiceOrder(no, "QUOTE_PENDING", me.code);
     redirect(`/service-orders/${no}`);
   }
   async function repair(form: FormData) {
@@ -61,7 +64,8 @@ export default async function OrderDetail({ params }: { params: Promise<{ no: st
     const me = await currentEmployee();
     const tests = ["Visual inspection", "Approved electrical tests", "No load operation", "Load test if agreed"].map((test) => ({ test, criterion: String(form.get(`c_${test}`) || ""), result: String(form.get(`r_${test}`) || ""), pass: form.get(`p_${test}`) === "on" })).filter((r) => r.criterion || r.result);
     await createRepairJob({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), engineerCode: me.code, kind: form.get("kind") as "REPAIR", location: form.get("location") as "SITE", finishedAt: form.get("finished") === "on" ? new Date() : undefined, confirmedFault: str(form, "confirmedFault"), rootCause: str(form, "rootCause"), workPerformed: str(form, "workPerformed"), configBackupRef: str(form, "configBackupRef"), laborHours: form.get("laborHours") ? Number(form.get("laborHours")) : undefined, openIssues: str(form, "openIssues"), conclusion: str(form, "conclusion"), tests });
-    if (form.get("finished") === "on" && order!.status === "IN_PROGRESS") await advanceServiceOrder(no, "ACCEPTANCE_PENDING", me.code);
+    const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
+    if (form.get("finished") === "on" && cur.status === "IN_PROGRESS") await advanceServiceOrder(no, "ACCEPTANCE_PENDING", me.code);
     redirect(`/service-orders/${no}`);
   }
   async function accept(form: FormData) {
