@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16
+    environment: { POSTGRES_USER: dcit, POSTGRES_PASSWORD: dcit, POSTGRES_DB: dcit_os }
+    volumes: [ "dbdata:/var/lib/postgresql/data" ]
+    ports: [ "5432:5432" ]
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://dcit:dcit@db:5432/dcit_os?schema=public
+    ports: [ "3000:3000" ]
+    volumes: [ "uploads:/app/uploads" ]
+    depends_on: [ db ]
+  fx:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://dcit:dcit@db:5432/dcit_os?schema=public
+    command: sh -c "while true; do npx tsx src/jobs/fetch-boc-rates.ts; sleep 86400; done"
+    depends_on: [ db ]
+volumes: { dbdata: {}, uploads: {} }

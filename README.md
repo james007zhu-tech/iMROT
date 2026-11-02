@@ -69,3 +69,10 @@ docs/briefs/       给 Codex / Gemini 的分工任务书
 - 0.4 SLM 页面：服务单列表、内部报修、服务单详情（九步进度条；按状态显示下一步面板：派工 → INTH 检测 → 报价行 → 客户确认 → RPTH/PMTH 执行与测试 → 验收 12/13 → TITH+IVTH → 收款含预扣税）；登录页。
 - 0.5 客户门户（手机优先）：联系人登录、我的设备与工单、报修（铭牌二维码直达 `?asset=ATH…`）、九步进度、报价确认、验收签字、报告下载；二维码铭牌打印页 `/assets/:code/label?n=12`。
 - 0.6 报告生成：无依赖的 docx 填充器（`src/lib/docx`，占位符顺序消费、XML 转义、换行）；`src/server/reports.ts` 把 INTH→08、RPTH→09/10、PMTH→11、验收→12/13 的字段从事件数据映射到模板；`/api/documents/:no/render?format=pdf` 生成 docx，并在安装了 LibreOffice 的主机上转 PDF（已用 08 模板实测：填充 → docx → PDF 正常）。
+- 0.7 CRM（客户/工厂/联系人，CTH 自动分配，门户账号）、OPD（员工，ETH 自动分配）、Admin（法人、中国银行汇率、流水计数）、SCM 备件页（共享备件视图：哪些客户的设备在用）、FIN/T&O 发票视图；LLM 辅助 API（铭牌识图建档、现场记录整理、相似案例、报告翻译，只起草不落库）；`npm run smoke` 端到端跑完十步并校验编号、状态、事件、报告；Dockerfile + docker-compose（含 LibreOffice 与每日汇率任务）。
+
+## 下一步（Phase 1 上线前）
+
+1. `npm install && npm run typecheck && npm test` — 本仓库在无 npm 网络的环境中编写，Next/Prisma 层尚未编译运行，首次跑通时请把报错贴回给 Claude。
+2. `docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetch && npm run smoke`。
+3. 给 ETH2611001 设密码（people 页或 seed），登录后走一遍 /assets/new → /service-orders/new → 详情页十步。
