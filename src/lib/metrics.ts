@@ -69,7 +69,7 @@ export function sanitizeSpec(input: unknown): DashboardSpec {
     const chart = m.charts.includes(w.chart) ? w.chart : m.charts[0];
     const params: Record<string, number> = {};
     for (const [k, v] of Object.entries(w.params ?? {})) if (typeof v === "number" && Number.isFinite(v)) params[k] = v;
-    return [{ metric: m.id, chart, w: w.w === 2 ? 2 : 1, params }];
+    return [{ metric: m.id, chart, w: (w.w === 2 ? 2 : 1) as 1 | 2, params }];
   });
   return { widgets: widgets.slice(0, 12) };
 }

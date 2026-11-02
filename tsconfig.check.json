@@ -1,0 +1,1 @@
+{ "extends": "./tsconfig.json", "compilerOptions": { "noImplicitAny": false, "jsx": "preserve", "types": [] }, "include": ["scripts/dev/stubs.d.ts", "src/**/*.ts", "src/**/*.tsx", "prisma/seed.ts", "scripts/smoke.ts"], "exclude": ["node_modules", "src/**/*.test.ts"] }

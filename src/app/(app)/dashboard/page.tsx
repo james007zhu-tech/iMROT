@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { getLocale } from "next-intl/server";
 import { listDashboards, renderDashboard } from "@/server/dashboards";
-import { ChartFor } from "@/components/charts";
 import { DashboardBuilder } from "@/components/DashboardBuilder";
 import Link from "next/link";
+import { DashboardGrid as Grid } from "@/components/DashboardGrid";
 
 export const dynamic = "force-dynamic";
 
@@ -20,19 +20,6 @@ export default async function DashboardHome({ searchParams }: { searchParams: Pr
         <div className="ml-auto w-full md:w-auto"><DashboardBuilder /></div>
       </div>
       <Grid widgets={widgets} locale={locale} />
-    </div>
-  );
-}
-
-export function Grid({ widgets, locale }: { widgets: Awaited<ReturnType<typeof renderDashboard>>["widgets"]; locale: "th" | "zh" | "en" }) {
-  return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      {widgets.map((w, i) => (
-        <section key={i} className={`rounded-lg border bg-white p-3 ${w.w === 2 ? "col-span-2" : "col-span-1"} ${w.chart === "kpi" ? "min-h-24" : ""}`}>
-          {w.chart !== "kpi" && <h2 className="mb-2 text-sm font-semibold text-navy">{w.def.title[locale]}</h2>}
-          <ChartFor chart={w.chart} data={w.data} title={w.def.title[locale]} />
-        </section>
-      ))}
     </div>
   );
 }

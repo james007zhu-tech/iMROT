@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getLocale } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { renderDashboard } from "@/server/dashboards";
-import { Grid } from "../page";
+import { DashboardGrid as Grid } from "@/components/DashboardGrid";
 import { DashboardBuilder } from "@/components/DashboardBuilder";
 
 export const dynamic = "force-dynamic";

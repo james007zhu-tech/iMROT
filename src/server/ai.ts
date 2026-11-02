@@ -120,7 +120,7 @@ export async function buildDashboardFromPrompt(prompt: string, employeeCode: str
 
 // ───────────────────────── Assistant with tools ─────────────────────────
 
-type ToolResult = Record<string, unknown> | unknown[] | string;
+type ToolResult = object | unknown[] | string;
 interface Tool { name: string; description: string; input_schema: Record<string, unknown>; run: (input: Record<string, unknown>, ctx: AssistContext) => Promise<ToolResult> }
 export interface AssistContext { employeeCode?: string; contactId?: string; customerId?: string; locale: string; path?: string; fields?: string[] }
 export interface AssistAction { type: "navigate" | "fill_form" | "dashboard"; href?: string; fields?: Record<string, string>; id?: string }
@@ -162,7 +162,7 @@ export async function assist(messages: { role: "user" | "assistant"; content: st
       const text = data.content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
       return { text: text.replace(/\n?(FORM|GOTO):[\s\S]*$/, "").trim(), actions: parseActions(text), toolsUsed: used };
     }
-    const results = [];
+    const results: { type: "tool_result"; tool_use_id: string | undefined; content: string }[] = [];
     for (const c of data.content) {
       if (c.type !== "tool_use") continue;
       const tool = TOOLS.find((t) => t.name === c.name);

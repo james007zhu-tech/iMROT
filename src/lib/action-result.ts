@@ -3,7 +3,7 @@
  */
 import { redirect } from "next/navigation";
 
-export async function guarded(run: () => Promise<string | void>, backTo: string): Promise<never> {
+export async function guarded(run: () => Promise<string | void>, backTo: string): Promise<void> {
   let target = backTo;
   try {
     const ok = await run();
