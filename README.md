@@ -83,3 +83,4 @@ docs/briefs/       给 Codex / Gemini 的分工任务书
 - 0.10 型号库页面（品牌→系列→型号；故障代码、维护标准分系列/型号两级；BOM）、ERTH 设备接收单（07）、报价建议书 04 与订单确认 06 从 QTTH 生成、报告三语（`?lang=th|zh|en`，LLM 翻译文字字段，编号与数字不动）、BLTH 月度账单按钮、Admin 法人可编辑/新增（VN、CN）、全站搜索框、服务端动作统一错误横幅（不再白屏）、错误边界。smoke 新增 ERTH、04/06/07、BLTH。
 - 0.11 设备页动作面板（流转、关联传动链、手工事件、报修、二维码标签入口）、派工可选工程师、AI 助手感知当前页表单字段（口述 → 直接填表）、seed 给 ETH2611001 设初始密码、`/api/health`、部署文档 `docs/DEPLOY.md`（Docker + Caddy 一把梭切域名）。
 - 0.12 文件上传（铭牌照片、参数备份、事件附件，`/api/uploads`）、案例归档面板（第 10 步：根因/教训写回设备事件，可一键写入系列故障代码或维护标准）、备件页出入库表单（IBTH/OBTH）、员工编辑/停用/重设密码、验收点击路径 `docs/TEST-CHECKLIST.md`、无依赖类型检查 `tsconfig.check.json`。
+- 0.13 AGENTS.md（给所有 AI 与人的开发守则）、Codex/Gemini 任务书改为"先跑通再打磨"、门户相机扫码（BarcodeDetector）、PWA manifest 与图标。

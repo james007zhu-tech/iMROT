@@ -1,0 +1,1 @@
+{ "name": "DCiT OS", "short_name": "DCiT", "start_url": "/portal", "display": "standalone", "background_color": "#0B2D53", "theme_color": "#0B2D53", "icons": [{ "src": "/icon.png", "sizes": "512x512", "type": "image/png" }] }

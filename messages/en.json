@@ -119,7 +119,8 @@
     "DRIVE_TRAIN": "Drive train",
     "SENSOR": "Sensor",
     "OTHER": "Other",
-    "requiredSix": "Required: serial, model, customer, location, responsible (ATH is assigned by the system)"
+    "requiredSix": "Required: serial, model, customer, location, responsible (ATH is assigned by the system)",
+    "scanQr": "Scan nameplate QR"
   },
   "ai": {
     "title": "AI assistant",

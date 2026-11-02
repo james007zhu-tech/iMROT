@@ -3,7 +3,8 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import "./globals.css";
 
-export const metadata: Metadata = { title: "DCiT OS", description: "iMROT — equipment-centred service operations" };
+export const metadata: Metadata = { title: "DCiT OS", description: "iMROT — equipment-centred service operations", manifest: "/manifest.json", icons: { icon: "/icon.png", apple: "/icon.png" } };
+export const viewport = { themeColor: "#0B2D53", width: "device-width", initialScale: 1 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const [locale, messages] = await Promise.all([getLocale(), getMessages()]);

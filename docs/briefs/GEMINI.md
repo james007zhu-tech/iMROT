@@ -1,17 +1,15 @@
-# Gemini 任务书 — ALM 设备页面 · 客户门户（移动端优先）
+# Gemini 任务书（更新 2026-11-03）
 
-目标：设备页面是整个系统的首页；客户门户是同一套数据的受限视图。两者都先在手机上好用。
+页面骨架已经在（/assets、/service-orders、/portal、/dashboard）。你负责让它们在手机上好用、好看，并补齐视觉细节。
 
-## 约束
-- 数据只从 `/api/assets`、`/api/assets/:code`、`/api/service-orders` 读写；状态变更只通过 `/api/service-orders/:no/status` 与 `/api/assets/:code/events`。
-- 文案走 next-intl（th/zh/en）。品牌色 Navy #0B2D53 / Blue #2374D5，字体 Sarabun + Noto Sans SC。
-- 门户用户是 Contact（不编号），登录为 portalLogin + 密码；只能看到自己客户的设备与工单。
+## 任务
+1. **门户移动端打磨**：`src/app/portal/**` 一列布局、大按钮、离线提示；报修页加相机扫码（见 `src/components/ScanButton.tsx`，BarcodeDetector 不可用时退回系统相机扫印刷二维码）。
+2. **PWA**：完善 `public/manifest.json` 图标（用 docs/brand/DCiT_Logo_Primary.png 生成 192/512），`apple-touch-icon`，安装提示。
+3. **设备页**：时间线按天分组、事件类型图标、附件缩略图；传动链用一张横向小图（VFD → 电机 → 负载）。
+4. **看板**：`src/components/charts.tsx` 增加堆叠柱、双轴折线；看板页支持拖拽排序（保存回 spec）。
+5. **泰文文案审校**：`messages/th.json` 所有文案请按泰国工厂现场用语改顺。
+6. 品牌：Navy #0B2D53 / Blue #2374D5，Sarabun + Noto Sans SC，已在 `src/app/globals.css`。
 
-## 交付
-1. ALM 设备列表 `src/app/(app)/assets`：搜索（编号/序列号/位置）、按客户和状态筛选、二维码扫描入口（扫 ATH 直达详情）。
-2. ALM 设备详情 `assets/[code]`，自上而下：基本信息与当前状态 → 事件时间线 → 关联单据（QTTH 分组）→ 备件与更换记录 → 参数备份与文件 → 同型号知识（故障代码、维护标准、历史案例）。关联设备（电机/PLC/柜）以传动链形式展示。
-3. 建档表单（接管）：铭牌照片上传、六个必填（序列号、型号、所属客户、位置、责任人；ATH 由后端分配）。
-4. 客户门户 `src/app/(portal)/...`：报修（选设备或扫码 → POST /api/service-orders）、工单进度条（九个状态词）、报告下载、验收签字（Acceptance）。
-5. 二维码铭牌打印页：ATH + 序列号 + 型号，A4 多枚排版。
+约束：数据只走 `/api/*` 和 `src/server/*`；不要在页面里直接写 Prisma 写操作；文案走 next-intl。
 
-分支 `feat/alm-portal`，PR 到 `main`。PR 前跑 `npm run typecheck && npm test`。
+分支 `feat/gemini-mobile`，PR 小而多。遵守 AGENTS.md。
