@@ -79,3 +79,4 @@ docs/briefs/       给 Codex / Gemini 的分工任务书
 2. `docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetch && npm run smoke`。
 3. 给 ETH2611001 设密码（people 页或 seed），登录后走一遍 /assets/new → /service-orders/new → 详情页十步。
 - 0.8 自测：`npm run smoke:mem` 用内存版 Prisma 替身（`scripts/dev/fake-prisma.ts`，按 schema.prisma 解析关系）+ zod 替身，在无数据库、无 node_modules 的环境下跑完整个十步流程并生成 08/10/13 报告（docx + PDF）。已通过：15 条事件、编号、状态机、金额、报告无空占位符。
+- 0.9 看板与 AI 助手：指标目录（`src/lib/metrics.ts`，15 个指标，AI 只能从目录选，不写 SQL）、无依赖 SVG 图表、看板页（默认看板 + 自建看板）、"描述即生成"看板构建器（有 API key 用模型选，没有则关键词回退）；全站浮动 AI 助手（文字 / 语音听写 / 拍铭牌；带工具：查设备、查服务单、相似案例、整理检测记录、建看板、读指标；草稿一键填入当前表单；门户内只看本客户数据）。smoke 增加指标、看板、动作解析校验。

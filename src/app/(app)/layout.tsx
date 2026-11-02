@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { AiAssistant } from "@/components/AiAssistant";
 
-const NAV: { key: "alm" | "crm" | "slm" | "scm" | "fin" | "to" | "opd" | "admin"; href: string }[] = [
-  { key: "alm", href: "/assets" }, { key: "crm", href: "/customers" }, { key: "slm", href: "/service-orders" }, { key: "scm", href: "/parts" },
+const NAV: { key: "dash" | "alm" | "crm" | "slm" | "scm" | "fin" | "to" | "opd" | "admin"; href: string }[] = [
+  { key: "dash", href: "/dashboard" }, { key: "alm", href: "/assets" }, { key: "crm", href: "/customers" }, { key: "slm", href: "/service-orders" }, { key: "scm", href: "/parts" },
   { key: "fin", href: "/finance" }, { key: "to", href: "/tax" }, { key: "opd", href: "/people" }, { key: "admin", href: "/admin" },
 ];
 
@@ -24,6 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </nav>
       </aside>
       <main className="flex-1 p-4 md:p-6">{children}</main>
+      <AiAssistant scope="staff" />
     </div>
   );
 }

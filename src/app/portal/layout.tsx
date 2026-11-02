@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { AiAssistant } from "@/components/AiAssistant";
 
 /** Customer portal: phone-first, one column, big tap targets. Same data, restricted to the contact's customer. */
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -12,6 +13,7 @@ export default async function PortalLayout({ children }: { children: React.React
         <LanguageSwitcher />
       </header>
       <main className="p-4">{children}</main>
+      <AiAssistant scope="portal" />
     </div>
   );
 }

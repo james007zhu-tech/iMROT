@@ -12,6 +12,9 @@ import { renderDocument } from "../src/server/reports";
 import { allocateNumber } from "../src/lib/numbering-db";
 import { parseNumber } from "../src/lib/numbering";
 import { prisma } from "../src/lib/db";
+import { buildDashboardFromPrompt, heuristicSpec, parseActions } from "../src/server/ai";
+import { renderDashboard } from "../src/server/dashboards";
+import { METRICS } from "../src/lib/metrics";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`SMOKE FAIL: ${m}`); console.log("  ok  " + m); };
 
@@ -98,6 +101,16 @@ async function main() {
   const r09 = await renderDocument(job.no);
   const r13 = await renderDocument(order.no, "13");
   assert(r08.unfilled.length === 0 && r09.unfilled.length === 0 && r13.unfilled.length === 0, `08/09/13 rendered with no blank placeholders (${r08.docxPath})`);
+
+  console.log("11. metrics catalog + AI dashboard builder (heuristic path when no API key)");
+  for (const m of METRICS) { const r = await m.run(prisma, {}); assert(Array.isArray(r.labels) && r.labels.length === r.values.length, `metric ${m.id} → ${r.values.slice(0, 3).join(",")}`); }
+  const spec = heuristicSpec("本月维修看板：工单、收入、工程师");
+  assert(spec.widgets.some((w) => w.metric === "orders_per_month") && spec.widgets.some((w) => w.metric === "revenue_cny_per_month"), "heuristic spec picks orders + revenue");
+  const dash = await buildDashboardFromPrompt("设备按客户和品牌", admin.code, "zh");
+  const rendered = await renderDashboard(dash.id);
+  assert(rendered.widgets.length >= 3 && rendered.widgets.every((w) => w.data.labels.length === w.data.values.length), `dashboard ${dash.id} renders ${rendered.widgets.length} widgets`);
+  const acts = parseActions("Done.\nFORM: {\"findings\":\"fan seized\"}\nGOTO: /dashboard/abc");
+  assert(acts.some((x) => x.type === "fill_form" && x.fields?.findings === "fan seized") && acts.some((x) => x.type === "navigate" && x.href === "/dashboard/abc"), "assistant actions parsed (FORM + GOTO)");
 
   a = await getAssetPage(vfd.code);
   const types = a!.events.map((e) => e.type);

@@ -1,5 +1,6 @@
 {
   "nav": {
+    "dash": "看板",
     "alm": "ALM 设备",
     "crm": "CRM 客户",
     "slm": "SLM 服务",
@@ -119,5 +120,18 @@
     "SENSOR": "传感器",
     "OTHER": "其他",
     "requiredSix": "必填：序列号、型号、所属客户、位置、责任人（ATH 由系统分配）"
+  },
+  "ai": {
+    "title": "AI 助手",
+    "placeholder": "提问、口述或下指令…",
+    "hintStaff": "问设备或服务单的任何事；口述检测记录后一键填表；拍铭牌建档；或说\"做一个本月维修看板\"",
+    "hintPortal": "询问报修进度、报告，或您设备的维护周期",
+    "fillForm": "填入表单",
+    "filled": "已填入 {n} 个字段，保存前请核对",
+    "voice": "语音",
+    "photo": "拍铭牌",
+    "noVoice": "此浏览器不支持语音输入",
+    "buildDashboard": "描述你要的看板…",
+    "editDashboard": "说说要改什么…"
   }
 }

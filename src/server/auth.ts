@@ -41,6 +41,17 @@ export async function signInEmployee(email: string, password: string): Promise<b
 }
 export async function signOut() { (await cookies()).delete(COOKIE); }
 
+/** Signed-in employee code without redirecting (for API routes). Honours DEV_EMPLOYEE_CODE outside production. */
+export async function sessionEmployeeCode(): Promise<string | null> {
+  const payload = verify((await cookies()).get(COOKIE)?.value);
+  return payload?.split("|")[0] ?? (process.env.NODE_ENV !== "production" ? process.env.DEV_EMPLOYEE_CODE ?? null : null);
+}
+/** Signed-in portal contact id without redirecting. */
+export async function sessionContactId(): Promise<string | null> {
+  const payload = verify((await cookies()).get(PORTAL_COOKIE)?.value);
+  return payload?.split("|")[0] ?? null;
+}
+
 /** Dev fallback: DEV_EMPLOYEE_CODE lets the app run before login pages exist. Never set it in production. */
 export async function currentEmployee() {
   const payload = verify((await cookies()).get(COOKIE)?.value);

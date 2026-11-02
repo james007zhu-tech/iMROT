@@ -105,6 +105,7 @@ model Employee {
   inspections       Inspection[]
   repairJobs        RepairJob[]
   documents         Document[]
+  dashboards        Dashboard[]
 }
 
 // ───────────────────────── CRM ─────────────────────────
@@ -765,4 +766,18 @@ model Document {
   voidReason     String?
 
   @@index([type, issuedAt])
+}
+
+// ───────────────────────── Dashboards (built by people or by the AI assistant) ─────────────────────────
+
+/// A dashboard is a JSON spec of widgets over the metric catalog in src/lib/metrics.ts — never raw SQL.
+model Dashboard {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String?
+  owner     Employee? @relation(fields: [ownerId], references: [id])
+  spec      Json     /// { widgets: [{ metric, chart, w, params }] }
+  isShared  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

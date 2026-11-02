@@ -78,3 +78,109 @@ export async function translateFields(values: Record<string, string>, target: "t
   );
   return json<Record<string, string>>(text);
 }
+
+// ───────────────────────── Dashboard builder ─────────────────────────
+
+import { METRICS, sanitizeSpec, type DashboardSpec } from "@/lib/metrics";
+import { createDashboard, updateDashboard } from "@/server/dashboards";
+
+/** Keyword fallback so dashboards can be built even without an API key (and in tests). */
+export function heuristicSpec(prompt: string): DashboardSpec {
+  const p = prompt.toLowerCase();
+  const pick = (ids: string[], chart: "kpi" | "bar" | "line" | "donut" | "table", w: 1 | 2 = 2) => ids.map((metric) => ({ metric, chart, w }));
+  const widgets: DashboardSpec["widgets"] = [];
+  if (/revenue|收入|营收|รายได้|invoice|开票|cny/.test(p)) widgets.push(...pick(["revenue_cny_per_month"], "line"), ...pick(["receivables_outstanding"], "kpi", 1));
+  if (/order|工单|服务单|งาน|repair|维修/.test(p)) widgets.push(...pick(["open_orders"], "kpi", 1), ...pick(["orders_per_month"], "bar"), ...pick(["orders_by_status"], "donut"), ...pick(["orders_by_engineer"], "bar"));
+  if (/asset|设备|อุปกรณ์|customer|客户|ลูกค้า|brand|品牌/.test(p)) widgets.push(...pick(["assets_in_service", "assets_total"], "kpi", 1), ...pick(["assets_by_customer"], "bar"), ...pick(["assets_by_brand"], "donut"), ...pick(["assets_by_status"], "donut"));
+  if (/part|备件|อะไหล่|spare/.test(p)) widgets.push(...pick(["parts_replaced_top"], "bar"));
+  if (/engineer|工程师|วิศวกร/.test(p)) widgets.push(...pick(["orders_by_engineer"], "bar"), ...pick(["avg_days_report_to_accept"], "kpi", 1));
+  if (widgets.length === 0) widgets.push(...pick(["open_orders", "assets_in_service", "receivables_outstanding", "avg_days_report_to_accept"], "kpi", 1), ...pick(["orders_per_month"], "bar"), ...pick(["orders_by_status"], "donut"));
+  return sanitizeSpec({ widgets });
+}
+
+export async function buildDashboardFromPrompt(prompt: string, employeeCode: string, locale = "zh", dashboardId?: string) {
+  let spec: DashboardSpec;
+  let name = prompt.slice(0, 40);
+  if (process.env.ANTHROPIC_API_KEY) {
+    const catalog = METRICS.map((m) => ({ id: m.id, title: m.title.en, charts: m.charts, params: m.params }));
+    const text = await complete(
+      `You design dashboards for an industrial service company. Choose only metrics from the catalog. Return only JSON: {"name": "<short title in ${locale === "th" ? "Thai" : locale === "en" ? "English" : "Chinese"}>", "widgets":[{"metric": id, "chart": one of the metric's charts, "w": 1 or 2, "params": {...}}]}. KPIs use w=1, charts w=2. 4 to 10 widgets, most important first.`,
+      [{ role: "user", content: JSON.stringify({ request: prompt, catalog }) }],
+    );
+    const j = json<{ name?: string; widgets: unknown }>(text);
+    spec = sanitizeSpec(j);
+    if (j.name) name = j.name;
+    if (spec.widgets.length === 0) spec = heuristicSpec(prompt);
+  } else {
+    spec = heuristicSpec(prompt);
+  }
+  if (dashboardId) return updateDashboard(dashboardId, { spec });
+  return createDashboard(name, spec, employeeCode);
+}
+
+// ───────────────────────── Assistant with tools ─────────────────────────
+
+type ToolResult = Record<string, unknown> | unknown[] | string;
+interface Tool { name: string; description: string; input_schema: Record<string, unknown>; run: (input: Record<string, unknown>, ctx: AssistContext) => Promise<ToolResult> }
+export interface AssistContext { employeeCode?: string; contactId?: string; customerId?: string; locale: string; path?: string }
+export interface AssistAction { type: "navigate" | "fill_form" | "dashboard"; href?: string; fields?: Record<string, string>; id?: string }
+
+const TOOLS: Tool[] = [
+  { name: "get_asset", description: "Full record of one asset by DCiT code (ATH…): header, events timeline, linked orders, model knowledge.", input_schema: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
+    run: async ({ code }, ctx) => { const a = await prisma.asset.findFirst({ where: { code: String(code), customerId: ctx.customerId ?? undefined }, include: { model: { include: { series: { include: { brand: true } } } }, customer: { select: { name: true } }, events: { orderBy: { occurredAt: "desc" }, take: 30 }, orderLinks: { include: { serviceOrder: { select: { no: true, status: true, total: true, currency: true, reportedAt: true } } } } } }); return a ?? "not found"; } },
+  { name: "search_assets", description: "Search assets by code, serial, location, customer name or model.", input_schema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
+    run: async ({ q }, ctx) => prisma.asset.findMany({ where: { customerId: ctx.customerId ?? undefined, OR: [{ code: { contains: String(q), mode: "insensitive" } }, { serialNumber: { contains: String(q), mode: "insensitive" } }, { location: { contains: String(q), mode: "insensitive" } }, { customer: { name: { contains: String(q), mode: "insensitive" } } }, { model: { code: { contains: String(q), mode: "insensitive" } } }] }, select: { code: true, serialNumber: true, status: true, location: true, customer: { select: { name: true } }, model: { select: { code: true } } }, take: 20 }) },
+  { name: "get_order", description: "One service order (QTTH…) with assets, lines, inspections, repair jobs, acceptance, invoices.", input_schema: { type: "object", properties: { no: { type: "string" } }, required: ["no"] },
+    run: async ({ no }, ctx) => { const o = await prisma.serviceOrder.findFirst({ where: { no: String(no), customerId: ctx.customerId ?? undefined }, include: { customer: { select: { name: true } }, assets: { include: { asset: { select: { code: true, serialNumber: true, location: true } } } }, lines: true, inspections: true, repairJobs: true, acceptance: true, invoices: true } }); return o ?? "not found"; } },
+  { name: "list_orders", description: "List service orders, optionally by status or customer name.", input_schema: { type: "object", properties: { status: { type: "string" }, customer: { type: "string" }, limit: { type: "number" } } },
+    run: async ({ status, customer, limit }, ctx) => prisma.serviceOrder.findMany({ where: { status: status ? (String(status) as never) : undefined, customerId: ctx.customerId ?? undefined, customer: customer ? { name: { contains: String(customer), mode: "insensitive" } } : undefined }, select: { no: true, status: true, kind: true, reportedAt: true, reportedSymptom: true, total: true, currency: true, customer: { select: { name: true } }, assignee: { select: { name: true } } }, orderBy: { reportedAt: "desc" }, take: Number(limit ?? 20) }) },
+  { name: "similar_cases", description: "Past cases on the same model/series with a similar symptom.", input_schema: { type: "object", properties: { assetCode: { type: "string" }, symptom: { type: "string" }, alarm: { type: "string" } }, required: ["assetCode", "symptom"] },
+    run: async ({ assetCode, symptom, alarm }) => { const a = await prisma.asset.findUnique({ where: { code: String(assetCode) }, include: { model: true } }); if (!a?.model) return "asset has no model"; return similarCases({ modelId: a.modelId!, seriesId: a.model.seriesId, symptom: String(symptom), alarm: alarm ? String(alarm) : undefined }); } },
+  { name: "draft_inspection", description: "Turn raw engineer notes into structured inspection fields (conditions, findings, probableCause, recommendation, tests) and list missing items. The user confirms before saving.", input_schema: { type: "object", properties: { notes: { type: "string" } }, required: ["notes"] },
+    run: async ({ notes }, ctx) => draftInspection(String(notes), ctx.locale) },
+  { name: "build_dashboard", description: "Create a dashboard from a description; returns its id. Use when the user asks for a dashboard, chart, overview or report of numbers.", input_schema: { type: "object", properties: { description: { type: "string" } }, required: ["description"] },
+    run: async ({ description }, ctx) => { if (!ctx.employeeCode) return "dashboards are for staff"; const d = await buildDashboardFromPrompt(String(description), ctx.employeeCode, ctx.locale); return { id: d.id, name: d.name, href: `/dashboard/${d.id}` }; } },
+  { name: "metric", description: "Read one metric from the catalog (ids: " + METRICS.map((m) => m.id).join(", ") + ").", input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    run: async ({ id }) => { const m = METRICS.find((x) => x.id === String(id)); return m ? await m.run(prisma, {}) : "unknown metric"; } },
+];
+
+const SYSTEM = (ctx: AssistContext) => `You are the DCiT OS assistant inside an equipment-service system (ALM assets, SLM service orders, CRM, SCM, FIN). Answer in ${ctx.locale === "th" ? "Thai" : ctx.locale === "en" ? "English" : "Chinese"}, briefly, with the record numbers (ATH…, QTTH…, INTH…) you relied on. Use tools to look things up; never guess numbers. ${ctx.customerId ? "The user is a customer contact: only their own assets and orders are visible; do not discuss costs, margins or other customers." : "The user is DCiT staff."} The user is on page ${ctx.path ?? "/"}. When you draft form fields for the current page, finish with a line 'FORM:' followed by a JSON object of field name → value so the app can fill the form. When you create a dashboard, finish with 'GOTO:' and its href.`;
+
+/** Tool-use loop against the Anthropic Messages API. Returns the final text and any UI actions parsed from it. */
+export async function assist(messages: { role: "user" | "assistant"; content: string }[], ctx: AssistContext): Promise<{ text: string; actions: AssistAction[]; toolsUsed: string[] }> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return { text: "ANTHROPIC_API_KEY is not configured on the server.", actions: [], toolsUsed: [] };
+  const tools = TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+  const convo: unknown[] = messages.map((m) => ({ role: m.role, content: m.content }));
+  const used: string[] = [];
+  for (let round = 0; round < 8; round++) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5", max_tokens: 2000, system: SYSTEM(ctx), tools, messages: convo }) });
+    if (!res.ok) throw new Error(`LLM call failed: ${res.status} ${await res.text()}`);
+    const data = (await res.json()) as { stop_reason: string; content: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[] };
+    convo.push({ role: "assistant", content: data.content });
+    if (data.stop_reason !== "tool_use") {
+      const text = data.content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
+      return { text: text.replace(/\n?(FORM|GOTO):[\s\S]*$/, "").trim(), actions: parseActions(text), toolsUsed: used };
+    }
+    const results = [];
+    for (const c of data.content) {
+      if (c.type !== "tool_use") continue;
+      const tool = TOOLS.find((t) => t.name === c.name);
+      used.push(c.name!);
+      let out: ToolResult;
+      try { out = tool ? await tool.run(c.input ?? {}, ctx) : "unknown tool"; } catch (e) { out = `error: ${(e as Error).message}`; }
+      results.push({ type: "tool_result", tool_use_id: c.id, content: JSON.stringify(out, (_, v) => (typeof v === "bigint" ? Number(v) : v)).slice(0, 20000) });
+    }
+    convo.push({ role: "user", content: results });
+  }
+  return { text: "Stopped after too many tool calls.", actions: [], toolsUsed: used };
+}
+
+export function parseActions(text: string): AssistAction[] {
+  const actions: AssistAction[] = [];
+  const form = /FORM:\s*(\{[\s\S]*?\})\s*$/m.exec(text);
+  if (form) { try { actions.push({ type: "fill_form", fields: JSON.parse(form[1]) }); } catch { /* ignore */ } }
+  const go = /GOTO:\s*(\/\S+)/.exec(text);
+  if (go) actions.push({ type: "navigate", href: go[1] });
+  return actions;
+}

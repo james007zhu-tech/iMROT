@@ -1,5 +1,6 @@
 {
   "nav": {
+    "dash": "Dashboard",
     "alm": "ALM Assets",
     "crm": "CRM Customers",
     "slm": "SLM Service",
@@ -119,5 +120,18 @@
     "SENSOR": "Sensor",
     "OTHER": "Other",
     "requiredSix": "Required: serial, model, customer, location, responsible (ATH is assigned by the system)"
+  },
+  "ai": {
+    "title": "AI assistant",
+    "placeholder": "Ask, dictate or instruct…",
+    "hintStaff": "Ask about any asset or order; dictate inspection notes and fill the form; photograph a nameplate to onboard; or say \"build a repairs dashboard\"",
+    "hintPortal": "Ask about repair progress, reports, or your equipment's maintenance schedule",
+    "fillForm": "Fill the form",
+    "filled": "Filled {n} fields — review before saving",
+    "voice": "Voice",
+    "photo": "Nameplate photo",
+    "noVoice": "This browser has no speech input",
+    "buildDashboard": "Describe the dashboard you want…",
+    "editDashboard": "Say what to change…"
   }
 }
