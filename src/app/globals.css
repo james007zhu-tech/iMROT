@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@font-face { font-family: "Sarabun"; src: url("/fonts/Sarabun-Regular.ttf") format("truetype"); font-weight: 400; }
+@font-face { font-family: "Sarabun"; src: url("/fonts/Sarabun-Bold.ttf") format("truetype"); font-weight: 700; }
+@font-face { font-family: "Noto Sans SC"; src: url("/fonts/NotoSansSC.ttf") format("truetype"); }
+
+@theme {
+  --color-navy: #0B2D53;
+  --color-blue: #2374D5;
+  --font-sans: "Sarabun", "Noto Sans SC", system-ui, sans-serif;
+}
+
+html { font-family: var(--font-sans); }
+body { @apply bg-slate-50 text-slate-900; }

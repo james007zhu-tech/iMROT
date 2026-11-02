@@ -2,7 +2,7 @@
   "name": "dcit-os",
   "version": "0.1.0",
   "private": true,
-  "description": "DCiT OS — iMROT 'i': equipment-centred service operations system (ALM/CRM/SLM/SCM/FIN/T&O/OPD/Admin)",
+  "description": "DCiT OS \u2014 iMROT 'i': equipment-centred service operations system (ALM/CRM/SLM/SCM/FIN/T&O/OPD/Admin)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -21,11 +21,14 @@
     "next-intl": "^3.25.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
+    "postcss": "^8.4.0",
     "prisma": "^6.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
