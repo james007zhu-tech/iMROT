@@ -3,24 +3,15 @@
  * Phase 1 is deliberately simple: email + password (scrypt). SSO can replace signIn later without touching callers.
  */
 import { cookies } from "next/headers";
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { hashPassword, verifyPassword } from "@/lib/password";
+export { hashPassword, verifyPassword };
 
 const SECRET = process.env.SESSION_SECRET ?? "dev-secret-change-me";
 const COOKIE = "dcit_session";
 const PORTAL_COOKIE = "dcit_portal";
-
-export function hashPassword(pw: string): string {
-  const salt = randomBytes(16).toString("hex");
-  return `${salt}:${scryptSync(pw, salt, 32).toString("hex")}`;
-}
-export function verifyPassword(pw: string, stored: string | null | undefined): boolean {
-  if (!stored) return false;
-  const [salt, hash] = stored.split(":");
-  const h = scryptSync(pw, salt, 32);
-  return timingSafeEqual(h, Buffer.from(hash, "hex"));
-}
 
 function sign(payload: string): string {
   return `${payload}.${createHmac("sha256", SECRET).update(payload).digest("hex")}`;

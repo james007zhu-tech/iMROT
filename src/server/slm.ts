@@ -67,16 +67,17 @@ export async function createServiceOrder(input: z.infer<typeof CreateServiceOrde
   });
 }
 
-export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, actorEmployeeCode: string, note?: string) {
+export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, actorEmployeeCode: string, note?: string, assigneeCode?: string) {
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { assets: true } });
   if (!canTransitionOrder(order.status, to)) throw new Error(`${no}: ${order.status} → ${to} not allowed`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorEmployeeCode } });
+  const assignee = assigneeCode ? await prisma.employee.findUniqueOrThrow({ where: { code: assigneeCode } }) : null;
   return prisma.$transaction(async (tx) => {
     const updated = await tx.serviceOrder.update({
       where: { id: order.id },
       data: {
         status: to,
-        assigneeId: to === "ASSIGNED" ? actor.id : order.assigneeId,
+        assigneeId: assignee ? assignee.id : to === "ASSIGNED" ? actor.id : order.assigneeId,
         quoteSentAt: to === "QUOTE_PENDING" ? new Date() : order.quoteSentAt,
         quoteConfirmedAt: to === "IN_PROGRESS" && order.status === "QUOTE_PENDING" ? new Date() : order.quoteConfirmedAt,
         closedAt: to === "CLOSED" ? new Date() : order.closedAt,

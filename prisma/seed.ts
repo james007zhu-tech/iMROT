@@ -5,6 +5,7 @@
  */
 import { PrismaClient } from "@prisma/client";
 import master from "../docs/brand/company_master.json";
+import { hashPassword } from "../src/lib/password";
 
 const prisma = new PrismaClient();
 
@@ -43,8 +44,9 @@ async function main() {
   // First employee is created by hand: there is nobody yet whose code could derive the country.
   await prisma.employee.upsert({
     where: { code: "ETH2611001" },
-    update: {},
+    update: { passwordHash: hashPassword(process.env.SEED_ADMIN_PASSWORD ?? "dcit2026") },
     create: {
+      passwordHash: hashPassword(process.env.SEED_ADMIN_PASSWORD ?? "dcit2026"),
       code: "ETH2611001",
       entityId: th.id,
       name: "Zhu Dongsheng",
@@ -71,7 +73,7 @@ async function main() {
     create: { seriesId: s120.id, code: "6SL3120-2TE41-0AA1" },
   });
 
-  console.log("seeded: LegalEntity TH, ETH2611001, SIE / S120 / 6SL3120-2TE41-0AA1");
+  console.log("seeded: LegalEntity TH, ETH2611001 (password: SEED_ADMIN_PASSWORD or dcit2026), SIE / S120 / 6SL3120-2TE41-0AA1");
 }
 
 main().finally(() => prisma.$disconnect());

@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
-import { getAssetPage } from "@/server/alm";
+import { appendAssetEvent, getAssetPage, transferAsset } from "@/server/alm";
 import { AssetStatusBadge, OrderStatusBadge } from "@/components/StatusBadge";
+import { prisma } from "@/lib/db";
+import { currentEmployee } from "@/server/auth";
+import { guarded } from "@/lib/action-result";
+import { Flash } from "@/components/Flash";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +18,38 @@ function Field({ label, value }: { label: string; value?: React.ReactNode }) {
 }
 
 /** The asset page is the system's home page: header → timeline → linked orders → parts → backups → model knowledge. */
-export default async function AssetDetail({ params }: { params: Promise<{ code: string }> }) {
+export default async function AssetDetail({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { code } = await params;
+  const { ok, error } = await searchParams;
   const asset = await getAssetPage(code);
   if (!asset) notFound();
   const t = await getTranslations("common");
+  const [customers, others] = await Promise.all([
+    prisma.customer.findMany({ orderBy: { name: "asc" }, include: { plants: true } }),
+    prisma.asset.findMany({ where: { customerId: asset.customerId ?? undefined, NOT: { code } }, select: { code: true, type: true, location: true }, orderBy: { code: "asc" }, take: 200 }),
+  ]);
+  const back = `/assets/${code}`;
+  async function transfer(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await transferAsset({ assetCode: code, actorEmployeeCode: me.code, customerId: String(f.get("customerId") || "") || undefined, plantId: String(f.get("plantId") || "") || undefined, location: String(f.get("location") || "") || undefined, note: String(f.get("note") || "") || undefined }); return "transferred"; }, back);
+  }
+  async function relate(f: FormData) {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      const a = await prisma.asset.findUniqueOrThrow({ where: { code } });
+      const b = await prisma.asset.findUniqueOrThrow({ where: { code: String(f.get("other")) } });
+      const dir = String(f.get("direction"));
+      await prisma.assetRelation.create({ data: { fromAssetId: dir === "to" ? a.id : b.id, toAssetId: dir === "to" ? b.id : a.id, relation: f.get("relation") as "DRIVES" } });
+      await appendAssetEvent({ assetCode: code, type: "RELATION_CHANGED", actorEmployeeCode: me.code, summary: `${dir === "to" ? code : b.code} ${String(f.get("relation"))} ${dir === "to" ? b.code : code}` });
+      return "linked";
+    }, back);
+  }
+  async function note(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await appendAssetEvent({ assetCode: code, type: String(f.get("type")), actorEmployeeCode: me.code, summary: String(f.get("summary")), payload: f.get("payload") ? { note: String(f.get("payload")) } : undefined }); return "event added"; }, back);
+  }
+  const input = "w-full rounded border px-2 py-1.5 text-sm";
   const te = await getTranslations("eventType");
   const locale = await getLocale();
   const fmt = (d: Date | null | undefined) => (d ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(d) : "—");
@@ -32,6 +63,13 @@ export default async function AssetDetail({ params }: { params: Promise<{ code: 
         <h1 className="font-mono text-2xl font-bold">{asset.code}</h1>
         <AssetStatusBadge status={asset.status} />
         <span className="text-slate-600">{t(asset.type)} · S/N <span className="font-mono">{asset.serialNumber}</span></span>
+      </div>
+
+      <Flash ok={ok} error={error} />
+      <div className="flex flex-wrap gap-2 text-sm">
+        <Link href={`/service-orders/new?asset=${asset.code}`} className="rounded bg-navy px-3 py-1.5 text-white">{t("reportIssue")}</Link>
+        <Link href={`/assets/${asset.code}/label?n=6`} className="rounded border px-3 py-1.5">QR label</Link>
+        {asset.model && <Link href={`/models/${asset.model.id}`} className="rounded border px-3 py-1.5">{t("knowledge")}</Link>}
       </div>
 
       <Section title={t("asset")}>
@@ -94,6 +132,34 @@ export default async function AssetDetail({ params }: { params: Promise<{ code: 
             {asset.parameterBackups.map((b) => <li key={b.id}>{fmt(b.takenAt)} · <a className="text-blue underline" href={b.fileUrl}>{b.note ?? b.fileUrl}</a></li>)}
             {asset.parameterBackups.length === 0 && <li className="text-slate-500">{t("none")}</li>}
           </ul>
+        </Section>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Section title={te("TRANSFERRED")}>
+          <form action={transfer} className="space-y-1">
+            <select name="customerId" defaultValue={asset.customerId ?? ""} className={input}><option value="">{t("customer")}</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.code} {c.name}</option>)}</select>
+            <select name="plantId" defaultValue={asset.plantId ?? ""} className={input}><option value="">{t("plant")}</option>{customers.flatMap((c) => c.plants.map((p) => <option key={p.id} value={p.id}>{c.code} · {p.name}</option>))}</select>
+            <input name="location" defaultValue={asset.location ?? ""} placeholder={t("location")} className={input} />
+            <input name="note" placeholder="Note" className={input} />
+            <button className="rounded border px-3 py-1 text-sm">{t("save")}</button>
+          </form>
+        </Section>
+        <Section title={t("relations")}>
+          <form action={relate} className="space-y-1">
+            <select name="direction" className={input}><option value="to">{asset.code} →</option><option value="from">→ {asset.code}</option></select>
+            <select name="relation" className={input}>{["DRIVES", "INSTALLED_IN", "CONTROLLED_BY", "COUPLED_TO"].map((r) => <option key={r}>{r}</option>)}</select>
+            <select name="other" className={input} required><option value="">{t("asset")}</option>{others.map((o) => <option key={o.code} value={o.code}>{o.code} · {t(o.type)} · {o.location ?? ""}</option>)}</select>
+            <button className="rounded border px-3 py-1 text-sm">{t("save")}</button>
+          </form>
+        </Section>
+        <Section title={t("timeline")}>
+          <form action={note} className="space-y-1">
+            <select name="type" className={input}>{["CONDITION_RECORDED", "PARAMETER_BACKUP", "READING", "ALARM", "CASE_ARCHIVED"].map((x) => <option key={x} value={x}>{te(x)}</option>)}</select>
+            <input name="summary" placeholder="Summary" className={input} required />
+            <textarea name="payload" placeholder="Details" className={input} rows={2} />
+            <button className="rounded border px-3 py-1 text-sm">{t("save")}</button>
+          </form>
         </Section>
       </div>
 

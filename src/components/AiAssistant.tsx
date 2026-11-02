@@ -29,7 +29,7 @@ export function AiAssistant({ scope }: { scope: "staff" | "portal" }) {
     const next = [...msgs, { role: "user" as const, content: text }];
     setMsgs(next); setInput(""); setBusy(true);
     try {
-      const r = await fetch("/api/ai/assist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })), path }) });
+      const r = await fetch("/api/ai/assist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })), path, fields: Array.from(document.querySelectorAll<HTMLElement>("form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && a.indexOf(n) === i).slice(0, 80) }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? r.statusText);
       setMsgs([...next, { role: "assistant", content: j.text, actions: j.actions }]);

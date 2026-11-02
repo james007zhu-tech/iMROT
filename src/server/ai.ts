@@ -122,7 +122,7 @@ export async function buildDashboardFromPrompt(prompt: string, employeeCode: str
 
 type ToolResult = Record<string, unknown> | unknown[] | string;
 interface Tool { name: string; description: string; input_schema: Record<string, unknown>; run: (input: Record<string, unknown>, ctx: AssistContext) => Promise<ToolResult> }
-export interface AssistContext { employeeCode?: string; contactId?: string; customerId?: string; locale: string; path?: string }
+export interface AssistContext { employeeCode?: string; contactId?: string; customerId?: string; locale: string; path?: string; fields?: string[] }
 export interface AssistAction { type: "navigate" | "fill_form" | "dashboard"; href?: string; fields?: Record<string, string>; id?: string }
 
 const TOOLS: Tool[] = [
@@ -144,7 +144,7 @@ const TOOLS: Tool[] = [
     run: async ({ id }) => { const m = METRICS.find((x) => x.id === String(id)); return m ? await m.run(prisma, {}) : "unknown metric"; } },
 ];
 
-const SYSTEM = (ctx: AssistContext) => `You are the DCiT OS assistant inside an equipment-service system (ALM assets, SLM service orders, CRM, SCM, FIN). Answer in ${ctx.locale === "th" ? "Thai" : ctx.locale === "en" ? "English" : "Chinese"}, briefly, with the record numbers (ATH…, QTTH…, INTH…) you relied on. Use tools to look things up; never guess numbers. ${ctx.customerId ? "The user is a customer contact: only their own assets and orders are visible; do not discuss costs, margins or other customers." : "The user is DCiT staff."} The user is on page ${ctx.path ?? "/"}. When you draft form fields for the current page, finish with a line 'FORM:' followed by a JSON object of field name → value so the app can fill the form. When you create a dashboard, finish with 'GOTO:' and its href.`;
+const SYSTEM = (ctx: AssistContext) => `You are the DCiT OS assistant inside an equipment-service system (ALM assets, SLM service orders, CRM, SCM, FIN). Answer in ${ctx.locale === "th" ? "Thai" : ctx.locale === "en" ? "English" : "Chinese"}, briefly, with the record numbers (ATH…, QTTH…, INTH…) you relied on. Use tools to look things up; never guess numbers. ${ctx.customerId ? "The user is a customer contact: only their own assets and orders are visible; do not discuss costs, margins or other customers." : "The user is DCiT staff."} The user is on page ${ctx.path ?? "/"}.${ctx.fields?.length ? ` The form on this page has these field names: ${ctx.fields.join(", ")}.` : ""} When the user dictates or asks you to fill in a record, draft the values and finish with a line 'FORM:' followed by a JSON object of field name → value (only names from the list) so the app can fill the form; the user reviews and saves. When you create a dashboard, finish with 'GOTO:' and its href.`;
 
 /** Tool-use loop against the Anthropic Messages API. Returns the final text and any UI actions parsed from it. */
 export async function assist(messages: { role: "user" | "assistant"; content: string }[], ctx: AssistContext): Promise<{ text: string; actions: AssistAction[]; toolsUsed: string[] }> {

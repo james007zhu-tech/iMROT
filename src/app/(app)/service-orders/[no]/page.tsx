@@ -42,7 +42,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     "use server";
     await guarded(async () => {
     const me = await currentEmployee();
-    await advanceServiceOrder(no, form.get("to") as OrderStatus, me.code, String(form.get("note") || "") || undefined);
+    await advanceServiceOrder(no, form.get("to") as OrderStatus, me.code, String(form.get("note") || "") || undefined, String(form.get("assignee") || "") || undefined);
     }, `/service-orders/${no}`);
   }
   async function inspect(form: FormData) {
@@ -159,7 +159,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
         {/* ── action panel: what to do next ── */}
         <div className="space-y-4">
           {(order.status === "RECEIVED" || order.status === "ASSIGNED") && <Card title={ts("ASSIGNED")}>
-            <form action={advance} className="space-y-2"><input type="hidden" name="to" value="ASSIGNED" /><select name="note" className={input}>{employees.map((e) => <option key={e.id} value={`派工 → ${e.name} (${e.code})`}>{e.code} {e.name}</option>)}</select><button className="rounded bg-navy px-3 py-1.5 text-sm text-white">OK</button></form>
+            <form action={advance} className="space-y-2"><input type="hidden" name="to" value="ASSIGNED" /><select name="assignee" className={input}>{employees.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select><input name="note" placeholder="Note" className={input} /><button className="rounded bg-navy px-3 py-1.5 text-sm text-white">OK</button></form>
           </Card>}
 
           {(order.status === "ASSIGNED" || order.status === "DIAGNOSING") && <Card title="INTH · 08">
