@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { requireSession } from "@/server/api-auth";
 import { prisma } from "@/lib/db";
 import { onboardAsset } from "@/server/alm";
 
 /** GET /api/assets?customerId=&status=&q=  — list; POST — onboard (建档/接管) */
 export async function GET(req: Request) {
+  const denied = await requireSession(); if (denied) return denied;
   const u = new URL(req.url);
   const q = u.searchParams.get("q") ?? undefined;
   const assets = await prisma.asset.findMany({
@@ -20,6 +22,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireSession(); if (denied) return denied;
   try {
     const asset = await onboardAsset(await req.json());
     return NextResponse.json(asset, { status: 201 });

@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
+import { requireSession } from "@/server/api-auth";
 import { renderDocument } from "@/server/reports";
 
 /** GET /api/documents/:no/render?format=pdf|docx&template=09 — fill the DCiT template from event data and download. */
 export async function GET(req: Request, ctx: { params: Promise<{ no: string }> }) {
+  const denied = await requireSession(true); if (denied) return denied;
   const { no } = await ctx.params;
   const u = new URL(req.url);
   try {

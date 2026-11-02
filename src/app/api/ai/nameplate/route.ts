@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { requireSession } from "@/server/api-auth";
 import { readNameplate } from "@/server/ai";
 
 /** POST multipart form with `photo` → proposed brand/series/model/serial (draft; the engineer confirms before saving). */
 export async function POST(req: Request) {
+  const denied = await requireSession(); if (denied) return denied;
   try {
     const form = await req.formData();
     const photo = form.get("photo") as File | null;

@@ -1,11 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { requireSession } from "@/server/api-auth";
 
 const OUT = process.env.DOCS_DIR ?? path.join(process.cwd(), "uploads", "documents");
 
 /** GET /api/documents/:no/pdf — the last rendered PDF */
 export async function GET(_req: Request, ctx: { params: Promise<{ no: string }> }) {
+  const denied = await requireSession(true); if (denied) return denied;
   const { no } = await ctx.params;
   if (!/^[A-Z]{2}(TH|VN|CN)\d{8,9}(-(th|zh|en))?$/.test(no)) return NextResponse.json({ error: "bad number" }, { status: 400 });
   try {
