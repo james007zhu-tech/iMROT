@@ -8,6 +8,8 @@ import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { issueInvoice, issueTaxInvoice, recordPayment } from "@/server/to";
 import { currentEmployee } from "@/server/auth";
+import { appendAssetEvent } from "@/server/alm";
+import { addFaultCode, addMaintenanceStandard } from "@/server/models";
 import { OrderProgress } from "@/components/OrderProgress";
 import { OrderStatusBadge } from "@/components/StatusBadge";
 import { ORDER_TRANSITIONS, type OrderStatus } from "@/lib/lifecycle";
@@ -97,6 +99,22 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
       const me = await currentEmployee();
       const ev = await receiveEquipment({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), actorCode: me.code, sender: str(form, "sender"), accessories: str(form, "accessories"), condition: str(form, "condition"), fault: str(form, "fault"), photoRefs: str(form, "photoRefs"), handlingRestrictions: str(form, "handlingRestrictions") });
       return `ERTH ${ev.sourceDocNo}`;
+    }, `/service-orders/${no}`);
+  }
+  async function archive(form: FormData) {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { assets: { include: { asset: { include: { model: true } } } }, repairJobs: true } });
+      const rootCause = String(form.get("rootCause") || o.repairJobs.at(-1)?.rootCause || "");
+      const lesson = String(form.get("lesson") || "");
+      for (const l of o.assets) {
+        await appendAssetEvent({ assetCode: l.asset.code, type: "CASE_ARCHIVED", actorEmployeeCode: me.code, serviceOrderNo: no, sourceDocNo: no, summary: `案例归档：${rootCause}`, payload: { rootCause, lesson, checks: str(form, "checks") } });
+        const model = l.asset.model;
+        if (model && form.get("toFaultCode") === "on" && o.reportedAlarm) await addFaultCode(model.seriesId, undefined, o.reportedAlarm, rootCause.slice(0, 80), lesson, str(form, "checks"));
+        if (model && form.get("toMaintenance") === "on" && str(form, "maintItem")) await addMaintenanceStandard(model.seriesId, undefined, String(form.get("maintItem")), form.get("maintMonths") ? Number(form.get("maintMonths")) : undefined, undefined, lesson);
+      }
+      return "archived";
     }, `/service-orders/${no}`);
   }
   async function pay(form: FormData) {
@@ -241,6 +259,18 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               <input name="whtCertRef" placeholder="WHT certificate ref" className={input} />
               <input name="bankRef" placeholder="Bank ref" className={input} />
               <button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("save")}</button>
+            </form>
+          </Card>}
+
+          {["ACCEPTED", "INVOICED", "CLOSED"].includes(order.status) && <Card title="10 · Case archive → knowledge">
+            <form action={archive} className="space-y-2">
+              <input name="rootCause" placeholder="Root cause (defaults to the last RPTH)" className={input} />
+              <textarea name="lesson" placeholder="Lesson / what to tell the next engineer" className={input} rows={2} />
+              <input name="checks" placeholder="Check steps that found it" className={input} />
+              {order.reportedAlarm && <label className="block text-xs"><input type="checkbox" name="toFaultCode" /> Add to series fault codes as {order.reportedAlarm}</label>}
+              <label className="block text-xs"><input type="checkbox" name="toMaintenance" /> Add maintenance standard:</label>
+              <div className="grid grid-cols-2 gap-1"><input name="maintItem" placeholder="Item" className={input} /><input name="maintMonths" type="number" placeholder="every N months" className={input} /></div>
+              <button className="rounded border px-3 py-1.5 text-sm">{t("save")}</button>
             </form>
           </Card>}
 

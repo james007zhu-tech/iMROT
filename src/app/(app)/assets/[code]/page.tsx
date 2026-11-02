@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
+import { saveUpload } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,19 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
   }
   async function note(f: FormData) {
     "use server";
-    await guarded(async () => { const me = await currentEmployee(); await appendAssetEvent({ assetCode: code, type: String(f.get("type")), actorEmployeeCode: me.code, summary: String(f.get("summary")), payload: f.get("payload") ? { note: String(f.get("payload")) } : undefined }); return "event added"; }, back);
+    await guarded(async () => {
+      const me = await currentEmployee();
+      const file = f.get("file") as File | null;
+      const up = file && file.size > 0 ? await saveUpload(file, "att") : null;
+      const type = String(f.get("type"));
+      if (type === "PARAMETER_BACKUP") {
+        if (!up) throw new Error("a parameter backup needs a file");
+        const a = await prisma.asset.findUniqueOrThrow({ where: { code } });
+        await prisma.parameterBackup.create({ data: { assetId: a.id, fileUrl: up.url, note: String(f.get("summary")), byName: me.name } });
+      }
+      await appendAssetEvent({ assetCode: code, type, actorEmployeeCode: me.code, summary: String(f.get("summary")), payload: f.get("payload") ? { note: String(f.get("payload")) } : undefined, attachments: up ? [{ name: file!.name, url: up.url }] : undefined });
+      return "event added";
+    }, back);
   }
   const input = "w-full rounded border px-2 py-1.5 text-sm";
   const te = await getTranslations("eventType");
@@ -94,7 +107,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
             <li key={e.id} className="mb-4">
               <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-blue" />
               <div className="text-xs text-slate-500">{fmt(e.occurredAt)}{e.actor ? ` · ${t("by")} ${e.actor.name}` : e.actorName ? ` · ${e.actorName}` : ""}{e.sourceDocNo ? ` · ${e.sourceDocNo}` : ""}</div>
-              <div><span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{te(e.type)}</span>{e.summary}</div>
+              <div><span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{te(e.type)}</span>{e.summary}{Array.isArray(e.attachments) && (e.attachments as { name: string; url: string }[]).map((f) => <a key={f.url} href={f.url} className="ml-2 text-xs text-blue underline">{f.name}</a>)}</div>
             </li>
           ))}
         </ol>
@@ -154,10 +167,11 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
           </form>
         </Section>
         <Section title={t("timeline")}>
-          <form action={note} className="space-y-1">
+          <form action={note} encType="multipart/form-data" className="space-y-1">
             <select name="type" className={input}>{["CONDITION_RECORDED", "PARAMETER_BACKUP", "READING", "ALARM", "CASE_ARCHIVED"].map((x) => <option key={x} value={x}>{te(x)}</option>)}</select>
             <input name="summary" placeholder="Summary" className={input} required />
             <textarea name="payload" placeholder="Details" className={input} rows={2} />
+            <input type="file" name="file" className={input} />
             <button className="rounded border px-3 py-1 text-sm">{t("save")}</button>
           </form>
         </Section>

@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { onboardAsset } from "@/server/alm";
 import { currentEmployee } from "@/server/auth";
+import { saveUpload } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,10 @@ export default async function NewAsset() {
   async function submit(form: FormData) {
     "use server";
     const me = await currentEmployee();
+    const photo = form.get("photo") as File | null;
+    const nameplatePhoto = photo && photo.size > 0 ? (await saveUpload(photo, "nameplate")).url : undefined;
     const asset = await onboardAsset({
+      nameplatePhoto,
       createdByEmployeeCode: me.code,
       type: form.get("type") as "VFD",
       serialNumber: String(form.get("serialNumber")),
@@ -36,7 +40,7 @@ export default async function NewAsset() {
 
   const input = "w-full rounded border px-3 py-2 text-sm";
   return (
-    <form action={submit} className="mx-auto max-w-2xl space-y-3 rounded-lg border bg-white p-4">
+    <form action={submit} encType="multipart/form-data" className="mx-auto max-w-2xl space-y-3 rounded-lg border bg-white p-4">
       <h1 className="text-xl font-bold">{t("onboard")}</h1>
       <p className="text-sm text-slate-600">{t("requiredSix")}</p>
       <div className="grid gap-3 md:grid-cols-2">
@@ -50,6 +54,7 @@ export default async function NewAsset() {
         <label className="text-sm">{t("responsible")} *<select name="responsibleEmployeeId" className={input} required><option value="">—</option>{employees.map((e) => <option key={e.id} value={e.id}>{e.code} {e.name}</option>)}</select></label>
         <label className="text-sm">{t("installedAt")}<input type="date" name="installedAt" className={input} /></label>
         <label className="text-sm">Customer asset no.<input name="customerAssetNo" className={input} /></label>
+        <label className="text-sm md:col-span-2">{t("nameplatePhoto")}<input type="file" name="photo" accept="image/*" capture="environment" className={input} /></label>
       </div>
       <button className="rounded bg-navy px-4 py-2 text-sm text-white">{t("save")}</button>
     </form>
