@@ -3,7 +3,6 @@
  * status and event is checked. Run after `npm run db:push && npm run db:seed`:  npx tsx scripts/smoke.ts
  * It creates its own customer/asset and leaves them in place (useful demo data); re-runs create new ones.
  */
-import { PrismaClient } from "@prisma/client";
 import { onboardAsset, getAssetPage } from "../src/server/alm";
 import { createServiceOrder, advanceServiceOrder } from "../src/server/slm";
 import { createInspection, setQuoteLines, createRepairJob, recordAcceptance } from "../src/server/slm-docs";
@@ -12,11 +11,20 @@ import { issueTaxInvoice, issueInvoice, recordPayment } from "../src/server/to";
 import { renderDocument } from "../src/server/reports";
 import { allocateNumber } from "../src/lib/numbering-db";
 import { parseNumber } from "../src/lib/numbering";
+import { prisma } from "../src/lib/db";
 
-const prisma = new PrismaClient();
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`SMOKE FAIL: ${m}`); console.log("  ok  " + m); };
 
+async function ensureSeed() {
+  const entity = await prisma.legalEntity.upsert({ where: { countryCode: "TH" }, update: {}, create: { countryCode: "TH", nameEn: "DUCHENG INDUSTRIAL (THAILAND) CO., LTD.", nameLocal: "บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด", taxId: "0205568072149", branchCode: "00000", localCurrency: "THB", bookCurrency: "CNY", vatRate: 0.07, signatoryName: "Zhu Dongsheng", phone: "+66 (0) 88 660 6999", email: "dongsheng.zhu@ducheng-industrial.com", website: "www.ducheng-industrial.com" } });
+  await prisma.employee.upsert({ where: { code: "ETH2611001" }, update: {}, create: { code: "ETH2611001", entityId: entity.id, name: "Zhu Dongsheng", role: "ADMIN", email: "dongsheng.zhu@ducheng-industrial.com", locale: "zh" } });
+  const sie = await prisma.brand.upsert({ where: { code: "SIE" }, update: {}, create: { code: "SIE", name: "SIEMENS" } });
+  const s120 = await prisma.series.upsert({ where: { brandId_code: { brandId: sie.id, code: "S120" } }, update: {}, create: { brandId: sie.id, code: "S120", name: "SINAMICS S120" } });
+  await prisma.model.upsert({ where: { seriesId_code: { seriesId: s120.id, code: "6SL3120-2TE41-0AA1" } }, update: {}, create: { seriesId: s120.id, code: "6SL3120-2TE41-0AA1" } });
+}
+
 async function main() {
+  await ensureSeed();
   const admin = await prisma.employee.findUniqueOrThrow({ where: { code: "ETH2611001" } });
   const entity = await prisma.legalEntity.findUniqueOrThrow({ where: { countryCode: "TH" } });
   await prisma.fxRate.upsert({ where: { rateDate_currency_source: { rateDate: new Date(new Date().toISOString().slice(0, 10)), currency: "THB", source: "BOC" } }, update: {}, create: { rateDate: new Date(new Date().toISOString().slice(0, 10)), currency: "THB", rateToCny: 0.2051, source: "BOC" } });

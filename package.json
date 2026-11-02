@@ -1,6 +1,6 @@
 {
   "name": "dcit-os",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "DCiT OS \u2014 iMROT 'i': equipment-centred service operations system (ALM/CRM/SLM/SCM/FIN/T&O/OPD/Admin)",
   "scripts": {
@@ -14,7 +14,8 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "fx:fetch": "tsx src/jobs/fetch-boc-rates.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "smoke:mem": "bash scripts/dev/run-inmemory.sh"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",

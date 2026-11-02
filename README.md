@@ -78,3 +78,4 @@ docs/briefs/       给 Codex / Gemini 的分工任务书
 1. `npm install && npm run typecheck && npm test` — 本仓库在无 npm 网络的环境中编写，Next/Prisma 层尚未编译运行，首次跑通时请把报错贴回给 Claude。
 2. `docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetch && npm run smoke`。
 3. 给 ETH2611001 设密码（people 页或 seed），登录后走一遍 /assets/new → /service-orders/new → 详情页十步。
+- 0.8 自测：`npm run smoke:mem` 用内存版 Prisma 替身（`scripts/dev/fake-prisma.ts`，按 schema.prisma 解析关系）+ zod 替身，在无数据库、无 node_modules 的环境下跑完整个十步流程并生成 08/10/13 报告（docx + PDF）。已通过：15 条事件、编号、状态机、金额、报告无空占位符。
