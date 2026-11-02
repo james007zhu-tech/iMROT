@@ -1,0 +1,39 @@
+{
+  "brand": "DCiT",
+  "name_en": "DUCHENG INDUSTRIAL (THAILAND) CO., LTD.",
+  "name_th": "บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด",
+  "address_en": "437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180, Thailand",
+  "address_th": "437/3 หมู่ที่ 8 ตำบลพนานิคม อำเภอนิคมพัฒนา จังหวัดระยอง 21180",
+  "tax_id": "0205568072149",
+  "establishment": "สำนักงานใหญ่ / Head Office",
+  "branch_code": "00000",
+  "vat_registered_from": "2026-03-09",
+  "pp20_issued": "2026-03-27",
+  "bank": "BANK OF CHINA (THAI) PCL",
+  "bank_branch": "RAYONG BRANCH",
+  "bank_code": "052",
+  "bank_branch_code": "0003",
+  "account_name": "DUCHENG INDUSTRIAL (THAILAND)CO., LTD.",
+  "swift": "BKCHTHBKXXX",
+  "accounts": {
+    "THB": "100000301445119",
+    "USD": "100000301445131",
+    "RMB": "100000301445120",
+    "EUR": "100000301445142"
+  },
+  "navy": "#0B2D53",
+  "blue": "#2374D5",
+  "phone": "+66 (0) 88 660 6999 / +66 (0) 90 896 0086",
+  "email": "dongsheng.zhu@ducheng-industrial.com",
+  "website": "www.ducheng-industrial.com",
+  "vat_rate": 0.07,
+  "sources": [
+    "148.png logo guide 12 October 2026",
+    "152.jpg company and bank information",
+    "PP20 page 1 VAT registration"
+  ],
+  "review_date": "2026-11-02",
+  "signatory": "Zhu Dongsheng",
+  "book_currency": "CNY",
+  "fx_source": "Bank of China daily rates (中行折算价)"
+}

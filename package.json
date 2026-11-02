@@ -1,0 +1,34 @@
+{
+  "name": "dcit-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DCiT OS — iMROT 'i': equipment-centred service operations system (ALM/CRM/SLM/SCM/FIN/T&O/OPD/Admin)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "fx:fetch": "tsx src/jobs/fetch-boc-rates.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "next": "^15.0.0",
+    "next-intl": "^3.25.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "prisma": "^6.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

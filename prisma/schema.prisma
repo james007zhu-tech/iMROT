@@ -1,0 +1,768 @@
+// DCiT OS — data model
+// One rule governs everything here: every business record can answer "which asset is this about".
+// Modules: Admin · ALM · CRM · OPD · SLM · SCM · T&O · FIN. Phase 1 builds Admin, ALM, CRM, OPD, SLM in full
+// and only the slices of SCM / T&O / FIN that one service order needs (OBTH, TITH, IVTH, payment).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Admin ─────────────────────────
+
+/// A legal entity = one company in one country. Country code (TH / VN / CN) is what appears in every number.
+model LegalEntity {
+  id             String   @id @default(cuid())
+  countryCode    String   @unique /// TH, VN, CN — used verbatim in ATH / CTH / ETH / QTTH …
+  nameEn         String
+  nameLocal      String?
+  brand          String   @default("DCiT")
+  taxId          String?
+  branchCode     String?  /// Thailand: 00000 = head office
+  addressEn      String?
+  addressLocal   String?
+  phone          String?
+  email          String?
+  website        String?
+  signatoryName  String?  /// used only where a template demands a signature line
+  localCurrency  String   /// THB for TH — tax invoices are issued in this currency
+  bookCurrency   String   @default("CNY") /// accounting currency for the whole group
+  vatRate        Decimal  @default(0.07) @db.Decimal(5, 4)
+  bankDetails    Json?    /// bank, branch, swift, accounts by currency
+  createdAt      DateTime @default(now())
+
+  employees      Employee[]
+  customers      Customer[]
+  assets         Asset[]
+  sequences      DocSequence[]
+  serviceOrders  ServiceOrder[]
+  documents      Document[]
+}
+
+/// Daily Bank of China exchange rates. One row per currency per publish date; `rateToCny` = 中行折算价 per 1 unit.
+model FxRate {
+  id          String   @id @default(cuid())
+  rateDate    DateTime @db.Date
+  currency    String   /// ISO code: THB, USD, VND …
+  rateToCny   Decimal  @db.Decimal(18, 8)
+  buyRemit    Decimal? @db.Decimal(18, 6) /// 现汇买入价 per 100 units, kept for audit
+  sellRemit   Decimal? @db.Decimal(18, 6) /// 现汇卖出价 per 100 units
+  source      String   @default("BOC")
+  publishedAt DateTime?
+  fetchedAt   DateTime @default(now())
+
+  @@unique([rateDate, currency, source])
+  @@index([currency, rateDate])
+}
+
+/// Running counters behind every number. One row per (entity, prefix, period).
+/// Prefix examples: A, C, E (monthly) · QT, IN, RP, IB, OB … (daily).
+model DocSequence {
+  id        String      @id @default(cuid())
+  entityId  String
+  entity    LegalEntity @relation(fields: [entityId], references: [id])
+  prefix    String      /// "A" | "C" | "E" | "QT" | "RP" | …
+  period    String      /// "2611" for monthly, "261102" for daily
+  last      Int         @default(0)
+
+  @@unique([entityId, prefix, period])
+}
+
+// ───────────────────────── OPD (employees only — customer contacts and trainees are not numbered) ─────────────────────────
+
+enum EmployeeRole {
+  ADMIN
+  MANAGER
+  ENGINEER
+  SALES
+  FINANCE
+  WAREHOUSE
+}
+
+model Employee {
+  id           String       @id @default(cuid())
+  code         String       @unique /// ETH2610001 — the first letter+country of this code decides the country of everything this person creates
+  entityId     String
+  entity       LegalEntity  @relation(fields: [entityId], references: [id])
+  name         String
+  nameLocal    String?
+  role         EmployeeRole
+  email        String?      @unique
+  phone        String?
+  passwordHash String?
+  locale       String       @default("th") /// th | zh | en — UI language, switchable any time
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+
+  assetsResponsible Asset[]        @relation("AssetResponsible")
+  events            AssetEvent[]
+  ordersAssigned    ServiceOrder[] @relation("OrderAssignee")
+  ordersCreated     ServiceOrder[] @relation("OrderCreator")
+  inspections       Inspection[]
+  repairJobs        RepairJob[]
+  documents         Document[]
+}
+
+// ───────────────────────── CRM ─────────────────────────
+
+model Customer {
+  id             String      @id @default(cuid())
+  code           String      @unique /// CTH2610001
+  entityId       String
+  entity         LegalEntity @relation(fields: [entityId], references: [id])
+  name           String
+  nameLocal      String?
+  taxId          String?
+  branchCode     String?
+  addressEn      String?
+  addressLocal   String?
+  paymentTermDays Int        @default(30)
+  monthlyStatement Boolean   @default(false) /// true = 月结客户, gets a BLTH every month
+  defaultCurrency String     @default("THB")
+  locale         String      @default("th")
+  notes          String?
+  createdAt      DateTime    @default(now())
+
+  plants         Plant[]
+  contacts       Contact[]
+  assets         Asset[]
+  serviceOrders  ServiceOrder[]
+  documents      Document[]
+}
+
+/// A customer's factory. The smallest unit an asset belongs to.
+model Plant {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  code       String   /// P1, P2 — unique within the customer
+  name       String
+  address    String?
+  accessNotes String? /// gate pass, PPE, escort requirements
+
+  assets        Asset[]
+  contacts      Contact[]
+  serviceOrders ServiceOrder[]
+
+  @@unique([customerId, code])
+}
+
+/// Customer-side people. Not numbered (decision 2026-11-02). May have a portal login.
+model Contact {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  plantId    String?
+  plant      Plant?   @relation(fields: [plantId], references: [id])
+  name       String
+  title      String?
+  phone      String?
+  email      String?
+  lineId     String?
+  portalLogin String? @unique
+  portalPasswordHash String?
+  locale     String   @default("th")
+
+  reportedOrders ServiceOrder[]
+  acceptances    Acceptance[]
+}
+
+// ───────────────────────── ALM — product knowledge: brand → series → model ─────────────────────────
+
+model Brand {
+  id     String   @id @default(cuid())
+  code   String   @unique /// SIE
+  name   String   /// SIEMENS
+  series Series[]
+  parts  Part[]
+}
+
+model Series {
+  id      String  @id @default(cuid())
+  brandId String
+  brand   Brand   @relation(fields: [brandId], references: [id])
+  code    String  /// S120
+  name    String  /// SINAMICS S120
+  notes   String? /// structure, shared fault-code system, shared maintenance standards live here
+
+  models               Model[]
+  faultCodes           FaultCode[]
+  maintenanceStandards MaintenanceStandard[]
+
+  @@unique([brandId, code])
+}
+
+enum LifecycleStatus {
+  ACTIVE
+  MATURE
+  DISCONTINUED
+}
+
+model Model {
+  id            String          @id @default(cuid())
+  seriesId      String
+  series        Series          @relation(fields: [seriesId], references: [id])
+  code          String          /// vendor's own model string, verbatim: 6SL3120-2TE41-0AA1
+  ratedPowerKw  Decimal?        @db.Decimal(10, 2)
+  ratedVoltageV Int?
+  ratedCurrentA Decimal?        @db.Decimal(10, 2)
+  overloadClass String?
+  controlMode   String?
+  lifecycle     LifecycleStatus @default(ACTIVE)
+  replacedBy    String?         /// successor model code if discontinued
+  designLifeYears Int?
+  specs         Json?
+  documents     Json?           /// manuals, drawings: [{title, url, kind}]
+
+  assets               Asset[]
+  bom                  ModelPart[]
+  faultCodes           FaultCode[]
+  maintenanceStandards MaintenanceStandard[]
+
+  @@unique([seriesId, code])
+}
+
+model ModelPart {
+  id      String  @id @default(cuid())
+  modelId String
+  model   Model   @relation(fields: [modelId], references: [id])
+  partId  String
+  part    Part    @relation(fields: [partId], references: [id])
+  qty     Int     @default(1)
+  position String? /// e.g. "control board", "fan 1"
+
+  @@unique([modelId, partId, position])
+}
+
+/// Fault codes live at series level; a model-level row overrides the series row for that model only.
+model FaultCode {
+  id       String  @id @default(cuid())
+  seriesId String
+  series   Series  @relation(fields: [seriesId], references: [id])
+  modelId  String?
+  model    Model?  @relation(fields: [modelId], references: [id])
+  code     String  /// F30001
+  title    String
+  meaning  String?
+  firstChecks String? /// what an engineer checks first — reviewed by the technical lead
+  reviewed Boolean @default(false)
+
+  @@index([seriesId, code])
+}
+
+model MaintenanceStandard {
+  id            String  @id @default(cuid())
+  seriesId      String
+  series        Series  @relation(fields: [seriesId], references: [id])
+  modelId       String?
+  model         Model?  @relation(fields: [modelId], references: [id])
+  item          String  /// "clean heatsink", "replace fan", "DC-link capacitor check"
+  intervalHours Int?
+  intervalMonths Int?
+  criterion     String?
+  reviewed      Boolean @default(false)
+}
+
+// ───────────────────────── ALM — the single asset ─────────────────────────
+
+enum AssetType {
+  VFD
+  MOTOR
+  PLC
+  PANEL
+  DRIVE_TRAIN
+  SENSOR
+  OTHER
+}
+
+enum AssetStatus {
+  ONBOARDED       /// 建档 / 接管
+  IN_SERVICE      /// 在役运行
+  MAINTENANCE     /// 维护保养
+  REPAIR          /// 故障维修
+  OVERHAUL        /// 系统性检修 / 改造
+  ACCEPTANCE      /// 测试与验收
+  SPARE           /// 备用库 / 共享备机
+  RETIRED         /// 退役 / 替换
+}
+
+enum AssetOrigin {
+  NEW_INSTALL
+  TAKEOVER
+}
+
+/// One physical machine = one ATH number = one serial number, for life.
+/// Transfers between customers change customerId / plantId / location and write an event; the ATH never changes.
+model Asset {
+  id            String      @id @default(cuid())
+  code          String      @unique /// ATH26100001
+  entityId      String
+  entity        LegalEntity @relation(fields: [entityId], references: [id])
+  type          AssetType
+  modelId       String?
+  model         Model?      @relation(fields: [modelId], references: [id])
+  serialNumber  String      /// vendor's S/N verbatim — the true identity
+  customerAssetNo String?   /// the customer's own tag, if any
+  customerId    String?
+  customer      Customer?   @relation(fields: [customerId], references: [id])
+  plantId       String?
+  plant         Plant?      @relation(fields: [plantId], references: [id])
+  location      String?     /// workshop / line / position text
+  status        AssetStatus @default(ONBOARDED)
+  origin        AssetOrigin @default(TAKEOVER)
+  installedAt   DateTime?
+  responsibleId String?
+  responsible   Employee?   @relation("AssetResponsible", fields: [responsibleId], references: [id])
+  configuration Json?       /// options, brake unit, filter, encoder …
+  operatingConditions Json? /// load type, running hours/day, dust, temperature, grid, cooling
+  nameplatePhoto String?
+  photos        Json?
+  qrPrintedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  events          AssetEvent[]
+  relationsFrom   AssetRelation[] @relation("RelFrom")
+  relationsTo     AssetRelation[] @relation("RelTo")
+  parameterBackups ParameterBackup[]
+  readings        AssetReading[]
+  orderLinks      ServiceOrderAsset[]
+  inspections     Inspection[]
+  repairJobs      RepairJob[]
+  stockMovements  StockMovement[]
+
+  @@unique([serialNumber, modelId])
+  @@index([customerId, status])
+}
+
+enum AssetRelationType {
+  DRIVES          /// VFD → motor
+  INSTALLED_IN    /// VFD → panel
+  CONTROLLED_BY   /// VFD → PLC
+  COUPLED_TO      /// motor → gearbox / drive train
+}
+
+model AssetRelation {
+  id          String            @id @default(cuid())
+  fromAssetId String
+  fromAsset   Asset             @relation("RelFrom", fields: [fromAssetId], references: [id])
+  toAssetId   String
+  toAsset     Asset             @relation("RelTo", fields: [toAssetId], references: [id])
+  relation    AssetRelationType
+  validFrom   DateTime          @default(now())
+  validTo     DateTime?
+
+  @@index([fromAssetId])
+  @@index([toAssetId])
+}
+
+enum AssetEventType {
+  ONBOARDED
+  CONDITION_RECORDED
+  PARAMETER_BACKUP
+  TRANSFERRED        /// customer / plant / location changed
+  RELATION_CHANGED
+  SERVICE_REQUESTED  /// QTTH created
+  INSPECTED          /// INTH
+  QUOTED
+  ORDER_CONFIRMED
+  MAINTAINED         /// PMTH
+  REPAIRED           /// RPTH
+  OVERHAULED
+  PART_REPLACED      /// from OBTH
+  RECEIVED_WORKSHOP  /// ERTH
+  TESTED
+  ACCEPTED
+  INVOICED
+  PAID
+  READING
+  ALARM
+  CASE_ARCHIVED
+  STATUS_CHANGED
+  RETIRED
+}
+
+/// The "前世今生": an append-only stream. Everything else is a view over it.
+model AssetEvent {
+  id            String         @id @default(cuid())
+  assetId       String
+  asset         Asset          @relation(fields: [assetId], references: [id])
+  type          AssetEventType
+  occurredAt    DateTime       @default(now())
+  actorId       String?
+  actor         Employee?      @relation(fields: [actorId], references: [id])
+  actorName     String?        /// for customer-side actors (not numbered)
+  serviceOrderId String?
+  serviceOrder  ServiceOrder?  @relation(fields: [serviceOrderId], references: [id])
+  sourceDocNo   String?        /// INTH…, RPTH…, OBTH…, TITH…
+  summary       String         /// one line, human-readable
+  payload       Json?          /// measurements, values, before/after
+  attachments   Json?          /// [{name, url}]
+  createdAt     DateTime       @default(now())
+
+  @@index([assetId, occurredAt])
+  @@index([serviceOrderId])
+}
+
+model ParameterBackup {
+  id        String   @id @default(cuid())
+  assetId   String
+  asset     Asset    @relation(fields: [assetId], references: [id])
+  takenAt   DateTime @default(now())
+  fileUrl   String
+  note      String?
+  byName    String?
+}
+
+/// Runtime layer (Phase 3). Table exists so Phase 1 code can write manual inspection readings into it.
+model AssetReading {
+  id      String   @id @default(cuid())
+  assetId String
+  asset   Asset    @relation(fields: [assetId], references: [id])
+  at      DateTime @default(now())
+  metric  String   /// output_hz, output_a, dc_bus_v, heatsink_c, run_hours …
+  value   Decimal  @db.Decimal(18, 4)
+  source  String   @default("MANUAL") /// MANUAL | GATEWAY
+
+  @@index([assetId, metric, at])
+}
+
+// ───────────────────────── SLM — one service = one QTTH ─────────────────────────
+
+enum ServiceOrderStatus {
+  RECEIVED            /// 已受理 — QTTH draft created at report time
+  ASSIGNED            /// 已派工
+  DIAGNOSING          /// 诊断中
+  QUOTE_PENDING       /// 待确认报价
+  IN_PROGRESS         /// 执行中
+  ACCEPTANCE_PENDING  /// 待验收
+  ACCEPTED            /// 已验收
+  INVOICED            /// 已开票
+  CLOSED              /// 已完成
+  CANCELLED
+}
+
+enum ServiceKind {
+  REPAIR
+  MAINTENANCE
+  OVERHAUL
+  CONTRACT      /// in-contract work: QTTH still created, amount 0 or contract price
+  PARTS_SALE
+}
+
+model ServiceOrder {
+  id             String             @id @default(cuid())
+  no             String             @unique /// QTTH26110201
+  entityId       String
+  entity         LegalEntity        @relation(fields: [entityId], references: [id])
+  customerId     String
+  customer       Customer           @relation(fields: [customerId], references: [id])
+  plantId        String?
+  plant          Plant?             @relation(fields: [plantId], references: [id])
+  kind           ServiceKind        @default(REPAIR)
+  status         ServiceOrderStatus @default(RECEIVED)
+  reportedSymptom String?
+  reportedAlarm  String?
+  productionImpact String?
+  reportedById   String?
+  reportedBy     Contact?           @relation(fields: [reportedById], references: [id])
+  reportedAt     DateTime           @default(now())
+  assigneeId     String?
+  assignee       Employee?          @relation("OrderAssignee", fields: [assigneeId], references: [id])
+  createdById    String
+  createdBy      Employee           @relation("OrderCreator", fields: [createdById], references: [id])
+  customerRef    String?            /// customer's own order number, verbatim (e.g. XCGDD2610140001)
+  currency       String             @default("THB")
+  fxRateToCny    Decimal?           @db.Decimal(18, 8)
+  subtotal       Decimal?           @db.Decimal(18, 2)
+  vatAmount      Decimal?           @db.Decimal(18, 2)
+  total          Decimal?           @db.Decimal(18, 2)
+  totalCny       Decimal?           @db.Decimal(18, 2)
+  quoteSentAt    DateTime?
+  quoteConfirmedAt DateTime?
+  closedAt       DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  assets      ServiceOrderAsset[]
+  lines       QuoteLine[]
+  inspections Inspection[]
+  repairJobs  RepairJob[]
+  acceptance  Acceptance?
+  events      AssetEvent[]
+  documents   Document[]
+  stockMovements StockMovement[]
+  taxInvoices TaxInvoice[]
+  invoices    Invoice[]
+
+  @@index([customerId, status])
+}
+
+model ServiceOrderAsset {
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  assetId        String
+  asset          Asset        @relation(fields: [assetId], references: [id])
+  isPrimary      Boolean      @default(true)
+
+  @@id([serviceOrderId, assetId])
+}
+
+model QuoteLine {
+  id             String       @id @default(cuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  lineNo         Int
+  assetCode      String?      /// every line carries the asset it is for
+  partId         String?
+  part           Part?        @relation(fields: [partId], references: [id])
+  description    String
+  descriptionLocal String?    /// Thai text required on tax invoices
+  qty            Decimal      @db.Decimal(12, 3)
+  unit           String       @default("pcs")
+  unitPrice      Decimal      @db.Decimal(18, 2)
+  amount         Decimal      @db.Decimal(18, 2)
+  costRef        Decimal?     @db.Decimal(18, 2) /// last purchase cost shown to sales, not to customer
+
+  @@unique([serviceOrderId, lineNo])
+}
+
+/// INTH — one inspection of one asset. Feeds template 08 Diagnostic Report.
+model Inspection {
+  id             String       @id @default(cuid())
+  no             String       @unique /// INTH26110201
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  assetId        String
+  asset          Asset        @relation(fields: [assetId], references: [id])
+  engineerId     String
+  engineer       Employee     @relation(fields: [engineerId], references: [id])
+  inspectedAt    DateTime     @default(now())
+  symptoms       String?
+  conditions     String?
+  findings       String?
+  probableCause  String?
+  recommendation String?
+  tests          Json?        /// [{test, criterion, result, recordId}]
+  instruments    String?
+  openIssues     String?
+  conclusion     String?
+  attachments    Json?
+}
+
+enum RepairKind {
+  MAINTENANCE
+  REPAIR
+  OVERHAUL
+  FIELD_SERVICE
+}
+
+enum RepairLocation {
+  SITE
+  WORKSHOP
+}
+
+/// RPTH (and PMTH when kind = MAINTENANCE). Feeds templates 09 / 10 / 11.
+model RepairJob {
+  id             String         @id @default(cuid())
+  no             String         @unique /// RPTH26110201 or PMTH26110201
+  serviceOrderId String
+  serviceOrder   ServiceOrder   @relation(fields: [serviceOrderId], references: [id])
+  assetId        String
+  asset          Asset          @relation(fields: [assetId], references: [id])
+  engineerId     String
+  engineer       Employee       @relation(fields: [engineerId], references: [id])
+  kind           RepairKind
+  location       RepairLocation @default(SITE)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  confirmedFault String?
+  rootCause      String?
+  workPerformed  String?
+  partsReplaced  Json?          /// [{partSku, qty, oldSerial, newSerial, obthNo}]
+  configBackupRef String?
+  laborHours     Decimal?       @db.Decimal(8, 2)
+  tests          Json?          /// [{test, criterion, result, pass}]
+  openIssues     String?
+  conclusion     String?
+  attachments    Json?
+}
+
+enum AcceptanceStatus {
+  ACCEPTED
+  CONDITIONAL
+  REJECTED
+}
+
+/// Template 12 (service completion) is the engineer's record; template 13 (customer acceptance) is this row signed.
+model Acceptance {
+  id             String           @id @default(cuid())
+  serviceOrderId String           @unique
+  serviceOrder   ServiceOrder     @relation(fields: [serviceOrderId], references: [id])
+  deliverables   Json             /// [{deliverable, criterion, result}]
+  punchList      String?
+  status         AcceptanceStatus
+  acceptedAt     DateTime?
+  warrantyStart  DateTime?
+  warrantyTerms  String?
+  customerContactId String?
+  customerContact Contact?        @relation(fields: [customerContactId], references: [id])
+  customerSignatory String?
+  signatureUrl   String?
+  dcitSignatory  String?
+}
+
+// ───────────────────────── SCM (Phase 1 slice) ─────────────────────────
+
+model Part {
+  id           String  @id @default(cuid())
+  sku          String  @unique /// SIE-6SL3120... = <brand>-<vendor part no>
+  brandId      String?
+  brand        Brand?  @relation(fields: [brandId], references: [id])
+  vendorPartNo String
+  name         String
+  nameLocal    String?
+  unit         String  @default("pcs")
+  lastCost     Decimal? @db.Decimal(18, 2)
+  lastCostCurrency String?
+  substitutes  Json?   /// [sku, …]
+  safetyStock  Int?
+
+  bomLines   ModelPart[]
+  quoteLines QuoteLine[]
+  movements  StockMovement[]
+}
+
+enum MovementDirection {
+  IN   /// IBTH
+  OUT  /// OBTH
+}
+
+model StockMovement {
+  id             String            @id @default(cuid())
+  no             String            @unique /// IBTH26110201 / OBTH26110201 (3-digit daily serial)
+  direction      MovementDirection
+  partId         String
+  part           Part              @relation(fields: [partId], references: [id])
+  qty            Decimal           @db.Decimal(12, 3)
+  warehouse      String            @default("RAYONG")
+  batch          String?
+  assetId        String?           /// OUT: which machine it went into
+  asset          Asset?            @relation(fields: [assetId], references: [id])
+  serviceOrderId String?
+  serviceOrder   ServiceOrder?     @relation(fields: [serviceOrderId], references: [id])
+  oldPartDisposition String?       /// where the removed part went
+  movedAt        DateTime          @default(now())
+  byName         String?
+}
+
+// ───────────────────────── T&O / FIN (Phase 1 slice) ─────────────────────────
+
+/// TITH — Thai tax invoice: local currency, Thai description, VAT as a separate line.
+model TaxInvoice {
+  id             String       @id @default(cuid())
+  no             String       @unique /// TITH26110201
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  issuedAt       DateTime
+  currency       String       /// THB in Thailand, by law
+  lines          Json         /// [{descriptionLocal, descriptionEn, qty, unitPrice, amount}]
+  subtotal       Decimal      @db.Decimal(18, 2)
+  vatRate        Decimal      @db.Decimal(5, 4)
+  vatAmount      Decimal      @db.Decimal(18, 2)
+  total          Decimal      @db.Decimal(18, 2)
+  fxRateToCny    Decimal      @db.Decimal(18, 8)
+  totalCny       Decimal      @db.Decimal(18, 2)
+  buyerTaxId     String?
+  buyerBranch    String?
+  voidedAt       DateTime?    /// voided numbers are kept, never reused
+  voidReason     String?
+
+  invoices Invoice[]
+}
+
+/// IVTH — the Invoice the customer pays against; also serves as the payment record (no separate receipt).
+model Invoice {
+  id             String       @id @default(cuid())
+  no             String       @unique /// IVTH26110201
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  taxInvoiceId   String?
+  taxInvoice     TaxInvoice?  @relation(fields: [taxInvoiceId], references: [id])
+  issuedAt       DateTime
+  dueAt          DateTime?
+  currency       String
+  amountDue      Decimal      @db.Decimal(18, 2)
+  paidAmount     Decimal?     @db.Decimal(18, 2)
+  whtAmount      Decimal?     @db.Decimal(18, 2) /// tax withheld by the customer
+  whtCertRef     String?      /// customer's withholding certificate reference
+  paidAt         DateTime?
+  bankRef        String?
+  statementId    String?
+  statement      MonthlyStatement? @relation(fields: [statementId], references: [id])
+}
+
+/// BLTH — monthly statement for credit customers: the list of IVTH due this month.
+model MonthlyStatement {
+  id         String    @id @default(cuid())
+  no         String    @unique /// BLTH26113001
+  customerId String
+  period     String    /// 2611
+  issuedAt   DateTime
+  currency   String
+  total      Decimal   @db.Decimal(18, 2)
+  invoices   Invoice[]
+}
+
+// ───────────────────────── Documents registry ─────────────────────────
+
+enum DocType {
+  QT  // quotation / service order
+  PR  // purchase inquiry
+  PO  // purchase order
+  IN  // inspection
+  RP  // repair
+  PM  // preventive maintenance record
+  ER  // equipment receiving
+  TI  // tax invoice
+  IV  // invoice
+  BL  // monthly statement
+  PF  // proforma invoice
+  IB  // stock in
+  OB  // stock out
+  DL  // delivery note
+  CN  // credit note
+  DN  // debit note
+  TF  // spare transfer
+  RT  // return
+  SC  // service contract
+  PV  // payment voucher
+  TR  // training
+}
+
+/// Every issued number is registered here once, whatever table holds the detail. Voided rows stay.
+model Document {
+  id             String       @id @default(cuid())
+  no             String       @unique
+  type           DocType
+  entityId       String
+  entity         LegalEntity  @relation(fields: [entityId], references: [id])
+  countryCode    String
+  issuedAt       DateTime     @default(now())
+  customerId     String?
+  customer       Customer?    @relation(fields: [customerId], references: [id])
+  serviceOrderId String?
+  serviceOrder   ServiceOrder? @relation(fields: [serviceOrderId], references: [id])
+  createdById    String
+  createdBy      Employee     @relation(fields: [createdById], references: [id])
+  templateCode   String?      /// 04 … 13 — which Word template renders it
+  pdfUrl         String?
+  voidedAt       DateTime?
+  voidReason     String?
+
+  @@index([type, issuedAt])
+}
