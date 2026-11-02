@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
 import { keepCustomerRef } from "@/lib/numbering";
 import type { Prisma, ServiceOrderStatus } from "@prisma/client";
+import { canTransitionOrder } from "@/lib/lifecycle";
 
 export const CreateServiceOrderInput = z.object({
   createdByEmployeeCode: z.string(),
@@ -66,23 +67,9 @@ export async function createServiceOrder(input: z.infer<typeof CreateServiceOrde
   });
 }
 
-/** Status machine for the service order; the customer portal shows these nine words. */
-const NEXT: Record<ServiceOrderStatus, ServiceOrderStatus[]> = {
-  RECEIVED: ["ASSIGNED", "CANCELLED"],
-  ASSIGNED: ["DIAGNOSING", "CANCELLED"],
-  DIAGNOSING: ["QUOTE_PENDING", "IN_PROGRESS", "CANCELLED"], // IN_PROGRESS directly for CONTRACT kind
-  QUOTE_PENDING: ["IN_PROGRESS", "CANCELLED"],
-  IN_PROGRESS: ["ACCEPTANCE_PENDING"],
-  ACCEPTANCE_PENDING: ["ACCEPTED", "DIAGNOSING"], // rejected acceptance goes back to diagnosis
-  ACCEPTED: ["INVOICED", "CLOSED"],
-  INVOICED: ["CLOSED"],
-  CLOSED: [],
-  CANCELLED: [],
-};
-
 export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, actorEmployeeCode: string, note?: string) {
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { assets: true } });
-  if (!NEXT[order.status].includes(to)) throw new Error(`${no}: ${order.status} → ${to} not allowed`);
+  if (!canTransitionOrder(order.status, to)) throw new Error(`${no}: ${order.status} → ${to} not allowed`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorEmployeeCode } });
   return prisma.$transaction(async (tx) => {
     const updated = await tx.serviceOrder.update({

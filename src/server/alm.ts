@@ -6,6 +6,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
 import type { AssetEventType, AssetStatus, Prisma } from "@prisma/client";
+import { canTransitionAsset } from "@/lib/lifecycle";
 
 export const OnboardAssetInput = z.object({
   createdByEmployeeCode: z.string(), // decides country of the ATH number
@@ -80,22 +81,6 @@ export const AppendEventInput = z.object({
   newStatus: z.string().optional(),
 });
 
-/** Allowed lifecycle transitions. The only way back to IN_SERVICE is through ACCEPTANCE. */
-const TRANSITIONS: Record<AssetStatus, AssetStatus[]> = {
-  ONBOARDED: ["IN_SERVICE", "SPARE", "RETIRED"],
-  IN_SERVICE: ["MAINTENANCE", "REPAIR", "OVERHAUL", "RETIRED"],
-  MAINTENANCE: ["ACCEPTANCE"],
-  REPAIR: ["ACCEPTANCE"],
-  OVERHAUL: ["ACCEPTANCE"],
-  ACCEPTANCE: ["IN_SERVICE", "SPARE", "REPAIR"],
-  SPARE: ["ONBOARDED", "REPAIR", "RETIRED"],
-  RETIRED: [],
-};
-
-export function canTransition(from: AssetStatus, to: AssetStatus): boolean {
-  return TRANSITIONS[from]?.includes(to) ?? false;
-}
-
 export async function appendAssetEvent(input: z.infer<typeof AppendEventInput>) {
   const data = AppendEventInput.parse(input);
   const asset = await prisma.asset.findUniqueOrThrow({ where: { code: data.assetCode } });
@@ -105,7 +90,7 @@ export async function appendAssetEvent(input: z.infer<typeof AppendEventInput>) 
   return prisma.$transaction(async (tx) => {
     if (data.newStatus) {
       const to = data.newStatus as AssetStatus;
-      if (!canTransition(asset.status, to)) {
+      if (!canTransitionAsset(asset.status, to)) {
         throw new Error(`Asset ${asset.code}: ${asset.status} → ${to} is not allowed (only ACCEPTANCE leads back to IN_SERVICE)`);
       }
       await tx.asset.update({ where: { id: asset.id }, data: { status: to } });

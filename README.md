@@ -64,3 +64,4 @@ docs/briefs/       给 Codex / Gemini 的分工任务书
 ## 版本
 
 - 0.1 数据模型、编号规则、BoC 汇率、ALM/SLM 业务层与 API 骨架。
+- 0.2 SLM 执行层：INTH 检测、报价行与合计（VAT、CNY 折算）、RPTH/PMTH 维修维护（含设备状态推进）、验收（12/13）、OBTH 出库写换件事件、TITH/IVTH/收款/BLTH；纯逻辑测试：money、lifecycle。
