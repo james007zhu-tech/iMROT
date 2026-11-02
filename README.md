@@ -68,3 +68,4 @@ docs/briefs/       给 Codex / Gemini 的分工任务书
 - 0.3 应用外壳：next-intl 三语（cookie，右上角切换）、模块导航、品牌字体与配色；ALM 页面：设备列表（搜索/状态筛选）、设备详情（首页：基本信息 → 时间线 → 关联单据 → 换件 → 参数备份 → 同型号知识）、建档表单；会话与登录基础（员工 / 门户联系人，scrypt）。
 - 0.4 SLM 页面：服务单列表、内部报修、服务单详情（九步进度条；按状态显示下一步面板：派工 → INTH 检测 → 报价行 → 客户确认 → RPTH/PMTH 执行与测试 → 验收 12/13 → TITH+IVTH → 收款含预扣税）；登录页。
 - 0.5 客户门户（手机优先）：联系人登录、我的设备与工单、报修（铭牌二维码直达 `?asset=ATH…`）、九步进度、报价确认、验收签字、报告下载；二维码铭牌打印页 `/assets/:code/label?n=12`。
+- 0.6 报告生成：无依赖的 docx 填充器（`src/lib/docx`，占位符顺序消费、XML 转义、换行）；`src/server/reports.ts` 把 INTH→08、RPTH→09/10、PMTH→11、验收→12/13 的字段从事件数据映射到模板；`/api/documents/:no/render?format=pdf` 生成 docx，并在安装了 LibreOffice 的主机上转 PDF（已用 08 模板实测：填充 → docx → PDF 正常）。
