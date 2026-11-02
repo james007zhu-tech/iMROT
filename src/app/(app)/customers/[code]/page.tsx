@@ -2,14 +2,18 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { hashPassword } from "@/server/auth";
+import { currentEmployee, hashPassword } from "@/server/auth";
+import { issueMonthlyStatement } from "@/server/to";
+import { guarded } from "@/lib/action-result";
+import { Flash } from "@/components/Flash";
 import { AssetStatusBadge, OrderStatusBadge } from "@/components/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
 /** Customer page: everything the customer owns, seen from the asset line. */
-export default async function CustomerDetail({ params }: { params: Promise<{ code: string }> }) {
+export default async function CustomerDetail({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { code } = await params;
+  const { ok, error } = await searchParams;
   const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: true, assets: { include: { model: true }, orderBy: { code: "asc" } }, serviceOrders: { orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
   if (!c) notFound();
   const t = await getTranslations("common");
@@ -22,11 +26,16 @@ export default async function CustomerDetail({ params }: { params: Promise<{ cod
     await prisma.contact.create({ data: { customerId, plantId: String(form.get("plantId") || "") || undefined, name: String(form.get("name")), title: String(form.get("title") || "") || undefined, phone: String(form.get("phone") || "") || undefined, email: String(form.get("email") || "") || undefined, portalLogin: login, portalPasswordHash: login && pw ? hashPassword(pw) : undefined } });
     redirect(`/customers/${code}`);
   }
+  async function statement() {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); const bl = await issueMonthlyStatement(code, new Date().toISOString().slice(2, 7).replace("-", ""), me.code); return `BLTH ${bl.no} · ${bl.currency} ${Number(bl.total).toFixed(2)}`; }, `/customers/${code}`);
+  }
   const input = "rounded border px-2 py-1.5 text-sm";
   return (
     <div className="space-y-4">
+      <Flash ok={ok} error={error} />
       <div className="flex items-center gap-3"><Link href="/customers" className="text-sm text-blue">← CRM</Link><h1 className="font-mono text-2xl font-bold">{c.code}</h1><span>{c.name}</span>{c.nameLocal && <span className="text-slate-500">{c.nameLocal}</span>}</div>
-      <p className="text-sm text-slate-600">Tax ID {c.taxId ?? "—"} · branch {c.branchCode ?? "—"} · {c.paymentTermDays} days{c.monthlyStatement ? " · BLTH" : ""} · {c.defaultCurrency}</p>
+      <p className="flex items-center gap-3 text-sm text-slate-600">Tax ID {c.taxId ?? "—"} · branch {c.branchCode ?? "—"} · {c.paymentTermDays} days · {c.defaultCurrency}{c.monthlyStatement && <form action={statement}><button className="rounded border px-2 py-0.5 text-xs">BLTH this month</button></form>}</p>
       <div className="grid gap-4 md:grid-cols-2">
         <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">{t("plant")}</h2>
           <ul className="text-sm">{c.plants.map((p) => <li key={p.id}>{p.code} · {p.name}{p.address ? ` · ${p.address}` : ""}</li>)}</ul>

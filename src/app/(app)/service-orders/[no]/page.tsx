@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { advanceServiceOrder, getServiceOrder } from "@/server/slm";
-import { createInspection, createRepairJob, recordAcceptance, setQuoteLines } from "@/server/slm-docs";
+import { createInspection, createRepairJob, receiveEquipment, recordAcceptance, setQuoteLines } from "@/server/slm-docs";
+import { guarded } from "@/lib/action-result";
+import { Flash } from "@/components/Flash";
 import { issueInvoice, issueTaxInvoice, recordPayment } from "@/server/to";
 import { currentEmployee } from "@/server/auth";
 import { OrderProgress } from "@/components/OrderProgress";
@@ -21,8 +23,9 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
  * One page carries the whole ten-step flow. The action panel shown depends on the order's status,
  * so an engineer always sees exactly the next thing to do.
  */
-export default async function OrderDetail({ params }: { params: Promise<{ no: string }> }) {
+export default async function OrderDetail({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { no } = await params;
+  const { ok, error } = await searchParams;
   const order = await getServiceOrder(no);
   if (!order) notFound();
   const t = await getTranslations("common");
@@ -37,56 +40,71 @@ export default async function OrderDetail({ params }: { params: Promise<{ no: st
   // Actions only close over `no` (a string); anything else is re-read, because closed-over Prisma objects are not serializable.
   async function advance(form: FormData) {
     "use server";
+    await guarded(async () => {
     const me = await currentEmployee();
     await advanceServiceOrder(no, form.get("to") as OrderStatus, me.code, String(form.get("note") || "") || undefined);
-    redirect(`/service-orders/${no}`);
+    }, `/service-orders/${no}`);
   }
   async function inspect(form: FormData) {
     "use server";
+    await guarded(async () => {
     const me = await currentEmployee();
     const tests = ["Visual condition", "Power supply", "Fault history", "Functional check"].map((test) => ({ test, criterion: String(form.get(`c_${test}`) || ""), result: String(form.get(`r_${test}`) || "") })).filter((r) => r.criterion || r.result);
     const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true, reportedSymptom: true } });
     await createInspection({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), engineerCode: me.code, symptoms: cur.reportedSymptom ?? undefined, conditions: str(form, "conditions"), findings: str(form, "findings"), probableCause: str(form, "probableCause"), recommendation: str(form, "recommendation"), instruments: str(form, "instruments"), openIssues: str(form, "openIssues"), conclusion: str(form, "conclusion"), tests });
     if (cur.status === "ASSIGNED") await advanceServiceOrder(no, "DIAGNOSING", me.code);
-    redirect(`/service-orders/${no}`);
+    }, `/service-orders/${no}`);
   }
   async function quote(form: FormData) {
     "use server";
+    await guarded(async () => {
     const me = await currentEmployee();
     const lines = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ assetCode: str(form, `a${i}`), description: str(form, `d${i}`) ?? "", descriptionLocal: str(form, `l${i}`), qty: Number(form.get(`q${i}`) || 0), unit: "pcs", unitPrice: Number(form.get(`p${i}`) || 0) })).filter((l) => l.description && l.qty > 0);
     await setQuoteLines({ serviceOrderNo: no, actorCode: me.code, lines });
     const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
     if (cur.status === "DIAGNOSING") await advanceServiceOrder(no, "QUOTE_PENDING", me.code);
-    redirect(`/service-orders/${no}`);
+    }, `/service-orders/${no}`);
   }
   async function repair(form: FormData) {
     "use server";
+    await guarded(async () => {
     const me = await currentEmployee();
     const tests = ["Visual inspection", "Approved electrical tests", "No load operation", "Load test if agreed"].map((test) => ({ test, criterion: String(form.get(`c_${test}`) || ""), result: String(form.get(`r_${test}`) || ""), pass: form.get(`p_${test}`) === "on" })).filter((r) => r.criterion || r.result);
     await createRepairJob({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), engineerCode: me.code, kind: form.get("kind") as "REPAIR", location: form.get("location") as "SITE", finishedAt: form.get("finished") === "on" ? new Date() : undefined, confirmedFault: str(form, "confirmedFault"), rootCause: str(form, "rootCause"), workPerformed: str(form, "workPerformed"), configBackupRef: str(form, "configBackupRef"), laborHours: form.get("laborHours") ? Number(form.get("laborHours")) : undefined, openIssues: str(form, "openIssues"), conclusion: str(form, "conclusion"), tests });
     const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
     if (form.get("finished") === "on" && cur.status === "IN_PROGRESS") await advanceServiceOrder(no, "ACCEPTANCE_PENDING", me.code);
-    redirect(`/service-orders/${no}`);
+    }, `/service-orders/${no}`);
   }
   async function accept(form: FormData) {
     "use server";
+    await guarded(async () => {
     const me = await currentEmployee();
     const deliverables = [0, 1, 2].map((i) => ({ deliverable: str(form, `dv${i}`) ?? "", criterion: str(form, `cr${i}`), result: str(form, `rs${i}`) })).filter((d) => d.deliverable);
     await recordAcceptance({ serviceOrderNo: no, actorCode: me.code, deliverables, status: form.get("status") as "ACCEPTED", punchList: str(form, "punchList"), warrantyTerms: str(form, "warrantyTerms"), warrantyStart: form.get("warrantyStart") ? new Date(String(form.get("warrantyStart"))) : undefined, customerSignatory: str(form, "customerSignatory"), dcitSignatory: me.name });
-    redirect(`/service-orders/${no}`);
+    }, `/service-orders/${no}`);
   }
   async function invoice() {
     "use server";
+    await guarded(async () => {
     const me = await currentEmployee();
     const ti = await issueTaxInvoice({ serviceOrderNo: no, actorCode: me.code });
     await issueInvoice({ serviceOrderNo: no, actorCode: me.code, taxInvoiceNo: ti.no });
-    redirect(`/service-orders/${no}`);
+    }, `/service-orders/${no}`);
+  }
+  async function receive(form: FormData) {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      const ev = await receiveEquipment({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), actorCode: me.code, sender: str(form, "sender"), accessories: str(form, "accessories"), condition: str(form, "condition"), fault: str(form, "fault"), photoRefs: str(form, "photoRefs"), handlingRestrictions: str(form, "handlingRestrictions") });
+      return `ERTH ${ev.sourceDocNo}`;
+    }, `/service-orders/${no}`);
   }
   async function pay(form: FormData) {
     "use server";
+    await guarded(async () => {
     const me = await currentEmployee();
     await recordPayment({ invoiceNo: String(form.get("invoiceNo")), actorCode: me.code, paidAt: new Date(String(form.get("paidAt"))), paidAmount: Number(form.get("paidAmount")), whtAmount: Number(form.get("whtAmount") || 0), whtCertRef: str(form, "whtCertRef"), bankRef: str(form, "bankRef") });
-    redirect(`/service-orders/${no}`);
+    }, `/service-orders/${no}`);
   }
 
   return (
@@ -98,6 +116,7 @@ export default async function OrderDetail({ params }: { params: Promise<{ no: st
         <span className="text-slate-600">{t(order.kind)} · {order.customer.name}{order.plant ? ` / ${order.plant.name}` : ""}{order.customerRef ? ` · ref ${order.customerRef}` : ""}</span>
       </div>
       <OrderProgress status={order.status as OrderStatus} />
+      <Flash ok={ok} error={error} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
@@ -133,7 +152,7 @@ export default async function OrderDetail({ params }: { params: Promise<{ no: st
           </Card>}
 
           <Card title={t("doc")}>
-            <ul className="text-sm">{order.documents.map((d) => <li key={d.id} className="flex gap-2"><span className="font-mono">{d.no}</span><span className="text-slate-500">{d.type}{d.templateCode ? ` · tpl ${d.templateCode}` : ""} · {fmt(d.issuedAt)}</span>{d.pdfUrl && <a className="text-blue underline" href={d.pdfUrl}>PDF</a>}<a className="ml-auto text-blue underline" href={`/api/documents/${d.no}/render`}>DOCX</a></li>)}</ul>
+            <ul className="text-sm">{order.documents.map((d) => <li key={d.id} className="flex gap-2"><span className="font-mono">{d.no}</span><span className="text-slate-500">{d.type}{d.templateCode ? ` · tpl ${d.templateCode}` : ""} · {fmt(d.issuedAt)}</span>{d.pdfUrl && <a className="text-blue underline" href={d.pdfUrl}>PDF</a>}<span className="ml-auto flex gap-2">{d.type === "QT" && <><a className="text-blue underline" href={`/api/documents/${d.no}/render?template=04&format=pdf`}>04</a><a className="text-blue underline" href={`/api/documents/${d.no}/render?template=06&format=pdf`}>06</a><a className="text-blue underline" href={`/api/documents/${d.no}/render?template=12&format=pdf`}>12</a><a className="text-blue underline" href={`/api/documents/${d.no}/render?template=13&format=pdf`}>13</a></>}{d.type !== "QT" && <a className="text-blue underline" href={`/api/documents/${d.no}/render?format=pdf`}>PDF</a>}<a className="text-slate-500 underline" href={`/api/documents/${d.no}/render`}>DOCX</a>{["th", "zh", "en"].map((l) => <a key={l} className="text-slate-500 underline" href={`/api/documents/${d.no}/render?format=pdf&lang=${l}`}>{l}</a>)}</span></li>)}</ul>
           </Card>
         </div>
 
@@ -182,6 +201,19 @@ export default async function OrderDetail({ params }: { params: Promise<{ no: st
               {["Visual inspection", "Approved electrical tests", "No load operation", "Load test if agreed"].map((x) => <div key={x} className="grid grid-cols-4 gap-1 text-xs"><span className="self-center">{x}</span><input name={`c_${x}`} placeholder="criterion" className={input} /><input name={`r_${x}`} placeholder="result" className={input} /><label className="self-center"><input type="checkbox" name={`p_${x}`} defaultChecked /> pass</label></div>)}
               <label className="block text-sm"><input type="checkbox" name="finished" /> Finished → {ts("ACCEPTANCE_PENDING")}</label>
               <button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("save")}</button>
+            </form>
+          </Card>}
+
+          {["ASSIGNED", "DIAGNOSING", "IN_PROGRESS"].includes(order.status) && <Card title="ERTH · 07 Equipment receiving (workshop)">
+            <form action={receive} className="space-y-2">
+              <select name="assetCode" className={input}>{order.assets.map((l) => <option key={l.assetId} value={l.asset.code}>{l.asset.code}</option>)}</select>
+              <input name="sender" placeholder="Sender / carrier" className={input} />
+              <input name="accessories" placeholder="Accessories received" className={input} />
+              <input name="condition" placeholder="Condition on arrival" className={input} />
+              <input name="fault" placeholder="Reported fault" className={input} />
+              <input name="photoRefs" placeholder="Photo refs" className={input} />
+              <input name="handlingRestrictions" placeholder="Handling restrictions" className={input} />
+              <button className="rounded border px-3 py-1.5 text-sm">{t("save")}</button>
             </form>
           </Card>}
 

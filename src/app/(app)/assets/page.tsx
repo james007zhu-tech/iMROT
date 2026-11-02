@@ -33,6 +33,7 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
           </select>
           <button className="rounded bg-blue px-3 py-1.5 text-sm text-white">{t("search")}</button>
         </form>
+        <Link href="/models" className="rounded border px-3 py-1.5 text-sm">{t("brand")} / {t("model")}</Link>
         <Link href="/assets/new" className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("onboard")}</Link>
       </div>
       <div className="overflow-x-auto rounded-lg border bg-white">

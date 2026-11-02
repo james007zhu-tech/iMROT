@@ -24,7 +24,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           ))}
         </nav>
       </aside>
-      <main className="flex-1 p-4 md:p-6">{children}</main>
+      <div className="flex-1">
+        <header className="flex items-center gap-3 border-b bg-white px-4 py-2">
+          <form action="/search" className="flex w-full max-w-md gap-1"><input name="q" placeholder={c("search")} className="w-full rounded border px-3 py-1.5 text-sm" /><button className="rounded bg-slate-100 px-3 text-sm">⌕</button></form>
+        </header>
+        <main className="p-4 md:p-6">{children}</main>
+      </div>
       <AiAssistant scope="staff" />
     </div>
   );

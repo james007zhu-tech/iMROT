@@ -5,9 +5,9 @@
  */
 import { onboardAsset, getAssetPage } from "../src/server/alm";
 import { createServiceOrder, advanceServiceOrder } from "../src/server/slm";
-import { createInspection, setQuoteLines, createRepairJob, recordAcceptance } from "../src/server/slm-docs";
+import { createInspection, setQuoteLines, createRepairJob, recordAcceptance, receiveEquipment } from "../src/server/slm-docs";
 import { recordMovement } from "../src/server/scm";
-import { issueTaxInvoice, issueInvoice, recordPayment } from "../src/server/to";
+import { issueTaxInvoice, issueInvoice, recordPayment, issueMonthlyStatement } from "../src/server/to";
 import { renderDocument } from "../src/server/reports";
 import { allocateNumber } from "../src/lib/numbering-db";
 import { parseNumber } from "../src/lib/numbering";
@@ -69,6 +69,10 @@ async function main() {
   await advanceServiceOrder(order.no, "QUOTE_PENDING", admin.code);
   await advanceServiceOrder(order.no, "IN_PROGRESS", admin.code, "customer confirmed by PO");
 
+  console.log("5b. equipment received at workshop (ERTH, template 07)");
+  const er = await receiveEquipment({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: undefined as never, actorCode: admin.code, sender: "customer truck", accessories: "keypad, 2 cables", condition: "dusty, no visible damage", fault: "F30001 at start" } as never);
+  assert(parseNumber(er.sourceDocNo!)?.prefix === "ER", `equipment receiving ${er.sourceDocNo}`);
+
   console.log("6. stock out → repair (RPTH) → finished → ACCEPTANCE_PENDING");
   const out = await recordMovement({ actorCode: admin.code, direction: "OUT", partSku: part.sku, qty: 1, assetCode: vfd.code, serviceOrderNo: order.no, oldPartDisposition: "scrapped" });
   assert(parseNumber(out.no)?.prefix === "OB" && out.no.length === 13, `stock out ${out.no} has 3-digit serial`);
@@ -100,7 +104,21 @@ async function main() {
   const r08 = await renderDocument(insp.no);
   const r09 = await renderDocument(job.no);
   const r13 = await renderDocument(order.no, "13");
-  assert(r08.unfilled.length === 0 && r09.unfilled.length === 0 && r13.unfilled.length === 0, `08/09/13 rendered with no blank placeholders (${r08.docxPath})`);
+  const r04 = await renderDocument(order.no, "04");
+  const r06 = await renderDocument(order.no, "06");
+  const r07 = await renderDocument(er.sourceDocNo!);
+  for (const [k, r] of Object.entries({ r08, r09, r13, r04, r06, r07 })) assert(r.unfilled.length === 0, `${k} rendered with no blank placeholders`);
+
+  console.log("10b. BLTH monthly statement for a credit customer");
+  await prisma.customer.update({ where: { id: customer.id }, data: { monthlyStatement: true } });
+  const o2 = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, assetCodes: [vfd.code], kind: "CONTRACT", reportedSymptom: "quarterly PM" });
+  for (const st of ["ASSIGNED", "DIAGNOSING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] as const) await advanceServiceOrder(o2.no, st, admin.code);
+  await setQuoteLines({ serviceOrderNo: o2.no, actorCode: admin.code, lines: [{ description: "PM visit", descriptionLocal: "บำรุงรักษา", qty: 1, unitPrice: 3000 }] });
+  await recordAcceptance({ serviceOrderNo: o2.no, actorCode: admin.code, deliverables: [{ deliverable: "PM done" }], status: "ACCEPTED" });
+  const ti2 = await issueTaxInvoice({ serviceOrderNo: o2.no, actorCode: admin.code });
+  await issueInvoice({ serviceOrderNo: o2.no, actorCode: admin.code, taxInvoiceNo: ti2.no });
+  const bl = await issueMonthlyStatement(customer.code, "2611", admin.code);
+  assert(parseNumber(bl.no)?.prefix === "BL" && Number(bl.total) === 3210, `statement ${bl.no} totals the unpaid IVTH (3210)`);
 
   console.log("11. metrics catalog + AI dashboard builder (heuristic path when no API key)");
   for (const m of METRICS) { const r = await m.run(prisma, {}); assert(Array.isArray(r.labels) && r.labels.length === r.values.length, `metric ${m.id} → ${r.values.slice(0, 3).join(",")}`); }

@@ -7,7 +7,7 @@ const OUT = process.env.DOCS_DIR ?? path.join(process.cwd(), "uploads", "documen
 /** GET /api/documents/:no/pdf — the last rendered PDF */
 export async function GET(_req: Request, ctx: { params: Promise<{ no: string }> }) {
   const { no } = await ctx.params;
-  if (!/^[A-Z]{2}(TH|VN|CN)\d{8,9}$/.test(no)) return NextResponse.json({ error: "bad number" }, { status: 400 });
+  if (!/^[A-Z]{2}(TH|VN|CN)\d{8,9}(-(th|zh|en))?$/.test(no)) return NextResponse.json({ error: "bad number" }, { status: 400 });
   try {
     const body = await readFile(path.join(OUT, `${no}.pdf`));
     return new NextResponse(body, { headers: { "content-type": "application/pdf", "content-disposition": `inline; filename="${no}.pdf"` } });

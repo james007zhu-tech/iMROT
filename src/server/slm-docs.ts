@@ -230,3 +230,35 @@ export async function recordAcceptance(input: z.infer<typeof AcceptanceInput>) {
 }
 
 export { assetStatusForWork };
+
+// ───────────── ERTH — equipment received at the workshop (template 07) ─────────────
+
+export const ReceiveInput = z.object({
+  serviceOrderNo: z.string(),
+  assetCode: z.string(),
+  actorCode: z.string(),
+  receivedAt: z.coerce.date().optional(),
+  sender: z.string().optional(),
+  accessories: z.string().optional(),
+  condition: z.string().optional(),
+  fault: z.string().optional(),
+  photoRefs: z.string().optional(),
+  handlingRestrictions: z.string().optional(),
+});
+
+/** Machine arrives at the workshop: ERTH number, RECEIVED_WORKSHOP event carrying the intake record. */
+export async function receiveEquipment(input: z.infer<typeof ReceiveInput>) {
+  const d = ReceiveInput.parse(input);
+  const [order, asset, actor] = await Promise.all([
+    prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }),
+    prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }),
+    prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } }),
+  ]);
+  return prisma.$transaction(async (tx) => {
+    const no = await allocateNumber(tx, { prefix: "ER", createdByEmployeeCode: actor.code, entityId: order.entityId });
+    await tx.document.create({ data: { no, type: "ER", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, templateCode: "07", issuedAt: d.receivedAt } });
+    return tx.assetEvent.create({
+      data: { assetId: asset.id, type: "RECEIVED_WORKSHOP", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.receivedAt, summary: `进车间：${d.condition ?? ""}${d.fault ? ` · ${d.fault}` : ""}`, payload: { sender: d.sender, accessories: d.accessories, condition: d.condition, fault: d.fault, photoRefs: d.photoRefs, handlingRestrictions: d.handlingRestrictions } as Prisma.InputJsonValue },
+    });
+  });
+}

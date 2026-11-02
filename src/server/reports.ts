@@ -24,7 +24,7 @@ type TestRow = { test: string; criterion?: string; result?: string; recordId?: s
 const col = (tests: TestRow[] | null | undefined, k: keyof TestRow, n = 4) => Array.from({ length: n }, (_, i) => (tests?.[i]?.[k] as string | undefined) ?? "");
 
 /** Build the field map for one document. Returns template code + values. */
-export async function buildFields(no: string): Promise<{ template: string; values: FieldValues }> {
+export async function buildFields(no: string, templateHint?: string): Promise<{ template: string; values: FieldValues }> {
   const doc = await prisma.document.findUniqueOrThrow({ where: { no }, include: { entity: true, customer: true, createdBy: true, serviceOrder: { include: { plant: true, customer: true, assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } } } } } });
   const o = doc.serviceOrder;
   const a = o?.assets[0]?.asset;
@@ -59,13 +59,28 @@ export async function buildFields(no: string): Promise<{ template: string; value
       }
       return { template: "09", values: { ...base, CONFIRMED_FAULT: [j.confirmedFault, j.rootCause].filter(Boolean).join("\n"), WORK_PERFORMED: j.workPerformed ?? "", PARTS_REPLACED: parts, CONFIG_BACKUP: j.configBackupRef ?? "" } };
     }
+    case "ER": {
+      const ev = await prisma.assetEvent.findFirstOrThrow({ where: { sourceDocNo: no }, include: { asset: true } });
+      const pl = (ev.payload as Record<string, string> | null) ?? {};
+      return { template: "07", values: { ...common, JOB_NO: o?.no ?? "", EQUIPMENT_SERIAL: `${ev.asset.code} · S/N ${ev.asset.serialNumber}`, SENDER: pl.sender ?? "", RECEIVED_AT: d(ev.occurredAt), ACCESSORIES: pl.accessories ?? "", CONDITION: pl.condition ?? "", FAULT: pl.fault ?? "", PHOTO_REFERENCES: pl.photoRefs ?? "", HANDLING_RESTRICTIONS: pl.handlingRestrictions ?? "" } };
+    }
     case "QT": {
+      const lines = await prisma.quoteLine.findMany({ where: { serviceOrderId: o!.id }, orderBy: { lineNo: "asc" } });
+      const entity = doc.entity;
+      const want = templateHint ?? doc.templateCode ?? "13";
+      if (want === "04") {
+        const insp = await prisma.inspection.findFirst({ where: { serviceOrderId: o!.id }, orderBy: { inspectedAt: "desc" } });
+        return { template: "04", values: { ...common, EQUIPMENT_ID: common.MODEL_SERIAL, FAULT_SYMPTOM: o?.reportedSymptom ?? "", OPERATIONAL_IMPACT: o?.productionImpact ?? "", REQUIRED_COMPLETION_DATE: "", DIAGNOSTIC_DELIVERABLE: insp?.findings ?? "", REPAIR_SCOPE: lines.map((l) => `${l.description} ×${Number(l.qty)}`).join("\n"), TEST_METHOD_AND_CRITERIA: insp?.recommendation ?? "", DELIVERY_AND_REPORT: "Repair Report 09 / Field Service Report 10, Service Completion 12, Customer Acceptance 13", EXCLUSIONS: "", CUSTOMER_INFORMATION_AND_ACCESS: "", QUOTE_REF: o?.no ?? "", PRICE_CURRENCY: `${o?.currency} ${Number(o?.total ?? 0).toFixed(2)} (incl. VAT ${(Number(entity.vatRate) * 100).toFixed(0)}%)`, VAT_TREATMENT: `VAT ${(Number(entity.vatRate) * 100).toFixed(0)}% shown separately`, PAYMENT_MILESTONES: `${o?.customer.paymentTermDays ?? 30} days after invoice`, LEAD_TIME: "", WARRANTY: "", ACCEPTANCE_CRITERIA: "", VALID_UNTIL: "", MILESTONE_1: "Diagnosis", OWNER_1: "DCiT", DATE_1: "", MILESTONE_2: "Repair & test", OWNER_2: "DCiT", DATE_2: "", MILESTONE_3: "Acceptance", OWNER_3: "Customer", DATE_3: "" } };
+      }
+      if (want === "06") {
+        return { template: "06", values: { ...common, CUSTOMER_PO: o?.customerRef ?? "", QUOTE_REF: o?.no ?? "", DELIVERY_ADDRESS: [o?.customer.addressLocal, o?.plant?.address].filter(Boolean).join(" / "), ITEM: lines.map((l) => l.description).join("\n"), QTY: lines.map((l) => `${Number(l.qty)} ${l.unit}`).join("\n"), SCOPE: o?.reportedSymptom ?? "", DELIVERY_DATE: "", AMOUNT_CURRENCY: `${o?.currency} ${Number(o?.total ?? 0).toFixed(2)}`, PAYMENT_TERMS: `${o?.customer.paymentTermDays ?? 30} days`, DEVIATIONS: "", WARRANTY: "" } };
+      }
       // 12 Service Completion / 13 Customer Acceptance are both rendered from the acceptance record under the QTTH
       const acc = await prisma.acceptance.findUnique({ where: { serviceOrderId: o!.id } });
       const dv = (acc?.deliverables as { deliverable: string; criterion?: string; result?: string }[] | null) ?? [];
       const values: FieldValues = { ...common, REPORT_REF: (await prisma.document.findMany({ where: { serviceOrderId: o!.id, type: { in: ["IN", "RP", "PM"] } } })).map((x) => x.no).join(", "), PUNCH_LIST: acc?.punchList ?? "", DATE: d(acc?.acceptedAt), STATUS: acc?.status ?? "", WARRANTY: [d(acc?.warrantyStart), acc?.warrantyTerms].filter(Boolean).join(" · ") };
       for (let i = 0; i < 3; i++) { values[`DELIVERABLE_${i + 1}`] = dv[i]?.deliverable ?? ""; values[`CRITERION_${i + 1}`] = dv[i]?.criterion ?? ""; values[`RESULT_${i + 1}`] = dv[i]?.result ?? ""; }
-      return { template: doc.templateCode ?? "13", values };
+      return { template: want === "12" ? "12" : "13", values };
     }
     default:
       throw new Error(`no Word template for document type ${doc.type}`);
@@ -73,21 +88,33 @@ export async function buildFields(no: string): Promise<{ template: string; value
 }
 
 /** Render a document to .docx (+ .pdf when soffice exists). Stores files under uploads/documents and sets Document.pdfUrl. */
-export async function renderDocument(no: string, template?: string): Promise<{ docxPath: string; pdfPath?: string; unfilled: string[] }> {
-  const { template: tpl, values } = await buildFields(no);
+export async function renderDocument(no: string, template?: string, lang?: "th" | "zh" | "en"): Promise<{ docxPath: string; pdfPath?: string; unfilled: string[] }> {
+  const { template: tpl, values: raw } = await buildFields(no, template);
+  const values = lang ? await translateValues(raw, lang) : raw;
   const file = TEMPLATE_FILES[template ?? tpl];
   if (!file) throw new Error(`unknown template ${template ?? tpl}`);
   const { docx, unfilled } = fillDocx(await readFile(path.join(TEMPLATES, file)), values);
   await mkdir(OUT, { recursive: true });
-  const docxPath = path.join(OUT, `${no}.docx`);
+  const docxPath = path.join(OUT, `${no}${lang ? `-${lang}` : ""}.docx`);
   await writeFile(docxPath, docx);
   let pdfPath: string | undefined;
   try {
     await exec("soffice", ["--headless", "--convert-to", "pdf", "--outdir", OUT, docxPath], { timeout: 120000 });
-    pdfPath = path.join(OUT, `${no}.pdf`);
-    await prisma.document.update({ where: { no }, data: { pdfUrl: `/api/documents/${no}/pdf`, templateCode: template ?? tpl } });
+    pdfPath = path.join(OUT, `${no}${lang ? `-${lang}` : ""}.pdf`);
+    if (!lang && !template) await prisma.document.update({ where: { no }, data: { pdfUrl: `/api/documents/${no}/pdf`, templateCode: tpl } });
   } catch {
     // LibreOffice not installed on this host: the .docx is still delivered
   }
   return { docxPath, pdfPath, unfilled };
+}
+
+/** Three-language reports: free-text fields go through the LLM translator; numbers, codes and document numbers are untouched. */
+async function translateValues(values: FieldValues, lang: "th" | "zh" | "en"): Promise<FieldValues> {
+  if (!process.env.ANTHROPIC_API_KEY) return values;
+  const { translateFields } = await import("@/server/ai");
+  const text: Record<string, string> = {};
+  for (const [k, v] of Object.entries(values)) if (typeof v === "string" && v.length > 3 && /[A-Za-z\u0E00-\u0E7F\u4E00-\u9FFF]{3,}/.test(v) && !/^[A-Z]{2,4}(TH|VN|CN)\d+$/.test(v)) text[k] = v;
+  if (Object.keys(text).length === 0) return values;
+  const tr = await translateFields(text, lang);
+  return { ...values, ...tr };
 }

@@ -7,7 +7,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ no: string }> }
   const { no } = await ctx.params;
   const u = new URL(req.url);
   try {
-    const r = await renderDocument(no, u.searchParams.get("template") ?? undefined);
+    const lang = u.searchParams.get("lang"); const r = await renderDocument(no, u.searchParams.get("template") ?? undefined, lang === "th" || lang === "zh" || lang === "en" ? lang : undefined);
     const wantPdf = u.searchParams.get("format") === "pdf";
     const file = wantPdf && r.pdfPath ? r.pdfPath : r.docxPath;
     const body = await readFile(file);
