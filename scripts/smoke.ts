@@ -48,7 +48,7 @@ async function main() {
   const vfd = await onboardAsset({ createdByEmployeeCode: admin.code, type: "VFD", serialNumber: `SN-${Date.now()}`, modelId: model.id, customerId: customer.id, plantId: plant.id, location: "Mill 204 drive cabinet", origin: "TAKEOVER" });
   const motor = await onboardAsset({ createdByEmployeeCode: admin.code, type: "MOTOR", serialNumber: `MOT-${Date.now()}`, customerId: customer.id, plantId: plant.id, location: "Mill 204 main motor" });
   await prisma.assetRelation.create({ data: { fromAssetId: vfd.id, toAssetId: motor.id, relation: "DRIVES" } });
-  assert(parseNumber(vfd.code)?.prefix === "A" && vfd.status === "ONBOARDED", `asset ${vfd.code} onboarded`);
+  assert(parseNumber(vfd.code)?.prefix === "A" && vfd.status === "IN_SERVICE", `asset ${vfd.code} onboarded as IN_SERVICE (takeover)`);
   await prisma.asset.update({ where: { id: vfd.id }, data: { status: "IN_SERVICE" } });
 
   console.log("3. report → QTTH");
@@ -70,7 +70,7 @@ async function main() {
   await advanceServiceOrder(order.no, "IN_PROGRESS", admin.code, "customer confirmed by PO");
 
   console.log("5b. equipment received at workshop (ERTH, template 07)");
-  const er = await receiveEquipment({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: undefined as never, actorCode: admin.code, sender: "customer truck", accessories: "keypad, 2 cables", condition: "dusty, no visible damage", fault: "F30001 at start" } as never);
+  const er = await receiveEquipment({ serviceOrderNo: order.no, assetCode: vfd.code, actorCode: admin.code, sender: "customer truck", accessories: "keypad, 2 cables", condition: "dusty, no visible damage", fault: "F30001 at start" });
   assert(parseNumber(er.sourceDocNo!)?.prefix === "ER", `equipment receiving ${er.sourceDocNo}`);
 
   console.log("6. stock out → repair (RPTH) → finished → ACCEPTANCE_PENDING");

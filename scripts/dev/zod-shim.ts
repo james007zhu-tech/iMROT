@@ -38,3 +38,4 @@ export const z = {
   coerce: { date: () => new Schema<Date>((v, p) => { const d = v instanceof Date ? v : new Date(v as string); if (isNaN(d.getTime())) throw new Error(`${p}: bad date`); return d; }) },
 };
 export type infer<T> = T extends Schema<infer U> ? U : never;
+export type input<T> = T extends Schema<infer U> ? Partial<U> : never;

@@ -23,7 +23,7 @@ export const CreateServiceOrderInput = z.object({
 });
 
 /** 报修 → QTTH draft (status RECEIVED) + SERVICE_REQUESTED event on every named asset. */
-export async function createServiceOrder(input: z.infer<typeof CreateServiceOrderInput>) {
+export async function createServiceOrder(input: z.input<typeof CreateServiceOrderInput>) {
   const data = CreateServiceOrderInput.parse(input);
   const creator = await prisma.employee.findUniqueOrThrow({ where: { code: data.createdByEmployeeCode } });
   const assets = await prisma.asset.findMany({ where: { code: { in: data.assetCodes } } });
@@ -58,7 +58,7 @@ export async function createServiceOrder(input: z.infer<typeof CreateServiceOrde
           actorId: creator.id,
           serviceOrderId: order.id,
           sourceDocNo: no,
-          summary: `报修：${data.reportedSymptom ?? data.kind}${data.reportedAlarm ? `（${data.reportedAlarm}）` : ""}`,
+          summary: `${data.reportedSymptom ?? data.kind}${data.reportedAlarm ? ` (${data.reportedAlarm})` : ""}`,
           payload: { kind: data.kind, productionImpact: data.productionImpact } as Prisma.InputJsonValue,
         },
       });

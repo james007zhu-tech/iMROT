@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 /** 建档 / 接管 form. Six required fields; ATH is allocated server-side from the creator's country. */
 export default async function NewAsset() {
   const t = await getTranslations("common");
+  const ts = await getTranslations("assetStatus");
   const [customers, models, employees] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" }, include: { plants: true } }),
     prisma.model.findMany({ include: { series: { include: { brand: true } } }, orderBy: { code: "asc" } }),
@@ -34,6 +35,7 @@ export default async function NewAsset() {
       origin: (form.get("origin") as "TAKEOVER") || "TAKEOVER",
       customerAssetNo: String(form.get("customerAssetNo") || "") || undefined,
       installedAt: form.get("installedAt") ? new Date(String(form.get("installedAt"))) : undefined,
+      initialStatus: (form.get("initialStatus") as "IN_SERVICE") || undefined,
     });
     redirect(`/assets/${asset.code}`);
   }
@@ -46,6 +48,7 @@ export default async function NewAsset() {
       <div className="grid gap-3 md:grid-cols-2">
         <label className="text-sm">{t("type")}<select name="type" className={input} required>{["VFD", "MOTOR", "PLC", "PANEL", "DRIVE_TRAIN", "SENSOR", "OTHER"].map((x) => <option key={x} value={x}>{t(x)}</option>)}</select></label>
         <label className="text-sm">{t("origin")}<select name="origin" className={input}><option value="TAKEOVER">{t("TAKEOVER")}</option><option value="NEW_INSTALL">{t("NEW_INSTALL")}</option></select></label>
+        <label className="text-sm">{t("status")}<select name="initialStatus" className={input}><option value="IN_SERVICE">{ts("IN_SERVICE")}</option><option value="ONBOARDED">{ts("ONBOARDED")}</option><option value="SPARE">{ts("SPARE")}</option></select></label>
         <label className="text-sm">{t("serial")} *<input name="serialNumber" className={input} required /></label>
         <label className="text-sm">{t("model")} *<select name="modelId" className={input} required><option value="">—</option>{models.map((m) => <option key={m.id} value={m.id}>{m.series.brand.name} {m.series.name} {m.code}</option>)}</select></label>
         <label className="text-sm">{t("customer")} *<select name="customerId" className={input} required><option value="">—</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.code} {c.name}</option>)}</select></label>

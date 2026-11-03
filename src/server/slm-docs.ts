@@ -30,7 +30,7 @@ export const InspectionInput = z.object({
   attachments: z.array(z.object({ name: z.string(), url: z.string() })).optional(),
 });
 
-export async function createInspection(input: z.infer<typeof InspectionInput>) {
+export async function createInspection(input: z.input<typeof InspectionInput>) {
   const d = InspectionInput.parse(input);
   const [order, asset, eng] = await Promise.all([
     prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }),
@@ -51,7 +51,7 @@ export async function createInspection(input: z.infer<typeof InspectionInput>) {
     await tx.assetEvent.create({
       data: {
         assetId: asset.id, type: "INSPECTED", actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no,
-        summary: `检测：${d.probableCause ?? d.findings ?? "见报告"}`,
+        summary: `${d.probableCause ?? d.findings ?? ""}`,
         payload: { findings: d.findings, probableCause: d.probableCause, recommendation: d.recommendation, tests: d.tests } as Prisma.InputJsonValue,
       },
     });
@@ -77,7 +77,7 @@ export const QuoteLinesInput = z.object({
 });
 
 /** Replaces the whole line set (a quote is re-issued, never patched) and recomputes totals in order currency + CNY. */
-export async function setQuoteLines(input: z.infer<typeof QuoteLinesInput>) {
+export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const d = QuoteLinesInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, assets: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
@@ -103,7 +103,7 @@ export async function setQuoteLines(input: z.infer<typeof QuoteLinesInput>) {
       data: { subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx ? Number(fx) : undefined, totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined },
     });
     for (const link of order.assets) {
-      await tx.assetEvent.create({ data: { assetId: link.assetId, type: "QUOTED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `报价 ${order.currency} ${t.total.toFixed(2)}（${d.lines.length} 行）`, payload: t as unknown as Prisma.InputJsonValue } });
+      await tx.assetEvent.create({ data: { assetId: link.assetId, type: "QUOTED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `${order.currency} ${t.total.toFixed(2)} · ${d.lines.length} lines`, payload: t as unknown as Prisma.InputJsonValue } });
     }
     return updated;
   });
@@ -132,7 +132,7 @@ export const RepairJobInput = z.object({
 });
 
 /** Opening a job moves the asset IN_SERVICE → MAINTENANCE/REPAIR/OVERHAUL; finishing it moves to ACCEPTANCE. */
-export async function createRepairJob(input: z.infer<typeof RepairJobInput>) {
+export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
   const d = RepairJobInput.parse(input);
   const [order, asset, eng] = await Promise.all([
     prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }),
@@ -169,12 +169,12 @@ export async function createRepairJob(input: z.infer<typeof RepairJobInput>) {
       data: {
         assetId: asset.id, type: d.kind === "MAINTENANCE" ? "MAINTAINED" : d.kind === "OVERHAUL" ? "OVERHAULED" : "REPAIRED",
         actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.finishedAt ?? d.startedAt,
-        summary: `${d.kind === "MAINTENANCE" ? "维护" : d.kind === "OVERHAUL" ? "检修" : "维修"}：${d.rootCause ?? d.workPerformed ?? "见报告"}`,
+        summary: `${d.rootCause ?? d.workPerformed ?? ""}`,
         payload: { confirmedFault: d.confirmedFault, rootCause: d.rootCause, partsReplaced: d.partsReplaced, laborHours: d.laborHours, statusFrom: asset.status, statusTo: status } as Prisma.InputJsonValue,
       },
     });
     if (d.tests?.length) {
-      await tx.assetEvent.create({ data: { assetId: asset.id, type: "TESTED", actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no, summary: `测试 ${d.tests.filter((t) => t.pass !== false).length}/${d.tests.length} 通过`, payload: { tests: d.tests } as Prisma.InputJsonValue } });
+      await tx.assetEvent.create({ data: { assetId: asset.id, type: "TESTED", actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no, summary: `${d.tests.filter((t) => t.pass !== false).length}/${d.tests.length} pass`, payload: { tests: d.tests } as Prisma.InputJsonValue } });
     }
     return job;
   });
@@ -198,7 +198,7 @@ export const AcceptanceInput = z.object({
 });
 
 /** ACCEPTED / CONDITIONAL → assets back IN_SERVICE, order → ACCEPTED. REJECTED → assets to REPAIR, order back to DIAGNOSING. */
-export async function recordAcceptance(input: z.infer<typeof AcceptanceInput>) {
+export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
   const d = AcceptanceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { assets: { include: { asset: true } } } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
@@ -221,7 +221,7 @@ export async function recordAcceptance(input: z.infer<typeof AcceptanceInput>) {
       }
       await tx.assetEvent.create({
         data: { assetId: link.assetId, type: "ACCEPTED", actorId: actor.id, actorName: d.customerSignatory, serviceOrderId: order.id, sourceDocNo: order.no, occurredAt: d.acceptedAt,
-          summary: d.status === "ACCEPTED" ? "客户验收通过，恢复在役" : d.status === "CONDITIONAL" ? `有条件验收：${d.punchList ?? ""}` : `验收未通过：${d.punchList ?? ""}`,
+          summary: `${d.status}${d.punchList ? ` · ${d.punchList}` : ""}${d.customerSignatory ? ` · ${d.customerSignatory}` : ""}`,
           payload: { status: d.status, deliverables: d.deliverables, warrantyStart: d.warrantyStart, statusFrom: from, statusTo: to } as Prisma.InputJsonValue },
       });
     }
@@ -247,7 +247,7 @@ export const ReceiveInput = z.object({
 });
 
 /** Machine arrives at the workshop: ERTH number, RECEIVED_WORKSHOP event carrying the intake record. */
-export async function receiveEquipment(input: z.infer<typeof ReceiveInput>) {
+export async function receiveEquipment(input: z.input<typeof ReceiveInput>) {
   const d = ReceiveInput.parse(input);
   const [order, asset, actor] = await Promise.all([
     prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }),
@@ -258,7 +258,7 @@ export async function receiveEquipment(input: z.infer<typeof ReceiveInput>) {
     const no = await allocateNumber(tx, { prefix: "ER", createdByEmployeeCode: actor.code, entityId: order.entityId });
     await tx.document.create({ data: { no, type: "ER", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, templateCode: "07", issuedAt: d.receivedAt } });
     return tx.assetEvent.create({
-      data: { assetId: asset.id, type: "RECEIVED_WORKSHOP", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.receivedAt, summary: `进车间：${d.condition ?? ""}${d.fault ? ` · ${d.fault}` : ""}`, payload: { sender: d.sender, accessories: d.accessories, condition: d.condition, fault: d.fault, photoRefs: d.photoRefs, handlingRestrictions: d.handlingRestrictions } as Prisma.InputJsonValue },
+      data: { assetId: asset.id, type: "RECEIVED_WORKSHOP", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.receivedAt, summary: `${d.condition ?? ""}${d.fault ? ` · ${d.fault}` : ""}`, payload: { sender: d.sender, accessories: d.accessories, condition: d.condition, fault: d.fault, photoRefs: d.photoRefs, handlingRestrictions: d.handlingRestrictions } as Prisma.InputJsonValue },
     });
   });
 }

@@ -8,7 +8,7 @@ export const ASSET_STATUSES = ["ONBOARDED", "IN_SERVICE", "MAINTENANCE", "REPAIR
 export type AssetStatus = (typeof ASSET_STATUSES)[number];
 
 export const ASSET_TRANSITIONS: Record<AssetStatus, readonly AssetStatus[]> = {
-  ONBOARDED: ["IN_SERVICE", "SPARE", "RETIRED"],
+  ONBOARDED: ["IN_SERVICE", "SPARE", "RETIRED", "MAINTENANCE", "REPAIR", "OVERHAUL"], // a machine we took over may be reported for service before anyone marks it in service
   IN_SERVICE: ["MAINTENANCE", "REPAIR", "OVERHAUL", "RETIRED"],
   MAINTENANCE: ["ACCEPTANCE"],
   REPAIR: ["ACCEPTANCE"],

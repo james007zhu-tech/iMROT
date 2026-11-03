@@ -120,7 +120,10 @@
     "SENSOR": "传感器",
     "OTHER": "其他",
     "requiredSix": "必填：序列号、型号、所属客户、位置、责任人（ATH 由系统分配）",
-    "scanQr": "扫描铭牌二维码"
+    "scanQr": "扫描铭牌二维码",
+    "transfer": "流转 / 换位",
+    "addRelation": "添加关联",
+    "addEvent": "记录事件"
   },
   "ai": {
     "title": "AI 助手",

@@ -26,7 +26,7 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
     const o = await prisma.serviceOrder.findFirstOrThrow({ where: { no, customerId: me.customerId } });
     if (o.status !== "QUOTE_PENDING") return;
     const desk = await prisma.employee.findFirstOrThrow({ where: { entityId: o.entityId, active: true }, orderBy: { code: "asc" } });
-    await advanceServiceOrder(no, "IN_PROGRESS", desk.code, `客户 ${me.name} 在门户确认报价`);
+    await advanceServiceOrder(no, "IN_PROGRESS", desk.code, `quote confirmed in portal by ${me.name}`);
     redirect(`/portal/orders/${no}`);
   }
   async function sign(form: FormData) {

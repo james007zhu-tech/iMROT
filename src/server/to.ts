@@ -27,7 +27,7 @@ export const TaxInvoiceInput = z.object({
 });
 
 /** Issue TITH from the accepted order. Order must be ACCEPTED. Lines default to the quote lines. */
-export async function issueTaxInvoice(input: z.infer<typeof TaxInvoiceInput>) {
+export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   const d = TaxInvoiceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, customer: true, lines: true, assets: true } });
   if (order.status !== "ACCEPTED") throw new Error(`${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
@@ -57,7 +57,7 @@ export async function issueTaxInvoice(input: z.infer<typeof TaxInvoiceInput>) {
     await tx.document.create({ data: { no, type: "TI", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, issuedAt } });
     await tx.serviceOrder.update({ where: { id: order.id }, data: { status: "INVOICED" } });
     for (const a of order.assets) {
-      await tx.assetEvent.create({ data: { assetId: a.assetId, type: "INVOICED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: issuedAt, summary: `开票 ${currency} ${t.total.toFixed(2)}（含 VAT ${(vatRate * 100).toFixed(0)}%）`, payload: { ...t, totalCny: round2(t.total * fx), fx } as Prisma.InputJsonValue } });
+      await tx.assetEvent.create({ data: { assetId: a.assetId, type: "INVOICED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: issuedAt, summary: `${currency} ${t.total.toFixed(2)} incl. VAT ${(vatRate * 100).toFixed(0)}%`, payload: { ...t, totalCny: round2(t.total * fx), fx } as Prisma.InputJsonValue } });
     }
     return ti;
   });
@@ -73,7 +73,7 @@ export const InvoiceInput = z.object({
 });
 
 /** IVTH — what the customer pays against. */
-export async function issueInvoice(input: z.infer<typeof InvoiceInput>) {
+export async function issueInvoice(input: z.input<typeof InvoiceInput>) {
   const d = InvoiceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { customer: true, taxInvoices: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
@@ -101,7 +101,7 @@ export const PaymentInput = z.object({
 });
 
 /** Record payment on the IVTH. Full settlement (cash + WHT ≥ due) closes the order and writes PAID on each asset. */
-export async function recordPayment(input: z.infer<typeof PaymentInput>) {
+export async function recordPayment(input: z.input<typeof PaymentInput>) {
   const d = PaymentInput.parse(input);
   const iv = await prisma.invoice.findUniqueOrThrow({ where: { no: d.invoiceNo }, include: { serviceOrder: { include: { assets: true } } } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
@@ -116,7 +116,7 @@ export async function recordPayment(input: z.infer<typeof PaymentInput>) {
     if (settled) {
       await tx.serviceOrder.update({ where: { id: iv.serviceOrderId }, data: { status: "CLOSED", closedAt: d.paidAt } });
       for (const a of iv.serviceOrder.assets) {
-        await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: iv.no, occurredAt: d.paidAt, summary: `回款 ${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? `（预扣税 ${d.whtAmount.toFixed(2)}）` : ""}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef } as Prisma.InputJsonValue } });
+        await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: iv.no, occurredAt: d.paidAt, summary: `${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? ` + WHT ${d.whtAmount.toFixed(2)}` : ""}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef } as Prisma.InputJsonValue } });
       }
     }
     return updated;

@@ -109,7 +109,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
       const rootCause = String(form.get("rootCause") || o.repairJobs.at(-1)?.rootCause || "");
       const lesson = String(form.get("lesson") || "");
       for (const l of o.assets) {
-        await appendAssetEvent({ assetCode: l.asset.code, type: "CASE_ARCHIVED", actorEmployeeCode: me.code, serviceOrderNo: no, sourceDocNo: no, summary: `案例归档：${rootCause}`, payload: { rootCause, lesson, checks: str(form, "checks") } });
+        await appendAssetEvent({ assetCode: l.asset.code, type: "CASE_ARCHIVED", actorEmployeeCode: me.code, serviceOrderNo: no, sourceDocNo: no, summary: rootCause, payload: { rootCause, lesson, checks: str(form, "checks") } });
         const model = l.asset.model;
         if (model && form.get("toFaultCode") === "on" && o.reportedAlarm) await addFaultCode(model.seriesId, undefined, o.reportedAlarm, rootCause.slice(0, 80), lesson, str(form, "checks"));
         if (model && form.get("toMaintenance") === "on" && str(form, "maintItem")) await addMaintenanceStandard(model.seriesId, undefined, String(form.get("maintItem")), form.get("maintMonths") ? Number(form.get("maintMonths")) : undefined, undefined, lesson);
@@ -200,7 +200,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               <p className="text-xs text-slate-500">VAT 7% added automatically; CNY at today's BoC rate. Thai description is required for the tax invoice.</p>
               <button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("save")} → {ts("QUOTE_PENDING")}</button>
             </form>
-            {order.kind === "CONTRACT" && <form action={advance} className="mt-2"><input type="hidden" name="to" value="IN_PROGRESS" /><input type="hidden" name="note" value="合同内服务，直接执行" /><button className="rounded border px-3 py-1.5 text-sm">{t("CONTRACT")} → {ts("IN_PROGRESS")}</button></form>}
+            {order.kind === "CONTRACT" && <form action={advance} className="mt-2"><input type="hidden" name="to" value="IN_PROGRESS" /><input type="hidden" name="note" value="CONTRACT" /><button className="rounded border px-3 py-1.5 text-sm">{t("CONTRACT")} → {ts("IN_PROGRESS")}</button></form>}
           </Card>}
 
           {order.status === "QUOTE_PENDING" && <Card title={ts("QUOTE_PENDING")}>

@@ -19,7 +19,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
         <input name="email" type="email" placeholder="email" className="w-full rounded border px-3 py-2" required />
         <input name="password" type="password" placeholder="password" className="w-full rounded border px-3 py-2" required />
         {e && <p className="text-sm text-rose-600">Invalid email or password</p>}
-        <button className="w-full rounded bg-blue py-2 text-white">OK</button>
+        <button type="submit" className="w-full rounded bg-blue py-2 text-white">OK</button>
       </form>
     </div>
   );

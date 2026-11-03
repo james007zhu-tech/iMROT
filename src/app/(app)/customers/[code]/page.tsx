@@ -35,7 +35,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
     <div className="space-y-4">
       <Flash ok={ok} error={error} />
       <div className="flex items-center gap-3"><Link href="/customers" className="text-sm text-blue">← CRM</Link><h1 className="font-mono text-2xl font-bold">{c.code}</h1><span>{c.name}</span>{c.nameLocal && <span className="text-slate-500">{c.nameLocal}</span>}</div>
-      <p className="flex items-center gap-3 text-sm text-slate-600">Tax ID {c.taxId ?? "—"} · branch {c.branchCode ?? "—"} · {c.paymentTermDays} days · {c.defaultCurrency}{c.monthlyStatement && <form action={statement}><button className="rounded border px-2 py-0.5 text-xs">BLTH this month</button></form>}</p>
+      <div className="flex items-center gap-3 text-sm text-slate-600">Tax ID {c.taxId ?? "—"} · branch {c.branchCode ?? "—"} · {c.paymentTermDays} days · {c.defaultCurrency}{c.monthlyStatement && <form action={statement}><button className="rounded border px-2 py-0.5 text-xs">BLTH this month</button></form>}</div>
       <div className="grid gap-4 md:grid-cols-2">
         <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">{t("plant")}</h2>
           <ul className="text-sm">{c.plants.map((p) => <li key={p.id}>{p.code} · {p.name}{p.address ? ` · ${p.address}` : ""}</li>)}</ul>

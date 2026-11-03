@@ -23,11 +23,13 @@ export const OnboardAssetInput = z.object({
   configuration: z.record(z.unknown()).optional(),
   operatingConditions: z.record(z.unknown()).optional(),
   installedAt: z.coerce.date().optional(),
+  /** Initial status: a taken-over machine is usually already running (IN_SERVICE); a spare goes to SPARE. */
+  initialStatus: z.enum(["ONBOARDED", "IN_SERVICE", "SPARE"]).optional(),
 });
-export type OnboardAssetInput = z.infer<typeof OnboardAssetInput>;
+export type OnboardAssetInput = z.input<typeof OnboardAssetInput>;
 
 /** 建档 / 接管: minimum six fields — code (allocated), serial, model, customer, location, responsible. */
-export async function onboardAsset(input: OnboardAssetInput) {
+export async function onboardAsset(input: z.input<typeof OnboardAssetInput>) {
   const data = OnboardAssetInput.parse(input);
   const creator = await prisma.employee.findUniqueOrThrow({ where: { code: data.createdByEmployeeCode } });
 
@@ -50,7 +52,7 @@ export async function onboardAsset(input: OnboardAssetInput) {
         configuration: data.configuration as Prisma.InputJsonValue | undefined,
         operatingConditions: data.operatingConditions as Prisma.InputJsonValue | undefined,
         installedAt: data.installedAt,
-        status: "ONBOARDED",
+        status: data.initialStatus ?? (data.origin === "TAKEOVER" ? "IN_SERVICE" : "ONBOARDED"),
       },
     });
     await tx.assetEvent.create({
@@ -58,8 +60,8 @@ export async function onboardAsset(input: OnboardAssetInput) {
         assetId: asset.id,
         type: "ONBOARDED",
         actorId: creator.id,
-        summary: `${data.origin === "TAKEOVER" ? "接管建档" : "新装建档"} S/N ${data.serialNumber}`,
-        payload: { origin: data.origin, customerId: data.customerId, plantId: data.plantId, location: data.location },
+        summary: `${data.origin} · S/N ${data.serialNumber}`,
+        payload: { origin: data.origin, customerId: data.customerId, plantId: data.plantId, location: data.location, initialStatus: data.initialStatus ?? (data.origin === "TAKEOVER" ? "IN_SERVICE" : "ONBOARDED") },
       },
     });
     return asset;
@@ -81,7 +83,7 @@ export const AppendEventInput = z.object({
   newStatus: z.string().optional(),
 });
 
-export async function appendAssetEvent(input: z.infer<typeof AppendEventInput>) {
+export async function appendAssetEvent(input: z.input<typeof AppendEventInput>) {
   const data = AppendEventInput.parse(input);
   const asset = await prisma.asset.findUniqueOrThrow({ where: { code: data.assetCode } });
   const actor = data.actorEmployeeCode ? await prisma.employee.findUniqueOrThrow({ where: { code: data.actorEmployeeCode } }) : null;
@@ -126,7 +128,7 @@ export async function transferAsset(opts: { assetCode: string; actorEmployeeCode
         assetId: asset.id,
         type: "TRANSFERRED",
         actorId: actor.id,
-        summary: opts.note ?? "设备流转",
+        summary: opts.note ?? "",
         payload: {
           from: { customerId: asset.customerId, plantId: asset.plantId, location: asset.location },
           to: { customerId: opts.customerId ?? asset.customerId, plantId: opts.plantId ?? asset.plantId, location: opts.location ?? asset.location },
@@ -141,7 +143,7 @@ export async function getAssetPage(code: string) {
   return prisma.asset.findUnique({
     where: { code },
     include: {
-      model: { include: { series: { include: { brand: true } }, faultCodes: true, maintenanceStandards: true, bom: { include: { part: true } } } },
+      model: { include: { series: { include: { brand: true, faultCodes: { where: { modelId: null } }, maintenanceStandards: { where: { modelId: null } } } }, faultCodes: true, maintenanceStandards: true, bom: { include: { part: true } } } },
       customer: true,
       plant: true,
       responsible: { select: { code: true, name: true } },

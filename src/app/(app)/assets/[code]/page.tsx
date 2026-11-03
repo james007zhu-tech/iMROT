@@ -149,7 +149,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Section title={te("TRANSFERRED")}>
+        <Section title={t("transfer")}>
           <form action={transfer} className="space-y-1">
             <select name="customerId" defaultValue={asset.customerId ?? ""} className={input}><option value="">{t("customer")}</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.code} {c.name}</option>)}</select>
             <select name="plantId" defaultValue={asset.plantId ?? ""} className={input}><option value="">{t("plant")}</option>{customers.flatMap((c) => c.plants.map((p) => <option key={p.id} value={p.id}>{c.code} · {p.name}</option>))}</select>
@@ -158,7 +158,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
             <button className="rounded border px-3 py-1 text-sm">{t("save")}</button>
           </form>
         </Section>
-        <Section title={t("relations")}>
+        <Section title={t("addRelation")}>
           <form action={relate} className="space-y-1">
             <select name="direction" className={input}><option value="to">{asset.code} →</option><option value="from">→ {asset.code}</option></select>
             <select name="relation" className={input}>{["DRIVES", "INSTALLED_IN", "CONTROLLED_BY", "COUPLED_TO"].map((r) => <option key={r}>{r}</option>)}</select>
@@ -166,7 +166,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
             <button className="rounded border px-3 py-1 text-sm">{t("save")}</button>
           </form>
         </Section>
-        <Section title={t("timeline")}>
+        <Section title={t("addEvent")}>
           <form action={note} encType="multipart/form-data" className="space-y-1">
             <select name="type" className={input}>{["CONDITION_RECORDED", "PARAMETER_BACKUP", "READING", "ALARM", "CASE_ARCHIVED"].map((x) => <option key={x} value={x}>{te(x)}</option>)}</select>
             <input name="summary" placeholder="Summary" className={input} required />
@@ -181,9 +181,9 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
         <Section title={t("knowledge")}>
           <div className="grid gap-4 md:grid-cols-3 text-sm">
             <div><h3 className="mb-1 font-semibold">{t("faultCodes")}</h3>
-              <ul>{asset.model.faultCodes.map((f) => <li key={f.id}><span className="font-mono">{f.code}</span> {f.title}{f.firstChecks ? ` — ${f.firstChecks}` : ""}</li>)}{asset.model.faultCodes.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul></div>
+              <ul>{[...asset.model.series.faultCodes, ...asset.model.faultCodes].map((f) => <li key={f.id}><span className="font-mono">{f.code}</span> {f.title}{f.firstChecks ? ` — ${f.firstChecks}` : ""}</li>)}{asset.model.series.faultCodes.length + asset.model.faultCodes.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul></div>
             <div><h3 className="mb-1 font-semibold">{t("maintenanceStandards")}</h3>
-              <ul>{asset.model.maintenanceStandards.map((m) => <li key={m.id}>{m.item}{m.intervalMonths ? ` · ${m.intervalMonths} mo` : ""}{m.intervalHours ? ` · ${m.intervalHours} h` : ""}</li>)}{asset.model.maintenanceStandards.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul></div>
+              <ul>{[...asset.model.series.maintenanceStandards, ...asset.model.maintenanceStandards].map((m) => <li key={m.id}>{m.item}{m.intervalMonths ? ` · ${m.intervalMonths} mo` : ""}{m.intervalHours ? ` · ${m.intervalHours} h` : ""}</li>)}{asset.model.series.maintenanceStandards.length + asset.model.maintenanceStandards.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul></div>
             <div><h3 className="mb-1 font-semibold">{t("bom")}</h3>
               <ul>{asset.model.bom.map((b) => <li key={b.id}><Link className="font-mono text-blue underline" href={`/parts/${b.part.sku}`}>{b.part.sku}</Link> {b.part.name} ×{b.qty}</li>)}{asset.model.bom.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul></div>
           </div>

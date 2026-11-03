@@ -22,7 +22,7 @@ export const MovementInput = z.object({
   movedAt: z.coerce.date().optional(),
 });
 
-export async function recordMovement(input: z.infer<typeof MovementInput>) {
+export async function recordMovement(input: z.input<typeof MovementInput>) {
   const d = MovementInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const part = await prisma.part.findUniqueOrThrow({ where: { sku: d.partSku } });
@@ -42,7 +42,7 @@ export async function recordMovement(input: z.infer<typeof MovementInput>) {
     if (d.direction === "OUT" && asset) {
       await tx.assetEvent.create({
         data: { assetId: asset.id, type: "PART_REPLACED", actorId: actor.id, serviceOrderId: order?.id, sourceDocNo: no, occurredAt: d.movedAt,
-          summary: `更换 ${part.name}（${part.sku}）×${d.qty}${d.oldPartDisposition ? `，旧件：${d.oldPartDisposition}` : ""}`,
+          summary: `${part.name} (${part.sku}) ×${d.qty}${d.oldPartDisposition ? ` · old: ${d.oldPartDisposition}` : ""}`,
           payload: { partSku: part.sku, qty: d.qty, batch: d.batch, oldPartDisposition: d.oldPartDisposition } as Prisma.InputJsonValue },
       });
     }
