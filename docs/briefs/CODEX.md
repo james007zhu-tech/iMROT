@@ -1,11 +1,9 @@
 # Codex 任务书（更新 2026-11-03）
 
-代码已由 Claude 写到 v0.12，但 Next/Prisma 层在 Claude 的环境里没编译过。你的第一天任务是把它跑起来并补测试。
+代码已由 Claude 写到 v0.14 并在真实环境跑通（typecheck 零错误、vitest、smoke、next build、33 步 Playwright e2e 全过）。你的任务是加厚测试和打磨 Admin/CRM/OPD。
 
-## 第一步：跑通（优先级最高）
-1. `npm install && npm run db:generate && npm run typecheck` — 修掉所有类型错误，**不改业务逻辑**；不确定的地方在 PR 里留评论。
-2. `docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetch && npm run smoke` — 直到 `SMOKE PASSED`。
-3. `npm run dev`，按 `docs/TEST-CHECKLIST.md` 17 步点一遍，把失败项记在 PR 描述里。
+## 第一步：复现基线
+`npm install && npm run typecheck && npm test && docker compose up -d db && npm run db:push && npm run db:seed && npm run smoke && npm run build && npm run e2e`（e2e 需 `npx playwright install chromium`，先 `npm run start` 起服务）。任何一步失败先修它。
 
 ## 第二步：测试
 - 用 Vitest + 真实 PostgreSQL（或 `scripts/dev/fake-prisma.ts`）给 `src/server/*` 每个导出函数写一个用例；重点：状态机拒绝非法跳转、编号按法人/月/日重置、金额与 CNY 折算、门户只能看本客户。
