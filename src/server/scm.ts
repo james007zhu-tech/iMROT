@@ -65,3 +65,12 @@ export async function assetsUsingPart(partSku: string) {
     select: { code: true, serialNumber: true, status: true, customer: { select: { code: true, name: true } }, model: { select: { code: true } } },
   });
 }
+
+/** New part number: SKU = brand code + vendor part no (so the same part matches across customers). */
+export async function createPart(input: { brandCode?: string; vendorPartNo: string; name: string; nameLocal?: string; unit?: string; safetyStock?: number }) {
+  const vendor = input.vendorPartNo.trim();
+  if (!vendor) throw new Error("vendor part number is required");
+  const brand = input.brandCode ? await prisma.brand.findUnique({ where: { code: input.brandCode } }) : null;
+  const sku = `${brand?.code ?? "GEN"}-${vendor}`;
+  return prisma.part.create({ data: { sku, brandId: brand?.id, vendorPartNo: vendor, name: input.name, nameLocal: input.nameLocal, unit: input.unit ?? "pcs", safetyStock: input.safetyStock } });
+}

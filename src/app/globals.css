@@ -7,8 +7,25 @@
 @theme {
   --color-navy: #0B2D53;
   --color-blue: #2374D5;
+  --color-line: rgb(11 45 83 / 0.35);      /* every frame: navy at 35 % — never black */
+  --color-hair: rgb(11 45 83 / 0.15);      /* row separators */
+  --color-tint: rgb(35 116 213 / 0.07);    /* AI-filled fields, current step background */
+  --color-alert: #F2A33A;                  /* orange: only alarms, conflicts, required stars, overdue */
+  --color-alert-ink: #8A5A00;
+  --color-fault: #D0021B;                  /* red: only fault descriptions and alarm codes */
   --font-sans: "Sarabun", "Noto Sans SC", system-ui, sans-serif;
 }
 
 html { font-family: var(--font-sans); }
-body { @apply bg-slate-50 text-slate-900; }
+body { background: #F4F7FB; color: #0B2D53; }
+
+/* Rule ②: no black lines anywhere. Tailwind v4 borders default to currentColor; pin them to navy 35 %. */
+@layer base {
+  *, ::before, ::after { border-color: var(--color-line); }
+  input, select, textarea { border-color: rgb(11 45 83 / 0.4); background: #fff; color: #0B2D53; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid rgb(35 116 213 / 0.35); outline-offset: 0; border-color: #2374D5; }
+  table th { color: rgb(11 45 83 / 0.75); font-weight: 600; }
+  table tr { border-color: var(--color-hair); }
+}
+/* Fields the AI filled from an uploaded file: light blue until a person touches them. */
+.ai-filled { background: var(--color-tint) !important; border-color: #2374D5 !important; }

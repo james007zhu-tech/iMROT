@@ -7,7 +7,7 @@
  *     C = customer CTH2610 + 3 digits  → CTH2610001
  *     E = employee ETH2610 + 3 digits  → ETH2610001
  *   Business documents (high frequency):  <2 letters><country><YYMMDD><serial>, serial resets daily
- *     QT IN RP PM ER TI IV BL PF DL CN DN TF RT SC PV TR PR PO → 2-digit serial  → QTTH26110201
+ *     QT IN RP PM ER TI IV BL PF DN CN DB TF RT SC PV TR PR PO → 2-digit serial  → QTTH26110201
  *     IB OB (stock movements)                                  → 3-digit serial  → OBTH261102001
  *
  * The country code is never chosen by the user: it is the country of the employee who creates the record
@@ -36,9 +36,9 @@ export const DOC_PREFIXES = {
   PF: { name: "proforma invoice", digits: 2 },
   IB: { name: "stock in", digits: 3 },
   OB: { name: "stock out", digits: 3 },
-  DL: { name: "delivery note", digits: 2 },
+  DN: { name: "delivery note", digits: 2 },
   CN: { name: "credit note", digits: 2 },
-  DN: { name: "debit note", digits: 2 },
+  DB: { name: "debit note", digits: 2 },
   TF: { name: "spare transfer", digits: 2 },
   RT: { name: "return / send back", digits: 2 },
   SC: { name: "service contract", digits: 2 },

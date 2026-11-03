@@ -15,7 +15,7 @@ export default async function PortalLogin({ searchParams }: { searchParams: Prom
       <input type="hidden" name="next" value={next ?? ""} />
       <input name="login" placeholder={t("login")} className="w-full rounded border px-3 py-3 text-base" required />
       <input name="password" type="password" placeholder={t("password")} className="w-full rounded border px-3 py-3 text-base" required />
-      {e && <p className="text-sm text-rose-600">{t("invalidPortalLogin")}</p>}
+      {e && <p className="text-sm text-alert-ink">{t("invalidPortalLogin")}</p>}
       <button className="w-full rounded bg-blue py-3 text-base text-white">{t("ok")}</button>
     </form>
   );

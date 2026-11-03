@@ -228,7 +228,7 @@ export class FakePrisma {
     const nested: [Field, unknown][] = [];
     for (const f of model.fields) {
       if (f.isRelation) { if (f.name in input) nested.push([f, input[f.name]]); continue; }
-      if (f.name in input) row[f.name] = input[f.name] instanceof Date ? input[f.name] : input[f.name];
+      if (f.name in input && input[f.name] !== undefined) row[f.name] = input[f.name]; // like Prisma: undefined means "not given"
       else if (f.isId) row[f.name] = cuid();
       else if (f.hasDefaultNow || f.updatedAt) row[f.name] = new Date();
       else if (f.defaultValue !== undefined) row[f.name] = f.defaultValue;

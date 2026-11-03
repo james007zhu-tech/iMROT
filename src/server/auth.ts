@@ -70,3 +70,17 @@ export async function currentContact() {
   if (!c) redirect("/portal/login");
   return c;
 }
+
+const REVEAL_COOKIE = "dcit_reveal";
+const REVEAL_MS = 5 * 60 * 1000;
+
+/** After a password re-check: show this customer's contacts in full for five minutes. */
+export async function grantReveal(employeeCode: string, customerCode: string) {
+  (await cookies()).set(REVEAL_COOKIE, sign(`${employeeCode}|${customerCode}|${Date.now() + REVEAL_MS}`), { httpOnly: true, sameSite: "lax", path: "/", maxAge: REVEAL_MS / 1000 });
+}
+export async function revealActive(customerCode: string): Promise<boolean> {
+  const p = verify((await cookies()).get(REVEAL_COOKIE)?.value);
+  if (!p) return false;
+  const [emp, cust, until] = p.split("|");
+  return cust === customerCode && Number(until) > Date.now() && emp === (await sessionEmployeeCode());
+}

@@ -7,7 +7,7 @@
 
 ## 技术栈
 
-Next.js 15 (App Router, TypeScript) · Prisma 6 + PostgreSQL · next-intl (th / zh / en，右上角随时切换) · Zod · Vitest。
+Next.js 15 (App Router, TypeScript) · Prisma 6 + PostgreSQL · next-intl (th / zh / en，右上角随时切换) · Zod · Vitest · Playwright。
 报告由 `templates/word/*.docx`（DCiT 文件模板体系 V1.0）填充占位符 `[[FIELD]]` 生成，再转 PDF。
 
 ## 起步
@@ -26,7 +26,7 @@ npm run dev
 | 层 | 规则 | 例 |
 | --- | --- | --- |
 | 资产 / 客户 / 员工 | `A|C|E` + 国家 + YYMM + 流水（A 4 位，C/E 3 位），按月重置 | ATH26100001 · CTH2611001 · ETH2611001 |
-| 单据 | 2 字母 + 国家 + YYMMDD + 2 位流水，按日重置；IB/OB 3 位 | QTTH26110201 · OBTH261102001 |
+| 单据 | 2 字母 + 国家 + YYMMDD + 2 位流水，按日重置；IB/OB 3 位 | QTTH26110201 · DNTH26110601 · OBTH261102001 |
 
 国家码来自录入人的员工编号（ETH→TH，EVN→VN）。客户自己的单号原样存 `customerRef`，不改写。作废号保留。
 实现：`src/lib/numbering.ts`（纯函数，有测试）+ `src/lib/numbering-db.ts`（事务内分配）。
@@ -91,3 +91,14 @@ docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetc
 - 0.13 AGENTS.md（给所有 AI 与人的开发守则）、Codex/Gemini 任务书改为"先跑通再打磨"、门户相机扫码（BarcodeDetector）、PWA manifest 与图标。
 - 0.14 首次真实编译运行：修 zod 输入类型（`z.input`）、tsconfig 排除开发替身、登录按钮 type；接管设备默认在役并可在建档时选初始状态，ONBOARDED 可直接进维修；事件摘要改为语言中性（类型由界面翻译）；设备页显示系列级故障代码与维护标准；客户页修复 hydration；Playwright 浏览器回归脚本 `scripts/e2e.mjs`（33 步）。
 - 0.15 三语彻底清理：所有页面写死的英文（标题、表头、占位符、下拉项、复选框、提示语、事件摘要、关联关系）全部走 next-intl，泰/中/英各约 350 条；侧栏菜单改为纯译名；事件时间线按结构化 payload 本地化渲染（`EventSummary`）。e2e 33 步仍全过。
+- 0.16 按 2026-11-03 定稿的线框（Claude Design 画布）重做表单与流程：
+  - 全局四条：列表页右上角「新增 XXX」；线框一律海军蓝系（橙色只给报警/冲突/必填/逾期，红色只给故障现象和报警代码）；步骤页左上角回退到应用页面；每个表单顶部有上传/粘贴框，上传即识别并填表（淡蓝底标出，`/api/ai/recognize`，无 API key 时按文本规则识别），原件随记录保存。
+  - 设备：新增设备页（型号按铭牌输入、序列号重复橙色提示、配置工况、建档时直接关联电机/控制柜/PLC，「保存并打印 DCiT 二维码标签」）；设备页「历史服务」列出每次服务的全部报告。
+  - 客户：新增客户只接受 DBD / ภ.พ.20 / 开票信息；按税号从 DBD 查回公司名、地址、电话、资本、状态（`src/server/dbd.ts`，接口地址可配 `DBD_API_URL`，未在线验证）；注销公司不能保存；联系人默认脱敏，重新输入密码后显示 5 分钟并记审计日志（`AuditLog`）。
+  - 服务单：新增服务单（扫 DCiT 二维码标签、PO/报修附件原件存档、保存并派工）；详情页只看状态和已完成单据（按报告名称，不显示模板号）、下一步按钮、带日期的时间线；每一步是独立表单页：检测 INTH、报价、客户 PO 确认（PO 行）、设备接收 ERTH（随附件逐项）、出库 OBTH、维修 RPTH、维护保养 PMTH（按型号维护标准的保养项目、隐患、下次保养、隐患一键转报修）、送货单 DNTH、验收、开票、回款、案例归档。
+  - 送货单 DNTH（新）：逐行对照 PO，ERTH 收进的随附件和 RPTH 标「退回客户」的旧件必须送回；不一致不能开具，只有 MD 填原因可批准（审计）；可分批；客户签收写设备时间线；新模板 `templates/word/19_Delivery_Note.docx`。编号 DN = 送货单，借项通知单改为 DB。
+  - 组织人才（员工）和法人只有 MD 可见；法人代码 DCiT / DCiV / DCiC；员工号按所选法人的国家。
+  - 报告：DCiT 模板本身是多语言，取消按 th/zh/en 分别生成；门户只能下载本客户的单据；门户每次服务的报告逐行列出并可整包 ZIP 下载。
+  - 验证：tsc 0 错误、vitest 31 用例、`npm run smoke`（PostgreSQL，含 DNTH 不一致拦截、PMTH、MD 限制）、`npm run smoke:mem`、`next build`、Playwright 41 步 e2e 全过。
+  - 升级本地库：`git pull && npm install && npm run db:push && npm run db:seed`（已有法人自动得到代码 DCiT，ETH2611001 设为 MD）。
+

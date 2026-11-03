@@ -25,7 +25,7 @@ export function DashboardBuilder({ dashboardId }: { dashboardId?: string }) {
     <form onSubmit={(e) => { e.preventDefault(); void build(); }} className="flex gap-2">
       <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={dashboardId ? t("editDashboard") : t("buildDashboard")} className="w-full rounded border px-3 py-1.5 text-sm md:w-80" />
       <button disabled={busy} className="rounded bg-blue px-3 py-1.5 text-sm text-white disabled:opacity-50">{busy ? "…" : "AI"}</button>
-      {err && <span className="text-xs text-rose-600">{err}</span>}
+      {err && <span className="text-xs text-alert-ink">{err}</span>}
     </form>
   );
 }

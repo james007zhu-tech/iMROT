@@ -15,10 +15,10 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
     <div className="flex min-h-screen items-center justify-center bg-navy p-4">
       <form action={login} className="w-full max-w-sm space-y-3 rounded-lg bg-white p-6">
         <div className="flex items-center justify-between"><h1 className="text-xl font-bold text-navy">{t("appName")}</h1><div className="rounded bg-navy px-1"><LanguageSwitcher /></div></div>
-        <p className="text-xs text-slate-500">DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</p>
+        <p className="text-xs text-navy/70">DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</p>
         <input name="email" type="email" placeholder={t("email")} className="w-full rounded border px-3 py-2" required />
         <input name="password" type="password" placeholder={t("password")} className="w-full rounded border px-3 py-2" required />
-        {e && <p className="text-sm text-rose-600">{t("invalidLogin")}</p>}
+        {e && <p className="text-sm text-alert-ink">{t("invalidLogin")}</p>}
         <button type="submit" className="w-full rounded bg-blue py-2 text-white">{t("ok")}</button>
       </form>
     </div>

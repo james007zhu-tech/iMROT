@@ -122,13 +122,23 @@ export const RepairJobInput = z.object({
   confirmedFault: z.string().optional(),
   rootCause: z.string().optional(),
   workPerformed: z.string().optional(),
-  partsReplaced: z.array(z.object({ partSku: z.string(), qty: z.number().positive(), oldSerial: z.string().optional(), newSerial: z.string().optional(), obthNo: z.string().optional() })).optional(),
+  partsReplaced: z.array(z.object({ partSku: z.string(), name: z.string().optional(), qty: z.number().positive(), oldSerial: z.string().optional(), newSerial: z.string().optional(), obthNo: z.string().optional(), oldDisposition: z.enum(["SCRAP", "RETURN_TO_CUSTOMER", "KEEP_FOR_ANALYSIS"]).optional() })).optional(),
   configBackupRef: z.string().optional(),
   laborHours: z.number().optional(),
   tests: z.array(TestRow).optional(),
   openIssues: z.string().optional(),
   conclusion: z.string().optional(),
-  attachments: z.array(z.object({ name: z.string(), url: z.string() })).optional(),
+  attachments: z.array(z.object({ name: z.string(), url: z.string(), kind: z.string().optional() })).optional(),
+  // PMTH only
+  level: z.enum(["QUARTERLY", "HALF_YEAR", "ANNUAL", "CONTRACT"]).optional(),
+  runHours: z.number().int().optional(),
+  checklist: z.array(z.object({ item: z.string(), criterion: z.string().optional(), measured: z.string().optional(), verdict: z.enum(["OK", "HANDLED", "HAZARD", "WATCH"]).optional(), photo: z.string().optional() })).optional(),
+  hazards: z.string().optional(),
+  handled: z.string().optional(),
+  recommendation: z.string().optional(),
+  conditionRating: z.enum(["GOOD", "GOOD_WITH_ISSUE", "POOR"]).optional(),
+  nextDueAt: z.coerce.date().optional(),
+  nextDueHours: z.number().int().optional(),
 });
 
 /** Opening a job moves the asset IN_SERVICE → MAINTENANCE/REPAIR/OVERHAUL; finishing it moves to ACCEPTANCE. */
@@ -152,6 +162,8 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
         workPerformed: d.workPerformed, partsReplaced: d.partsReplaced as Prisma.InputJsonValue | undefined, configBackupRef: d.configBackupRef,
         laborHours: d.laborHours, tests: d.tests as Prisma.InputJsonValue | undefined, openIssues: d.openIssues, conclusion: d.conclusion,
         attachments: d.attachments as Prisma.InputJsonValue | undefined,
+        level: d.level, runHours: d.runHours, checklist: d.checklist as Prisma.InputJsonValue | undefined, hazards: d.hazards, handled: d.handled,
+        recommendation: d.recommendation, conditionRating: d.conditionRating, nextDueAt: d.nextDueAt, nextDueHours: d.nextDueHours,
       },
     });
     await tx.document.create({ data: { no, type: prefix, entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: eng.id, templateCode: d.kind === "MAINTENANCE" ? "11" : d.location === "SITE" ? "10" : "09" } });
@@ -170,7 +182,8 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
         assetId: asset.id, type: d.kind === "MAINTENANCE" ? "MAINTAINED" : d.kind === "OVERHAUL" ? "OVERHAULED" : "REPAIRED",
         actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.finishedAt ?? d.startedAt,
         summary: `${d.rootCause ?? d.workPerformed ?? ""}`,
-        payload: { confirmedFault: d.confirmedFault, rootCause: d.rootCause, partsReplaced: d.partsReplaced, laborHours: d.laborHours, statusFrom: asset.status, statusTo: status } as Prisma.InputJsonValue,
+        payload: { confirmedFault: d.confirmedFault, rootCause: d.rootCause, partsReplaced: d.partsReplaced, laborHours: d.laborHours, statusFrom: asset.status, statusTo: status, hazards: d.hazards, handled: d.handled, nextDueAt: d.nextDueAt, nextDueHours: d.nextDueHours, runHours: d.runHours } as Prisma.InputJsonValue,
+        attachments: d.attachments as Prisma.InputJsonValue | undefined,
       },
     });
     if (d.tests?.length) {
@@ -239,11 +252,12 @@ export const ReceiveInput = z.object({
   actorCode: z.string(),
   receivedAt: z.coerce.date().optional(),
   sender: z.string().optional(),
-  accessories: z.string().optional(),
+  accessories: z.string().optional(), /// one per line: "item × qty" — parsed so the delivery note can check they all go back
   condition: z.string().optional(),
   fault: z.string().optional(),
   photoRefs: z.string().optional(),
   handlingRestrictions: z.string().optional(),
+  attachments: z.array(z.object({ name: z.string(), url: z.string(), kind: z.string().optional() })).optional(),
 });
 
 /** Machine arrives at the workshop: ERTH number, RECEIVED_WORKSHOP event carrying the intake record. */
@@ -258,7 +272,16 @@ export async function receiveEquipment(input: z.input<typeof ReceiveInput>) {
     const no = await allocateNumber(tx, { prefix: "ER", createdByEmployeeCode: actor.code, entityId: order.entityId });
     await tx.document.create({ data: { no, type: "ER", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, templateCode: "07", issuedAt: d.receivedAt } });
     return tx.assetEvent.create({
-      data: { assetId: asset.id, type: "RECEIVED_WORKSHOP", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.receivedAt, summary: `${d.condition ?? ""}${d.fault ? ` · ${d.fault}` : ""}`, payload: { sender: d.sender, accessories: d.accessories, condition: d.condition, fault: d.fault, photoRefs: d.photoRefs, handlingRestrictions: d.handlingRestrictions } as Prisma.InputJsonValue },
+      data: { assetId: asset.id, type: "RECEIVED_WORKSHOP", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.receivedAt, summary: `${d.condition ?? ""}${d.fault ? ` · ${d.fault}` : ""}`, payload: { sender: d.sender, accessories: d.accessories, accessoryList: parseAccessories(d.accessories), condition: d.condition, fault: d.fault, photoRefs: d.photoRefs, handlingRestrictions: d.handlingRestrictions } as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined },
     });
+  });
+}
+
+/** "Keyboard × 1\nCable x2, fuse" → [{item, qty}] (qty defaults to 1). */
+export function parseAccessories(text?: string): { item: string; qty: number }[] {
+  if (!text) return [];
+  return text.split(/[\n,，;；]+/).map((x) => x.trim()).filter(Boolean).map((x) => {
+    const m = /^(.*?)\s*[×xX*]\s*(\d+)\s*$/.exec(x);
+    return m ? { item: m[1].trim(), qty: Number(m[2]) } : { item: x, qty: 1 };
   });
 }

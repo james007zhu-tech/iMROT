@@ -12,10 +12,16 @@ Read this before changing anything. Also read README.md and the design doc linke
 7. **Customer-facing documents use the Word templates in `templates/word/`** via `src/lib/docx`; never redraw them in HTML.
 8. **Money:** original currency + BoC rate + CNY on every amount; VAT separate; WHT never reduces the invoice.
 9. **Portal users see only their own customer's data** — filter by `customerId` in every portal query and tool.
+10. **UI rules (2026-11-03):** list pages end the title row with "+ New …" (`PageHeader newHref`); frames are navy shades only — orange (`alert`) for alarms/conflicts/required/overdue, red (`fault`) only for fault text and alarm codes; step pages have the app back link top-left; every form starts with `<UploadRecognize>`. Use `src/components/ui.tsx`, not ad-hoc styles.
+11. **Design notes never ship.** Wireframe annotations (purple "设计说明") explain the design; pages show only titles, labels, data, buttons, alerts.
+12. **Show report names, never template numbers** (`reportsFor` in `src/lib/order-steps.ts`).
+13. **Contacts are masked by default** (`src/lib/mask.ts`); full view needs a password re-check and is audited. OPD and legal entities are MD-only.
+14. **Services throw stable codes** (`DELIVERY_MISMATCH:…`, `SERIAL_EXISTS:…`); pages translate `err_<CODE>` from `messages/*.json`. Server actions must not close over translators (`t`, `u`) — Next cannot serialise them.
 
 ## Before a PR
 ```bash
 npm run typecheck && npm test && npm run smoke:mem   # no DB needed
+python3 scripts/dev/check-keys.py                   # every t("key") exists in th/zh/en
 npm run smoke                                       # with a database
 ```
 Branches: `feat/<module>-<topic>` → PR to `main`. Keep PRs under ~400 lines; one module per PR.

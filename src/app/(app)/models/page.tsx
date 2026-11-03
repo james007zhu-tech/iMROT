@@ -17,21 +17,21 @@ export default async function Models({ searchParams }: { searchParams: Promise<{
   const input = "rounded border px-2 py-1.5 text-sm";
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">ALM · {t("brand")} → {t("series")} → {t("model")}</h1>
+      <h1 className="text-2xl font-bold text-navy">ALM · {t("brand")} → {t("series")} → {t("model")}</h1>
       <Flash ok={ok} error={error} />
       <div className="grid gap-3 md:grid-cols-3">
-        <form action={addBrand} className="flex flex-wrap gap-1 rounded-lg border bg-white p-3"><b className="w-full text-xs text-slate-500">{t("brand")}</b><input name="code" placeholder={t("brandCodeHint")} className={`${input} w-20`} required /><input name="name" placeholder={t("brandNameHint")} className={input} required /><button className="rounded bg-navy px-2 text-xs text-white">+</button></form>
-        <form action={addSeries} className="flex flex-wrap gap-1 rounded-lg border bg-white p-3"><b className="w-full text-xs text-slate-500">{t("series")}</b><select name="brandCode" className={input}>{brands.map((b) => <option key={b.id} value={b.code}>{b.name}</option>)}</select><input name="code" placeholder={t("seriesCodeHint")} className={`${input} w-20`} required /><input name="name" placeholder={t("seriesNameHint")} className={input} required /><button className="rounded bg-navy px-2 text-xs text-white">+</button></form>
-        <form action={addModel} className="flex flex-wrap gap-1 rounded-lg border bg-white p-3"><b className="w-full text-xs text-slate-500">{t("model")}</b><select name="seriesId" className={input}>{brands.flatMap((b) => b.series.map((s) => <option key={s.id} value={s.id}>{b.name} {s.name}</option>))}</select><input name="code" placeholder={t("modelCodeHint")} className={input} required /><input name="kw" type="number" step="0.1" placeholder={t("kw")} className={`${input} w-16`} /><input name="v" type="number" placeholder={t("volt")} className={`${input} w-16`} /><input name="a" type="number" step="0.1" placeholder={t("amp")} className={`${input} w-16`} /><button className="rounded bg-navy px-2 text-xs text-white">+</button></form>
+        <form action={addBrand} className="flex flex-wrap gap-1 rounded-xl border bg-white p-4"><b className="w-full text-xs text-navy/70">{t("brand")}</b><input name="code" placeholder={t("brandCodeHint")} className={`${input} w-20`} required /><input name="name" placeholder={t("brandNameHint")} className={input} required /><button className="rounded bg-navy px-2 text-xs text-white">+</button></form>
+        <form action={addSeries} className="flex flex-wrap gap-1 rounded-xl border bg-white p-4"><b className="w-full text-xs text-navy/70">{t("series")}</b><select name="brandCode" className={input}>{brands.map((b) => <option key={b.id} value={b.code}>{b.name}</option>)}</select><input name="code" placeholder={t("seriesCodeHint")} className={`${input} w-20`} required /><input name="name" placeholder={t("seriesNameHint")} className={input} required /><button className="rounded bg-navy px-2 text-xs text-white">+</button></form>
+        <form action={addModel} className="flex flex-wrap gap-1 rounded-xl border bg-white p-4"><b className="w-full text-xs text-navy/70">{t("model")}</b><select name="seriesId" className={input}>{brands.flatMap((b) => b.series.map((s) => <option key={s.id} value={s.id}>{b.name} {s.name}</option>))}</select><input name="code" placeholder={t("modelCodeHint")} className={input} required /><input name="kw" type="number" step="0.1" placeholder={t("kw")} className={`${input} w-16`} /><input name="v" type="number" placeholder={t("volt")} className={`${input} w-16`} /><input name="a" type="number" step="0.1" placeholder={t("amp")} className={`${input} w-16`} /><button className="rounded bg-navy px-2 text-xs text-white">+</button></form>
       </div>
       <div className="space-y-3">
         {brands.map((b) => (
-          <section key={b.id} className="rounded-lg border bg-white p-3">
-            <h2 className="font-bold text-navy">{b.name} <span className="font-mono text-xs text-slate-500">{b.code}</span></h2>
+          <section key={b.id} className="rounded-xl border bg-white p-4">
+            <h2 className="font-bold text-navy">{b.name} <span className="font-mono text-xs text-navy/70">{b.code}</span></h2>
             {b.series.map((s) => (
               <div key={s.id} className="mt-2 pl-3">
-                <div className="font-semibold">{s.name} <span className="font-mono text-xs text-slate-500">{s.code}</span></div>
-                <ul className="grid gap-1 pl-3 text-sm md:grid-cols-3">{s.models.map((m) => <li key={m.id}><Link href={`/models/${m.id}`} className="font-mono text-blue underline">{m.code}</Link> <span className="text-slate-500">{m.ratedPowerKw ? `${Number(m.ratedPowerKw)} kW` : ""} · {m._count.assets} {t("assets")}</span></li>)}</ul>
+                <div className="font-semibold">{s.name} <span className="font-mono text-xs text-navy/70">{s.code}</span></div>
+                <ul className="grid gap-1 pl-3 text-sm md:grid-cols-3">{s.models.map((m) => <li key={m.id}><Link href={`/models/${m.id}`} className="font-mono text-blue underline">{m.code}</Link> <span className="text-navy/70">{m.ratedPowerKw ? `${Number(m.ratedPowerKw)} kW` : ""} · {m._count.assets} {t("assets")}</span></li>)}</ul>
               </div>
             ))}
           </section>

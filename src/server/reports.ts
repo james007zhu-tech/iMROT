@@ -16,7 +16,7 @@ const OUT = process.env.DOCS_DIR ?? path.join(process.cwd(), "uploads", "documen
 const TEMPLATE_FILES: Record<string, string> = {
   "04": "04_Repair_Service_Proposal.docx", "06": "06_Order_Confirmation.docx", "07": "07_Equipment_Receiving.docx",
   "08": "08_Diagnostic_Report.docx", "09": "09_Repair_Report.docx", "10": "10_Field_Service_Report.docx",
-  "11": "11_Preventive_Maintenance_Record.docx", "12": "12_Service_Completion.docx", "13": "13_Customer_Acceptance.docx",
+  "11": "11_Preventive_Maintenance_Record.docx", "12": "12_Service_Completion.docx", "13": "13_Customer_Acceptance.docx", "19": "19_Delivery_Note.docx",
 };
 
 const d = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
@@ -52,7 +52,12 @@ export async function buildFields(no: string, templateHint?: string): Promise<{ 
       const parts = ((j.partsReplaced as { partSku: string; qty: number; oldSerial?: string; newSerial?: string; obthNo?: string }[] | null) ?? []).map((p) => `${p.partSku} ×${p.qty}${p.newSerial ? ` (S/N ${p.newSerial})` : ""}${p.obthNo ? ` · ${p.obthNo}` : ""}`).join("\n");
       const base = { ...common, DATE_TECHNICIAN: `${d(j.finishedAt ?? j.startedAt)} · ${j.engineer.code} ${j.engineer.name}`, APPROVED_CRITERION: col(tests, "criterion"), MEASURED_RESULT: col(tests, "result"), RECORD_ID: col(tests, "recordId"), INSTRUMENT_CALIBRATION: "", ATTACHMENT_IDS: ((j.attachments as { name: string }[] | null) ?? []).map((x) => x.name).join(", "), OPEN_ISSUES: j.openIssues ?? "", CONCLUSION_LIMITATIONS: j.conclusion ?? "" };
       if (doc.templateCode === "11" || j.kind === "MAINTENANCE") {
-        return { template: "11", values: { ...base, ASSET_CONDITION: j.confirmedFault ?? "", PM_TASKS: j.workPerformed ?? "", ABNORMALITIES: j.rootCause ?? "", NEXT_ACTIONS: j.openIssues ?? "" } };
+        const items = (j.checklist as { item: string; criterion?: string; measured?: string; verdict?: string }[] | null) ?? [];
+        return { template: "11", values: { ...base,
+          ASSET_CONDITION: [j.conditionRating, j.runHours != null ? `${j.runHours} h` : "", j.level].filter(Boolean).join(" · ") || (j.confirmedFault ?? ""),
+          PM_TASKS: items.length ? items.map((x, i) => `${i + 1}. ${x.item}${x.criterion ? ` [${x.criterion}]` : ""}: ${x.measured ?? ""}${x.verdict ? ` — ${x.verdict}` : ""}`).join("\n") : (j.workPerformed ?? ""),
+          ABNORMALITIES: [j.hazards, j.handled ? `Handled: ${j.handled}` : ""].filter(Boolean).join("\n") || (j.rootCause ?? ""),
+          NEXT_ACTIONS: [j.recommendation, j.nextDueAt ? `Next: ${d(j.nextDueAt)}` : "", j.nextDueHours ? `or +${j.nextDueHours} h` : ""].filter(Boolean).join(" · ") || (j.openIssues ?? "") } };
       }
       if (doc.templateCode === "10" || j.location === "SITE") {
         return { template: "10", values: { ...base, ISSUE_SCOPE: [j.confirmedFault, j.rootCause].filter(Boolean).join("\n"), PERMIT_ISOLATION: "", ACTIVITY_TIME: `${j.workPerformed ?? ""}${j.laborHours ? `\n${Number(j.laborHours)} h` : ""}`, RESTORATION_HANDOVER: j.conclusion ?? "" } };
@@ -82,39 +87,38 @@ export async function buildFields(no: string, templateHint?: string): Promise<{ 
       for (let i = 0; i < 3; i++) { values[`DELIVERABLE_${i + 1}`] = dv[i]?.deliverable ?? ""; values[`CRITERION_${i + 1}`] = dv[i]?.criterion ?? ""; values[`RESULT_${i + 1}`] = dv[i]?.result ?? ""; }
       return { template: want === "12" ? "12" : "13", values };
     }
+    case "DN": {
+      const dn = await prisma.deliveryNote.findUniqueOrThrow({ where: { no }, include: { driver: true } });
+      const lines = dn.lines as { kind: string; description: string; assetCode?: string; delivered: number; poLineNo?: number; source?: string }[];
+      const plant = dn.plantId ? await prisma.plant.findUnique({ where: { id: dn.plantId } }) : null;
+      const list = (f: (l: (typeof lines)[number]) => boolean) => lines.filter((l) => f(l) && l.delivered > 0).map((l) => `${l.poLineNo ? `${l.poLineNo}. ` : ""}${l.description}${l.assetCode ? ` (${l.assetCode})` : ""} × ${l.delivered}${l.source ? ` · ${l.source}` : ""}`).join("\n");
+      return { template: "19", values: { ...common, ISSUE_DATE: d(dn.deliverOn), DELIVER_TO: [o?.customer.name, plant?.name, dn.address ?? plant?.address].filter(Boolean).join(" · "), DRIVER_VEHICLE: [dn.driver ? `${dn.driver.code} ${dn.driver.name}` : "", dn.vehicle].filter(Boolean).join(" · "), DELIVER_ON: d(dn.deliverOn),
+        // The repaired machine itself goes back too; PO lines are the parts and items the customer ordered.
+        PO_ITEMS: list((l) => l.kind === "PO"), EQUIPMENT: [...new Set(lines.filter((l) => l.delivered > 0 && l.assetCode).map((l) => l.assetCode!))].map((c) => { const x = o?.assets.find((y) => y.asset.code === c)?.asset; return x ? `${x.code} · ${x.model ? `${x.model.series.brand.name} ${x.model.code} · ` : ""}S/N ${x.serialNumber}` : c; }).join("\n"),
+        RETURNED_ACCESSORIES: list((l) => l.kind === "RETURN" && (l.source ?? "").startsWith("ER")), RETURNED_PARTS: list((l) => l.kind === "RETURN" && !(l.source ?? "").startsWith("ER")), REMARKS: [dn.remark, dn.overrideReason ? `MD: ${dn.overrideReason}` : ""].filter(Boolean).join("\n") } };
+    }
     default:
       throw new Error(`no Word template for document type ${doc.type}`);
   }
 }
 
 /** Render a document to .docx (+ .pdf when soffice exists). Stores files under uploads/documents and sets Document.pdfUrl. */
-export async function renderDocument(no: string, template?: string, lang?: "th" | "zh" | "en"): Promise<{ docxPath: string; pdfPath?: string; unfilled: string[] }> {
-  const { template: tpl, values: raw } = await buildFields(no, template);
-  const values = lang ? await translateValues(raw, lang) : raw;
+/** The DCiT templates are bilingual by design, so every document renders once — no per-language copies (decision 2026-11-03). */
+export async function renderDocument(no: string, template?: string): Promise<{ docxPath: string; pdfPath?: string; unfilled: string[] }> {
+  const { template: tpl, values } = await buildFields(no, template);
   const file = TEMPLATE_FILES[template ?? tpl];
   if (!file) throw new Error(`unknown template ${template ?? tpl}`);
   const { docx, unfilled } = fillDocx(await readFile(path.join(TEMPLATES, file)), values);
   await mkdir(OUT, { recursive: true });
-  const docxPath = path.join(OUT, `${no}${lang ? `-${lang}` : ""}.docx`);
+  const docxPath = path.join(OUT, `${no}${template ? `-${template}` : ""}.docx`);
   await writeFile(docxPath, docx);
   let pdfPath: string | undefined;
   try {
     await exec("soffice", ["--headless", "--convert-to", "pdf", "--outdir", OUT, docxPath], { timeout: 120000 });
-    pdfPath = path.join(OUT, `${no}${lang ? `-${lang}` : ""}.pdf`);
-    if (!lang && !template) await prisma.document.update({ where: { no }, data: { pdfUrl: `/api/documents/${no}/pdf`, templateCode: tpl } });
+    pdfPath = path.join(OUT, `${no}${template ? `-${template}` : ""}.pdf`);
+    if (!template) await prisma.document.update({ where: { no }, data: { pdfUrl: `/api/documents/${no}/pdf`, templateCode: tpl } });
   } catch {
     // LibreOffice not installed on this host: the .docx is still delivered
   }
   return { docxPath, pdfPath, unfilled };
-}
-
-/** Three-language reports: free-text fields go through the LLM translator; numbers, codes and document numbers are untouched. */
-async function translateValues(values: FieldValues, lang: "th" | "zh" | "en"): Promise<FieldValues> {
-  if (!process.env.ANTHROPIC_API_KEY) return values;
-  const { translateFields } = await import("@/server/ai");
-  const text: Record<string, string> = {};
-  for (const [k, v] of Object.entries(values)) if (typeof v === "string" && v.length > 3 && /[A-Za-z\u0E00-\u0E7F\u4E00-\u9FFF]{3,}/.test(v) && !/^[A-Z]{2,4}(TH|VN|CN)\d+$/.test(v)) text[k] = v;
-  if (Object.keys(text).length === 0) return values;
-  const tr = await translateFields(text, lang);
-  return { ...values, ...tr };
 }

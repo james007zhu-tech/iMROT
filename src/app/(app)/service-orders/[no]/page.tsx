@@ -1,291 +1,149 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { advanceServiceOrder, getServiceOrder } from "@/server/slm";
-import { createInspection, createRepairJob, receiveEquipment, recordAcceptance, setQuoteLines } from "@/server/slm-docs";
+import { advanceServiceOrder } from "@/server/slm";
+import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
-import { issueInvoice, issueTaxInvoice, recordPayment } from "@/server/to";
-import { currentEmployee } from "@/server/auth";
-import { appendAssetEvent } from "@/server/alm";
-import { addFaultCode, addMaintenanceStandard } from "@/server/models";
 import { OrderProgress } from "@/components/OrderProgress";
 import { OrderStatusBadge } from "@/components/StatusBadge";
+import { AssetTriple, Card, FaultText, Field, Grid, PageHeader, Table, Value, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { ORDER_TRANSITIONS, type OrderStatus } from "@/lib/lifecycle";
+import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps";
+import { loadOrder } from "./_shell";
 
 export const dynamic = "force-dynamic";
 
-const input = "w-full rounded border px-2 py-1.5 text-sm";
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="rounded-lg border bg-white p-4"><h2 className="mb-2 font-bold text-navy">{title}</h2>{children}</section>;
-}
-
 /**
- * One page carries the whole ten-step flow. The action panel shown depends on the order's status,
- * so an engineer always sees exactly the next thing to do.
+ * 服务单详情 — wireframe 5. The page shows the order and what has been done; each step is its own form page,
+ * reached from the "next step" panel. Only assigning is done inline (one select).
  */
 export default async function OrderDetail({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { no } = await params;
   const { ok, error } = await searchParams;
-  const order = await getServiceOrder(no);
-  if (!order) notFound();
-  const t = await getTranslations("common");
-  const ts = await getTranslations("orderStatus");
-  const locale = await getLocale();
-  const fmt = (d: Date | null | undefined) => (d ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(d) : "—");
-  const employees = await prisma.employee.findMany({ where: { active: true, role: { in: ["ENGINEER", "MANAGER", "ADMIN"] } } });
-  const next = ORDER_TRANSITIONS[order.status as OrderStatus];
-  const primaryAsset = order.assets[0]?.asset;
+  const order = await loadOrder(no);
+  const [t, u, ts, te, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getTranslations("eventType"), getLocale()]);
+  const engineers = await prisma.employee.findMany({ where: { active: true, role: { in: ["ENGINEER", "MANAGER", "MD", "ADMIN"] } }, orderBy: { name: "asc" } });
+  const stamp = (d: Date) => new Intl.DateTimeFormat(locale, { ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}), month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
 
-  // ── server actions (each one is a thin call into the service layer) ──
-  // Actions only close over `no` (a string); anything else is re-read, because closed-over Prisma objects are not serializable.
-  async function advance(form: FormData) {
-    "use server";
-    await guarded(async () => {
-    const me = await currentEmployee();
-    await advanceServiceOrder(no, form.get("to") as OrderStatus, me.code, String(form.get("note") || "") || undefined, String(form.get("assignee") || "") || undefined);
-    }, `/service-orders/${no}`);
-  }
-  async function inspect(form: FormData) {
-    "use server";
-    await guarded(async () => {
-    const me = await currentEmployee();
-    const tests = ["Visual condition", "Power supply", "Fault history", "Functional check"].map((test) => ({ test, criterion: String(form.get(`c_${test}`) || ""), result: String(form.get(`r_${test}`) || "") })).filter((r) => r.criterion || r.result);
-    const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true, reportedSymptom: true } });
-    await createInspection({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), engineerCode: me.code, symptoms: cur.reportedSymptom ?? undefined, conditions: str(form, "conditions"), findings: str(form, "findings"), probableCause: str(form, "probableCause"), recommendation: str(form, "recommendation"), instruments: str(form, "instruments"), openIssues: str(form, "openIssues"), conclusion: str(form, "conclusion"), tests });
-    if (cur.status === "ASSIGNED") await advanceServiceOrder(no, "DIAGNOSING", me.code);
-    }, `/service-orders/${no}`);
-  }
-  async function quote(form: FormData) {
-    "use server";
-    await guarded(async () => {
-    const me = await currentEmployee();
-    const lines = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ assetCode: str(form, `a${i}`), description: str(form, `d${i}`) ?? "", descriptionLocal: str(form, `l${i}`), qty: Number(form.get(`q${i}`) || 0), unit: "pcs", unitPrice: Number(form.get(`p${i}`) || 0) })).filter((l) => l.description && l.qty > 0);
-    await setQuoteLines({ serviceOrderNo: no, actorCode: me.code, lines });
-    const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
-    if (cur.status === "DIAGNOSING") await advanceServiceOrder(no, "QUOTE_PENDING", me.code);
-    }, `/service-orders/${no}`);
-  }
-  async function repair(form: FormData) {
-    "use server";
-    await guarded(async () => {
-    const me = await currentEmployee();
-    const tests = ["Visual inspection", "Approved electrical tests", "No load operation", "Load test if agreed"].map((test) => ({ test, criterion: String(form.get(`c_${test}`) || ""), result: String(form.get(`r_${test}`) || ""), pass: form.get(`p_${test}`) === "on" })).filter((r) => r.criterion || r.result);
-    await createRepairJob({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), engineerCode: me.code, kind: form.get("kind") as "REPAIR", location: form.get("location") as "SITE", finishedAt: form.get("finished") === "on" ? new Date() : undefined, confirmedFault: str(form, "confirmedFault"), rootCause: str(form, "rootCause"), workPerformed: str(form, "workPerformed"), configBackupRef: str(form, "configBackupRef"), laborHours: form.get("laborHours") ? Number(form.get("laborHours")) : undefined, openIssues: str(form, "openIssues"), conclusion: str(form, "conclusion"), tests });
-    const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
-    if (form.get("finished") === "on" && cur.status === "IN_PROGRESS") await advanceServiceOrder(no, "ACCEPTANCE_PENDING", me.code);
-    }, `/service-orders/${no}`);
-  }
-  async function accept(form: FormData) {
-    "use server";
-    await guarded(async () => {
-    const me = await currentEmployee();
-    const deliverables = [0, 1, 2].map((i) => ({ deliverable: str(form, `dv${i}`) ?? "", criterion: str(form, `cr${i}`), result: str(form, `rs${i}`) })).filter((d) => d.deliverable);
-    await recordAcceptance({ serviceOrderNo: no, actorCode: me.code, deliverables, status: form.get("status") as "ACCEPTED", punchList: str(form, "punchList"), warrantyTerms: str(form, "warrantyTerms"), warrantyStart: form.get("warrantyStart") ? new Date(String(form.get("warrantyStart"))) : undefined, customerSignatory: str(form, "customerSignatory"), dcitSignatory: me.name });
-    }, `/service-orders/${no}`);
-  }
-  async function invoice() {
-    "use server";
-    await guarded(async () => {
-    const me = await currentEmployee();
-    const ti = await issueTaxInvoice({ serviceOrderNo: no, actorCode: me.code });
-    await issueInvoice({ serviceOrderNo: no, actorCode: me.code, taxInvoiceNo: ti.no });
-    }, `/service-orders/${no}`);
-  }
-  async function receive(form: FormData) {
+  const jobs = order.repairJobs;
+  const shape = {
+    status: order.status, kind: order.kind, hasInspection: order.inspections.length > 0, hasQuote: order.lines.length > 0, hasJob: jobs.length > 0, jobFinished: jobs.some((j) => j.finishedAt),
+    workshop: jobs.some((j) => j.location === "WORKSHOP") || order.documents.some((d) => d.type === "ER"),
+    deliveriesSigned: order.deliveries.filter((d) => d.status === "SIGNED").length, deliveriesOpen: order.deliveries.filter((d) => d.status !== "SIGNED").length,
+    invoicesUnpaid: order.invoices.filter((i) => !i.paidAt).length, hasAcceptance: !!order.acceptance,
+  };
+  const { primary, also } = nextSteps(shape);
+  const stepLabel = (s: StepKey) => u(`step_${s}`);
+  const transitions = ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CANCELLED" || s === "CLOSED");
+
+  async function assign(form: FormData) {
     "use server";
     await guarded(async () => {
       const me = await currentEmployee();
-      const ev = await receiveEquipment({ serviceOrderNo: no, assetCode: String(form.get("assetCode")), actorCode: me.code, sender: str(form, "sender"), accessories: str(form, "accessories"), condition: str(form, "condition"), fault: str(form, "fault"), photoRefs: str(form, "photoRefs"), handlingRestrictions: str(form, "handlingRestrictions") });
-      return `ERTH ${ev.sourceDocNo}`;
+      await advanceServiceOrder(no, "ASSIGNED", me.code, String(form.get("note") || "") || undefined, String(form.get("assignee") || "") || undefined);
     }, `/service-orders/${no}`);
   }
-  async function archive(form: FormData) {
+  async function contractDirect() {
     "use server";
-    await guarded(async () => {
-      const me = await currentEmployee();
-      const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { assets: { include: { asset: { include: { model: true } } } }, repairJobs: true } });
-      const rootCause = String(form.get("rootCause") || o.repairJobs.at(-1)?.rootCause || "");
-      const lesson = String(form.get("lesson") || "");
-      for (const l of o.assets) {
-        await appendAssetEvent({ assetCode: l.asset.code, type: "CASE_ARCHIVED", actorEmployeeCode: me.code, serviceOrderNo: no, sourceDocNo: no, summary: rootCause, payload: { rootCause, lesson, checks: str(form, "checks") } });
-        const model = l.asset.model;
-        if (model && form.get("toFaultCode") === "on" && o.reportedAlarm) await addFaultCode(model.seriesId, undefined, o.reportedAlarm, rootCause.slice(0, 80), lesson, str(form, "checks"));
-        if (model && form.get("toMaintenance") === "on" && str(form, "maintItem")) await addMaintenanceStandard(model.seriesId, undefined, String(form.get("maintItem")), form.get("maintMonths") ? Number(form.get("maintMonths")) : undefined, undefined, lesson);
-      }
-      return "archived";
-    }, `/service-orders/${no}`);
+    await guarded(async () => { const me = await currentEmployee(); await advanceServiceOrder(no, "IN_PROGRESS", me.code, "CONTRACT"); }, `/service-orders/${no}`);
   }
-  async function pay(form: FormData) {
+  async function move(form: FormData) {
     "use server";
-    await guarded(async () => {
-    const me = await currentEmployee();
-    await recordPayment({ invoiceNo: String(form.get("invoiceNo")), actorCode: me.code, paidAt: new Date(String(form.get("paidAt"))), paidAmount: Number(form.get("paidAmount")), whtAmount: Number(form.get("whtAmount") || 0), whtCertRef: str(form, "whtCertRef"), bankRef: str(form, "bankRef") });
-    }, `/service-orders/${no}`);
+    await guarded(async () => { const me = await currentEmployee(); await advanceServiceOrder(no, form.get("to") as OrderStatus, me.code); }, `/service-orders/${no}`);
   }
+
+  // One line per document: who, when, what it says, which reports it renders to.
+  const summaryOf = (docNo: string, type: string): React.ReactNode => {
+    if (type === "IN") { const i = order.inspections.find((x) => x.no === docNo); return [i?.findings, i?.probableCause].filter(Boolean).join(" → "); }
+    if (type === "QT") return order.total != null ? `${order.currency} ${Number(order.total).toFixed(2)} ${u("inclVat")}${order.quoteConfirmedAt ? ` · ${u("poConfirmed")}` : ""}` : u("draft");
+    if (type === "RP") { const j = jobs.find((x) => x.no === docNo); return j?.rootCause ?? j?.workPerformed ?? ""; }
+    if (type === "PM") { const j = jobs.find((x) => x.no === docNo); return j?.hazards ? <FaultText>{j.hazards}</FaultText> : j?.handled ?? ""; }
+    if (type === "ER") { const e = order.events.find((x) => x.sourceDocNo === docNo); return (e?.payload as { accessories?: string } | null)?.accessories ?? e?.summary ?? ""; }
+    if (type === "DN") { const d = order.deliveries.find((x) => x.no === docNo); return d ? (d.status === "SIGNED" ? `${u("signedBy")} ${d.signedBy}` : u("awaitingSignature")) : ""; }
+    if (type === "TI") { const x = order.taxInvoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.total).toFixed(2)}` : ""; }
+    if (type === "IV") { const x = order.invoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.amountDue).toFixed(2)}${x.paidAt ? ` · ${t("paid")}` : ""}` : ""; }
+    return "";
+  };
+  const reportLink = (docNo: string, r: { template?: string; key: string }) => <a key={r.key} className="text-blue hover:underline" href={`/api/documents/${docNo}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)}</a>;
+  const docs = order.documents.filter((d) => !d.voidedAt);
+  const allReports = docs.flatMap((d) => reportsFor(d, shape.hasAcceptance, shape.hasQuote).map((r) => ({ no: d.no, ...r })));
+
+  // Timeline: the order's events, one line per document/step even when several assets carry the same event.
+  const seen = new Set<string>();
+  const timeline = order.events.filter((e) => { const k = `${e.type}|${e.sourceDocNo}|${e.occurredAt.toISOString().slice(0, 16)}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  const atts = (order.attachments as { name: string; url: string; kind: string }[] | null) ?? [];
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Link href="/service-orders" className="text-sm text-blue">← {t("serviceOrders")}</Link>
-        <h1 className="font-mono text-2xl font-bold">{order.no}</h1>
-        <OrderStatusBadge status={order.status} />
-        <span className="text-slate-600">{t(order.kind)} · {order.customer.name}{order.plant ? ` / ${order.plant.name}` : ""}{order.customerRef ? ` · ${t("customerRef")} ${order.customerRef}` : ""}</span>
-      </div>
+      <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={<span className="font-mono">{order.no}</span>} badge={<OrderStatusBadge status={order.status} />}
+        actions={<>
+          {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u("exportPdf")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
+          {primary && primary !== "assign" && primary !== "contractDirect" && <Link href={stepHref(order.no, primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
+        </>} />
       <OrderProgress status={order.status as OrderStatus} />
       <Flash ok={ok} error={error} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <Card title={t("assets")}>
-            <ul className="text-sm">{order.assets.map((l) => <li key={l.assetId}><Link href={`/assets/${l.asset.code}`} className="font-mono text-blue underline">{l.asset.code}</Link> · {l.asset.model ? `${l.asset.model.series.brand.name} ${l.asset.model.code}` : ""} · S/N {l.asset.serialNumber} · {l.asset.location ?? ""}</li>)}</ul>
-            {order.reportedSymptom && <p className="mt-2 text-sm"><b>{t("symptom")}</b> {order.reportedSymptom}{order.reportedAlarm ? ` (${order.reportedAlarm})` : ""}</p>}
-            {order.productionImpact && <p className="text-sm"><b>{t("impactLabel")}</b> {order.productionImpact}</p>}
-            <p className="mt-1 text-xs text-slate-500">{t("reportedAt")} {fmt(order.reportedAt)} · {t("assignee")} {order.assignee?.name ?? t("none")} · {t("by")} {order.createdBy.name}</p>
+          <Card title={u("assetAndReport")}>
+            <Grid>
+              <Field label={t("asset")}><div className="space-y-2 rounded-md border bg-white px-2.5 py-2 text-sm">{order.assets.map((l) => <AssetTriple key={l.assetId} asset={l.asset} />)}</div></Field>
+              <Field label={u("customerPlantLocation")}><Value>{order.customer.name}{order.plant ? ` · ${order.plant.code}` : ""}{order.assets[0]?.asset.location ? ` · ${order.assets[0].asset.location}` : ""}</Value></Field>
+              <Field label={t("customerRef")}><Value className="font-mono">{order.customerRef ?? "—"}</Value></Field>
+            </Grid>
+            <Field label={t("symptom")}><Value><FaultText>{order.reportedSymptom ?? "—"}{order.reportedAlarm ? ` · ${order.reportedAlarm}` : ""}</FaultText>{order.productionImpact ? <span className="ml-2 text-navy/80">· {["STOPPED", "DEGRADED", "NONE"].includes(order.productionImpact) ? u(`impact${order.productionImpact[0]}${order.productionImpact.slice(1).toLowerCase()}`) : order.productionImpact}</span> : null}</Value></Field>
+            {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.kind === "PO" ? "PO · " : ""}{a.name}</a>)}</div>}
           </Card>
 
-          {order.inspections.length > 0 && <Card title={t("inspections")}>
-            {order.inspections.map((i) => <div key={i.id} className="mb-2 border-b pb-2 text-sm last:border-0"><span className="font-mono">{i.no}</span> · {fmt(i.inspectedAt)}<br />{i.findings}{i.probableCause ? ` → ${i.probableCause}` : ""}{i.recommendation ? ` · ${i.recommendation}` : ""}</div>)}
-          </Card>}
-
-          {order.lines.length > 0 && <Card title={t("quoteLines")}>
-            <table className="w-full text-sm"><thead className="text-left text-slate-500"><tr><th>#</th><th>{t("asset")}</th><th>{t("description")}</th><th className="text-right">{t("qty")}</th><th className="text-right">{t("unit")}</th><th className="text-right">{t("amount")}</th></tr></thead>
-              <tbody>{order.lines.map((l) => <tr key={l.id} className="border-t"><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-slate-500">{l.descriptionLocal}</span> : null}</td><td className="text-right">{Number(l.qty)}</td><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></tr>)}</tbody>
-              <tfoot className="border-t font-semibold"><tr><td colSpan={5} className="text-right">{t("subtotal")}</td><td className="text-right">{Number(order.subtotal).toFixed(2)}</td></tr><tr><td colSpan={5} className="text-right">{t("vat")}</td><td className="text-right">{Number(order.vatAmount).toFixed(2)}</td></tr><tr><td colSpan={5} className="text-right">{t("total")} {order.currency}</td><td className="text-right">{Number(order.total).toFixed(2)}</td></tr>{order.totalCny != null && <tr className="text-slate-500"><td colSpan={5} className="text-right">CNY @ {Number(order.fxRateToCny).toFixed(4)}</td><td className="text-right">{Number(order.totalCny).toFixed(2)}</td></tr>}</tfoot>
-            </table>
-          </Card>}
-
-          {order.repairJobs.length > 0 && <Card title={t("repairJobs")}>
-            {order.repairJobs.map((j) => <div key={j.id} className="mb-2 border-b pb-2 text-sm last:border-0"><span className="font-mono">{j.no}</span> · {t({ REPAIR: "kindRepair", MAINTENANCE: "kindMaint", OVERHAUL: "kindOverhaul", FIELD_SERVICE: "kindField" }[j.kind])} · {t(j.location === "SITE" ? "locSite" : "locWorkshop")} · {fmt(j.startedAt)}{j.finishedAt ? ` → ${fmt(j.finishedAt)}` : ""}<br />{j.confirmedFault}{j.rootCause ? ` → ${j.rootCause}` : ""}<br /><span className="text-slate-600">{j.workPerformed}</span></div>)}
-          </Card>}
-
-          {order.acceptance && <Card title={t("acceptanceRecord")}>
-            <p className="text-sm">{t({ ACCEPTED: "accepted", CONDITIONAL: "conditional", REJECTED: "rejected" }[order.acceptance.status])} · {fmt(order.acceptance.acceptedAt)} · {order.acceptance.customerSignatory ?? ""}{order.acceptance.punchList ? ` · ${order.acceptance.punchList}` : ""}</p>
-          </Card>}
-
-          {(order.taxInvoices.length > 0 || order.invoices.length > 0) && <Card title={t("invoices")}>
-            {order.taxInvoices.map((ti) => <p key={ti.id} className="text-sm"><span className="font-mono">{ti.no}</span> · {fmt(ti.issuedAt)} · {ti.currency} {Number(ti.total).toFixed(2)} ({t("vat")} {Number(ti.vatAmount).toFixed(2)}) · CNY {Number(ti.totalCny).toFixed(2)}</p>)}
-            {order.invoices.map((iv) => <p key={iv.id} className="text-sm"><span className="font-mono">{iv.no}</span> · {t("due")} {fmt(iv.dueAt)} · {iv.currency} {Number(iv.amountDue).toFixed(2)} · {t("paid")} {Number(iv.paidAmount ?? 0).toFixed(2)}{iv.whtAmount ? ` + ${t("wht")} ${Number(iv.whtAmount).toFixed(2)}` : ""}{iv.paidAt ? ` · ${fmt(iv.paidAt)}` : ""}</p>)}
-          </Card>}
-
-          <Card title={t("doc")}>
-            <ul className="text-sm">{order.documents.map((d) => <li key={d.id} className="flex gap-2"><span className="font-mono">{d.no}</span><span className="text-slate-500">{d.type}{d.templateCode ? ` · ${d.templateCode}` : ""} · {fmt(d.issuedAt)}</span>{d.pdfUrl && <a className="text-blue underline" href={d.pdfUrl}>{t("pdf")}</a>}<span className="ml-auto flex gap-2">{d.type === "QT" && <><a className="text-blue underline" href={`/api/documents/${d.no}/render?template=04&format=pdf`}>04</a><a className="text-blue underline" href={`/api/documents/${d.no}/render?template=06&format=pdf`}>06</a><a className="text-blue underline" href={`/api/documents/${d.no}/render?template=12&format=pdf`}>12</a><a className="text-blue underline" href={`/api/documents/${d.no}/render?template=13&format=pdf`}>13</a></>}{d.type !== "QT" && <a className="text-blue underline" href={`/api/documents/${d.no}/render?format=pdf`}>{t("pdf")}</a>}<a className="text-slate-500 underline" href={`/api/documents/${d.no}/render`}>{t("docx")}</a>{["th", "zh", "en"].map((l) => <a key={l} className="text-slate-500 underline" href={`/api/documents/${d.no}/render?format=pdf&lang=${l}`}>{l}</a>)}</span></li>)}</ul>
+          <Card title={u("documentsDone")}>
+            <Table head={[u("document"), t("type"), u("time"), u("executor"), u("summary"), u("reports")]}>
+              {docs.map((d) => (
+                <tr key={d.id}>
+                  <td className="font-mono">{d.no}</td>
+                  <td>{u(`docType_${d.type}`)}</td>
+                  <td className="whitespace-nowrap">{stamp(d.issuedAt)}</td>
+                  <td>{d.createdBy.name}</td>
+                  <td>{summaryOf(d.no, d.type)}</td>
+                  <td className="space-x-2">{reportsFor(d, shape.hasAcceptance, shape.hasQuote).map((r) => reportLink(d.no, r))}</td>
+                </tr>
+              ))}
+            </Table>
           </Card>
+
+          {order.lines.length > 0 && <Card title={u("quote")}>
+            <Table head={["#", t("asset"), u("descEnTh"), t("qty"), t("price"), t("amount")]}>
+              {order.lines.map((l) => <tr key={l.id}><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-navy/70">{l.descriptionLocal}</span> : null}</td><td>{Number(l.qty)} {l.unit}</td><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></tr>)}
+            </Table>
+            <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>
+          </Card>}
         </div>
 
-        {/* ── action panel: what to do next ── */}
         <div className="space-y-4">
-          {(order.status === "RECEIVED" || order.status === "ASSIGNED") && <Card title={ts("ASSIGNED")}>
-            <form action={advance} className="space-y-2"><input type="hidden" name="to" value="ASSIGNED" /><select name="assignee" className={input}>{employees.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select><input name="note" placeholder={t("note")} className={input} /><button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("ok")}</button></form>
+          {primary && <Card title={`${u("nextStep")}: ${stepLabel(primary)}`} accent>
+            {primary === "assign" ? (
+              <form action={assign} id="assign" className="space-y-2">
+                <select name="assignee" className={inputCls}>{engineers.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select>
+                <input name="note" placeholder={u("plannedVisitNote")} className={inputCls} />
+                <button className={btnPrimary}>{stepLabel("assign")}</button>
+              </form>
+            ) : primary === "contractDirect" ? (
+              <form action={contractDirect}><button className={btnBlue}>{stepLabel("contractDirect")} →</button></form>
+            ) : <Link href={stepHref(order.no, primary)} className={btnBlue}>{stepLabel(primary)} →</Link>}
           </Card>}
-
-          {(order.status === "ASSIGNED" || order.status === "DIAGNOSING") && <Card title={t("inspection")}>
-            <form action={inspect} className="space-y-2">
-              <select name="assetCode" className={input}>{order.assets.map((l) => <option key={l.assetId} value={l.asset.code}>{l.asset.code}</option>)}</select>
-              <textarea name="conditions" placeholder={t("conditions")} className={input} rows={2} />
-              <textarea name="findings" placeholder={t("findings")} className={input} rows={3} required />
-              <input name="probableCause" placeholder={t("probableCause")} className={input} />
-              <textarea name="recommendation" placeholder={t("proposedRepair")} className={input} rows={2} />
-              {["Visual condition", "Power supply", "Fault history", "Functional check"].map((x) => <div key={x} className="grid grid-cols-3 gap-1 text-xs"><span className="self-center">{t(`test_${x.replace(/ /g, "_")}`)}</span><input name={`c_${x}`} placeholder={t("criterion")} className={input} /><input name={`r_${x}`} placeholder={t("result")} className={input} /></div>)}
-              <input name="instruments" placeholder={t("instrument")} className={input} />
-              <input name="conclusion" placeholder={t("conclusion")} className={input} />
-              <button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("save")}</button>
-            </form>
+          {also.length > 0 && <Card title={u("alsoPossible")}>
+            <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={stepHref(order.no, s)} className={btnGhost}>{stepLabel(s)}</Link>)}</div>
           </Card>}
-
-          {order.status === "DIAGNOSING" && <Card title={t("quoteLines")}>
-            <form action={quote} className="space-y-1">
-              {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => <div key={i} className="grid grid-cols-6 gap-1 text-xs"><input name={`a${i}`} placeholder="ATH" defaultValue={i === 0 ? primaryAsset?.code : ""} className={input} /><input name={`d${i}`} placeholder={t("descriptionEn")} className={`${input} col-span-2`} /><input name={`l${i}`} placeholder="รายการ (TH)" className={input} /><input name={`q${i}`} type="number" step="0.001" placeholder={t("qty")} className={input} /><input name={`p${i}`} type="number" step="0.01" placeholder={t("price")} className={input} /></div>)}
-              <p className="text-xs text-slate-500">{t("quoteHint")}</p>
-              <button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("save")} → {ts("QUOTE_PENDING")}</button>
-            </form>
-            {order.kind === "CONTRACT" && <form action={advance} className="mt-2"><input type="hidden" name="to" value="IN_PROGRESS" /><input type="hidden" name="note" value="CONTRACT" /><button className="rounded border px-3 py-1.5 text-sm">{t("contractDirect")}</button></form>}
+          {transitions.length > 0 && <Card title={t("status")}>
+            <form action={move} className="flex flex-wrap gap-2">{transitions.map((s) => <button key={s} name="to" value={s} className={`min-h-10 rounded-lg border px-3 text-sm font-semibold ${s === "CANCELLED" ? "border-alert text-alert-ink" : "border-navy/45"}`}>{ts(s)}</button>)}</form>
           </Card>}
-
-          {order.status === "QUOTE_PENDING" && <Card title={ts("QUOTE_PENDING")}>
-            <form action={advance} className="space-y-2"><input type="hidden" name="to" value="IN_PROGRESS" /><input name="note" placeholder={t("customerConfirmation")} className={input} /><button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("confirmed")} → {ts("IN_PROGRESS")}</button></form>
-          </Card>}
-
-          {order.status === "IN_PROGRESS" && <Card title={t("repairJob")}>
-            <form action={repair} className="space-y-2">
-              <select name="assetCode" className={input}>{order.assets.map((l) => <option key={l.assetId} value={l.asset.code}>{l.asset.code}</option>)}</select>
-              <div className="grid grid-cols-2 gap-1"><select name="kind" className={input}>{(["REPAIR", "MAINTENANCE", "OVERHAUL", "FIELD_SERVICE"] as const).map((k) => <option key={k} value={k}>{t({ REPAIR: "kindRepair", MAINTENANCE: "kindMaint", OVERHAUL: "kindOverhaul", FIELD_SERVICE: "kindField" }[k])}</option>)}</select><select name="location" className={input}><option value="SITE">{t("locSite")}</option><option value="WORKSHOP">{t("locWorkshop")}</option></select></div>
-              <input name="confirmedFault" placeholder={t("confirmedFault")} className={input} />
-              <input name="rootCause" placeholder={t("rootCause")} className={input} />
-              <textarea name="workPerformed" placeholder={t("workPerformed")} className={input} rows={3} required />
-              <input name="configBackupRef" placeholder={t("backupRef")} className={input} />
-              <input name="laborHours" type="number" step="0.5" placeholder={t("laborHours")} className={input} />
-              {["Visual inspection", "Approved electrical tests", "No load operation", "Load test if agreed"].map((x) => <div key={x} className="grid grid-cols-4 gap-1 text-xs"><span className="self-center">{t(`test_${x.replace(/ /g, "_")}`)}</span><input name={`c_${x}`} placeholder={t("criterion")} className={input} /><input name={`r_${x}`} placeholder={t("result")} className={input} /><label className="self-center"><input type="checkbox" name={`p_${x}`} defaultChecked /> pass</label></div>)}
-              <label className="block text-sm"><input type="checkbox" name="finished" /> {t("finished")}</label>
-              <button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("save")}</button>
-            </form>
-          </Card>}
-
-          {["ASSIGNED", "DIAGNOSING", "IN_PROGRESS"].includes(order.status) && <Card title={t("receiving")}>
-            <form action={receive} className="space-y-2">
-              <select name="assetCode" className={input}>{order.assets.map((l) => <option key={l.assetId} value={l.asset.code}>{l.asset.code}</option>)}</select>
-              <input name="sender" placeholder={t("sender")} className={input} />
-              <input name="accessories" placeholder={t("accessories")} className={input} />
-              <input name="condition" placeholder={t("conditionArrival")} className={input} />
-              <input name="fault" placeholder={t("reportedFault")} className={input} />
-              <input name="photoRefs" placeholder={t("photoRefs")} className={input} />
-              <input name="handlingRestrictions" placeholder={t("handling")} className={input} />
-              <button className="rounded border px-3 py-1.5 text-sm">{t("save")}</button>
-            </form>
-          </Card>}
-
-          {order.status === "ACCEPTANCE_PENDING" && <Card title={t("acceptance")}>
-            <form action={accept} className="space-y-2">
-              {[0, 1, 2].map((i) => <div key={i} className="grid grid-cols-3 gap-1 text-xs"><input name={`dv${i}`} placeholder={t("deliverable")} className={input} /><input name={`cr${i}`} placeholder={t("criterion")} className={input} /><input name={`rs${i}`} placeholder={t("result")} className={input} /></div>)}
-              <select name="status" className={input}><option value="ACCEPTED">{t("accepted")}</option><option value="CONDITIONAL">{t("conditional")}</option><option value="REJECTED">{t("rejected")}</option></select>
-              <input name="punchList" placeholder={t("punchList")} className={input} />
-              <div className="grid grid-cols-2 gap-1"><input name="warrantyStart" type="date" className={input} /><input name="warrantyTerms" placeholder={t("warrantyTerms")} className={input} /></div>
-              <input name="customerSignatory" placeholder={t("customerRep")} className={input} />
-              <button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("save")}</button>
-            </form>
-          </Card>}
-
-          {order.status === "ACCEPTED" && <Card title={t("invoicing")}>
-            <form action={invoice}><p className="mb-2 text-xs text-slate-500">{t("invoicingHint")}</p><button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("issue")}</button></form>
-          </Card>}
-
-          {order.status === "INVOICED" && order.invoices.some((i) => !i.paidAt) && <Card title={t("payment")}>
-            <form action={pay} className="space-y-2">
-              <select name="invoiceNo" className={input}>{order.invoices.filter((i) => !i.paidAt).map((i) => <option key={i.id} value={i.no}>{i.no} · {Number(i.amountDue).toFixed(2)}</option>)}</select>
-              <input name="paidAt" type="date" className={input} required />
-              <input name="paidAmount" type="number" step="0.01" placeholder={t("cashReceived")} className={input} required />
-              <input name="whtAmount" type="number" step="0.01" placeholder={t("whtWithheld")} className={input} />
-              <input name="whtCertRef" placeholder={t("whtCert")} className={input} />
-              <input name="bankRef" placeholder={t("bankRef")} className={input} />
-              <button className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("save")}</button>
-            </form>
-          </Card>}
-
-          {["ACCEPTED", "INVOICED", "CLOSED"].includes(order.status) && <Card title={t("archive")}>
-            <form action={archive} className="space-y-2">
-              <input name="rootCause" placeholder={t("rootCauseDefault")} className={input} />
-              <textarea name="lesson" placeholder={t("lesson")} className={input} rows={2} />
-              <input name="checks" placeholder={t("checkSteps")} className={input} />
-              {order.reportedAlarm && <label className="block text-xs"><input type="checkbox" name="toFaultCode" /> {t("addToFaultCodes")} {order.reportedAlarm}</label>}
-              <label className="block text-xs"><input type="checkbox" name="toMaintenance" /> {t("addToMaintenance")}</label>
-              <div className="grid grid-cols-2 gap-1"><input name="maintItem" placeholder={t("item")} className={input} /><input name="maintMonths" type="number" placeholder={t("everyNMonths")} className={input} /></div>
-              <button className="rounded border px-3 py-1.5 text-sm">{t("save")}</button>
-            </form>
-          </Card>}
-
-          {next.length > 0 && <Card title={t("status")}>
-            <form action={advance} className="flex flex-wrap gap-1">
-              {next.map((s) => <button key={s} name="to" value={s} className={`rounded border px-2 py-1 text-xs ${s === "CANCELLED" ? "text-rose-700" : ""}`}>{ts(s)}</button>)}
-            </form>
-          </Card>}
+          <Card title={u("timeline")}>
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs text-navy/85">
+              {timeline.map((e) => <div key={e.id} className="contents"><span className="whitespace-nowrap tabular-nums">{stamp(e.occurredAt)}</span><span>{te(e.type)}{e.sourceDocNo && e.sourceDocNo !== order.no ? ` ${e.sourceDocNo}` : ""}{e.actor?.name || e.actorName ? ` · ${e.actor?.name ?? e.actorName}` : ""}</span></div>)}
+            </div>
+          </Card>
         </div>
       </div>
     </div>
   );
-}
-
-function str(form: FormData, k: string): string | undefined {
-  const v = form.get(k);
-  return v == null || String(v).trim() === "" ? undefined : String(v);
 }

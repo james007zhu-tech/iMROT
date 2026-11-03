@@ -23,7 +23,7 @@ export default async function Label({ params, searchParams }: { params: Promise<
             <div className="font-mono text-base font-bold">{asset.code}</div>
             <div>S/N <span className="font-mono">{asset.serialNumber}</span></div>
             <div>{asset.model ? `${asset.model.series.brand.name} ${asset.model.code}` : asset.type}</div>
-            <div className="text-slate-500">{asset.customer?.name}</div>
+            <div className="text-navy/70">{asset.customer?.name}</div>
           </div>
         </div>
       ))}

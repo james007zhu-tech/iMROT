@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db";
 
 type Msg = { role: "user"; content: unknown };
 
-async function complete(system: string, messages: Msg[], maxTokens = 1500): Promise<string> {
+export async function complete(system: string, messages: Msg[], maxTokens = 1500): Promise<string> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -20,7 +20,7 @@ async function complete(system: string, messages: Msg[], maxTokens = 1500): Prom
   return data.content.filter((c) => c.type === "text").map((c) => c.text).join("");
 }
 
-function json<T>(text: string): T {
+export function json<T>(text: string): T {
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error("model returned no JSON");
   return JSON.parse(m[0]) as T;

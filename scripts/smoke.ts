@@ -4,7 +4,10 @@
  * It creates its own customer/asset and leaves them in place (useful demo data); re-runs create new ones.
  */
 import { onboardAsset, getAssetPage } from "../src/server/alm";
-import { createServiceOrder, advanceServiceOrder } from "../src/server/slm";
+import { createServiceOrder, advanceServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../src/server/slm";
+import { deliveryPlan, issueDelivery, signDelivery } from "../src/server/delivery";
+import { createCustomer } from "../src/server/crm";
+import { createEmployee } from "../src/server/opd";
 import { createInspection, setQuoteLines, createRepairJob, recordAcceptance, receiveEquipment } from "../src/server/slm-docs";
 import { recordMovement } from "../src/server/scm";
 import { issueTaxInvoice, issueInvoice, recordPayment, issueMonthlyStatement } from "../src/server/to";
@@ -19,8 +22,8 @@ import { METRICS } from "../src/lib/metrics";
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`SMOKE FAIL: ${m}`); console.log("  ok  " + m); };
 
 async function ensureSeed() {
-  const entity = await prisma.legalEntity.upsert({ where: { countryCode: "TH" }, update: {}, create: { countryCode: "TH", nameEn: "DUCHENG INDUSTRIAL (THAILAND) CO., LTD.", nameLocal: "บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด", taxId: "0205568072149", branchCode: "00000", localCurrency: "THB", bookCurrency: "CNY", vatRate: 0.07, signatoryName: "Zhu Dongsheng", phone: "+66 (0) 88 660 6999", email: "dongsheng.zhu@ducheng-industrial.com", website: "www.ducheng-industrial.com" } });
-  await prisma.employee.upsert({ where: { code: "ETH2611001" }, update: {}, create: { code: "ETH2611001", entityId: entity.id, name: "Zhu Dongsheng", role: "ADMIN", email: "dongsheng.zhu@ducheng-industrial.com", locale: "zh" } });
+  const entity = await prisma.legalEntity.upsert({ where: { countryCode: "TH" }, update: {}, create: { countryCode: "TH", code: "DCiT", nameEn: "DUCHENG INDUSTRIAL (THAILAND) CO., LTD.", nameLocal: "บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด", taxId: "0205568072149", branchCode: "00000", localCurrency: "THB", bookCurrency: "CNY", vatRate: 0.07, signatoryName: "Zhu Dongsheng", phone: "+66 (0) 88 660 6999", email: "dongsheng.zhu@ducheng-industrial.com", website: "www.ducheng-industrial.com" } });
+  await prisma.employee.upsert({ where: { code: "ETH2611001" }, update: {}, create: { code: "ETH2611001", entityId: entity.id, name: "Zhu Dongsheng", role: "MD", email: "dongsheng.zhu@ducheng-industrial.com", locale: "zh" } });
   const sie = await prisma.brand.upsert({ where: { code: "SIE" }, update: {}, create: { code: "SIE", name: "SIEMENS" } });
   const s120 = await prisma.series.upsert({ where: { brandId_code: { brandId: sie.id, code: "S120" } }, update: {}, create: { brandId: sie.id, code: "S120", name: "SINAMICS S120" } });
   await prisma.model.upsert({ where: { seriesId_code: { seriesId: s120.id, code: "6SL3120-2TE41-0AA1" } }, update: {}, create: { seriesId: s120.id, code: "6SL3120-2TE41-0AA1" } });
@@ -67,22 +70,40 @@ async function main() {
   assert(Number(quoted.subtotal) === 12500 && Number(quoted.vatAmount) === 875 && Number(quoted.total) === 13375, "totals 12500 + 7% = 13375");
   assert(Math.abs(Number(quoted.totalCny) - 2743.21) < 0.01, "CNY at BoC 0.2051 = 2743.21");
   await advanceServiceOrder(order.no, "QUOTE_PENDING", admin.code);
-  await advanceServiceOrder(order.no, "IN_PROGRESS", admin.code, "customer confirmed by PO");
+  const poLines = await poLinesFromQuote(order.no);
+  assert(poLines.length === 2 && poLines[1].isService && !poLines[0].isService, "PO lines from quote: labour is a service line");
+  await confirmCustomerPo({ no: order.no, actorCode: admin.code, customerRef: "XCGDD2610140001", poLines, attachments: [{ name: "po.pdf", url: "/api/uploads/po.pdf", kind: "PO" }] });
+  const confirmed = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: order.no } });
+  assert(confirmed.status === "IN_PROGRESS" && Array.isArray(confirmed.poLines) && (confirmed.attachments as unknown[]).length === 1, "PO confirmed: lines + scan kept, work started");
 
   console.log("5b. equipment received at workshop (ERTH, template 07)");
-  const er = await receiveEquipment({ serviceOrderNo: order.no, assetCode: vfd.code, actorCode: admin.code, sender: "customer truck", accessories: "keypad, 2 cables", condition: "dusty, no visible damage", fault: "F30001 at start" });
+  const er = await receiveEquipment({ serviceOrderNo: order.no, assetCode: vfd.code, actorCode: admin.code, sender: "customer truck", accessories: "keypad × 1\ncable × 2", condition: "dusty, no visible damage", fault: "F30001 at start" });
   assert(parseNumber(er.sourceDocNo!)?.prefix === "ER", `equipment receiving ${er.sourceDocNo}`);
 
   console.log("6. stock out → repair (RPTH) → finished → ACCEPTANCE_PENDING");
-  const out = await recordMovement({ actorCode: admin.code, direction: "OUT", partSku: part.sku, qty: 1, assetCode: vfd.code, serviceOrderNo: order.no, oldPartDisposition: "scrapped" });
+  const out = await recordMovement({ actorCode: admin.code, direction: "OUT", partSku: part.sku, qty: 1, assetCode: vfd.code, serviceOrderNo: order.no, oldPartDisposition: "RETURN_TO_CUSTOMER" });
   assert(parseNumber(out.no)?.prefix === "OB" && out.no.length === 13, `stock out ${out.no} has 3-digit serial`);
-  const job = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "SITE", finishedAt: new Date(), confirmedFault: "fan 1 seized", rootCause: "bearing wear, dust", workPerformed: "replaced fan 1, cleaned heatsink, re-torqued DC bus", partsReplaced: [{ partSku: part.sku, qty: 1, obthNo: out.no }], laborHours: 4, tests: [{ test: "No load", criterion: "runs 0-50 Hz", result: "ok", pass: true }, { test: "Load", criterion: "rated current", result: "92%", pass: true }] });
+  const job = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", finishedAt: new Date(), confirmedFault: "fan 1 seized", rootCause: "bearing wear, dust", workPerformed: "replaced fan 1, cleaned heatsink, re-torqued DC bus", partsReplaced: [{ partSku: part.sku, name: "Power module fan", qty: 1, obthNo: out.no, oldSerial: "F-OLD-1", oldDisposition: "RETURN_TO_CUSTOMER" }], laborHours: 4, tests: [{ test: "No load", criterion: "runs 0-50 Hz", result: "ok", pass: true }, { test: "Load", criterion: "rated current", result: "92%", pass: true }] });
   await advanceServiceOrder(order.no, "ACCEPTANCE_PENDING", admin.code);
   let a = await getAssetPage(vfd.code);
   assert(a!.status === "ACCEPTANCE", `asset is ACCEPTANCE after finished job ${job.no}`);
   let threw = false;
   try { await prisma.$transaction(async () => { const { appendAssetEvent } = await import("../src/server/alm"); await appendAssetEvent({ assetCode: vfd.code, type: "STATUS_CHANGED", summary: "x", newStatus: "RETIRED" }); }); } catch { threw = true; }
   assert(threw, "ACCEPTANCE → RETIRED refused by the lifecycle");
+
+  console.log("6b. delivery note DNTH checked against PO + returns");
+  const plan = await deliveryPlan(order.no);
+  const keys = Object.fromEntries(plan.lines.map((l) => [l.key, l]));
+  assert(plan.lines.filter((l) => l.kind === "RETURN").length === 3, "must return: keypad, cables, old fan");
+  const full = Object.fromEntries(plan.lines.map((l) => [l.key, l.isService ? 0 : l.expected - l.deliveredBefore]));
+  const cableKey = plan.lines.find((l) => /cable/.test(l.description))!.key;
+  let blocked = false;
+  try { await issueDelivery({ serviceOrderNo: order.no, actorCode: admin.code, deliverOn: new Date(), delivered: { ...full, [cableKey]: 1 } }); } catch (e) { blocked = String((e as Error).message).startsWith("DELIVERY_MISMATCH"); }
+  assert(blocked && keys[cableKey].expected === 2, "one cable short → delivery blocked");
+  const dn = await issueDelivery({ serviceOrderNo: order.no, actorCode: admin.code, deliverOn: new Date(), delivered: full, vehicle: "pickup" });
+  assert(parseNumber(dn.no)?.prefix === "DN" && dn.status === "ISSUED", `delivery note ${dn.no}`);
+  await signDelivery({ no: dn.no, actorCode: admin.code, signedBy: "Khun Somchai" });
+  assert((await prisma.deliveryNote.findUniqueOrThrow({ where: { no: dn.no } })).status === "SIGNED", "delivery signed");
 
   console.log("7. acceptance (13) → ACCEPTED, asset IN_SERVICE");
   await recordAcceptance({ serviceOrderNo: order.no, actorCode: admin.code, deliverables: [{ deliverable: "Mill 204 drive runs at 50 Hz under load", criterion: "no trip 2 h", result: "pass" }], status: "ACCEPTED", warrantyStart: new Date(), warrantyTerms: "6 months on replaced parts", customerSignatory: "Khun Somchai" });
@@ -107,7 +128,8 @@ async function main() {
   const r04 = await renderDocument(order.no, "04");
   const r06 = await renderDocument(order.no, "06");
   const r07 = await renderDocument(er.sourceDocNo!);
-  for (const [k, r] of Object.entries({ r08, r09, r13, r04, r06, r07 })) assert(r.unfilled.length === 0, `${k} rendered with no blank placeholders`);
+  const r19 = await renderDocument((await prisma.deliveryNote.findFirstOrThrow({ where: { serviceOrderId: order.id } })).no);
+  for (const [k, r] of Object.entries({ r08, r09, r13, r04, r06, r07, r19 })) assert(r.unfilled.length === 0, `${k} rendered with no blank placeholders`);
 
   console.log("10b. BLTH monthly statement for a credit customer");
   await prisma.customer.update({ where: { id: customer.id }, data: { monthlyStatement: true } });
@@ -119,6 +141,20 @@ async function main() {
   await issueInvoice({ serviceOrderNo: o2.no, actorCode: admin.code, taxInvoiceNo: ti2.no });
   const bl = await issueMonthlyStatement(customer.code, "2611", admin.code);
   assert(parseNumber(bl.no)?.prefix === "BL" && Number(bl.total) === 3210, `statement ${bl.no} totals the unpaid IVTH (3210)`);
+
+  console.log("10c. PMTH maintenance order with checklist → maintenance record (11)");
+  const pm = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, assetCodes: [vfd.code], kind: "MAINTENANCE", reportedSymptom: "annual PM" });
+  for (const st of ["ASSIGNED", "DIAGNOSING", "IN_PROGRESS"] as const) await advanceServiceOrder(pm.no, st, admin.code);
+  const pmJob = await createRepairJob({ serviceOrderNo: pm.no, assetCode: vfd.code, engineerCode: admin.code, kind: "MAINTENANCE", location: "SITE", finishedAt: new Date(), level: "ANNUAL", runHours: 8560, checklist: [{ item: "Fan 2 noise", criterion: "no noise", measured: "bearing noise", verdict: "HAZARD" }, { item: "DC capacitors", criterion: ">=80%", measured: "88%", verdict: "OK" }], hazards: "fan 2 bearing noise", handled: "cleaned heatsink", recommendation: "replace fan 2", conditionRating: "GOOD_WITH_ISSUE", nextDueAt: new Date(Date.now() + 180 * 86400000) });
+  assert(pmJob.no.startsWith("PMTH") && pmJob.hazards === "fan 2 bearing noise", `maintenance job ${pmJob.no}`);
+  const r11 = await renderDocument(pmJob.no);
+  assert(r11.unfilled.length === 0, "r11 rendered with no blank placeholders");
+
+  console.log("10d. CRM customer from documents; OPD is MD-only");
+  const c2 = await createCustomer({ actorCode: admin.code, entityCode: "DCiT", taxId: "0205568072149", branchCode: "00001", nameLocal: "บริษัท ทดสอบ จำกัด", name: `Smoke Customer ${Date.now()}`, plants: [{ code: "P1", name: "Plant 1" }], contacts: [{ name: "Khun Anan", phone: "081-234-5612" }], files: [{ name: "dbd.pdf", url: "/x", kind: "DBD" }] }).catch((e) => { if (String(e.message).startsWith("CUSTOMER_EXISTS")) return null; throw e; });
+  assert(c2 === null || parseNumber(c2.code)?.prefix === "C", `customer from documents ${c2?.code ?? "(exists)"}`);
+  const eng = await prisma.employee.findFirst({ where: { role: { not: "MD" }, active: true } });
+  if (eng) { let denied = false; try { await createEmployee({ actorCode: eng.code, entityCode: "DCiT", name: "x", role: "ENGINEER", email: `x${Date.now()}@x.com`, password: "secret12" }); } catch (e) { denied = (e as Error).message === "MD only"; } assert(denied, "non-MD cannot create employees"); }
 
   console.log("11. metrics catalog + AI dashboard builder (heuristic path when no API key)");
   for (const m of METRICS) { const r = await m.run(prisma, {}); assert(Array.isArray(r.labels) && r.labels.length === r.values.length, `metric ${m.id} → ${r.values.slice(0, 3).join(",")}`); }
@@ -132,7 +168,7 @@ async function main() {
 
   a = await getAssetPage(vfd.code);
   const types = a!.events.map((e) => e.type);
-  for (const t of ["ONBOARDED", "SERVICE_REQUESTED", "INSPECTED", "QUOTED", "PART_REPLACED", "REPAIRED", "TESTED", "ACCEPTED", "INVOICED", "PAID"]) assert(types.includes(t as never), `timeline has ${t}`);
+  for (const t of ["ONBOARDED", "SERVICE_REQUESTED", "INSPECTED", "QUOTED", "ORDER_CONFIRMED", "RECEIVED_WORKSHOP", "PART_REPLACED", "REPAIRED", "TESTED", "DELIVERED", "ACCEPTED", "INVOICED", "PAID", "MAINTAINED"]) assert(types.includes(t as never), `timeline has ${t}`);
   console.log(`\nSMOKE PASSED — asset ${vfd.code}, order ${order.no}, ${a!.events.length} events`);
 }
 

@@ -16,7 +16,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
   const { name, widgets } = await renderDashboard(id);
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2"><Link href="/dashboard" className="text-sm text-blue">← {t("dashboard")}</Link><h1 className="text-xl font-bold">{name}</h1><div className="ml-auto w-full md:w-auto"><DashboardBuilder dashboardId={id} /></div></div>
+      <div className="flex flex-wrap items-center gap-2"><Link href="/dashboard" className="text-sm text-blue">← {t("dashboard")}</Link><h1 className="text-2xl font-bold text-navy">{name}</h1><div className="ml-auto w-full md:w-auto"><DashboardBuilder dashboardId={id} /></div></div>
       <Grid widgets={widgets} locale={locale} />
     </div>
   );

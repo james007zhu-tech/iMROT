@@ -1,58 +1,99 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { currentEmployee, hashPassword } from "@/server/auth";
+import { currentEmployee, grantReveal, revealActive } from "@/server/auth";
+import { addContact, addPlant, authorizeReveal } from "@/server/crm";
 import { issueMonthlyStatement } from "@/server/to";
 import { guarded } from "@/lib/action-result";
+import { maskEmail, maskLogin, maskName, maskPhone } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
 import { AssetStatusBadge, OrderStatusBadge } from "@/components/StatusBadge";
+import { Card, Field, Grid, PageHeader, Table, Tag, Value, btnGhost, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-/** Customer page: everything the customer owns, seen from the asset line. */
+/** Customer page: company, plants, contacts (masked unless re-authorised), files, assets, orders. */
 export default async function CustomerDetail({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { code } = await params;
   const { ok, error } = await searchParams;
-  const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: true, assets: { include: { model: true }, orderBy: { code: "asc" } }, serviceOrders: { orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
+  const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: { include: { plant: true } }, assets: { include: { model: true, plant: true }, orderBy: { code: "asc" } }, serviceOrders: { orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
   if (!c) notFound();
-  const t = await getTranslations("common");
-  const customerId = c.id; // actions close over strings only
-  async function addPlant(form: FormData) { "use server"; await prisma.plant.create({ data: { customerId, code: String(form.get("code")), name: String(form.get("name")), address: String(form.get("address") || "") || undefined } }); redirect(`/customers/${code}`); }
-  async function addContact(form: FormData) {
+  const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
+  const open = await revealActive(code);
+  const show = <T,>(v: T, mask: (x: T) => string) => (open ? v : mask(v));
+
+  async function reveal(f: FormData) {
     "use server";
-    const login = String(form.get("portalLogin") || "") || undefined;
-    const pw = String(form.get("password") || "");
-    await prisma.contact.create({ data: { customerId, plantId: String(form.get("plantId") || "") || undefined, name: String(form.get("name")), title: String(form.get("title") || "") || undefined, phone: String(form.get("phone") || "") || undefined, email: String(form.get("email") || "") || undefined, portalLogin: login, portalPasswordHash: login && pw ? hashPassword(pw) : undefined } });
-    redirect(`/customers/${code}`);
+    await guarded(async () => {
+      const me = await currentEmployee();
+      await authorizeReveal(me.code, String(f.get("password") ?? ""), code);
+      await grantReveal(me.code, code);
+      return "revealed";
+    }, `/customers/${code}`);
+  }
+  async function plant(f: FormData) {
+    "use server";
+    await guarded(async () => { await addPlant(code, { code: String(f.get("code")), name: String(f.get("name")), address: String(f.get("address") || "") || undefined, accessNotes: String(f.get("access") || "") || undefined }); }, `/customers/${code}`);
+  }
+  async function contact(f: FormData) {
+    "use server";
+    const s = (k: string) => String(f.get(k) ?? "").trim() || undefined;
+    await guarded(async () => { await addContact(code, { name: s("name") ?? "", title: s("title"), plantCode: s("plant"), phone: s("phone"), lineId: s("line"), email: s("email"), portalLogin: s("login"), portalPassword: s("pw") }); }, `/customers/${code}`);
   }
   async function statement() {
     "use server";
-    await guarded(async () => { const me = await currentEmployee(); const bl = await issueMonthlyStatement(code, new Date().toISOString().slice(2, 7).replace("-", ""), me.code); return `BLTH ${bl.no} · ${bl.currency} ${Number(bl.total).toFixed(2)}`; }, `/customers/${code}`);
+    await guarded(async () => { const me = await currentEmployee(); const bl = await issueMonthlyStatement(code, new Date().toISOString().slice(2, 7).replace("-", ""), me.code); return `${bl.no} · ${bl.currency} ${Number(bl.total).toFixed(2)}`; }, `/customers/${code}`);
   }
-  const input = "rounded border px-2 py-1.5 text-sm";
+  const files = (c.files as { name: string; url: string; kind: string }[] | null) ?? [];
+  const errorCode = error === "WRONG_PASSWORD" ? u("wrongPassword") : error;
   return (
     <div className="space-y-4">
-      <Flash ok={ok} error={error} />
-      <div className="flex items-center gap-3"><Link href="/customers" className="text-sm text-blue">← CRM</Link><h1 className="font-mono text-2xl font-bold">{c.code}</h1><span>{c.name}</span>{c.nameLocal && <span className="text-slate-500">{c.nameLocal}</span>}</div>
-      <div className="flex items-center gap-3 text-sm text-slate-600">{t("taxId")} {c.taxId ?? "—"} · {t("branch")} {c.branchCode ?? "—"} · {t("termDays")} {c.paymentTermDays} · {c.defaultCurrency}{c.monthlyStatement && <form action={statement}><button className="rounded border px-2 py-0.5 text-xs">{t("blthThisMonth")}</button></form>}</div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">{t("plant")}</h2>
-          <ul className="text-sm">{c.plants.map((p) => <li key={p.id}>{p.code} · {p.name}{p.address ? ` · ${p.address}` : ""}</li>)}</ul>
-          <form action={addPlant} className="mt-2 flex gap-1"><input name="code" placeholder={t("plantCode")} className={`${input} w-16`} required /><input name="name" placeholder={t("plantName")} className={input} required /><input name="address" placeholder={t("address")} className={input} /><button className="rounded bg-navy px-2 text-xs text-white">+</button></form>
-        </section>
-        <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">{t("contacts")}</h2>
-          <ul className="text-sm">{c.contacts.map((k) => <li key={k.id}>{k.name}{k.title ? ` · ${k.title}` : ""}{k.phone ? ` · ${k.phone}` : ""}{k.portalLogin ? <span className="ml-1 rounded bg-emerald-100 px-1 text-xs">portal: {k.portalLogin}</span> : null}</li>)}</ul>
-          <form action={addContact} className="mt-2 grid grid-cols-2 gap-1"><input name="name" placeholder={t("name")} className={input} required /><input name="title" placeholder={t("title")} className={input} /><input name="phone" placeholder={t("phone")} className={input} /><input name="email" placeholder={t("email")} className={input} /><select name="plantId" className={input}><option value="">{t("plant")}</option>{c.plants.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><span /><input name="portalLogin" placeholder={t("portalLogin")} className={input} /><input name="password" type="password" placeholder={t("portalPassword")} className={input} /><button className="col-span-2 rounded bg-navy px-2 py-1 text-xs text-white">+</button></form>
-        </section>
-      </div>
-      <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">{t("assets")} ({c.assets.length})</h2>
-        <ul className="grid gap-1 text-sm md:grid-cols-2">{c.assets.map((a) => <li key={a.id} className="flex items-center gap-2"><Link href={`/assets/${a.code}`} className="font-mono text-blue underline">{a.code}</Link><span>{a.model?.code ?? a.type}</span><span className="text-slate-500">{a.location}</span><AssetStatusBadge status={a.status} /></li>)}</ul>
-        <Link href="/assets/new" className="mt-2 inline-block text-sm text-blue">+ {t("onboard")}</Link>
-      </section>
-      <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">{t("serviceOrders")}</h2>
-        <ul className="text-sm">{c.serviceOrders.map((o) => <li key={o.id} className="flex items-center gap-2"><Link href={`/service-orders/${o.no}`} className="font-mono text-blue underline">{o.no}</Link><OrderStatusBadge status={o.status} /><span className="text-slate-500">{o.reportedSymptom}</span>{o.total != null && <span className="ml-auto">{o.currency} {Number(o.total).toFixed(2)}</span>}</li>)}</ul>
-      </section>
+      <PageHeader back={{ href: "/customers", label: u("backToCustomers") }} title={<><span className="font-mono">{c.code}</span> <span className="text-lg font-semibold">{c.name}</span></>} badge={c.dbdStatus ? <Tag>DBD · {c.dbdStatus}</Tag> : undefined}
+        actions={<>{c.monthlyStatement && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
+        newHref={`/service-orders/new?customer=${c.code}`} newLabel={u("newServiceOrder")} />
+      <Flash ok={ok === "revealed" ? u("revealedFor5") : ok} error={errorCode} />
+      <Card title={u("company")}>
+        <Grid>
+          <Field label={u("nameTh")}><Value>{c.nameLocal ?? "—"}</Value></Field>
+          <Field label={u("nameEnLabel")}><Value>{c.name}</Value></Field>
+          <Field label={`${t("taxId")} · ${t("branch")}`}><Value><span className="font-mono">{c.taxId ?? "—"}</span> · {c.branchCode ?? "—"}</Value></Field>
+          <Field label={u("addressTh")}><Value>{c.addressLocal ?? "—"}</Value></Field>
+          <Field label={u("addressEnLabel")}><Value>{c.addressEn ?? "—"}</Value></Field>
+          <Field label={u("billingAddress")}><Value>{c.billingAddress ?? "—"}</Value></Field>
+          <Field label={t("termDays")}><Value>{c.paymentTermDays} · {c.defaultCurrency}{c.monthlyStatement ? ` · ${u("monthlyCustomer")}` : ""}</Value></Field>
+          <Field label={u("legalEntity")}><Value>{c.entity.code}</Value></Field>
+          <Field label={t("phone")}><Value>{c.phone ?? "—"}</Value></Field>
+        </Grid>
+        {files.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{files.map((f) => <a key={f.url} href={f.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {f.kind} · {f.name}</a>)}</div>}
+      </Card>
+      <Card title={u("plants")}>
+        <Table head={[u("plantCode"), u("plantName"), t("address"), u("accessNotes")]}>
+          {c.plants.map((p) => <tr key={p.id}><td className="font-mono">{p.code}</td><td>{p.name}</td><td>{p.address ?? ""}</td><td>{p.accessNotes ?? ""}</td></tr>)}
+        </Table>
+        <form action={plant} className="grid grid-cols-2 gap-2 md:grid-cols-[100px_1fr_2fr_2fr_auto]"><input name="code" required placeholder={u("plantCode")} className={inputCls} /><input name="name" required placeholder={u("plantName")} className={inputCls} /><input name="address" placeholder={t("address")} className={inputCls} /><input name="access" placeholder={u("accessNotes")} className={inputCls} /><button className={btnGhost}>＋ {u("addPlant")}</button></form>
+      </Card>
+      <Card title={u("contacts")}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Tag>{open ? u("revealed") : `🔒 ${u("masked")}`}</Tag>
+          {!open && <form action={reveal} className="flex items-center gap-2"><input name="password" type="password" required placeholder={u("reenterPassword")} className={`${inputCls} w-48`} /><button className={btnGhost}>{u("showFull")}</button></form>}
+        </div>
+        <Table head={[t("name"), u("jobTitle"), t("plant"), u("phoneLine"), t("email"), u("portalLogin")]}>
+          {c.contacts.map((k) => <tr key={k.id}><td>{show(k.name, maskName)}</td><td>{k.title ?? ""}</td><td>{k.plant?.code ?? ""}</td><td>{show(k.phone, maskPhone)}{k.lineId ? ` · ${show(k.lineId, maskLogin)}` : ""}</td><td>{show(k.email, maskEmail)}</td><td>{k.portalLogin ? show(k.portalLogin, maskLogin) : "—"}</td></tr>)}
+        </Table>
+        <form action={contact} className="grid grid-cols-2 gap-2 md:grid-cols-9"><input name="name" required placeholder={t("name")} className={inputCls} /><input name="title" placeholder={u("jobTitle")} className={inputCls} /><select name="plant" className={inputCls}><option value="">{t("plant")}</option>{c.plants.map((p) => <option key={p.id} value={p.code}>{p.code}</option>)}</select><input name="phone" placeholder={t("phone")} className={inputCls} /><input name="line" placeholder="LINE" className={inputCls} /><input name="email" placeholder={t("email")} className={inputCls} /><input name="login" placeholder={u("portalLogin")} className={inputCls} /><input name="pw" type="password" placeholder={u("portalPassword")} className={inputCls} /><button className={btnGhost}>＋ {u("addContact")}</button></form>
+      </Card>
+      <Card title={`${t("assets")} (${c.assets.length})`}>
+        <Table head={[t("assetCode"), t("model"), t("serial"), t("plant"), t("location"), t("status")]}>
+          {c.assets.map((a) => <tr key={a.id}><td><Link href={`/assets/${a.code}`} className="font-mono text-blue hover:underline">{a.code}</Link></td><td>{a.model?.code ?? t(a.type)}</td><td className="font-mono">{a.serialNumber}</td><td>{a.plant?.code ?? ""}</td><td>{a.location ?? ""}</td><td><AssetStatusBadge status={a.status} /></td></tr>)}
+        </Table>
+      </Card>
+      <Card title={t("serviceOrders")}>
+        <Table head={["QTTH", t("status"), t("symptom"), t("amount")]}>
+          {c.serviceOrders.map((o) => <tr key={o.id}><td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link></td><td><OrderStatusBadge status={o.status} /></td><td className="text-fault">{o.reportedSymptom ?? ""}</td><td>{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : ""}</td></tr>)}
+        </Table>
+      </Card>
+      {c.editedFields && <p className="text-xs text-navy/70">{u("dbdEdited", { fields: (c.editedFields as string[]).join(", ") })}</p>}
     </div>
   );
 }

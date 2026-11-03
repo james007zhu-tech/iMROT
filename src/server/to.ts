@@ -98,6 +98,7 @@ export const PaymentInput = z.object({
   whtAmount: z.number().min(0).default(0),
   whtCertRef: z.string().optional(),
   bankRef: z.string().optional(),
+  attachments: z.array(z.object({ name: z.string(), url: z.string(), kind: z.string().optional() })).optional(),
 });
 
 /** Record payment on the IVTH. Full settlement (cash + WHT ≥ due) closes the order and writes PAID on each asset. */
@@ -116,7 +117,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
     if (settled) {
       await tx.serviceOrder.update({ where: { id: iv.serviceOrderId }, data: { status: "CLOSED", closedAt: d.paidAt } });
       for (const a of iv.serviceOrder.assets) {
-        await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: iv.no, occurredAt: d.paidAt, summary: `${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? ` + WHT ${d.whtAmount.toFixed(2)}` : ""}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef } as Prisma.InputJsonValue } });
+        await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: iv.no, occurredAt: d.paidAt, summary: `${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? ` + WHT ${d.whtAmount.toFixed(2)}` : ""}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef } as Prisma.InputJsonValue, attachments: (d.attachments ?? []) as Prisma.InputJsonValue } });
       }
     }
     return updated;

@@ -155,3 +155,16 @@ export async function getAssetPage(code: string) {
     },
   });
 }
+
+/** Link two assets (VFD → motor, VFD → panel, …) and record it on the first asset's timeline. */
+export async function relateAssets(opts: { fromCode: string; toCode: string; relation: "DRIVES" | "INSTALLED_IN" | "CONTROLLED_BY" | "COUPLED_TO"; actorEmployeeCode: string }) {
+  const [a, b] = await Promise.all([prisma.asset.findUniqueOrThrow({ where: { code: opts.fromCode } }), prisma.asset.findUniqueOrThrow({ where: { code: opts.toCode } })]);
+  if (a.id === b.id) throw new Error("an asset cannot be related to itself");
+  await prisma.assetRelation.create({ data: { fromAssetId: a.id, toAssetId: b.id, relation: opts.relation } });
+  return appendAssetEvent({ assetCode: a.code, type: "RELATION_CHANGED", actorEmployeeCode: opts.actorEmployeeCode, summary: `${a.code} ${opts.relation} ${b.code}`, payload: { relation: opts.relation, to: b.code } });
+}
+
+/** Model code as typed or read from a nameplate → model row (case-insensitive, exact). */
+export async function findModelByCode(code: string) {
+  return prisma.model.findFirst({ where: { code: { equals: code.trim(), mode: "insensitive" } }, include: { series: { include: { brand: true } } } });
+}

@@ -12,9 +12,10 @@ const prisma = new PrismaClient();
 async function main() {
   const th = await prisma.legalEntity.upsert({
     where: { countryCode: "TH" },
-    update: {},
+    update: { code: "DCiT" },
     create: {
       countryCode: "TH",
+      code: "DCiT",
       nameEn: master.name_en,
       nameLocal: master.name_th,
       brand: master.brand,
@@ -44,13 +45,13 @@ async function main() {
   // First employee is created by hand: there is nobody yet whose code could derive the country.
   await prisma.employee.upsert({
     where: { code: "ETH2611001" },
-    update: { passwordHash: hashPassword(process.env.SEED_ADMIN_PASSWORD ?? "dcit2026") },
+    update: { passwordHash: hashPassword(process.env.SEED_ADMIN_PASSWORD ?? "dcit2026"), role: "MD" },
     create: {
       passwordHash: hashPassword(process.env.SEED_ADMIN_PASSWORD ?? "dcit2026"),
       code: "ETH2611001",
       entityId: th.id,
       name: "Zhu Dongsheng",
-      role: "ADMIN",
+      role: "MD",
       email: master.email,
       locale: "zh",
     },

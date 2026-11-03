@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { countryFromEmployeeCode, formatNumber, periodKey, type Prefix } from "./numbering";
+import { countryFromEmployeeCode, formatNumber, periodKey, type CountryCode, type Prefix } from "./numbering";
 
 /**
  * Allocate the next number atomically. Call inside the transaction that creates the record,
@@ -7,10 +7,12 @@ import { countryFromEmployeeCode, formatNumber, periodKey, type Prefix } from ".
  */
 export async function allocateNumber(
   tx: PrismaClient | Prisma.TransactionClient,
-  opts: { prefix: Prefix; createdByEmployeeCode: string; entityId: string; date?: Date },
+  opts: { prefix: Prefix; createdByEmployeeCode: string; entityId: string; date?: Date; country?: CountryCode },
 ): Promise<string> {
   const date = opts.date ?? new Date();
-  const country = countryFromEmployeeCode(opts.createdByEmployeeCode);
+  // `country` is only for the first employees of a new entity (EVN created by an ETH MD); everything else follows the creator.
+  if (opts.country && opts.prefix !== "E") throw new Error("country override is only allowed for employee numbers");
+  const country = opts.country ?? countryFromEmployeeCode(opts.createdByEmployeeCode);
   const period = periodKey(opts.prefix, date);
 
   const seq = await tx.docSequence.upsert({

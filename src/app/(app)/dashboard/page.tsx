@@ -16,7 +16,7 @@ export default async function DashboardHome({ searchParams }: { searchParams: Pr
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-bold">{t("dashboard")}</h1>
+        <h1 className="text-2xl font-bold text-navy">{t("dashboard")}</h1>
         <nav className="ml-2 flex flex-wrap gap-1 text-sm">{list.map((d) => <Link key={d.id} href={`/dashboard/${d.id}`} className="rounded-full border px-3 py-1 hover:bg-white">{d.name}</Link>)}</nav>
         <div className="ml-auto w-full md:w-auto"><DashboardBuilder /></div>
       </div>

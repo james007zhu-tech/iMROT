@@ -4,10 +4,11 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 /**
- * Scan the QR on a DCiT nameplate with the phone camera (BarcodeDetector where available).
- * The QR encodes /portal/report?asset=ATH…, so on browsers without BarcodeDetector the system camera app does the same job.
+ * Scan the DCiT QR label stuck on the machine (nameplates themselves carry no QR — DCiT prints one at onboarding).
+ * The label encodes /portal/report?asset=ATH…, so on browsers without BarcodeDetector the system camera app does the same job.
+ * `hrefTemplate` decides where a hit goes; `{code}` is replaced by the ATH number.
  */
-export function ScanButton({ label }: { label: string }) {
+export function ScanButton({ label, hrefTemplate = "/portal/report?asset={code}", compact = false }: { label: string; hrefTemplate?: string; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -29,7 +30,7 @@ export function ScanButton({ label }: { label: string }) {
           try {
             const codes = await detector.detect(video.current);
             const hit = codes.find((c) => /ATH\d+|AVN\d+|ACN\d+/.test(c.rawValue));
-            if (hit) { const m = /\/portal\/report\?asset=([A-Z0-9]+)/.exec(hit.rawValue) ?? /([A-Z]{3}\d{8})/.exec(hit.rawValue); if (m) { stopped = true; router.push(`/portal/report?asset=${m[1]}`); return; } }
+            if (hit) { const m = /\/portal\/report\?asset=([A-Z0-9]+)/.exec(hit.rawValue) ?? /([A-Z]{3}\d{8})/.exec(hit.rawValue); if (m) { stopped = true; router.push(hrefTemplate.replace("{code}", m[1])); return; } }
           } catch { /* keep scanning */ }
           timer = window.setTimeout(tick, 300);
         };
@@ -37,11 +38,11 @@ export function ScanButton({ label }: { label: string }) {
       } catch (e) { setErr((e as Error).message); }
     })();
     return () => { stopped = true; if (timer) clearTimeout(timer); stream?.getTracks().forEach((t) => t.stop()); };
-  }, [open, router]);
+  }, [open, router, hrefTemplate]);
 
   return (
     <>
-      <button type="button" onClick={() => { setErr(null); setOpen(true); }} className="w-full rounded-lg border-2 border-blue py-3 text-base font-bold text-blue">📷 {label}</button>
+      <button type="button" onClick={() => { setErr(null); setOpen(true); }} className={compact ? "inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy" : "w-full rounded-lg border-2 border-blue py-3 text-base font-bold text-blue"}>📷 {label}</button>
       {open && (
         <div className="fixed inset-0 z-50 flex flex-col bg-black">
           <video ref={video} className="flex-1 object-cover" muted playsInline />

@@ -13,6 +13,8 @@ class Schema<T = unknown> {
   min(n: number, msg?: string): Schema<T> { return new Schema((v, p) => { const x = this.check(v, p); if (typeof x === "string" ? x.length < n : Number(x) < n) throw new Error(msg ?? `${p}: min ${n}`); return x; }, this.opts); }
   max(n: number): Schema<T> { return new Schema((v, p) => { const x = this.check(v, p); if (Number(x) > n) throw new Error(`${p}: max ${n}`); return x; }, this.opts); }
   positive(): Schema<T> { return new Schema((v, p) => { const x = this.check(v, p); if (!(Number(x) > 0)) throw new Error(`${p}: must be positive`); return x; }, this.opts); }
+  regex(re: RegExp, msg?: string): Schema<T> { return new Schema((v, p) => { const x = this.check(v, p); if (!re.test(String(x))) throw new Error(msg ?? `${p}: bad format`); return x; }, this.opts); }
+  email(): Schema<T> { return this.regex(/^[^@\s]+@[^@\s]+\.[^@\s]+$/, "bad email"); }
   int(): Schema<T> { return new Schema((v, p) => { const x = this.check(v, p); if (!Number.isInteger(x)) throw new Error(`${p}: must be int`); return x; }, this.opts); }
   parse(v: unknown): T { return this.run(v, "$") as T; }
   run(v: unknown, p: string): unknown {

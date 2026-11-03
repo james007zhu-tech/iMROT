@@ -3,49 +3,47 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { OrderStatusBadge } from "@/components/StatusBadge";
 import { ORDER_STATUSES } from "@/lib/lifecycle";
+import { FaultText, PageHeader, Table, btnGhost, inputCls, filterCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
-  const { status } = await searchParams;
-  const t = await getTranslations("common");
-  const ts = await getTranslations("orderStatus");
-  const locale = await getLocale();
+export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string }> }) {
+  const { status, q } = await searchParams;
+  const [t, u, ts, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getLocale()]);
   const orders = await prisma.serviceOrder.findMany({
-    where: { status: ORDER_STATUSES.includes(status as never) ? (status as never) : undefined },
+    where: {
+      status: ORDER_STATUSES.includes(status as never) ? (status as never) : undefined,
+      OR: q ? [{ no: { contains: q, mode: "insensitive" } }, { customerRef: { contains: q, mode: "insensitive" } }, { customer: { name: { contains: q, mode: "insensitive" } } }, { assets: { some: { asset: { code: { contains: q, mode: "insensitive" } } } } }] : undefined,
+    },
     include: { customer: { select: { name: true } }, assignee: { select: { name: true } }, assets: { include: { asset: { select: { code: true } } } } },
     orderBy: { reportedAt: "desc" }, take: 200,
   });
-  const fmt = (d: Date) => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(d);
+  const fmt = new Intl.DateTimeFormat(locale, { year: "2-digit", month: "2-digit", day: "2-digit" });
   return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-bold">{t("serviceOrders")}</h1>
-        <form className="ml-auto flex gap-2">
-          <select name="status" defaultValue={status ?? ""} className="rounded border px-2 py-1.5 text-sm"><option value="">{t("all")}</option>{ORDER_STATUSES.map((s) => <option key={s} value={s}>{ts(s)}</option>)}</select>
-          <button className="rounded bg-blue px-3 py-1.5 text-sm text-white">{t("search")}</button>
-        </form>
-        <Link href="/service-orders/new" className="rounded bg-navy px-3 py-1.5 text-sm text-white">{t("reportIssue")}</Link>
-      </div>
-      <div className="overflow-x-auto rounded-lg border bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-100 text-left"><tr><th className="px-3 py-2">QTTH</th><th className="px-3 py-2">{t("customer")}</th><th className="px-3 py-2">{t("assets")}</th><th className="px-3 py-2">{t("kind")}</th><th className="px-3 py-2">{t("reportedAt")}</th><th className="px-3 py-2">{t("assignee")}</th><th className="px-3 py-2">{t("status")}</th><th className="px-3 py-2 text-right">{t("total")}</th></tr></thead>
-          <tbody>
-            {orders.map((o) => (
-              <tr key={o.id} className="border-t hover:bg-slate-50">
-                <td className="px-3 py-2 font-mono"><Link href={`/service-orders/${o.no}`} className="text-blue underline">{o.no}</Link></td>
-                <td className="px-3 py-2">{o.customer.name}</td>
-                <td className="px-3 py-2 font-mono">{o.assets.map((a) => a.asset.code).join(", ")}</td>
-                <td className="px-3 py-2">{t(o.kind)}</td>
-                <td className="px-3 py-2">{fmt(o.reportedAt)}</td>
-                <td className="px-3 py-2">{o.assignee?.name ?? t("none")}</td>
-                <td className="px-3 py-2"><OrderStatusBadge status={o.status} /></td>
-                <td className="px-3 py-2 text-right">{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : t("none")}</td>
-              </tr>
-            ))}
-            {orders.length === 0 && <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-500">{t("none")}</td></tr>}
-          </tbody>
-        </table>
+    <div className="space-y-4">
+      <PageHeader title={t("serviceOrders")} newHref="/service-orders/new" newLabel={u("newServiceOrder")} />
+      <form className="flex flex-wrap gap-2">
+        <input name="q" defaultValue={q} placeholder={u("searchOrders")} className={`${inputCls} max-w-sm`} />
+        <select name="status" defaultValue={status ?? ""} className={filterCls}><option value="">{t("status")} ▾</option>{ORDER_STATUSES.map((s) => <option key={s} value={s}>{ts(s)}</option>)}</select>
+        <button className={btnGhost}>{t("search")}</button>
+      </form>
+      <div className="rounded-xl border bg-white p-2">
+        <Table head={["QTTH", t("customer"), t("assets"), t("symptom"), t("kind"), t("reportedAt"), t("assignee"), t("status"), t("total")]}>
+          {orders.map((o) => (
+            <tr key={o.id}>
+              <td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link>{o.customerRef ? <span className="block font-mono text-xs text-navy/60">{o.customerRef}</span> : null}</td>
+              <td>{o.customer.name}</td>
+              <td className="font-mono">{o.assets.map((a) => a.asset.code).join(", ")}</td>
+              <td className="max-w-xs">{o.reportedSymptom ? <FaultText>{o.reportedSymptom}{o.reportedAlarm ? ` ${o.reportedAlarm}` : ""}</FaultText> : ""}</td>
+              <td>{t(o.kind)}</td>
+              <td>{fmt.format(o.reportedAt)}</td>
+              <td>{o.assignee?.name ?? "—"}</td>
+              <td><OrderStatusBadge status={o.status} /></td>
+              <td className="text-right">{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : "—"}</td>
+            </tr>
+          ))}
+          {orders.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-navy/60">{t("none")}</td></tr>}
+        </Table>
       </div>
     </div>
   );
