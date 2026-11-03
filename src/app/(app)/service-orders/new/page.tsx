@@ -39,11 +39,11 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         {assets.map((a) => <option key={a.id} value={a.code}>{a.code} · {a.serialNumber} · {a.customer?.name}{a.plant ? ` / ${a.plant.name}` : ""} · {a.location ?? ""}</option>)}
       </select></label>
       <label className="block text-sm">{t("kind")}<select name="kind" className={input}>{["REPAIR", "MAINTENANCE", "OVERHAUL", "CONTRACT", "PARTS_SALE"].map((k) => <option key={k} value={k}>{t(k)}</option>)}</select></label>
-      <label className="block text-sm">Symptom<textarea name="reportedSymptom" className={input} rows={3} /></label>
+      <label className="block text-sm">{t("symptom")}<textarea name="reportedSymptom" className={input} rows={3} /></label>
       <div className="grid gap-3 md:grid-cols-3">
-        <label className="text-sm">Alarm code<input name="reportedAlarm" className={input} /></label>
-        <label className="text-sm">Production impact<input name="productionImpact" className={input} /></label>
-        <label className="text-sm">Customer ref (verbatim)<input name="customerRef" className={input} /></label>
+        <label className="text-sm">{t("alarmCode")}<input name="reportedAlarm" className={input} /></label>
+        <label className="text-sm">{t("impact")}<input name="productionImpact" className={input} /></label>
+        <label className="text-sm">{t("customerRef")}<input name="customerRef" className={input} /></label>
       </div>
       <button className="rounded bg-navy px-4 py-2 text-sm text-white">{t("save")}</button>
     </form>

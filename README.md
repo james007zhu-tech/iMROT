@@ -90,3 +90,4 @@ docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetc
 - 0.12 文件上传（铭牌照片、参数备份、事件附件，`/api/uploads`）、案例归档面板（第 10 步：根因/教训写回设备事件，可一键写入系列故障代码或维护标准）、备件页出入库表单（IBTH/OBTH）、员工编辑/停用/重设密码、验收点击路径 `docs/TEST-CHECKLIST.md`、无依赖类型检查 `tsconfig.check.json`。
 - 0.13 AGENTS.md（给所有 AI 与人的开发守则）、Codex/Gemini 任务书改为"先跑通再打磨"、门户相机扫码（BarcodeDetector）、PWA manifest 与图标。
 - 0.14 首次真实编译运行：修 zod 输入类型（`z.input`）、tsconfig 排除开发替身、登录按钮 type；接管设备默认在役并可在建档时选初始状态，ONBOARDED 可直接进维修；事件摘要改为语言中性（类型由界面翻译）；设备页显示系列级故障代码与维护标准；客户页修复 hydration；Playwright 浏览器回归脚本 `scripts/e2e.mjs`（33 步）。
+- 0.15 三语彻底清理：所有页面写死的英文（标题、表头、占位符、下拉项、复选框、提示语、事件摘要、关联关系）全部走 next-intl，泰/中/英各约 350 条；侧栏菜单改为纯译名；事件时间线按结构化 payload 本地化渲染（`EventSummary`）。e2e 33 步仍全过。

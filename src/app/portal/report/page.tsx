@@ -31,10 +31,10 @@ export default async function PortalReport({ searchParams }: { searchParams: Pro
     <form action={submit} className="space-y-3 rounded-lg border bg-white p-4">
       <h1 className="text-lg font-bold">{t("reportIssue")}</h1>
       <select name="assetCode" defaultValue={asset ?? ""} className={input} required><option value="">{t("asset")}</option>{assets.map((a) => <option key={a.id} value={a.code}>{a.code} · {a.location ?? a.serialNumber}</option>)}</select>
-      <textarea name="symptom" placeholder="What is happening?" className={input} rows={4} required />
-      <input name="alarm" placeholder="Alarm / fault code on the display" className={input} />
-      <select name="impact" className={input}><option value="">Production impact</option><option>Line stopped</option><option>Running with limits</option><option>No impact yet</option></select>
-      <input name="customerRef" placeholder="Your reference no. (optional)" className={input} />
+      <textarea name="symptom" placeholder={t("whatHappening")} className={input} rows={4} required />
+      <input name="alarm" placeholder={t("alarmOnDisplay")} className={input} />
+      <select name="impact" className={input}><option value="">{t("impact")}</option><option>{t("impactStopped")}</option><option>{t("impactLimited")}</option><option>{t("impactNone")}</option></select>
+      <input name="customerRef" placeholder={t("yourRef")} className={input} />
       <button className="w-full rounded bg-blue py-3 text-base font-bold text-white">{t("save")}</button>
     </form>
   );

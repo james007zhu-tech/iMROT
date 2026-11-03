@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 
 /**
  * Scan the QR on a DCiT nameplate with the phone camera (BarcodeDetector where available).
@@ -11,6 +12,7 @@ export function ScanButton({ label }: { label: string }) {
   const [err, setErr] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const router = useRouter();
+  const t = useTranslations("common");
 
   useEffect(() => {
     if (!open) return;
@@ -44,7 +46,7 @@ export function ScanButton({ label }: { label: string }) {
         <div className="fixed inset-0 z-50 flex flex-col bg-black">
           <video ref={video} className="flex-1 object-cover" muted playsInline />
           <div className="bg-black p-3 text-center text-sm text-white">
-            {err === "no-detector" ? "This browser cannot scan in-page — open the phone's camera app and point it at the nameplate QR." : err ?? "Point at the DCiT nameplate QR"}
+            {err === "no-detector" ? t("noDetector") : err ?? t("pointAtQr")}
             <button onClick={() => setOpen(false)} className="ml-3 rounded bg-white/20 px-3 py-1">✕</button>
           </div>
         </div>

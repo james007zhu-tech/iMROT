@@ -7,9 +7,11 @@ import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
+import { EventSummary } from "@/components/EventSummary";
 import { saveUpload } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
+const REL = { DRIVES: "relationDrives", INSTALLED_IN: "relationInstalledIn", CONTROLLED_BY: "relationControlledBy", COUPLED_TO: "relationCoupledTo" } as const;
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return <section className="rounded-lg border bg-white p-4"><h2 className="mb-3 text-base font-bold text-navy">{title}</h2>{children}</section>;
@@ -81,7 +83,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
       <Flash ok={ok} error={error} />
       <div className="flex flex-wrap gap-2 text-sm">
         <Link href={`/service-orders/new?asset=${asset.code}`} className="rounded bg-navy px-3 py-1.5 text-white">{t("reportIssue")}</Link>
-        <Link href={`/assets/${asset.code}/label?n=6`} className="rounded border px-3 py-1.5">QR label</Link>
+        <Link href={`/assets/${asset.code}/label?n=6`} className="rounded border px-3 py-1.5">{t("qrLabel")}</Link>
         {asset.model && <Link href={`/models/${asset.model.id}`} className="rounded border px-3 py-1.5">{t("knowledge")}</Link>}
       </div>
 
@@ -107,7 +109,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
             <li key={e.id} className="mb-4">
               <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-blue" />
               <div className="text-xs text-slate-500">{fmt(e.occurredAt)}{e.actor ? ` · ${t("by")} ${e.actor.name}` : e.actorName ? ` · ${e.actorName}` : ""}{e.sourceDocNo ? ` · ${e.sourceDocNo}` : ""}</div>
-              <div><span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{te(e.type)}</span>{e.summary}{Array.isArray(e.attachments) && (e.attachments as { name: string; url: string }[]).map((f) => <a key={f.url} href={f.url} className="ml-2 text-xs text-blue underline">{f.name}</a>)}</div>
+              <div><span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold">{te(e.type)}</span><EventSummary type={e.type} summary={e.summary} payload={e.payload as Record<string, unknown> | null} />{Array.isArray(e.attachments) && (e.attachments as { name: string; url: string }[]).map((f) => <a key={f.url} href={f.url} className="ml-2 text-xs text-blue underline">{f.name}</a>)}</div>
             </li>
           ))}
         </ol>
@@ -129,14 +131,14 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
         </Section>
         <Section title={t("relations")}>
           <ul className="space-y-1 text-sm">
-            {asset.relationsFrom.map((r) => <li key={r.id}>{asset.code} → <b>{r.relation}</b> → <Link className="font-mono text-blue underline" href={`/assets/${r.toAsset.code}`}>{r.toAsset.code}</Link> ({t(r.toAsset.type)} · {r.toAsset.serialNumber})</li>)}
-            {asset.relationsTo.map((r) => <li key={r.id}><Link className="font-mono text-blue underline" href={`/assets/${r.fromAsset.code}`}>{r.fromAsset.code}</Link> ({t(r.fromAsset.type)}) → <b>{r.relation}</b> → {asset.code}</li>)}
+            {asset.relationsFrom.map((r) => <li key={r.id}>{asset.code} → <b>{t(REL[r.relation])}</b> → <Link className="font-mono text-blue underline" href={`/assets/${r.toAsset.code}`}>{r.toAsset.code}</Link> ({t(r.toAsset.type)} · {r.toAsset.serialNumber})</li>)}
+            {asset.relationsTo.map((r) => <li key={r.id}><Link className="font-mono text-blue underline" href={`/assets/${r.fromAsset.code}`}>{r.fromAsset.code}</Link> ({t(r.fromAsset.type)}) → <b>{t(REL[r.relation])}</b> → {asset.code}</li>)}
             {asset.relationsFrom.length + asset.relationsTo.length === 0 && <li className="text-slate-500">{t("none")}</li>}
           </ul>
         </Section>
         <Section title={te("PART_REPLACED")}>
           <ul className="space-y-1 text-sm">
-            {replaced.map((e) => <li key={e.id}>{fmt(e.occurredAt)} · {e.summary}</li>)}
+            {replaced.map((e) => <li key={e.id}>{fmt(e.occurredAt)} · <EventSummary type={e.type} summary={e.summary} payload={e.payload as Record<string, unknown> | null} /></li>)}
             {replaced.length === 0 && <li className="text-slate-500">{t("none")}</li>}
           </ul>
         </Section>
@@ -154,14 +156,14 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
             <select name="customerId" defaultValue={asset.customerId ?? ""} className={input}><option value="">{t("customer")}</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.code} {c.name}</option>)}</select>
             <select name="plantId" defaultValue={asset.plantId ?? ""} className={input}><option value="">{t("plant")}</option>{customers.flatMap((c) => c.plants.map((p) => <option key={p.id} value={p.id}>{c.code} · {p.name}</option>))}</select>
             <input name="location" defaultValue={asset.location ?? ""} placeholder={t("location")} className={input} />
-            <input name="note" placeholder="Note" className={input} />
+            <input name="note" placeholder={t("note")} className={input} />
             <button className="rounded border px-3 py-1 text-sm">{t("save")}</button>
           </form>
         </Section>
         <Section title={t("addRelation")}>
           <form action={relate} className="space-y-1">
             <select name="direction" className={input}><option value="to">{asset.code} →</option><option value="from">→ {asset.code}</option></select>
-            <select name="relation" className={input}>{["DRIVES", "INSTALLED_IN", "CONTROLLED_BY", "COUPLED_TO"].map((r) => <option key={r}>{r}</option>)}</select>
+            <select name="relation" className={input}>{(["DRIVES", "INSTALLED_IN", "CONTROLLED_BY", "COUPLED_TO"] as const).map((r) => <option key={r} value={r}>{t(REL[r])}</option>)}</select>
             <select name="other" className={input} required><option value="">{t("asset")}</option>{others.map((o) => <option key={o.code} value={o.code}>{o.code} · {t(o.type)} · {o.location ?? ""}</option>)}</select>
             <button className="rounded border px-3 py-1 text-sm">{t("save")}</button>
           </form>
@@ -169,8 +171,8 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
         <Section title={t("addEvent")}>
           <form action={note} encType="multipart/form-data" className="space-y-1">
             <select name="type" className={input}>{["CONDITION_RECORDED", "PARAMETER_BACKUP", "READING", "ALARM", "CASE_ARCHIVED"].map((x) => <option key={x} value={x}>{te(x)}</option>)}</select>
-            <input name="summary" placeholder="Summary" className={input} required />
-            <textarea name="payload" placeholder="Details" className={input} rows={2} />
+            <input name="summary" placeholder={t("summary")} className={input} required />
+            <textarea name="payload" placeholder={t("details")} className={input} rows={2} />
             <input type="file" name="file" className={input} />
             <button className="rounded border px-3 py-1 text-sm">{t("save")}</button>
           </form>
@@ -183,7 +185,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
             <div><h3 className="mb-1 font-semibold">{t("faultCodes")}</h3>
               <ul>{[...asset.model.series.faultCodes, ...asset.model.faultCodes].map((f) => <li key={f.id}><span className="font-mono">{f.code}</span> {f.title}{f.firstChecks ? ` — ${f.firstChecks}` : ""}</li>)}{asset.model.series.faultCodes.length + asset.model.faultCodes.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul></div>
             <div><h3 className="mb-1 font-semibold">{t("maintenanceStandards")}</h3>
-              <ul>{[...asset.model.series.maintenanceStandards, ...asset.model.maintenanceStandards].map((m) => <li key={m.id}>{m.item}{m.intervalMonths ? ` · ${m.intervalMonths} mo` : ""}{m.intervalHours ? ` · ${m.intervalHours} h` : ""}</li>)}{asset.model.series.maintenanceStandards.length + asset.model.maintenanceStandards.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul></div>
+              <ul>{[...asset.model.series.maintenanceStandards, ...asset.model.maintenanceStandards].map((m) => <li key={m.id}>{m.item}{m.intervalMonths ? ` · ${m.intervalMonths} ${t("months")}` : ""}{m.intervalHours ? ` · ${m.intervalHours} h` : ""}</li>)}{asset.model.series.maintenanceStandards.length + asset.model.maintenanceStandards.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul></div>
             <div><h3 className="mb-1 font-semibold">{t("bom")}</h3>
               <ul>{asset.model.bom.map((b) => <li key={b.id}><Link className="font-mono text-blue underline" href={`/parts/${b.part.sku}`}>{b.part.sku}</Link> {b.part.name} ×{b.qty}</li>)}{asset.model.bom.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul></div>
           </div>

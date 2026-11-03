@@ -56,7 +56,7 @@ export default async function NewAsset() {
         <label className="text-sm">{t("location")} *<input name="location" className={input} required /></label>
         <label className="text-sm">{t("responsible")} *<select name="responsibleEmployeeId" className={input} required><option value="">—</option>{employees.map((e) => <option key={e.id} value={e.id}>{e.code} {e.name}</option>)}</select></label>
         <label className="text-sm">{t("installedAt")}<input type="date" name="installedAt" className={input} /></label>
-        <label className="text-sm">Customer asset no.<input name="customerAssetNo" className={input} /></label>
+        <label className="text-sm">{t("customerAssetNo")}<input name="customerAssetNo" className={input} /></label>
         <label className="text-sm md:col-span-2">{t("nameplatePhoto")}<input type="file" name="photo" accept="image/*" capture="environment" className={input} /></label>
       </div>
       <button className="rounded bg-navy px-4 py-2 text-sm text-white">{t("save")}</button>

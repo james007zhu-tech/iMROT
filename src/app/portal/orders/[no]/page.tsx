@@ -51,23 +51,23 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
           <h2 className="mb-2 font-bold text-navy">QTTH</h2>
           <ul className="text-sm">{order.lines.map((l) => <li key={l.id} className="flex justify-between border-b py-1"><span>{l.descriptionLocal ?? l.description} ×{Number(l.qty)}</span><span>{Number(l.amount).toFixed(2)}</span></li>)}</ul>
           <div className="mt-2 flex justify-between font-bold"><span>{t("total")} (incl. VAT)</span><span>{order.currency} {Number(order.total).toFixed(2)}</span></div>
-          <form action={confirmQuote} className="mt-3"><button className="w-full rounded bg-blue py-3 font-bold text-white">Confirm quotation</button></form>
+          <form action={confirmQuote} className="mt-3"><button className="w-full rounded bg-blue py-3 font-bold text-white">{t("confirmQuote")}</button></form>
         </section>
       )}
 
       {order.status === "ACCEPTANCE_PENDING" && !order.acceptance && (
         <form action={sign} className="space-y-2 rounded-lg border bg-white p-3">
           <h2 className="font-bold text-navy">13 Customer Acceptance</h2>
-          <select name="status" className={input}><option value="ACCEPTED">Accepted</option><option value="CONDITIONAL">Accepted with conditions</option><option value="REJECTED">Not accepted</option></select>
-          <input name="punchList" placeholder="Outstanding items (if any)" className={input} />
-          <p className="text-xs text-slate-500">Signed as {me.name}, {me.customer.name}</p>
-          <button className="w-full rounded bg-blue py-3 font-bold text-white">Sign</button>
+          <select name="status" className={input}><option value="ACCEPTED">{t("accepted")}</option><option value="CONDITIONAL">{t("conditional")}</option><option value="REJECTED">{t("rejected")}</option></select>
+          <input name="punchList" placeholder={t("punchListOpt")} className={input} />
+          <p className="text-xs text-slate-500">{t("signedAs")} {me.name}, {me.customer.name}</p>
+          <button className="w-full rounded bg-blue py-3 font-bold text-white">{t("sign")}</button>
         </form>
       )}
 
       <section className="rounded-lg border bg-white p-3">
         <h2 className="mb-2 font-bold text-navy">{t("doc")}</h2>
-        <ul className="text-sm">{order.documents.map((d) => <li key={d.id} className="flex justify-between border-b py-2"><span><span className="font-mono">{d.no}</span> · {fmt(d.issuedAt)}</span>{d.pdfUrl ? <a className="text-blue underline" href={d.pdfUrl}>PDF</a> : <a className="text-blue underline" href={`/api/documents/${d.no}/render`}>DOCX</a>}</li>)}{order.documents.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul>
+        <ul className="text-sm">{order.documents.map((d) => <li key={d.id} className="flex justify-between border-b py-2"><span><span className="font-mono">{d.no}</span> · {fmt(d.issuedAt)}</span>{d.pdfUrl ? <a className="text-blue underline" href={d.pdfUrl}>{t("pdf")}</a> : <a className="text-blue underline" href={`/api/documents/${d.no}/render`}>{t("docx")}</a>}</li>)}{order.documents.length === 0 && <li className="text-slate-500">{t("none")}</li>}</ul>
       </section>
     </div>
   );

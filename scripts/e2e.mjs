@@ -33,10 +33,10 @@ const selectByText = async (scope, selector, text) => { const value = await scop
 /** Submit a form and wait for the server action's redirect to land, so the next step sees the fresh page. */
 const submit = async (form, pg = page) => { await form.locator("button").last().click(); await pg.waitForTimeout(800); await pg.waitForLoadState("networkidle"); };
 
-await step("login", async () => { await page.goto(`${BASE}/login`); await page.fill('[name=email]', EMAIL); await page.fill('[name=password]', PASSWORD); await page.click("form button:has-text('OK')"); await page.waitForURL(/\/(dashboard|assets)/); });
-await step("dashboard", async () => { await page.goto(`${BASE}/dashboard`); await expectText("Dashboard"); });
-await step("language-switch", async () => { await page.click("text=中文"); await page.waitForTimeout(800); await expectText("看板"); await page.click("text=EN"); await page.waitForTimeout(800); await expectText("Assets"); });
-await step("admin", async () => { await page.goto(`${BASE}/admin`); await expectText("Legal entities"); await expectText("TH"); });
+await step("login", async () => { await page.goto(`${BASE}/login`); await page.fill('[name=email]', EMAIL); await page.fill('[name=password]', PASSWORD); await page.click("form button[type=submit]"); await page.waitForURL(/\/(dashboard|assets)/); });
+await step("dashboard", async () => { await page.goto(`${BASE}/dashboard`); await expectText("แดชบอร์ด"); await page.click("text=EN"); await page.waitForTimeout(800); await expectText("Dashboard"); });
+await step("language-switch", async () => { await page.click("text=中文"); await page.waitForTimeout(800); await expectText("看板"); await page.click("text=ไทย"); await page.waitForTimeout(800); await expectText("แดชบอร์ด"); await page.click("text=EN"); await page.waitForTimeout(800); await expectText("Assets"); });
+await step("admin", async () => { await page.goto(`${BASE}/admin`); await expectText("TH"); await expectText("THB"); });
 await step("models-add", async () => {
   await page.goto(`${BASE}/models`);
   const f = page.locator("form").filter({ has: page.locator('input[name=code][placeholder=SIE]') }); await f.locator('[name=code]').fill("ABB"); await f.locator('[name=name]').fill("ABB"); await submit(f); await noFlashError();
@@ -73,7 +73,7 @@ await step("asset-motor-and-relation", async () => {
   await page.selectOption('[name=type]', "MOTOR"); await page.fill('[name=serialNumber]', `MOT-E2E-${stamp}`); await page.selectOption('[name=modelId]', { index: 1 }); await selectByText(page, '[name=customerId]', customerCode); await page.fill('[name=location]', "Mixer line 2 motor"); await page.selectOption('[name=responsibleEmployeeId]', { index: 1 }); await page.locator("form").filter({ has: page.locator('[name=serialNumber]') }).locator("button").click();
   await page.waitForURL(/\/assets\/ATH/); const motor = page.url().split("/").pop();
   await page.goto(`${BASE}/assets/${assetCode}`);
-  const rel = page.locator("form").filter({ has: page.locator('[name=relation]') }); await rel.locator('[name=relation]').selectOption("DRIVES"); await selectByText(rel, '[name=other]', motor); await submit(rel); await noFlashError(); await expectText("DRIVES");
+  const rel = page.locator("form").filter({ has: page.locator('[name=relation]') }); await rel.locator('[name=relation]').selectOption("DRIVES"); await selectByText(rel, '[name=other]', motor); await submit(rel); await noFlashError(); await expectText("drives");
 });
 let orderNo;
 await step("report-issue", async () => {
@@ -102,9 +102,9 @@ await step("repair-finish", async () => {
 });
 await step("acceptance", async () => {
   const f = page.locator("form").filter({ has: page.locator('[name=dv0]') });
-  await f.locator('[name=dv0]').fill("Runs at 50 Hz under load"); await f.locator('[name=cr0]').fill("no trip 2h"); await f.locator('[name=rs0]').fill("pass"); await f.locator('[name=customerSignatory]').fill("Khun Somchai"); await submit(f); await noFlashError(); await expectText("ACCEPTED");
+  await f.locator('[name=dv0]').fill("Runs at 50 Hz under load"); await f.locator('[name=cr0]').fill("no trip 2h"); await f.locator('[name=rs0]').fill("pass"); await f.locator('[name=customerSignatory]').fill("Khun Somchai"); await submit(f); await noFlashError(); await expectText("Accepted");
 });
-await step("invoice", async () => { await page.click("button:has-text('Issue')"); await page.waitForTimeout(800); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("TITH2611"); await expectText("IVTH2611"); });
+await step("invoice", async () => { await page.locator("form").filter({ has: page.locator("button") }).filter({ hasText: /Issue|开具|ออก/ }).locator("button").first().click(); await page.waitForTimeout(800); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("TITH2611"); await expectText("IVTH2611"); });
 await step("payment", async () => {
   const f = page.locator("form").filter({ has: page.locator('[name=paidAmount]') });
   await f.locator('[name=paidAt]').fill("2026-11-03"); await f.locator('[name=paidAmount]').fill("13000"); await f.locator('[name=whtAmount]').fill("375"); await submit(f); await noFlashError();
@@ -124,7 +124,7 @@ await step("parts-and-stock", async () => {
 });
 await step("search", async () => { await page.goto(`${BASE}/search?q=${assetCode}`); await expectText(assetCode); });
 await step("dashboard-build", async () => { await page.goto(`${BASE}/dashboard`); await page.fill("input[placeholder*=\"Describe\"]", "本月维修看板：工单、收入、工程师"); await page.click("form button:has-text('AI')"); await page.waitForURL(/\/dashboard\/[a-z0-9]+/, { timeout: 15000 }); await expectText("Orders per month".length ? "" : ""); });
-await step("people-and-finance", async () => { await page.goto(`${BASE}/people`); await expectText("ETH2611001"); await page.goto(`${BASE}/finance`); await expectText("IVTH"); await page.goto(`${BASE}/customers/${customerCode}`); await page.click("button:has-text('BLTH this month')"); await page.waitForTimeout(800); await page.waitForLoadState("networkidle"); const b = await page.locator("body").innerText(); if (!/BLTH2611|nothing to bill/.test(b)) throw new Error("BLTH neither issued nor correctly refused"); });
+await step("people-and-finance", async () => { await page.goto(`${BASE}/people`); await expectText("ETH2611001"); await page.goto(`${BASE}/finance`); await expectText("IVTH"); await page.goto(`${BASE}/customers/${customerCode}`); await page.click("button:has-text('BLTH')"); await page.waitForTimeout(800); await page.waitForLoadState("networkidle"); const b = await page.locator("body").innerText(); if (!/BLTH2611|nothing to bill/.test(b)) throw new Error("BLTH neither issued nor correctly refused"); });
 await step("sign-out", async () => { await page.click("text=Sign out"); await page.waitForURL(/\/login/); });
 
 // ── portal, phone-sized ──

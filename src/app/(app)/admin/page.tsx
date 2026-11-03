@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 /** Admin: legal entities (editable), Bank of China rates, running number counters. */
 export default async function Admin({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { ok, error } = await searchParams;
+  const t = await getTranslations("common");
   const me = await currentEmployee();
   const [entities, rates, seqs] = await Promise.all([
     prisma.legalEntity.findMany({ orderBy: { countryCode: "asc" } }),
@@ -30,30 +32,30 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
   const input = "rounded border px-2 py-1 text-sm";
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Admin</h1>
+      <h1 className="text-xl font-bold">{t("nav_admin")}</h1>
       <Flash ok={ok} error={error} />
-      <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">Legal entities</h2>
+      <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">{t("legalEntities")}</h2>
         <div className="space-y-3">
           {[...entities, ...(admin ? [null] : [])].map((e, i) => (
             <form key={e?.id ?? "new"} action={saveEntity} className="grid grid-cols-2 gap-1 rounded border p-2 md:grid-cols-4">
-              <input name="countryCode" defaultValue={e?.countryCode ?? ""} placeholder="Country (VN)" className={`${input} font-mono`} readOnly={!!e} required />
-              <input name="nameEn" defaultValue={e?.nameEn ?? ""} placeholder="Name (EN)" className={`${input} md:col-span-3`} required />
-              <input name="nameLocal" defaultValue={e?.nameLocal ?? ""} placeholder="Local name" className={`${input} md:col-span-2`} />
-              <input name="taxId" defaultValue={e?.taxId ?? ""} placeholder="Tax ID" className={input} /><input name="branchCode" defaultValue={e?.branchCode ?? ""} placeholder="Branch" className={input} />
-              <input name="addressEn" defaultValue={e?.addressEn ?? ""} placeholder="Address (EN)" className={`${input} md:col-span-2`} /><input name="addressLocal" defaultValue={e?.addressLocal ?? ""} placeholder="Local address" className={`${input} md:col-span-2`} />
-              <input name="phone" defaultValue={e?.phone ?? ""} placeholder="Phone" className={input} /><input name="email" defaultValue={e?.email ?? ""} placeholder="Email" className={input} /><input name="website" defaultValue={e?.website ?? ""} placeholder="Website" className={input} /><input name="signatoryName" defaultValue={e?.signatoryName ?? ""} placeholder="Signatory" className={input} />
-              <input name="localCurrency" defaultValue={e?.localCurrency ?? "THB"} placeholder="Local ccy" className={input} /><input name="vatRate" type="number" step="0.01" defaultValue={e ? Number(e.vatRate) : 0.07} className={input} /><span className="self-center text-xs text-slate-500">book: CNY</span>
-              {admin && <button className="rounded bg-navy px-3 py-1 text-sm text-white">{e ? "Save" : "+ Entity"}</button>}
+              <input name="countryCode" defaultValue={e?.countryCode ?? ""} placeholder={t("countryHint")} className={`${input} font-mono`} readOnly={!!e} required />
+              <input name="nameEn" defaultValue={e?.nameEn ?? ""} placeholder={t("nameEn")} className={`${input} md:col-span-3`} required />
+              <input name="nameLocal" defaultValue={e?.nameLocal ?? ""} placeholder={t("nameLocal")} className={`${input} md:col-span-2`} />
+              <input name="taxId" defaultValue={e?.taxId ?? ""} placeholder={t("taxId")} className={input} /><input name="branchCode" defaultValue={e?.branchCode ?? ""} placeholder={t("branch")} className={input} />
+              <input name="addressEn" defaultValue={e?.addressEn ?? ""} placeholder={t("addressEn")} className={`${input} md:col-span-2`} /><input name="addressLocal" defaultValue={e?.addressLocal ?? ""} placeholder={t("addressLocal")} className={`${input} md:col-span-2`} />
+              <input name="phone" defaultValue={e?.phone ?? ""} placeholder={t("phone")} className={input} /><input name="email" defaultValue={e?.email ?? ""} placeholder={t("email")} className={input} /><input name="website" defaultValue={e?.website ?? ""} placeholder={t("website")} className={input} /><input name="signatoryName" defaultValue={e?.signatoryName ?? ""} placeholder={t("signatory")} className={input} />
+              <input name="localCurrency" defaultValue={e?.localCurrency ?? "THB"} placeholder={t("localCcy")} className={input} /><input name="vatRate" type="number" step="0.01" defaultValue={e ? Number(e.vatRate) : 0.07} className={input} /><span className="self-center text-xs text-slate-500">{t("bookCcy")}: CNY</span>
+              {admin && <button className="rounded bg-navy px-3 py-1 text-sm text-white">{e ? t("save") : t("addEntity")}</button>}
             </form>
           ))}
         </div>
       </section>
-      <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">Bank of China rates (CNY per 1 unit)</h2>
-        <table className="w-full text-sm"><thead className="text-left text-slate-500"><tr><th className={cell}>Date</th><th className={cell}>Currency</th><th className={cell}>Rate</th><th className={cell}>Published</th></tr></thead>
-          <tbody>{rates.map((r) => <tr key={r.id} className="border-t"><td className={cell}>{r.rateDate.toISOString().slice(0, 10)}</td><td className={`${cell} font-mono`}>{r.currency}</td><td className={`${cell} font-mono`}>{Number(r.rateToCny).toFixed(6)}</td><td className={cell}>{r.publishedAt?.toISOString().slice(0, 16).replace("T", " ") ?? ""}</td></tr>)}{rates.length === 0 && <tr><td colSpan={4} className={`${cell} text-slate-500`}>no rates yet — run `npm run fx:fetch`</td></tr>}</tbody></table>
+      <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">{t("bocRates")}</h2>
+        <table className="w-full text-sm"><thead className="text-left text-slate-500"><tr><th className={cell}>{t("date")}</th><th className={cell}>{t("currency")}</th><th className={cell}>{t("rate")}</th><th className={cell}>{t("published")}</th></tr></thead>
+          <tbody>{rates.map((r) => <tr key={r.id} className="border-t"><td className={cell}>{r.rateDate.toISOString().slice(0, 10)}</td><td className={`${cell} font-mono`}>{r.currency}</td><td className={`${cell} font-mono`}>{Number(r.rateToCny).toFixed(6)}</td><td className={cell}>{r.publishedAt?.toISOString().slice(0, 16).replace("T", " ") ?? ""}</td></tr>)}{rates.length === 0 && <tr><td colSpan={4} className={`${cell} text-slate-500`}>{t("noRates")}</td></tr>}</tbody></table>
       </section>
-      <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">Number counters</h2>
-        <table className="w-full text-sm"><thead className="text-left text-slate-500"><tr><th className={cell}>Entity</th><th className={cell}>Prefix</th><th className={cell}>Period</th><th className={cell}>Last</th></tr></thead>
+      <section className="rounded-lg border bg-white p-3"><h2 className="mb-2 font-bold text-navy">{t("counters")}</h2>
+        <table className="w-full text-sm"><thead className="text-left text-slate-500"><tr><th className={cell}>{t("entity")}</th><th className={cell}>{t("prefix")}</th><th className={cell}>{t("period")}</th><th className={cell}>{t("last")}</th></tr></thead>
           <tbody>{seqs.map((x) => <tr key={x.id} className="border-t"><td className={cell}>{x.entity.countryCode}</td><td className={`${cell} font-mono`}>{x.prefix}</td><td className={`${cell} font-mono`}>{x.period}</td><td className={cell}>{x.last}</td></tr>)}</tbody></table>
       </section>
     </div>
