@@ -6,6 +6,7 @@ import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { Forbidden } from "@/components/Forbidden";
 import { UploadRecognize } from "@/components/UploadRecognize";
+import { FormMemory } from "@/components/FormMemory";
 import { Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import Link from "next/link";
 
@@ -30,6 +31,7 @@ export default async function NewEmployee({ searchParams }: { searchParams: Prom
       <PageHeader back={{ href: "/people", label: t("backToEmployees") }} title={t("newEmployee")}
         actions={<><Link href="/people" className={btnGhost}>{c("cancel")}</Link><button form="f" className={btnPrimary}>{c("save")}</button></>} />
       <Flash error={error} />
+      <FormMemory formId="f" />
       <UploadRecognize kind="employee" formId="f" title={t("upEmployeeTitle")} hint={t("upEmployeeHint")} />
       <form id="f" action={save}>
         <Card title={t("employee")}>

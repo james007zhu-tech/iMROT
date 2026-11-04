@@ -8,6 +8,7 @@ import { getTranslations } from "next-intl/server";
 import { getServiceOrder } from "@/server/slm";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
+import { FormMemory } from "@/components/FormMemory";
 import { AssetTriple, FaultText, PageHeader, Tag, btnGhost, btnPrimary } from "@/components/ui";
 import { OrderStatusBadge } from "@/components/StatusBadge";
 import type { RecognizeKind } from "@/lib/recognize";
@@ -46,6 +47,7 @@ export async function StepPage({ order, title, badge, formId = "f", kind, upload
         actions={<><Link href={`/service-orders/${order.no}`} className={btnGhost}>{t("cancel")}</Link>{extraActions}{saveLabel && <button form={formId} className={btnPrimary}>{saveLabel}</button>}</>} />
       <Flash ok={ok} error={shown} />
       <OrderBrief order={order} />
+      <FormMemory formId={formId} />
       {kind && uploadTitle && <UploadRecognize kind={kind} formId={formId} title={uploadTitle} hint={uploadHint ?? ""} />}
       {children}
     </div>
@@ -62,13 +64,4 @@ export function atts(f: FormData): { name: string; url: string; kind: string }[]
 }
 export const str = (f: FormData, k: string) => { const v = String(f.get(k) ?? "").trim(); return v || undefined; };
 export const num = (f: FormData, k: string) => { const v = String(f.get(k) ?? "").trim(); return v ? Number(v) : undefined; };
-
-/** A date picked in a form (YYYY-MM-DD) as that day at the current time, so documents keep their real order in timelines. */
-export function dayNow(v: string | undefined): Date | undefined {
-  if (!v) return undefined;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return new Date(v);
-  const now = new Date();
-  const d = new Date(`${v}T00:00:00`);
-  d.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
-  return d;
-}
+export { dayNow } from "@/lib/dates";

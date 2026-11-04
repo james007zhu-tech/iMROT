@@ -6,6 +6,7 @@ import { createCustomer } from "@/server/crm";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
+import { FormMemory } from "@/components/FormMemory";
 import { DbdLookup } from "@/components/DbdLookup";
 import { RevealRows } from "@/components/RevealRows";
 import { Alert, Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
@@ -49,6 +50,7 @@ export default async function NewCustomer({ searchParams }: { searchParams: Prom
       {error && !known && <Flash error={error} />}
       {code === "CUSTOMER_EXISTS" && <Alert>{u("customerExists", { code: a1, name: a2 })} <Link className="underline" href={`/customers/${a1}`}>{a1}</Link></Alert>}
       {code === "DBD_CLOSED" && <Alert>{u("dbdClosed", { status: a1 })}</Alert>}
+      <FormMemory formId="f" />
       <UploadRecognize kind="customer" formId="f" title={u("upCustomerTitle")} hint={u("upCustomerHint")} />
       <form id="f" action={save} className="space-y-4">
         <Card title={u("company")}>

@@ -7,6 +7,64 @@ import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
 import type { Prisma } from "@prisma/client";
 
+const Line = z.object({
+  partSku: z.string(),
+  qty: z.number().positive(),
+  batch: z.string().optional(),
+  unitCost: z.number().optional(),
+  oldPartDisposition: z.string().optional(),
+});
+
+export const StockDocInput = z.object({
+  actorCode: z.string(),
+  direction: z.enum(["IN", "OUT"]),
+  warehouse: z.string().default("RAYONG"),
+  assetCode: z.string().optional(),
+  serviceOrderNo: z.string().optional(),
+  supplierRef: z.string().optional(),
+  costCurrency: z.string().optional(),
+  movedAt: z.coerce.date().optional(),
+  lines: z.array(Line).min(1, "a stock document needs at least one line"),
+});
+
+/**
+ * One IBTH / OBTH document = one number, any number of SKU lines (decision 2026-11-04).
+ * Each line moves exactly one SKU, so stock on hand stays per SKU; an OUT line into an asset writes PART_REPLACED.
+ */
+export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
+  const d = StockDocInput.parse(input);
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
+  const skus = [...new Set(d.lines.map((l) => l.partSku))];
+  const parts = await prisma.part.findMany({ where: { sku: { in: skus } } });
+  const unknown = skus.filter((s) => !parts.some((p) => p.sku === s));
+  if (unknown.length) throw new Error(`UNKNOWN_SKU:${unknown.join(",")}`);
+  const asset = d.assetCode ? await prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }) : null;
+  const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }) : null;
+  if (d.direction === "OUT" && !asset && !order) throw new Error("an OUT movement must name the asset or the service order it serves");
+
+  return prisma.$transaction(async (tx) => {
+    const no = await allocateNumber(tx, { prefix: d.direction === "IN" ? "IB" : "OB", createdByEmployeeCode: actor.code, entityId: actor.entityId, date: d.movedAt });
+    const rows = [];
+    for (const [i, l] of d.lines.entries()) {
+      const part = parts.find((p) => p.sku === l.partSku)!;
+      rows.push(await tx.stockMovement.create({
+        data: { no, lineNo: i + 1, direction: d.direction, partId: part.id, qty: l.qty, warehouse: d.warehouse, batch: l.batch, assetId: asset?.id, serviceOrderId: order?.id, oldPartDisposition: l.oldPartDisposition, movedAt: d.movedAt, byName: actor.name, unitCost: d.direction === "IN" ? l.unitCost : undefined, supplierRef: d.supplierRef },
+        include: { part: true },
+      }));
+      if (d.direction === "IN" && l.unitCost != null) await tx.part.update({ where: { id: part.id }, data: { lastCost: l.unitCost, lastCostCurrency: d.costCurrency ?? "THB" } });
+      if (d.direction === "OUT" && asset) {
+        await tx.assetEvent.create({
+          data: { assetId: asset.id, type: "PART_REPLACED", actorId: actor.id, serviceOrderId: order?.id, sourceDocNo: no, occurredAt: d.movedAt,
+            summary: `${part.name} (${part.sku}) ×${l.qty}${l.oldPartDisposition ? ` · old: ${l.oldPartDisposition}` : ""}`,
+            payload: { partSku: part.sku, qty: l.qty, batch: l.batch, oldPartDisposition: l.oldPartDisposition, lineNo: i + 1 } as Prisma.InputJsonValue },
+        });
+      }
+    }
+    await tx.document.create({ data: { no, type: d.direction === "IN" ? "IB" : "OB", entityId: actor.entityId, countryCode: no.slice(2, 4), customerId: order?.customerId, serviceOrderId: order?.id, createdById: actor.id, issuedAt: d.movedAt } });
+    return { no, lines: rows };
+  });
+}
+
 export const MovementInput = z.object({
   actorCode: z.string(),
   direction: z.enum(["IN", "OUT"]),
@@ -22,32 +80,11 @@ export const MovementInput = z.object({
   movedAt: z.coerce.date().optional(),
 });
 
+/** Single-SKU shortcut (part page, API): a one-line stock document. */
 export async function recordMovement(input: z.input<typeof MovementInput>) {
   const d = MovementInput.parse(input);
-  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
-  const part = await prisma.part.findUniqueOrThrow({ where: { sku: d.partSku } });
-  const asset = d.assetCode ? await prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }) : null;
-  const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }) : null;
-  if (d.direction === "OUT" && !asset && !order) throw new Error("an OUT movement must name the asset or the service order it serves");
-
-  return prisma.$transaction(async (tx) => {
-    const no = await allocateNumber(tx, { prefix: d.direction === "IN" ? "IB" : "OB", createdByEmployeeCode: actor.code, entityId: actor.entityId });
-    const mv = await tx.stockMovement.create({
-      data: { no, direction: d.direction, partId: part.id, qty: d.qty, warehouse: d.warehouse, batch: d.batch, assetId: asset?.id, serviceOrderId: order?.id, oldPartDisposition: d.oldPartDisposition, movedAt: d.movedAt, byName: actor.name },
-    });
-    await tx.document.create({ data: { no, type: d.direction === "IN" ? "IB" : "OB", entityId: actor.entityId, countryCode: no.slice(2, 4), customerId: order?.customerId, serviceOrderId: order?.id, createdById: actor.id } });
-    if (d.direction === "IN" && d.unitCost != null) {
-      await tx.part.update({ where: { id: part.id }, data: { lastCost: d.unitCost, lastCostCurrency: d.costCurrency ?? "THB" } });
-    }
-    if (d.direction === "OUT" && asset) {
-      await tx.assetEvent.create({
-        data: { assetId: asset.id, type: "PART_REPLACED", actorId: actor.id, serviceOrderId: order?.id, sourceDocNo: no, occurredAt: d.movedAt,
-          summary: `${part.name} (${part.sku}) ×${d.qty}${d.oldPartDisposition ? ` · old: ${d.oldPartDisposition}` : ""}`,
-          payload: { partSku: part.sku, qty: d.qty, batch: d.batch, oldPartDisposition: d.oldPartDisposition } as Prisma.InputJsonValue },
-      });
-    }
-    return mv;
-  });
+  const r = await recordStockDoc({ actorCode: d.actorCode, direction: d.direction, warehouse: d.warehouse, assetCode: d.assetCode, serviceOrderNo: d.serviceOrderNo, costCurrency: d.costCurrency, movedAt: d.movedAt, lines: [{ partSku: d.partSku, qty: d.qty, batch: d.batch, unitCost: d.unitCost, oldPartDisposition: d.oldPartDisposition }] });
+  return r.lines[0];
 }
 
 /** Stock on hand per part = IN − OUT (Phase 1 has one warehouse per entity). */

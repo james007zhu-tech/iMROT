@@ -9,9 +9,9 @@ import { deliveryPlan, issueDelivery, signDelivery } from "../src/server/deliver
 import { createCustomer } from "../src/server/crm";
 import { createEmployee } from "../src/server/opd";
 import { createInspection, setQuoteLines, createRepairJob, recordAcceptance, receiveEquipment } from "../src/server/slm-docs";
-import { recordMovement } from "../src/server/scm";
+import { recordMovement, recordStockDoc } from "../src/server/scm";
 import { issueTaxInvoice, issueInvoice, recordPayment, issueMonthlyStatement } from "../src/server/to";
-import { renderDocument } from "../src/server/reports";
+import { renderDocument, buildFields } from "../src/server/reports";
 import { allocateNumber } from "../src/lib/numbering-db";
 import { parseNumber } from "../src/lib/numbering";
 import { prisma } from "../src/lib/db";
@@ -42,10 +42,16 @@ async function main() {
   });
   assert(parseNumber(customer.code)?.prefix === "C", `customer number ${customer.code}`);
   const plant = await prisma.plant.create({ data: { customerId: customer.id, code: "P2", name: "Plant 2" } });
+  await prisma.contact.create({ data: { customerId: customer.id, plantId: plant.id, name: "Khun Somchai" } });
   const model = await prisma.model.findFirstOrThrow({ include: { series: true } });
   const part = await prisma.part.upsert({ where: { sku: "SIE-6SL3352-1AE32-1AA1" }, update: {}, create: { sku: "SIE-6SL3352-1AE32-1AA1", vendorPartNo: "6SL3352-1AE32-1AA1", name: "Power module fan" } });
   await prisma.modelPart.upsert({ where: { modelId_partId_position: { modelId: model.id, partId: part.id, position: "fan 1" } }, update: {}, create: { modelId: model.id, partId: part.id, position: "fan 1" } });
   await recordMovement({ actorCode: admin.code, direction: "IN", partSku: part.sku, qty: 5, unitCost: 4200, costCurrency: "THB" });
+
+  const fan2 = await prisma.part.upsert({ where: { sku: "SIE-6SL3362-0AF00-0AA1" }, update: {}, create: { sku: "SIE-6SL3362-0AF00-0AA1", vendorPartNo: "6SL3362-0AF00-0AA1", name: "DC-link capacitor set" } });
+  const ib = await recordStockDoc({ actorCode: admin.code, direction: "IN", supplierRef: "INV-88213", lines: [{ partSku: part.sku, qty: 2, unitCost: 4200 }, { partSku: fan2.sku, qty: 1, unitCost: 18500 }] });
+  assert(ib.lines.length === 2 && ib.lines.every((l) => l.no === ib.no) && ib.lines.map((l) => l.lineNo).join() === "1,2", `one IBTH ${ib.no} carries 2 SKUs`);
+  assert((await prisma.document.count({ where: { no: ib.no } })) === 1, "the IBTH is registered once");
 
   console.log("2. onboard VFD + motor, link them");
   const vfd = await onboardAsset({ createdByEmployeeCode: admin.code, type: "VFD", serialNumber: `SN-${Date.now()}`, modelId: model.id, customerId: customer.id, plantId: plant.id, location: "Mill 204 drive cabinet", origin: "TAKEOVER" });
@@ -77,7 +83,7 @@ async function main() {
   assert(confirmed.status === "IN_PROGRESS" && Array.isArray(confirmed.poLines) && (confirmed.attachments as unknown[]).length === 1, "PO confirmed: lines + scan kept, work started");
 
   console.log("5b. equipment received at workshop (ERTH, template 07)");
-  const er = await receiveEquipment({ serviceOrderNo: order.no, assetCode: vfd.code, actorCode: admin.code, sender: "customer truck", accessories: "keypad × 1\ncable × 2", condition: "dusty, no visible damage", fault: "F30001 at start" });
+  const er = await receiveEquipment({ serviceOrderNo: order.no, assetCode: vfd.code, actorCode: admin.code, sender: "Khun Somchai (customer truck)", accessories: "keypad × 1\ncable × 2", condition: "dusty, no visible damage", fault: "F30001 at start" });
   assert(parseNumber(er.sourceDocNo!)?.prefix === "ER", `equipment receiving ${er.sourceDocNo}`);
 
   console.log("6. stock out → repair (RPTH) → finished → ACCEPTANCE_PENDING");
@@ -129,6 +135,9 @@ async function main() {
   const r06 = await renderDocument(order.no, "06");
   const r07 = await renderDocument(er.sourceDocNo!);
   const r19 = await renderDocument((await prisma.deliveryNote.findFirstOrThrow({ where: { serviceOrderId: order.id } })).no);
+  const f13 = await buildFields(order.no, "13");
+  const f07 = await buildFields(er.sourceDocNo!);
+  assert(!JSON.stringify(f13.values).includes("Somchai") && !JSON.stringify(f07.values).includes("Somchai"), "customer names masked on customer-facing reports");
   for (const [k, r] of Object.entries({ r08, r09, r13, r04, r06, r07, r19 })) assert(r.unfilled.length === 0, `${k} rendered with no blank placeholders`);
 
   console.log("10b. BLTH monthly statement for a credit customer");

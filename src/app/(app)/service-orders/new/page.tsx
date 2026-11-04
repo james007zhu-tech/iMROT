@@ -8,6 +8,7 @@ import { guarded } from "@/lib/action-result";
 import { maskName } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
+import { FormMemory } from "@/components/FormMemory";
 import { AssetPicker } from "@/components/AssetPicker";
 import { ScanButton } from "@/components/ScanButton";
 import { Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
@@ -55,6 +56,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={u("newServiceOrder")}
         actions={<><Link href="/service-orders" className={btnGhost}>{t("cancel")}</Link><button form="f" name="assign" value="1" className={btnGhost}>{u("saveAndAssign")}</button><button form="f" className={btnPrimary}>{t("save")}</button></>} />
       <Flash error={error === "ASSET_REQUIRED" ? u("assetRequired") : error} />
+      <FormMemory formId="f" />
       <UploadRecognize kind="service" formId="f" title={u("upServiceTitle")} hint={u("upServiceHint")} />
       <form id="f" action={submit} encType="multipart/form-data" className="space-y-4">
         <Card title={u("whichAsset")}>

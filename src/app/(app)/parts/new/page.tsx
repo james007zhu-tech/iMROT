@@ -5,6 +5,7 @@ import { createPart } from "@/server/scm";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
+import { FormMemory } from "@/components/FormMemory";
 import { Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export default async function NewPart({ searchParams }: { searchParams: Promise<
     <div className="space-y-4">
       <PageHeader back={{ href: backTo, label: u("backToParts") }} title={u("newPart")} actions={<><Link href={backTo} className={btnGhost}>{t("cancel")}</Link><button form="f" className={btnPrimary}>{t("save")}</button></>} />
       <Flash error={error} />
+      <FormMemory formId="f" />
       <UploadRecognize kind="stock" formId="f" title={u("upPartTitle")} hint={u("upPartHint")} />
       <form id="f" action={save}>
         <Card title={u("part")}>

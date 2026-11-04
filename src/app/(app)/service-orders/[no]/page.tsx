@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { advanceServiceOrder } from "@/server/slm";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
+import { maskName } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
 import { OrderProgress } from "@/components/OrderProgress";
 import { OrderStatusBadge } from "@/components/StatusBadge";
@@ -60,7 +61,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     if (type === "RP") { const j = jobs.find((x) => x.no === docNo); return j?.rootCause ?? j?.workPerformed ?? ""; }
     if (type === "PM") { const j = jobs.find((x) => x.no === docNo); return j?.hazards ? <FaultText>{j.hazards}</FaultText> : j?.handled ?? ""; }
     if (type === "ER") { const e = order.events.find((x) => x.sourceDocNo === docNo); return (e?.payload as { accessories?: string } | null)?.accessories ?? e?.summary ?? ""; }
-    if (type === "DN") { const d = order.deliveries.find((x) => x.no === docNo); return d ? (d.status === "SIGNED" ? `${u("signedBy")} ${d.signedBy}` : u("awaitingSignature")) : ""; }
+    if (type === "DN") { const d = order.deliveries.find((x) => x.no === docNo); return d ? (d.status === "SIGNED" ? `${u("signedBy")} ${maskName(d.signedBy)}` : u("awaitingSignature")) : ""; }
     if (type === "TI") { const x = order.taxInvoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.total).toFixed(2)}` : ""; }
     if (type === "IV") { const x = order.invoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.amountDue).toFixed(2)}${x.paidAt ? ` · ${t("paid")}` : ""}` : ""; }
     return "";
@@ -139,7 +140,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </Card>}
           <Card title={u("timeline")}>
             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs text-navy/85">
-              {timeline.map((e) => <div key={e.id} className="contents"><span className="whitespace-nowrap tabular-nums">{stamp(e.occurredAt)}</span><span>{te(e.type)}{e.sourceDocNo && e.sourceDocNo !== order.no ? ` ${e.sourceDocNo}` : ""}{e.actor?.name || e.actorName ? ` · ${e.actor?.name ?? e.actorName}` : ""}</span></div>)}
+              {timeline.map((e) => <div key={e.id} className="contents"><span className="whitespace-nowrap tabular-nums">{stamp(e.occurredAt)}</span><span>{te(e.type)}{e.sourceDocNo && e.sourceDocNo !== order.no ? ` ${e.sourceDocNo}` : ""}{e.actor?.name ? ` · ${e.actor.name}` : e.actorName ? ` · ${maskName(e.actorName)}` : ""}</span></div>)}
             </div>
           </Card>
         </div>

@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import path from "node:path";
 import { prisma } from "@/lib/db";
 import { fillDocx, type FieldValues } from "@/lib/docx/fill";
+import { maskNamesIn } from "@/lib/mask";
 
 const exec = promisify(execFile);
 const TEMPLATES = path.join(process.cwd(), "templates", "word");
@@ -24,7 +25,7 @@ type TestRow = { test: string; criterion?: string; result?: string; recordId?: s
 const col = (tests: TestRow[] | null | undefined, k: keyof TestRow, n = 4) => Array.from({ length: n }, (_, i) => (tests?.[i]?.[k] as string | undefined) ?? "");
 
 /** Build the field map for one document. Returns template code + values. */
-export async function buildFields(no: string, templateHint?: string): Promise<{ template: string; values: FieldValues }> {
+async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ template: string; values: FieldValues }> {
   const doc = await prisma.document.findUniqueOrThrow({ where: { no }, include: { entity: true, customer: true, createdBy: true, serviceOrder: { include: { plant: true, customer: true, assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } } } } } });
   const o = doc.serviceOrder;
   const a = o?.assets[0]?.asset;
@@ -103,6 +104,22 @@ export async function buildFields(no: string, templateHint?: string): Promise<{ 
 }
 
 /** Render a document to .docx (+ .pdf when soffice exists). Stores files under uploads/documents and sets Document.pdfUrl. */
+/**
+ * Customer-facing documents never print a customer person's full name (decision 2026-11-04): every contact name of
+ * this customer, and any signatory typed by hand, is replaced by its masked form wherever it appears in a field.
+ */
+export async function buildFields(no: string, templateHint?: string): Promise<{ template: string; values: FieldValues }> {
+  const r = await buildFieldsRaw(no, templateHint);
+  const doc = await prisma.document.findUniqueOrThrow({ where: { no }, select: { customerId: true, serviceOrderId: true } });
+  const [contacts, acc, dns] = await Promise.all([
+    doc.customerId ? prisma.contact.findMany({ where: { customerId: doc.customerId }, select: { name: true } }) : Promise.resolve([]),
+    doc.serviceOrderId ? prisma.acceptance.findUnique({ where: { serviceOrderId: doc.serviceOrderId }, select: { customerSignatory: true } }) : Promise.resolve(null),
+    doc.serviceOrderId ? prisma.deliveryNote.findMany({ where: { serviceOrderId: doc.serviceOrderId }, select: { signedBy: true } }) : Promise.resolve([]),
+  ]);
+  const names = [...new Set([...contacts.map((c) => c.name), acc?.customerSignatory, ...dns.map((x) => x.signedBy)].filter((x): x is string => !!x && x.trim().length > 1))].sort((a, b) => b.length - a.length);
+  return { template: r.template, values: maskNamesIn(r.values, names) };
+}
+
 /** The DCiT templates are bilingual by design, so every document renders once — no per-language copies (decision 2026-11-03). */
 export async function renderDocument(no: string, template?: string): Promise<{ docxPath: string; pdfPath?: string; unfilled: string[] }> {
   const { template: tpl, values } = await buildFields(no, template);

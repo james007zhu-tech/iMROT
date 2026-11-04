@@ -101,4 +101,10 @@ docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetc
   - 报告：DCiT 模板本身是多语言，取消按 th/zh/en 分别生成；门户只能下载本客户的单据；门户每次服务的报告逐行列出并可整包 ZIP 下载。
   - 验证：tsc 0 错误、vitest 31 用例、`npm run smoke`（PostgreSQL，含 DNTH 不一致拦截、PMTH、MD 限制）、`npm run smoke:mem`、`next build`、Playwright 41 步 e2e 全过。
   - 升级本地库：`git pull && npm install && npm run db:push && npm run db:seed`（已有法人自动得到代码 DCiT，ETH2611001 设为 MD）。
+- 0.17（2026-11-04 决定）：
+  - 一张 IBTH / OBTH 可以有多行物料，每行对应一个 SKU（`recordStockDoc`）；编号一张单一个，单据登记一次，库存仍按 SKU 计；行上记批次、单位成本、旧件去向，单头记供应商单号。
+  - 客户联系人姓名在对外报告上也脱敏：渲染前把该客户所有联系人、验收签字人、送货签收人的姓名替换为脱敏形式（`maskNamesIn`）；员工页面的时间线、送货签收、验收签字同样脱敏显示，完整姓名只在数据库和「重新输入密码后显示」里。
+  - 表单校验失败返回时不再清空已填内容（`FormMemory`，会话内暂存；密码和文件不暂存）。
+  - 验证：tsc 0 错误、vitest 32、smoke（PostgreSQL，含一张 IBTH 两个 SKU、报告姓名脱敏）、smoke:mem、build、e2e 41 步全过。
+  - 升级本地库：`git pull && npm install && npm run db:push`。
 

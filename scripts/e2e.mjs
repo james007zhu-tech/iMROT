@@ -136,7 +136,7 @@ await step("delivery-issued-and-signed", async () => {
   await page.selectOption("[name=contactId]", { index: 1 });
   const cable = page.locator("tr", { hasText: "cable" }).locator("input[type=number]"); await cable.fill("2");
   await save(); await page.waitForURL(/\/deliver\/DNTH/); dnNo = page.url().split("/").pop().split("?")[0];
-  await page.fill("[name=signedBy]", "Khun Somchai"); await save(); await page.waitForURL(new RegExp(`/service-orders/${orderNo}\\?`)); await noFlashError(); await expectText("Signed by Khun Somchai");
+  await page.fill("[name=signedBy]", "Khun Somchai"); await save(); await page.waitForURL(new RegExp(`/service-orders/${orderNo}\\?`)); await noFlashError(); await expectText("Signed by Khun S****");
 });
 await step("acceptance", async () => { await go("accept"); await page.selectOption("[name=contactId]", { index: 1 }); await save(); await noFlashError(); await expectText("Service completion"); });
 await step("invoice", async () => { await go("invoice"); await save(); await noFlashError(); await expectText("TITH2611"); await expectText("IVTH2611"); });
@@ -170,7 +170,8 @@ await step("parts-and-stock", async () => {
   await page.goto(`${BASE}/parts/movement?direction=IN`);
   await page.fill("[name=s0]", `ABB-FAN-${stamp}`); await page.fill("[name=q0]", "5"); await page.fill("[name=c0]", "4200"); await page.fill("[name=s1]", `NOPE-${stamp}`); await page.fill("[name=q1]", "1");
   await save(); await expectText(`NOPE-${stamp}`);
-  await page.fill("[name=s1]", ""); await page.fill("[name=q1]", ""); await save(); await page.waitForURL(/\/parts\?/); await expectText(`ABB-FAN-${stamp}`);
+  await page.fill("[name=s1]", "SIE-6SL3352-1AE32-1AA1"); await page.fill("[name=q1]", "2"); await save(); await page.waitForURL(/\/parts\?/);
+  const ok = decodeURIComponent(page.url()); if (!/IBTH\d{9} · 2/.test(ok)) throw new Error(`expected one IBTH with 2 lines, got ${ok}`);
 });
 await step("search", async () => { await page.goto(`${BASE}/search?q=${assetCode}`); await expectText(assetCode); });
 await step("dashboard-build", async () => { await page.goto(`${BASE}/dashboard`); await page.fill("input[placeholder*=\"Describe\"]", "本月维修看板：工单、收入、工程师"); await page.click("form button:has-text('AI')"); await page.waitForURL(/\/dashboard\/[a-z0-9]+/, { timeout: 15000 }); });

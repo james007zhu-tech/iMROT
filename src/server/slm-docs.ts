@@ -234,7 +234,7 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
       }
       await tx.assetEvent.create({
         data: { assetId: link.assetId, type: "ACCEPTED", actorId: actor.id, actorName: d.customerSignatory, serviceOrderId: order.id, sourceDocNo: order.no, occurredAt: d.acceptedAt,
-          summary: `${d.status}${d.punchList ? ` · ${d.punchList}` : ""}${d.customerSignatory ? ` · ${d.customerSignatory}` : ""}`,
+          summary: `${d.status}${d.punchList ? ` · ${d.punchList}` : ""}`, // the signatory lives in actorName and is masked when shown
           payload: { status: d.status, deliverables: d.deliverables, warrantyStart: d.warrantyStart, statusFrom: from, statusTo: to } as Prisma.InputJsonValue },
       });
     }

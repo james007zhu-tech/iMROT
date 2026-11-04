@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { signDelivery } from "@/server/delivery";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
+import { maskName } from "@/lib/mask";
 import { Card, Field, Grid, Table, Tag, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, str } from "../../_shell";
 
@@ -38,7 +39,7 @@ export default async function DeliveryNote({ params, searchParams }: { params: P
         </Table>
         {note.overrideReason && <p className="text-xs text-alert-ink">MD: {note.overrideReason}</p>}
       </Card>
-      {signed ? <Card title={u("customerSignature")}><p className="text-sm">{note.signedBy} · {note.signedAt ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(note.signedAt) : ""}{note.remark ? ` · ${note.remark}` : ""}</p></Card> : (
+      {signed ? <Card title={u("customerSignature")}><p className="text-sm">{maskName(note.signedBy)} · {note.signedAt ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(note.signedAt) : ""}{note.remark ? ` · ${note.remark}` : ""}</p></Card> : (
         <form id="f" action={sign}>
           <Card title={u("customerSignature")}>
             <Grid>

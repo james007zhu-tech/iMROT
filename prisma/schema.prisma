@@ -685,7 +685,8 @@ enum MovementDirection {
 
 model StockMovement {
   id                 String            @id @default(cuid())
-  no                 String            @unique /// IBTH26110201 / OBTH26110201 (3-digit daily serial)
+  no                 String /// IBTH261102001 / OBTH261102001 — one number per document; the document may hold several SKUs
+  lineNo             Int               @default(1) /// each line moves exactly one SKU
   direction          MovementDirection
   partId             String
   part               Part              @relation(fields: [partId], references: [id])
@@ -699,6 +700,10 @@ model StockMovement {
   oldPartDisposition String? /// where the removed part went
   movedAt            DateTime          @default(now())
   byName             String?
+  unitCost           Decimal?          @db.Decimal(18, 2) /// IN: cost of this line (also updates Part.lastCost)
+  supplierRef        String? /// IN: supplier's delivery / invoice number, verbatim
+
+  @@unique([no, lineNo])
 }
 
 // ───────────────────────── T&O / FIN (Phase 1 slice) ─────────────────────────

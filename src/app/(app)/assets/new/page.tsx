@@ -6,6 +6,7 @@ import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
+import { FormMemory } from "@/components/FormMemory";
 import { Alert, Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +68,7 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
       <PageHeader back={{ href: "/assets", label: u("backToAssets") }} title={u("newAsset")}
         actions={<><Link href="/assets" className={btnGhost}>{t("cancel")}</Link><button form="f" name="print" value="1" className={btnGhost}>{u("savePrintLabel")}</button><button form="f" className={btnPrimary}>{t("save")}</button></>} />
       {error && !known && <Flash error={error} />}
+      <FormMemory formId="f" />
       <UploadRecognize kind="asset" formId="f" title={u("upAssetTitle")} hint={u("upAssetHint")} />
       <form id="f" action={submit} className="space-y-4">
         <Card title={u("identity")}>

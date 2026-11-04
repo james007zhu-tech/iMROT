@@ -30,3 +30,11 @@ export function maskLogin(login: string | null | undefined): string {
   if (!login) return "";
   return `${login[0]}${"*".repeat(Math.max(3, login.length - 1))}`;
 }
+
+/** Replace each given name (longest first) by its masked form in every text and list field of a report. */
+export function maskNamesIn<V extends Record<string, unknown>>(values: V, names: string[]): V {
+  if (!names.length) return values;
+  const sorted = [...names].sort((a, b) => b.length - a.length);
+  const fix = (v: unknown) => (typeof v === "string" ? sorted.reduce((s, n) => s.split(n).join(maskName(n)), v) : v);
+  return Object.fromEntries(Object.entries(values).map(([k, v]) => [k, Array.isArray(v) ? v.map(fix) : fix(v)])) as V;
+}
