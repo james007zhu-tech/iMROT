@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { issueInvoice, issueTaxInvoice } from "@/server/to";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
+import { businessClosureOn } from "@/lib/closure";
 import { Card, Field, Grid, Table, Value, inputCls } from "@/components/ui";
 import { StepPage, dayNow, loadOrder, str } from "../_shell";
 
@@ -31,7 +32,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
     }, `/service-orders/${no}/invoice`);
   }
   return (
-    <StepPage order={order} title={u("step_invoice")} error={error} saveLabel={u("issueTiIv")}>
+    <StepPage order={order} title={u("step_invoice")} error={error} saveLabel={businessClosureOn() ? u("issueTiIv") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
       <form id="f" action={save} className="space-y-4">
         <Card title={u("taxInvoiceTi")}>
           <Grid>

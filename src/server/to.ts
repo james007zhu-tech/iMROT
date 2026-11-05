@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
 import { expectedReceipt, round2, totals } from "@/lib/money";
 import type { Prisma } from "@prisma/client";
+import { assertBusinessClosure } from "@/lib/closure";
 
 async function bocRate(currency: string, onOrBefore: Date): Promise<number> {
   if (currency === "CNY") return 1;
@@ -28,6 +29,7 @@ export const TaxInvoiceInput = z.object({
 
 /** Issue TITH from the accepted order. Order must be ACCEPTED. Lines default to the quote lines. */
 export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
+  assertBusinessClosure("TI");
   const d = TaxInvoiceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, customer: true, lines: true, assets: true } });
   if (order.status !== "ACCEPTED") throw new Error(`${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
@@ -74,6 +76,7 @@ export const InvoiceInput = z.object({
 
 /** IVTH — what the customer pays against. */
 export async function issueInvoice(input: z.input<typeof InvoiceInput>) {
+  assertBusinessClosure("IV");
   const d = InvoiceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { customer: true, taxInvoices: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
@@ -103,6 +106,7 @@ export const PaymentInput = z.object({
 
 /** Record payment on the IVTH. Full settlement (cash + WHT ≥ due) closes the order and writes PAID on each asset. */
 export async function recordPayment(input: z.input<typeof PaymentInput>) {
+  assertBusinessClosure("PAYMENT");
   const d = PaymentInput.parse(input);
   const iv = await prisma.invoice.findUniqueOrThrow({ where: { no: d.invoiceNo }, include: { serviceOrder: { include: { assets: true } } } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
@@ -126,6 +130,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
 
 /** BLTH — monthly statement listing this customer's unpaid IVTH for a period (YYMM). Credit customers only. */
 export async function issueMonthlyStatement(customerCode: string, period: string, actorCode: string) {
+  assertBusinessClosure("BL");
   const customer = await prisma.customer.findUniqueOrThrow({ where: { code: customerCode } });
   if (!customer.monthlyStatement) throw new Error(`${customerCode} is not a monthly-statement customer`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });

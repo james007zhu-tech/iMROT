@@ -74,7 +74,9 @@ async function main() {
   console.log("5. quote lines → QUOTE_PENDING → customer confirms");
   const quoted = await setQuoteLines({ serviceOrderNo: order.no, actorCode: admin.code, lines: [{ assetCode: vfd.code, partSku: part.sku, description: "Power module fan", descriptionLocal: "พัดลมโมดูลกำลัง", qty: 1, unitPrice: 6500 }, { assetCode: vfd.code, description: "Labour, site repair", descriptionLocal: "ค่าแรงซ่อมหน้างาน", qty: 4, unitPrice: 1500 }] });
   assert(Number(quoted.subtotal) === 12500 && Number(quoted.vatAmount) === 875 && Number(quoted.total) === 13375, "totals 12500 + 7% = 13375");
-  assert(Math.abs(Number(quoted.totalCny) - 2743.21) < 0.01, "CNY at BoC 0.2051 = 2743.21");
+  // Today's THB rate may be the live BoC one (fx:fetch ran first) or the 0.2051 fixture — check against whichever is stored.
+  const thb = Number((await prisma.fxRate.findFirstOrThrow({ where: { currency: "THB", rateDate: { lte: new Date() } }, orderBy: { rateDate: "desc" } })).rateToCny);
+  assert(Math.abs(Number(quoted.totalCny) - Math.round(13375 * thb * 100) / 100) < 0.011, `CNY at BoC ${thb} = ${(13375 * thb).toFixed(2)}`);
   await advanceServiceOrder(order.no, "QUOTE_PENDING", admin.code);
   const poLines = await poLinesFromQuote(order.no);
   assert(poLines.length === 2 && poLines[1].isService && !poLines[0].isService, "PO lines from quote: labour is a service line");
@@ -116,6 +118,14 @@ async function main() {
   a = await getAssetPage(vfd.code);
   assert(a!.status === "IN_SERVICE", "asset back IN_SERVICE only through acceptance");
 
+  console.log("8a. business closure off → TITH / payment / BLTH refused");
+  const savedClosure = process.env.BUSINESS_CLOSURE;
+  process.env.BUSINESS_CLOSURE = "off";
+  const refused = await issueTaxInvoice({ serviceOrderNo: order.no, actorCode: admin.code }).then(() => "", (e: Error) => e.message);
+  assert(refused === "CLOSURE_OFF:TI", "TITH refused while closure is off");
+  const stillAccepted = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: order.no } });
+  assert(stillAccepted.status === "ACCEPTED", "order stays ACCEPTED, no number used");
+  process.env.BUSINESS_CLOSURE = "on"; // the rest of the smoke exercises the closure code paths
   console.log("8. TITH + IVTH");
   const ti = await issueTaxInvoice({ serviceOrderNo: order.no, actorCode: admin.code });
   assert(ti.currency === "THB" && Number(ti.total) === 13375, `tax invoice ${ti.no} in THB`);
@@ -178,6 +188,7 @@ async function main() {
   a = await getAssetPage(vfd.code);
   const types = a!.events.map((e) => e.type);
   for (const t of ["ONBOARDED", "SERVICE_REQUESTED", "INSPECTED", "QUOTED", "ORDER_CONFIRMED", "RECEIVED_WORKSHOP", "PART_REPLACED", "REPAIRED", "TESTED", "DELIVERED", "ACCEPTED", "INVOICED", "PAID", "MAINTAINED"]) assert(types.includes(t as never), `timeline has ${t}`);
+  process.env.BUSINESS_CLOSURE = savedClosure;
   console.log(`\nSMOKE PASSED — asset ${vfd.code}, order ${order.no}, ${a!.events.length} events`);
 }
 

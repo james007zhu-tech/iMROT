@@ -81,6 +81,15 @@ export async function addContact(customerCode: string, k: z.input<typeof Contact
   return prisma.contact.create({ data: { customerId: c.id, plantId: c.plants.find((p) => p.code === d.plantCode)?.id, name: d.name, title: d.title, phone: d.phone, lineId: d.lineId, email: d.email, portalLogin: d.portalLogin || undefined, portalPasswordHash: d.portalLogin && d.portalPassword ? hashPassword(d.portalPassword) : undefined } });
 }
 
+/** Reset a portal contact's password (used by the trial-account script; audited). */
+export async function setPortalPassword(actorCode: string, portalLogin: string, password: string) {
+  if (password.length < 6) throw new Error("password must be at least 6 characters");
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
+  const c = await prisma.contact.update({ where: { portalLogin }, data: { portalPasswordHash: hashPassword(password) }, include: { customer: true } });
+  await audit(actor.id, "PORTAL_PASSWORD_RESET", c.customer.code, { portalLogin });
+  return c;
+}
+
 /** Re-enter the password to see a customer's contacts in full; every reveal is audited. */
 export async function authorizeReveal(actorCode: string, password: string, customerCode: string) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });

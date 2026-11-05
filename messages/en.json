@@ -780,7 +780,9 @@
     "pending": "Pending",
     "downloadAllZip": "Download all (ZIP)",
     "uom": "Unit",
-    "supplierRef": "Supplier ref."
+    "supplierRef": "Supplier ref.",
+    "closureOffNotice": "Trial period: business closure (tax invoice, invoice, payment, monthly statement) is switched off until every flow has passed testing.",
+    "err_CLOSURE_OFF": "Trial period: business closure is switched off ({detail})"
   },
   "role": {
     "MD": "Managing Director",
