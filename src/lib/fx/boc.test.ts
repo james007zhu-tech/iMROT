@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBocHtml, toCny, toFxRate } from "./boc";
+import { bocDate, normalizeBocTime, parseBocHtml, toCny, toFxRate } from "./boc";
 
 const sample = `
 <table><tr><th>货币名称</th><th>现汇买入价</th><th>现钞买入价</th><th>现汇卖出价</th><th>现钞卖出价</th><th>中行折算价</th><th>发布日期</th><th>发布时间</th></tr>
@@ -23,5 +23,11 @@ describe("BoC rates", () => {
   it("converts to CNY at 2 dp", () => {
     expect(toCny(10000, 0.2051)).toBe(2051);
     expect(toCny(1234.56, 0.2051)).toBe(253.21);
+  });
+  it("reads the publish time in both BoC layouts and never yields an Invalid Date", () => {
+    expect(normalizeBocTime("2026.11.04", "10:30:00")).toBe("2026-11-04 10:30:00");
+    expect(normalizeBocTime("2026/11/05 08:29:39", "08:29:39")).toBe("2026-11-05 08:29:39");
+    expect(bocDate("2026/11/05 08:29:39 08:29:39")?.toISOString()).toBe("2026-11-05T00:29:39.000Z");
+    expect(bocDate("garbage")).toBeNull();
   });
 });

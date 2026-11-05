@@ -108,3 +108,10 @@ docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetc
   - 验证：tsc 0 错误、vitest 32、smoke（PostgreSQL，含一张 IBTH 两个 SKU、报告姓名脱敏）、smoke:mem、build、e2e 41 步全过。
   - 升级本地库：`git pull && npm install && npm run db:push`。
 
+- 0.18（2026-11-05 决定：跑通之前不做业务闭环）：
+  - 业务闭环开关 `BUSINESS_CLOSURE`（默认 off，`src/lib/closure.ts`）：关闭时 TITH、IVTH、回款、BLTH 在业务层直接拒绝（`CLOSURE_OFF`），开票/回款页显示三语提示且没有保存按钮，客户页不显示 BLTH 按钮；检测、报价、维修、送货、验收、案例归档照常可走。试运行全部通过后在 `.env` 设 `BUSINESS_CLOSURE=on`。
+  - 试用账号 `npm run trial:seed`：员工 `trial.staff@dcit.test`（经理，非 MD）+ 门户 `trial.portal`（试用客户 `[TRIAL] Test Rubber`，税号 0999999999999）；密码随机生成只打印在终端，可重跑重置。
+  - 给 Grok 的测试任务书 `docs/GROK-TRIAL.md`（i 员工端 18 步、门户 5 步、T 原型各页签、回报格式）。
+  - 修：中国银行页面改为日期栏内带时间（`2026/11/05 08:29:39`），`fx:fetch` 原来会写入无效日期而失败；smoke 的 CNY 校验改为按当天实际存储的汇率。
+  - 验证：tsc 0 错误、vitest 33、smoke（PostgreSQL，含闭环关闭拦截）、smoke:mem、build；浏览器实测两个试用账号登录、开票页提示与按钮隐藏、组织人才页拒绝。
+  - 升级本地库：`git pull && npm install && npm run db:push && npm run trial:seed`。

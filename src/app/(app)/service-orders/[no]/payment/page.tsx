@@ -2,6 +2,7 @@ import { getTranslations } from "next-intl/server";
 import { recordPayment } from "@/server/to";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
+import { businessClosureOn } from "@/lib/closure";
 import { Card, Field, Grid, Table, inputCls } from "@/components/ui";
 import { StepPage, atts, dayNow, loadOrder, num, str } from "../_shell";
 
@@ -23,7 +24,7 @@ export default async function Payment({ params, searchParams }: { params: Promis
     }, `/service-orders/${no}/payment`);
   }
   return (
-    <StepPage order={order} title={u("step_payment")} error={error} kind="payment" uploadTitle={u("upPaymentTitle")} uploadHint={u("upPaymentHint")} saveLabel={t("save")}>
+    <StepPage order={order} title={u("step_payment")} error={error} kind="payment" uploadTitle={u("upPaymentTitle")} uploadHint={u("upPaymentHint")} saveLabel={businessClosureOn() ? t("save") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
       <Card title={u("invoiceIv")}>
         <Table head={["IVTH", u("dueDate"), u("receivable"), t("paid"), t("wht")]}>
           {order.invoices.map((i) => <tr key={i.id}><td className="font-mono">{i.no}</td><td>{i.dueAt?.toISOString().slice(0, 10) ?? ""}</td><td>{i.currency} {Number(i.amountDue).toFixed(2)}</td><td>{Number(i.paidAmount ?? 0).toFixed(2)}</td><td>{Number(i.whtAmount ?? 0).toFixed(2)}</td></tr>)}

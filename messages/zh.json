@@ -780,7 +780,9 @@
     "pending": "待验收",
     "downloadAllZip": "全部下载（ZIP）",
     "uom": "单位",
-    "supplierRef": "供应商单号"
+    "supplierRef": "供应商单号",
+    "closureOffNotice": "试用阶段：业务闭环（开票、请款、回款、月度账单）暂不开放，所有流程跑通后再打开。",
+    "err_CLOSURE_OFF": "试用阶段：业务闭环未开放（{detail}）"
   },
   "role": {
     "MD": "董事总经理 MD",

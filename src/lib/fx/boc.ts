@@ -52,6 +52,26 @@ const num = (s: string): number | null => {
 };
 const text = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
 
+/**
+ * BoC has printed the publish time as "2026.11.05" + "08:29:39" in two cells, and (since ~2026-11) as
+ * "2026/11/05 08:29:39" in the date cell plus the time again. Normalise any of these to "YYYY-MM-DD HH:mm:ss".
+ */
+export function normalizeBocTime(dateCell: string, timeCell = ""): string | null {
+  const d = /(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(dateCell);
+  if (!d) return null;
+  const t = /(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(dateCell.slice(d.index + d[0].length)) ?? /(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(timeCell);
+  const p = (x: string | undefined) => (x ?? "0").padStart(2, "0");
+  return `${d[1]}-${p(d[2])}-${p(d[3])}${t ? ` ${p(t[1])}:${t[2]}:${p(t[3])}` : ""}`;
+}
+
+/** "YYYY-MM-DD[ HH:mm:ss]" in Beijing time → Date; null when it cannot be read (never an Invalid Date). */
+export function bocDate(s: string | null): Date | null {
+  const n = s ? normalizeBocTime(s) : null;
+  if (!n) return null;
+  const d = new Date(`${n.replace(" ", "T")}${n.length > 10 ? "" : "T00:00:00"}+08:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** Parse the whpj HTML into rows. Tolerates attribute noise and whitespace. */
 export function parseBocHtml(html: string): BocRow[] {
   const rows: BocRow[] = [];
@@ -73,7 +93,7 @@ export function parseBocHtml(html: string): BocRow[] {
       sellRemit: num(cells[3]),
       sellCash: num(cells[4]),
       middle: num(cells[5]),
-      publishedAt: date ? `${date}${time ? " " + time : ""}` : null,
+      publishedAt: normalizeBocTime(date, time),
     });
   }
   return rows;
@@ -89,7 +109,7 @@ export function toFxRate(row: BocRow, rateDate: Date) {
     buyRemit: row.buyRemit,
     sellRemit: row.sellRemit,
     source: "BOC",
-    publishedAt: row.publishedAt ? new Date(row.publishedAt.replace(" ", "T") + "+08:00") : null,
+    publishedAt: bocDate(row.publishedAt),
   };
 }
 

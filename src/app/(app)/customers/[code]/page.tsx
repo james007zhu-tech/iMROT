@@ -8,6 +8,7 @@ import { issueMonthlyStatement } from "@/server/to";
 import { guarded } from "@/lib/action-result";
 import { maskEmail, maskLogin, maskName, maskPhone } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
+import { businessClosureOn } from "@/lib/closure";
 import { AssetStatusBadge, OrderStatusBadge } from "@/components/StatusBadge";
 import { Card, Field, Grid, PageHeader, Table, Tag, Value, btnGhost, inputCls } from "@/components/ui";
 
@@ -50,7 +51,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/customers", label: u("backToCustomers") }} title={<><span className="font-mono">{c.code}</span> <span className="text-lg font-semibold">{c.name}</span></>} badge={c.dbdStatus ? <Tag>DBD · {c.dbdStatus}</Tag> : undefined}
-        actions={<>{c.monthlyStatement && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
+        actions={<>{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
         newHref={`/service-orders/new?customer=${c.code}`} newLabel={u("newServiceOrder")} />
       <Flash ok={ok === "revealed" ? u("revealedFor5") : ok} error={errorCode} />
       <Card title={u("company")}>
