@@ -144,13 +144,18 @@ const TOOLS: Tool[] = [
     run: async ({ id }) => { const m = METRICS.find((x) => x.id === String(id)); return m ? await m.run(prisma, {}) : "unknown metric"; } },
 ];
 
+export const PORTAL_TOOLS = new Set(["get_asset", "search_assets", "get_order", "list_orders"]);
+
 const SYSTEM = (ctx: AssistContext) => `You are the DCiT OS assistant inside an equipment-service system (ALM assets, SLM service orders, CRM, SCM, FIN). Answer in ${ctx.locale === "th" ? "Thai" : ctx.locale === "en" ? "English" : "Chinese"}, briefly, with the record numbers (ATH…, QTTH…, INTH…) you relied on. Use tools to look things up; never guess numbers. ${ctx.customerId ? "The user is a customer contact: only their own assets and orders are visible; do not discuss costs, margins or other customers." : "The user is DCiT staff."} The user is on page ${ctx.path ?? "/"}.${ctx.fields?.length ? ` The form on this page has these field names: ${ctx.fields.join(", ")}.` : ""} When the user dictates or asks you to fill in a record, draft the values and finish with a line 'FORM:' followed by a JSON object of field name → value (only names from the list) so the app can fill the form; the user reviews and saves. When you create a dashboard, finish with 'GOTO:' and its href.`;
 
 /** Tool-use loop against the Anthropic Messages API. Returns the final text and any UI actions parsed from it. */
 export async function assist(messages: { role: "user" | "assistant"; content: string }[], ctx: AssistContext): Promise<{ text: string; actions: AssistAction[]; toolsUsed: string[] }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { text: "ANTHROPIC_API_KEY is not configured on the server.", actions: [], toolsUsed: [] };
-  const tools = TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+  // Portal contacts get only the four customer-filtered read tools; similar_cases and metric read across all customers.
+  if (!ctx.employeeCode && !ctx.customerId) throw new Error("assistant needs a staff or customer scope");
+  const allowed = ctx.employeeCode ? TOOLS : TOOLS.filter((t) => PORTAL_TOOLS.has(t.name));
+  const tools = allowed.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
   const convo: unknown[] = messages.map((m) => ({ role: m.role, content: m.content }));
   const used: string[] = [];
   for (let round = 0; round < 8; round++) {
@@ -165,7 +170,7 @@ export async function assist(messages: { role: "user" | "assistant"; content: st
     const results: { type: "tool_result"; tool_use_id: string | undefined; content: string }[] = [];
     for (const c of data.content) {
       if (c.type !== "tool_use") continue;
-      const tool = TOOLS.find((t) => t.name === c.name);
+      const tool = allowed.find((t) => t.name === c.name);
       used.push(c.name!);
       let out: ToolResult;
       try { out = tool ? await tool.run(c.input ?? {}, ctx) : "unknown tool"; } catch (e) { out = `error: ${(e as Error).message}`; }

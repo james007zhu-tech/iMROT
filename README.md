@@ -115,3 +115,9 @@ docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetc
   - 修：中国银行页面改为日期栏内带时间（`2026/11/05 08:29:39`），`fx:fetch` 原来会写入无效日期而失败；smoke 的 CNY 校验改为按当天实际存储的汇率。
   - 验证：tsc 0 错误、vitest 33、smoke（PostgreSQL，含闭环关闭拦截）、smoke:mem、build；浏览器实测两个试用账号登录、开票页提示与按钮隐藏、组织人才页拒绝。
   - 升级本地库：`git pull && npm install && npm run db:push && npm run trial:seed`。
+- 0.19（2026-11-05 试运行发现）门户隔离修复：
+  - 根因：`.env.example` 自带 `DEV_EMPLOYEE_CODE=ETH2611001`，开发模式下（`npm run dev`）没有员工登录的请求一律当作 MD——门户联系人、甚至未登录的人都能打开员工页面、调用 `/api/*`、下载别的客户的报告。现在这个免登录只在 `DEV_AUTH_BYPASS=on` 且非生产时生效，门户联系人登录时永不生效；`.env.example` 默认注释掉。
+  - `/api/documents/:no/pdf` 原来对任何门户联系人开放任意单号，现按单据客户校验；渲染、ZIP、AI 助手统一用 `sessionScope()` / `canReadDocument()`（`src/server/api-auth.ts`）。
+  - 门户 ZIP 只打包门户页列出的报告类型；门户 AI 助手只给四个按客户过滤的查询工具（相似案例、指标会跨客户，员工专用）。
+  - 验证：开发模式 + 旧 `.env` 下浏览器实测，修复前门户账号可见员工设备列表、他客户单据 200；修复后员工页跳登录、`/api` 401、他客户单据/ZIP 404，本客户单据/ZIP 仍 200；员工登录正常；vitest 33、smoke 通过。
+  - 升级：`git pull` 后重启 `npm run dev`。员工端现在需要正常登录（不再自动以 MD 身份进入）。
