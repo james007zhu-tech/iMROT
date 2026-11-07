@@ -5,3 +5,4 @@ node_modules
 /uploads
 uploads/
 e2e-shots/
+.dev-ops/
