@@ -1,0 +1,32 @@
+# Dev stack for the Mac mini: `docker compose -f docker-compose.dev.yml up -d --build`
+# - db   : PostgreSQL 16, published on 5432 so tools outside the container can reach it
+# - app  : next dev with hot reload on the bind-mounted repo; see scripts/dev/container-entry.sh
+#          for the file-trigger that re-runs install / db push / seed and restarts the server.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment: { POSTGRES_USER: dcit, POSTGRES_PASSWORD: dcit, POSTGRES_DB: dcit_os }
+    volumes: [ "dbdata-dev:/var/lib/postgresql/data" ]
+    ports: [ "5432:5432" ]
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U dcit -d dcit_os" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  app:
+    build: { context: ., dockerfile: Dockerfile.dev }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://dcit:dcit@db:5432/dcit_os?schema=public
+      WATCHPACK_POLLING: "true"          # bind mounts on macOS do not always deliver inotify events
+      CHOKIDAR_USEPOLLING: "true"
+    ports: [ "3000:3000" ]
+    volumes:
+      - ".:/app"
+      - "node_modules-dev:/app/node_modules"
+      - "next-dev:/app/.next"
+    depends_on:
+      db: { condition: service_healthy }
+volumes: { dbdata-dev: {}, node_modules-dev: {}, next-dev: {} }
