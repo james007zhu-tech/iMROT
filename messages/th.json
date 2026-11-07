@@ -888,7 +888,8 @@
     "err_ACCEPTANCE_CONFIRM_REQUIRED": "กรุณาติ๊กยืนยันการตรวจรับ",
     "err_MARGIN_APPROVAL_REQUIRED": "ใบเสนอราคา {detail} กำไรต่ำกว่าเกณฑ์ ต้องให้ MD อนุมัติก่อน",
     "err_MD_ONLY": "เฉพาะ MD เท่านั้น",
-    "err_MARGIN_NOT_PENDING": "ใบเสนอราคา {detail} ไม่ได้รอการอนุมัติ"
+    "err_MARGIN_NOT_PENDING": "ใบเสนอราคา {detail} ไม่ได้รอการอนุมัติ",
+    "filledNCheck": "เติมให้ {n} ช่อง — {c} ช่องสีส้มต้องตรวจสอบก่อนบันทึก"
   },
   "role": {
     "MD": "กรรมการผู้จัดการ (MD)",

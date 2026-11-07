@@ -33,8 +33,8 @@ export async function OrderBrief({ order }: { order: Order }) {
   );
 }
 
-export async function StepPage({ order, title, badge, formId = "f", kind, uploadTitle, uploadHint, saveLabel, extraActions, ok, error, notice, children }: {
-  order: Order; title: React.ReactNode; badge?: React.ReactNode; formId?: string; kind?: RecognizeKind; uploadTitle?: string; uploadHint?: string;
+export async function StepPage({ order, title, badge, formId = "f", kind, uploadTitle, uploadHint, lineFields, saveLabel, extraActions, ok, error, notice, children }: {
+  order: Order; title: React.ReactNode; badge?: React.ReactNode; formId?: string; kind?: RecognizeKind; uploadTitle?: string; uploadHint?: string; lineFields?: Record<string, string>;
   saveLabel: string; extraActions?: React.ReactNode; ok?: string; error?: string; notice?: string; children: React.ReactNode;
 }) {
   const t = await getTranslations("common"); // error codes and field names are translated by Flash
@@ -46,7 +46,7 @@ export async function StepPage({ order, title, badge, formId = "f", kind, upload
       {notice && <div className="rounded-lg border border-alert bg-alert/10 px-4 py-2 text-sm text-alert-ink">{notice}</div>}
       <OrderBrief order={order} />
       <FormMemory formId={formId} />
-      {kind && uploadTitle && <UploadRecognize kind={kind} formId={formId} title={uploadTitle} hint={uploadHint ?? ""} />}
+      {kind && uploadTitle && <UploadRecognize kind={kind} formId={formId} title={uploadTitle} hint={uploadHint ?? ""} lineFields={lineFields} />}
       {children}
     </div>
   );

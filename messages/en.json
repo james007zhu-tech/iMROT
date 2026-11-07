@@ -888,7 +888,8 @@
     "err_ACCEPTANCE_CONFIRM_REQUIRED": "Tick the confirmation box to accept",
     "err_MARGIN_APPROVAL_REQUIRED": "Quote {detail} is below the margin floor — the MD must approve first",
     "err_MD_ONLY": "MD only",
-    "err_MARGIN_NOT_PENDING": "Quote {detail} is not awaiting approval"
+    "err_MARGIN_NOT_PENDING": "Quote {detail} is not awaiting approval",
+    "filledNCheck": "Filled {n} fields — {c} orange ones need checking before you save"
   },
   "role": {
     "MD": "Managing Director",
