@@ -100,17 +100,19 @@ model Employee {
   active       Boolean      @default(true)
   createdAt    DateTime     @default(now())
 
-  assetsResponsible Asset[]        @relation("AssetResponsible")
+  assetsResponsible Asset[]           @relation("AssetResponsible")
   events            AssetEvent[]
-  ordersAssigned    ServiceOrder[] @relation("OrderAssignee")
-  ordersCreated     ServiceOrder[] @relation("OrderCreator")
+  ordersAssigned    ServiceOrder[]    @relation("OrderAssignee")
+  ordersCreated     ServiceOrder[]    @relation("OrderCreator")
   inspections       Inspection[]
   repairJobs        RepairJob[]
   documents         Document[]
   dashboards        Dashboard[]
   auditLogs         AuditLog[]
   deliveries        DeliveryNote[]
-  marginApprovals   ServiceOrder[] @relation("MarginApprover")
+  marginApprovals   ServiceOrder[]    @relation("MarginApprover")
+  inquiries         PurchaseInquiry[] @relation("InquiryRequester")
+  purchaseOrders    PurchaseOrder[]   @relation("PoCreator")
 }
 
 /// Who looked at or changed sensitive things: revealing contacts, creating/changing employees, overriding a delivery check.
@@ -549,6 +551,8 @@ model ServiceOrder {
   taxInvoices    TaxInvoice[]
   invoices       Invoice[]
   deliveries     DeliveryNote[]
+  inquiries      PurchaseInquiry[]
+  purchaseOrders PurchaseOrder[]
 
   @@index([customerId, status])
 }
@@ -585,15 +589,15 @@ model QuoteLine {
 
 /// INTH — one inspection of one asset. Feeds template 08 Diagnostic Report.
 model Inspection {
-  id             String       @id @default(cuid())
-  no             String       @unique /// INTH26110201
+  id             String          @id @default(cuid())
+  no             String          @unique /// INTH26110201
   serviceOrderId String
-  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  serviceOrder   ServiceOrder    @relation(fields: [serviceOrderId], references: [id])
   assetId        String
-  asset          Asset        @relation(fields: [assetId], references: [id])
+  asset          Asset           @relation(fields: [assetId], references: [id])
   engineerId     String
-  engineer       Employee     @relation(fields: [engineerId], references: [id])
-  inspectedAt    DateTime     @default(now())
+  engineer       Employee        @relation(fields: [engineerId], references: [id])
+  inspectedAt    DateTime        @default(now())
   symptoms       String?
   conditions     String?
   findings       String?
@@ -729,8 +733,128 @@ model StockMovement {
   byName             String?
   unitCost           Decimal?          @db.Decimal(18, 2) /// IN: cost of this line (also updates Part.lastCost)
   supplierRef        String? /// IN: supplier's delivery / invoice number, verbatim
+  purchaseOrderId    String? /// IN: the POTH this receipt fulfils
+  purchaseOrder      PurchaseOrder?    @relation(fields: [purchaseOrderId], references: [id])
 
   @@unique([no, lineNo])
+}
+
+// ───────────────────────── SCM purchasing (流程图: PRTH 询价比价 → POTH 采购 → IBTH 到货) ─────────────────────────
+
+/// Suppliers are master data without a numbered code (none decided); the tax ID keeps them unique.
+model Supplier {
+  id           String   @id @default(cuid())
+  name         String
+  nameLocal    String?
+  taxId        String?  @unique
+  branchCode   String?  @default("00000")
+  contactName  String?
+  phone        String?
+  email        String?
+  address      String?
+  currency     String   @default("THB")
+  paymentTerms String?
+  leadTimeDays Int?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  quotes SupplierQuote[]
+  orders PurchaseOrder[]
+}
+
+enum InquiryStatus {
+  OPEN /// sent to suppliers, waiting for quotes
+  COMPARED /// a quote was selected — costs flow back into the QTTH
+  ORDERED /// a POTH was raised from it
+  CANCELLED
+}
+
+/// PRTH — one purchase inquiry (one or more lines) sent to one or more suppliers; their quotes are compared here.
+model PurchaseInquiry {
+  id             String        @id @default(cuid())
+  no             String        @unique /// PRTH26110701
+  entityId       String
+  serviceOrderId String?
+  serviceOrder   ServiceOrder? @relation(fields: [serviceOrderId], references: [id])
+  status         InquiryStatus @default(OPEN)
+  requestedById  String
+  requestedBy    Employee      @relation("InquiryRequester", fields: [requestedById], references: [id])
+  neededBy       DateTime?
+  note           String?
+  lines          Json /// [{lineNo, partSku?, vendorPartNo?, description, qty, unit, assetCode?}]
+  attachments    Json?
+  createdAt      DateTime      @default(now())
+
+  quotes SupplierQuote[]
+  orders PurchaseOrder[]
+
+  @@index([serviceOrderId])
+}
+
+/// One supplier's answer to a PRTH (usually read from their quotation PDF). `selected` wins the comparison.
+model SupplierQuote {
+  id           String          @id @default(cuid())
+  inquiryId    String
+  inquiry      PurchaseInquiry @relation(fields: [inquiryId], references: [id])
+  supplierId   String
+  supplier     Supplier        @relation(fields: [supplierId], references: [id])
+  quoteNo      String? /// supplier's number, verbatim
+  quoteDate    DateTime?
+  validUntil   DateTime?
+  currency     String          @default("THB")
+  vatRate      Decimal?        @db.Decimal(5, 4)
+  subtotal     Decimal         @db.Decimal(18, 2)
+  total        Decimal?        @db.Decimal(18, 2)
+  leadTimeDays Int?
+  paymentTerms String?
+  lines        Json /// [{lineNo, vendorPartNo?, description, qty, unit, unitPrice, amount}] — lineNo matches the inquiry line
+  attachments  Json?
+  selected     Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+
+  @@index([inquiryId])
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  PARTIAL /// some lines received (IBTH)
+  RECEIVED
+  CANCELLED
+}
+
+/// POTH — what we order from a supplier; receipts (IBTH) post against its lines until it is RECEIVED.
+model PurchaseOrder {
+  id             String              @id @default(cuid())
+  no             String              @unique /// POTH26110701
+  entityId       String
+  supplierId     String
+  supplier       Supplier            @relation(fields: [supplierId], references: [id])
+  inquiryId      String?
+  inquiry        PurchaseInquiry?    @relation(fields: [inquiryId], references: [id])
+  serviceOrderId String?
+  serviceOrder   ServiceOrder?       @relation(fields: [serviceOrderId], references: [id])
+  status         PurchaseOrderStatus @default(DRAFT)
+  orderedAt      DateTime            @default(now())
+  expectedAt     DateTime?
+  currency       String              @default("THB")
+  fxRateToCny    Decimal?            @db.Decimal(18, 8)
+  subtotal       Decimal             @db.Decimal(18, 2)
+  vatRate        Decimal             @db.Decimal(5, 4)
+  vatAmount      Decimal             @db.Decimal(18, 2)
+  total          Decimal             @db.Decimal(18, 2)
+  totalCny       Decimal?            @db.Decimal(18, 2)
+  supplierRef    String? /// supplier's order confirmation / invoice number, verbatim
+  paymentTerms   String?
+  lines          Json /// [{lineNo, partSku?, vendorPartNo?, description, qty, unit, unitPrice, amount, receivedQty}]
+  attachments    Json?
+  createdById    String
+  createdBy      Employee            @relation("PoCreator", fields: [createdById], references: [id])
+  createdAt      DateTime            @default(now())
+
+  receipts StockMovement[]
+
+  @@index([serviceOrderId])
 }
 
 // ───────────────────────── T&O / FIN (Phase 1 slice) ─────────────────────────
