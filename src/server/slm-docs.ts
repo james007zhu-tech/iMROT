@@ -284,6 +284,20 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
 }
 
 /**
+ * Recompute costTotal / marginPct / marginApproval from the stored quote lines (after a purchase comparison
+ * wrote new costs). A quote that drops below the floor goes back to PENDING; one that recovers clears it.
+ */
+export async function recomputeMargin(tx: Prisma.TransactionClient, orderId: string, actorId: string, sourceDocNo?: string) {
+  const o = await tx.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: { lines: true, assets: true } });
+  const costed = o.lines.map((l) => ({ qty: Number(l.qty), unitPrice: Number(l.unitPrice), unitCost: l.unitCost != null ? Number(l.unitCost) : undefined }));
+  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct);
+  const keep = approval === "NOT_NEEDED" ? "NOT_NEEDED" : o.marginApproval === "APPROVED" && o.marginPct != null && pct != null && pct >= Number(o.marginPct) ? "APPROVED" : "PENDING";
+  await tx.serviceOrder.update({ where: { id: orderId }, data: { costTotal: cost, marginPct: pct, marginApproval: keep, ...(keep === "PENDING" ? { marginApprovedById: null, marginApprovedAt: null } : {}) } });
+  for (const a of o.assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "QUOTED", actorId, serviceOrderId: orderId, sourceDocNo: sourceDocNo ?? o.no, summary: `cost ${cost.toFixed(2)} · margin ${pct == null ? "-" : (pct * 100).toFixed(1) + "%"}`, payload: { costTotal: cost, marginPct: pct, marginApproval: keep } as Prisma.InputJsonValue } });
+  return { cost, pct, approval: keep };
+}
+
+/**
  * Document-completeness check before acceptance (流程图 验收第 4 条): INTH and RPTH/PMTH are always required;
  * a workshop job also needs the machine's intake (ERTH) and a signed delivery note (DNTH) — the machine's in and out.
  * Returns the missing document kinds, empty when acceptance may proceed. Shared by the service and the page.
