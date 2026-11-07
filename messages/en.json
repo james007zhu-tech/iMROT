@@ -850,7 +850,8 @@
     "attachmentRefs": "Attachment refs",
     "travelOtherCost": "Travel / other costs",
     "consumablesUsed": "Consumables / parts (from stock-out)",
-    "customerEscort": "Customer's person on site"
+    "customerEscort": "Customer's person on site",
+    "err_ESCORT_NOT_CUSTOMER": "The person on site must be one of this customer's contacts"
   },
   "role": {
     "MD": "Managing Director",

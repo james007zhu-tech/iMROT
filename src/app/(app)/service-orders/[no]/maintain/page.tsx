@@ -5,6 +5,7 @@ import { createRepairJob } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { RevealRows } from "@/components/RevealRows";
+import { openJob } from "@/lib/drafts";
 import { maskName } from "@/lib/mask";
 import { Card, Field, Grid, Table, Tag, Value, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, num, str } from "../_shell";
@@ -21,7 +22,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
   const order = await loadOrder(no);
   const [t, u, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getLocale()]);
   const asset = order.assets[0]?.asset;
-  const draft = order.repairJobs.find((j) => !j.finishedAt && j.kind === "MAINTENANCE");
+  const draft = openJob(order.repairJobs, { maintenance: true, orderStatus: order.status });
   const [standards, last, engineers, contacts] = await Promise.all([
     asset?.model ? prisma.maintenanceStandard.findMany({ where: { seriesId: asset.model.seriesId, OR: [{ modelId: null }, { modelId: asset.model.id }] }, orderBy: { item: "asc" } }) : Promise.resolve([]),
     asset ? prisma.repairJob.findFirst({ where: { assetId: asset.id, kind: "MAINTENANCE", serviceOrderId: { not: order.id } }, orderBy: { startedAt: "desc" } }) : Promise.resolve(null),
@@ -36,7 +37,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
     "use server";
     await guarded(async () => {
       const me = await currentEmployee();
-      const finished = !f.getAll("finish").includes("0");
+      const finished = f.get("draft") !== "1"; // only the "save draft" button posts draft=1
       // In-contract work has no quote step: move the order to IN_PROGRESS before the job is recorded.
       const before = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true, kind: true } });
       if (before.kind === "CONTRACT" && before.status === "ASSIGNED") await advanceServiceOrder(no, "DIAGNOSING", me.code);
@@ -61,13 +62,17 @@ export default async function Maintain({ params, searchParams }: { params: Promi
   }
   // A saved draft comes back with what was measured; otherwise the checklist starts from the model's standards.
   const saved = (draft?.checklist as { item: string; criterion?: string; measured?: string; verdict?: string; photo?: string }[] | null) ?? [];
-  const rows = saved.length ? saved.map((x) => ({ item: x.item, criterion: x.criterion ?? "", measured: x.measured ?? "", verdict: x.verdict ?? "", photo: x.photo ?? "" })) : standards.map((s) => ({ item: s.item, criterion: s.criterion ?? "", measured: "", verdict: "", photo: "" }));
+  // Standard items stay listed even if the draft has nothing measured for them yet; extra items from the draft follow.
+  const fromSaved = (x: (typeof saved)[number]) => ({ item: x.item, criterion: x.criterion ?? "", measured: x.measured ?? "", verdict: x.verdict ?? "", photo: x.photo ?? "" });
+  const rows = [
+    ...standards.map((s) => { const x = saved.find((y) => y.item === s.item); return x ? fromSaved(x) : { item: s.item, criterion: s.criterion ?? "", measured: "", verdict: "", photo: "" }; }),
+    ...saved.filter((x) => !standards.some((s) => s.item === x.item)).map(fromSaved),
+  ];
   const outs = [...new Map(order.stockMovements.filter((m) => m.direction === "OUT").map((m) => [m.id, `${m.part.sku} ${m.part.name ?? ""} ×${Number(m.qty)}`])).values()].join("; ");
   return (
     <StepPage order={order} title={u("step_maintain")} badge={draft ? <Tag><span className="font-mono">{draft.no}</span> · {u("dn_DRAFT")}</Tag> : undefined} error={error} kind="maintenance" uploadTitle={u("upMaintTitle")} uploadHint={u("upMaintHint")} saveLabel={u("finishToAcceptance")}
-      extraActions={<button form="f" name="finish" value="0" className="inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold">{u("saveDraft")}</button>}>
+      extraActions={<button form="f" name="draft" value="1" formNoValidate className="inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold">{u("saveDraft")}</button>}>
       <form id="f" action={save} className="space-y-4">
-        <input type="hidden" name="finish" value="1" />
         <Card title={u("basicInfo")}>
           <Grid>
             <Field label={t("asset")} required><select name="assetCode" defaultValue={order.assets.find((l) => l.assetId === draft?.assetId)?.asset.code} className={inputCls}>{order.assets.map((l) => <option key={l.assetId} value={l.asset.code}>{l.asset.code} · S/N {l.asset.serialNumber}</option>)}</select></Field>

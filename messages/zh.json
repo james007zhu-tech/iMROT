@@ -850,7 +850,8 @@
     "attachmentRefs": "附件编号",
     "travelOtherCost": "差旅 / 其他费用",
     "consumablesUsed": "耗材 / 换件（出库带入）",
-    "customerEscort": "客户现场陪同人"
+    "customerEscort": "客户现场陪同人",
+    "err_ESCORT_NOT_CUSTOMER": "现场陪同人必须是该客户的联系人"
   },
   "role": {
     "MD": "董事总经理 MD",

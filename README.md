@@ -133,3 +133,13 @@ docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetc
   - 字体：页面西文和数字改用 Helvetica（Mac 自带；Windows 用 Arial），泰文仍是 Sarabun，中文思源黑体。对外 Word / PDF 报告仍按《DCiT 文件模板体系》用 Sarabun + Noto Sans SC。
   - 验证：tsc 0 错误、vitest 41、smoke（PostgreSQL，含草稿同号、DCiV 客户编号）、smoke:mem、build、Playwright 43 步 e2e 全过；16 张线框与实际页面逐张并排截图核对。
   - 升级本地库：`git pull && npm install && npm run db:push && npm run db:seed`（Mac mini 的 Docker 开发环境：写 `.dev-ops/restart`，再写 `.dev-ops/seed`）。
+- 0.20.1（2026-11-07 独立审查 v0.20 后的修正）：
+  - 出错返回后点「保存草稿」会把送货单直接开具、把维修/维护单直接完成：`FormMemory` 把按钮的值也存了回去。现在只存栏位，不存按钮；草稿按钮单独提交 `draft=1`，并且不做必填校验。
+  - 草稿再次保存时，这次留空的栏位会被清空（原来会保留上次的内容并印到报告上）。
+  - 草稿的时间线事件保留最初的状态（如 在役 → 测试与验收），不再被改成 维修 → 维修。
+  - 维修单：草稿里的换件和之后新做的出库都显示出来，不再有看不见却会被提交的行；维护单：草稿重开时型号标准里尚未测量的项目不会丢。
+  - 只在服务单还在派工/诊断/执行中时续用草稿，且不续用早于已完成单的旧草稿（返工时不会捡起以前丢下的草稿）。
+  - 送货单草稿页面不能打印/签收，打开会回到送货单表单；现场陪同人必须是该客户的联系人。
+  - 系统管理 VAT 显示 7%（原 7.000000000000001%）；步骤页和系统管理页的报错也显示栏位中文名。
+  - 验证：tsc、vitest 46、smoke（PostgreSQL，含草稿清空栏位、事件起始状态）、smoke:mem、build、Playwright 44 步（含「出错后保存草稿仍是草稿」）全过。
+

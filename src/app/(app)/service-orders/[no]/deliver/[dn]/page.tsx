@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { signDelivery } from "@/server/delivery";
@@ -16,6 +16,7 @@ export default async function DeliveryNote({ params, searchParams }: { params: P
   const order = await loadOrder(no);
   const note = await prisma.deliveryNote.findUnique({ where: { no: dn }, include: { driver: true } });
   if (!note || note.serviceOrderId !== order.id) notFound();
+  if (note.status === "DRAFT") redirect(`/service-orders/${no}/deliver`); // a draft is edited on the delivery form; it has nothing to print or sign yet
   const [t, u, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getLocale()]);
   const lines = note.lines as { key: string; kind: string; poLineNo?: number; description: string; assetCode?: string; delivered: number; source?: string; isService?: boolean }[];
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);

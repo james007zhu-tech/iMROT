@@ -5,6 +5,7 @@ import { createRepairJob } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { RevealRows } from "@/components/RevealRows";
+import { openJob } from "@/lib/drafts";
 import { Card, Field, Grid, Table, Tag, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, num, str } from "../_shell";
 
@@ -21,14 +22,16 @@ export default async function Repair({ params, searchParams }: { params: Promise
   const outs = order.stockMovements.filter((m) => m.direction === "OUT");
   const insp = order.inspections.at(-1);
   // An unfinished RPTH (saved as draft) is reopened here and saved onto the same number.
-  const draft = order.repairJobs.find((j) => !j.finishedAt && j.kind !== "MAINTENANCE");
+  const draft = openJob(order.repairJobs, { maintenance: false, orderStatus: order.status });
   const dParts = (draft?.partsReplaced as { partSku: string; name?: string; qty: number; newSerial?: string; oldSerial?: string; obthNo?: string; oldDisposition?: string }[] | null) ?? [];
+  // Parts: what the draft already holds, plus stock-outs made since that it does not list yet. Every prefilled row is shown.
+  const partRows = [...dParts, ...outs.filter((m) => !dParts.some((p) => p.obthNo === m.no && p.partSku === m.part.sku)).map((m) => ({ partSku: m.part.sku, name: m.part.name ?? undefined, qty: Number(m.qty), obthNo: m.no, newSerial: undefined, oldSerial: undefined, oldDisposition: undefined }))].slice(0, PARTS);
   const dTests = (draft?.tests as { test: string; criterion?: string; result?: string; recordId?: string; pass?: boolean }[] | null) ?? [];
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
       const me = await currentEmployee();
-      const finished = !f.getAll("finish").includes("0"); // the draft button posts finish=0
+      const finished = f.get("draft") !== "1"; // only the "save draft" button posts draft=1
       const tests = TESTS.map((k) => ({ test: str(f, `t_${k}`) ?? "", criterion: str(f, `c_${k}`), result: str(f, `r_${k}`), recordId: str(f, `id_${k}`), pass: f.get(`p_${k}`) ? f.get(`p_${k}`) === "yes" : undefined })).filter((x) => x.test && (x.criterion || x.result));
       const parts = Array.from({ length: PARTS }, (_, i) => ({ partSku: str(f, `ps${i}`) ?? "", name: str(f, `pn${i}`), qty: num(f, `pq${i}`) ?? 0, newSerial: str(f, `pnew${i}`), oldSerial: str(f, `pold${i}`), obthNo: str(f, `pob${i}`), oldDisposition: (str(f, `pdisp${i}`) as "SCRAP" | undefined) })).filter((p) => p.partSku && p.qty > 0);
       const job = await createRepairJob({ serviceOrderNo: no, assetCode: String(f.get("assetCode")), engineerCode: str(f, "engineerCode") ?? me.code, kind: (str(f, "kind") as "REPAIR") ?? "REPAIR", location: f.get("location") as "SITE", startedAt: str(f, "startedAt") ? new Date(str(f, "startedAt")!) : undefined, finishedAt: finished ? (str(f, "finishedAt") ? new Date(str(f, "finishedAt")!) : new Date()) : undefined, confirmedFault: str(f, "confirmedFault"), rootCause: str(f, "rootCause"), workPerformed: str(f, "workPerformed"), partsReplaced: parts, configBackupRef: str(f, "configBackupRef"), laborHours: num(f, "laborHours"), travelCost: num(f, "travelCost"), tests, openIssues: str(f, "openIssues"), conclusion: str(f, "conclusion"), attachments: atts(f) });
@@ -40,9 +43,8 @@ export default async function Repair({ params, searchParams }: { params: Promise
   const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   return (
     <StepPage order={order} title={u("step_repair")} badge={draft ? <Tag><span className="font-mono">{draft.no}</span> · {u("dn_DRAFT")}</Tag> : undefined} error={error} kind="repair" uploadTitle={u("upRepairTitle")} uploadHint={u("upRepairHint")} saveLabel={u("finishToAcceptance")}
-      extraActions={<button form="f" name="finish" value="0" className="inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold">{u("saveDraft")}</button>}>
+      extraActions={<button form="f" name="draft" value="1" formNoValidate className="inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold">{u("saveDraft")}</button>}>
       <form id="f" action={save} className="space-y-4">
-        <input type="hidden" name="finish" value="1" />
         <Card title={u("basicInfo")}>
           <Grid>
             <Field label={t("asset")} required><select name="assetCode" defaultValue={order.assets.find((l) => l.assetId === draft?.assetId)?.asset.code} className={inputCls}>{order.assets.map((l) => <option key={l.assetId} value={l.asset.code}>{l.asset.code} · S/N {l.asset.serialNumber}</option>)}</select></Field>
@@ -60,16 +62,16 @@ export default async function Repair({ params, searchParams }: { params: Promise
           </Grid>
           <Field label={u("workPerformed")} required><textarea name="workPerformed" required rows={3} defaultValue={draft?.workPerformed ?? ""} className={inputCls} /></Field>
           <div className="text-[13px] text-navy/80">{u("partsReplaced")}</div>
-          <RevealRows initial={Math.max(dParts.length || outs.length, 1)} addLabel={u("addPart")}>
-            {Array.from({ length: PARTS }, (_, i) => { const m = outs[i]; const dp = dParts[i]; return (
+          <RevealRows initial={Math.max(partRows.length, 1)} addLabel={u("addPart")}>
+            {Array.from({ length: PARTS }, (_, i) => { const dp = partRows[i]; return (
               <div key={i} className="grid grid-cols-2 gap-2 md:grid-cols-[1.4fr_1.4fr_70px_1fr_1fr_1.2fr_1fr]">
-                <input name={`ps${i}`} defaultValue={dp?.partSku ?? m?.part.sku ?? ""} placeholder={u("partSku")} className={inputCls} />
-                <input name={`pn${i}`} defaultValue={dp?.name ?? m?.part.name ?? ""} placeholder={t("name")} className={inputCls} />
-                <input name={`pq${i}`} type="number" step="1" defaultValue={dp ? dp.qty : m ? Number(m.qty) : ""} placeholder={t("qty")} className={inputCls} />
+                <input name={`ps${i}`} defaultValue={dp?.partSku ?? ""} placeholder={u("partSku")} className={inputCls} />
+                <input name={`pn${i}`} defaultValue={dp?.name ?? ""} placeholder={t("name")} className={inputCls} />
+                <input name={`pq${i}`} type="number" step="1" defaultValue={dp ? dp.qty : ""} placeholder={t("qty")} className={inputCls} />
                 <input name={`pnew${i}`} defaultValue={dp?.newSerial ?? ""} placeholder={u("newSerial")} className={inputCls} />
                 <input name={`pold${i}`} defaultValue={dp?.oldSerial ?? ""} placeholder={u("oldSerial")} className={inputCls} />
                 <select name={`pdisp${i}`} defaultValue={dp?.oldDisposition} className={inputCls}><option value="SCRAP">{u("dispScrap")}</option><option value="RETURN_TO_CUSTOMER">{u("dispReturn")}</option><option value="KEEP_FOR_ANALYSIS">{u("dispKeep")}</option></select>
-                <input name={`pob${i}`} defaultValue={dp?.obthNo ?? m?.no ?? ""} placeholder="OBTH" className={inputCls} />
+                <input name={`pob${i}`} defaultValue={dp?.obthNo ?? ""} placeholder="OBTH" className={inputCls} />
               </div>); })}
           </RevealRows>
           <Grid>

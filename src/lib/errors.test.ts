@@ -21,3 +21,22 @@ describe("next steps after the 2026-11-05 trial", () => {
   it("paid maintenance is quoted, not inspected", () => expect(nextSteps({ ...base, status: "ASSIGNED", kind: "MAINTENANCE" }).primary).toBe("quote"));
   it("an undispatched repair can still be inspected or quoted", () => expect(nextSteps({ ...base, status: "RECEIVED", kind: "REPAIR" }).also).toEqual(["inspect", "quote"]));
 });
+
+import { openJob } from "./drafts";
+describe("errorCode with coded schema messages", () => {
+  it("prefers a stable code given as the message", () => expect(errorCode({ issues: [{ path: ["code"], message: "ENTITY_CODE" }] })).toBe("ENTITY_CODE"));
+});
+
+describe("openJob (which draft 'save draft' continues)", () => {
+  const t = (d: number) => new Date(2026, 10, d);
+  const jobs = [
+    { no: "RP-old-draft", assetId: "a", kind: "REPAIR", startedAt: t(1), finishedAt: null },
+    { no: "RP-done", assetId: "a", kind: "REPAIR", startedAt: t(2), finishedAt: t(3) },
+    { no: "RP-rework", assetId: "a", kind: "REPAIR", startedAt: t(4), finishedAt: null },
+    { no: "PM-draft", assetId: "a", kind: "MAINTENANCE", startedAt: t(5), finishedAt: null },
+  ];
+  it("skips a draft abandoned before a finished job", () => expect(openJob(jobs, { maintenance: false, orderStatus: "IN_PROGRESS", assetId: "a" })?.no).toBe("RP-rework"));
+  it("keeps repair and maintenance apart", () => expect(openJob(jobs, { maintenance: true, orderStatus: "IN_PROGRESS" })?.no).toBe("PM-draft"));
+  it("never reopens once the order went to acceptance", () => expect(openJob(jobs, { maintenance: false, orderStatus: "ACCEPTANCE_PENDING" })).toBeUndefined());
+  it("only the given asset", () => expect(openJob(jobs, { maintenance: false, orderStatus: "IN_PROGRESS", assetId: "b" })).toBeUndefined());
+});

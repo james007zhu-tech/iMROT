@@ -31,8 +31,6 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
       return e.code;
     }, "/admin");
   }
-  const [code, ...rest] = (error ?? "").split(":");
-  const shown = error && /^[A-Z_]+$/.test(code) && u.has(`err_${code}`) ? u(`err_${code}`, { detail: rest.join(":") }) : error;
   const form = (e: Entity | null) => {
     const id = e ? `e_${e.countryCode}` : "e_new";
     return (
@@ -46,7 +44,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
           <Field label={t("branch")}><input name="branchCode" defaultValue={e?.branchCode ?? ""} className={`${inputCls} font-mono`} /></Field>
           <Field label={t("localCcy")} required><input name="localCurrency" defaultValue={e?.localCurrency ?? ""} placeholder="VND" required maxLength={3} className={`${inputCls} font-mono`} /></Field>
           <Field label={t("bookCcy")}><div className="min-h-10 rounded-md border bg-tint px-2.5 py-2 text-sm">CNY</div></Field>
-          <Field label={u("vatPct")} required><input name="vatPct" type="number" step="0.01" min={0} max={100} defaultValue={e ? Number(e.vatRate) * 100 : ""} required className={inputCls} /></Field>
+          <Field label={u("vatPct")} required><input name="vatPct" type="number" step="0.01" min={0} max={100} defaultValue={e ? pct(e.vatRate) : ""} required className={inputCls} /></Field>
           <Field label={t("addressEn")} className="md:col-span-3"><input name="addressEn" defaultValue={e?.addressEn ?? ""} className={inputCls} /></Field>
           <Field label={t("addressLocal")} className="md:col-span-3"><input name="addressLocal" defaultValue={e?.addressLocal ?? ""} className={inputCls} /></Field>
           <Field label={t("phone")}><input name="phone" defaultValue={e?.phone ?? ""} className={inputCls} /></Field>
@@ -60,13 +58,13 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
   };
   const view = (e: Entity) => (
     <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm md:grid-cols-3">
-      {([[t("nameEn"), e.nameEn], [t("nameLocal"), e.nameLocal], [t("taxId"), e.taxId], [t("branch"), e.branchCode], [t("localCcy"), e.localCurrency], [u("vatPct"), `${Number(e.vatRate) * 100}%`], [t("addressEn"), e.addressEn], [t("phone"), e.phone], [t("signatory"), e.signatoryName]] as [string, string | null][]).map(([k, v]) => <div key={k}><dt className="text-xs text-navy/70">{k}</dt><dd>{v || "—"}</dd></div>)}
+      {([[t("nameEn"), e.nameEn], [t("nameLocal"), e.nameLocal], [t("taxId"), e.taxId], [t("branch"), e.branchCode], [t("localCcy"), e.localCurrency], [u("vatPct"), `${pct(e.vatRate)}%`], [t("addressEn"), e.addressEn], [t("phone"), e.phone], [t("signatory"), e.signatoryName]] as [string, string | null][]).map(([k, v]) => <div key={k}><dt className="text-xs text-navy/70">{k}</dt><dd>{v || "—"}</dd></div>)}
     </dl>
   );
   return (
     <div className="space-y-4">
       <PageHeader title={t("nav_admin")} newHref={md ? "#new-entity" : undefined} newLabel={u("newEntity")} />
-      <Flash ok={ok} error={shown} />
+      <Flash ok={ok} error={error} />
       <Card title={t("legalEntities")}>
         <div className="space-y-2">
           {entities.map((e) => (
@@ -97,3 +95,5 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
     </div>
   );
 }
+/** 0.07 → 7 (no 7.000000000000001). */
+const pct = (rate: unknown) => Math.round(Number(rate) * 10000) / 100;

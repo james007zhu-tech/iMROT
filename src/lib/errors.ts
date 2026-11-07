@@ -6,6 +6,9 @@
 export function errorCode(e: unknown): string {
   const err = e as { name?: string; message?: string; issues?: { path: (string | number)[]; message: string }[]; code?: string; meta?: { target?: string[] | string; modelName?: string } };
   if (Array.isArray(err?.issues)) {
+    // A schema may carry its own stable code as the message (regex(…, "ENTITY_CODE")): that says more than a field name.
+    const coded = err.issues.find((i) => /^[A-Z][A-Z0-9_]+$/.test(i.message));
+    if (coded) return coded.message;
     const fields = [...new Set(err.issues.map((i) => i.path.filter((p) => typeof p === "string").join(".") || i.message))];
     return `INVALID_INPUT:${fields.join(", ")}`;
   }
