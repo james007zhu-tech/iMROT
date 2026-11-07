@@ -189,6 +189,28 @@ await step("parts-and-stock", async () => {
   const ok = decodeURIComponent(page.url()); if (!/IBTH\d{9} · 2/.test(ok)) throw new Error(`expected one IBTH with 2 lines, got ${ok}`);
 });
 await step("search", async () => { await page.goto(`${BASE}/search?q=${assetCode}`); await expectText(assetCode); });
+let prNo, poNo;
+await step("supplier-new", async () => {
+  await page.goto(`${BASE}/suppliers/new`); await page.fill("[name=nameEn]", `FA Parts ${stamp}`); await page.fill("[name=paymentTerms]", "30 days"); await page.fill("[name=leadTimeDays]", "5");
+  await save(); await page.waitForURL(/\/suppliers\?/); await expectText(`FA Parts ${stamp}`);
+});
+await step("inquiry-new-and-compare", async () => {
+  await page.goto(`${BASE}/purchasing/inquiries/new`);
+  await page.fill("[name=s0]", `ABB-FAN-${stamp}`); await page.fill("[name=v0]", "FAN-01"); await page.fill("[name=d0]", "Cooling fan"); await page.fill("[name=q0]", "2");
+  await save(); await page.waitForURL(/\/purchasing\/inquiries\/PRTH/); prNo = page.url().split("/").pop().split("?")[0];
+  await expectText("Cooling fan");
+  const q = page.locator("form#q"); await selectByText(q, "[name=supplierId]", `FA Parts ${stamp}`); await q.locator("[name=quoteNo]").fill(`FAQ-${stamp}`); await q.locator("[name=p0]").fill("3900");
+  await q.locator("button").last().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText(`FAQ-${stamp}`);
+  await page.locator("form").filter({ has: page.locator("[name=quoteId]") }).locator("button").click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("Compared");
+});
+await step("purchase-order-and-receipt", async () => {
+  await page.locator("form").filter({ hasText: "Raise POTH" }).locator("button").click(); await page.waitForURL(/\/purchasing\/orders\/POTH/); poNo = page.url().split("/").pop().split("?")[0];
+  await expectText("3900.00"); await expectText("7800.00");
+  await page.locator("form").filter({ hasText: "Mark as sent" }).locator("button").click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await expectText("Sent");
+  const r = page.locator("form#r"); await r.locator("[name=supplierRef]").fill(`INV-${stamp}`); await r.locator("[name=r0]").fill("2");
+  await r.locator("button").last().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("Received"); await expectText("IBTH");
+  await page.goto(`${BASE}/purchasing/orders`); await expectText(poNo); await page.goto(`${BASE}/purchasing/inquiries`); await expectText(prNo); await expectText("Ordered");
+});
 await step("dashboard-build", async () => { await page.goto(`${BASE}/dashboard`); await page.fill("input[placeholder*=\"Describe\"]", "本月维修看板：工单、收入、工程师"); await page.click("form button:has-text('AI')"); await page.waitForURL(/\/dashboard\/[a-z0-9]+/, { timeout: 15000 }); });
 await step("employee-create-md-only", async () => {
   await page.goto(`${BASE}/people`); await page.click("a:has-text('New employee')"); await page.waitForURL(/\/people\/new/);
