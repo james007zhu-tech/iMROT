@@ -32,10 +32,21 @@ export async function signInEmployee(email: string, password: string): Promise<b
 }
 export async function signOut() { (await cookies()).delete(COOKIE); }
 
-/** Signed-in employee code without redirecting (for API routes). Honours DEV_EMPLOYEE_CODE outside production. */
+/**
+ * Dev-only login bypass. Off unless DEV_AUTH_BYPASS=on outside production, and never while a portal contact is signed in:
+ * the old default (DEV_EMPLOYEE_CODE alone, copied from .env.example) made every request — portal ones included — act as the MD,
+ * which broke portal isolation (trial 2026-11-05).
+ */
+async function devEmployeeCode(): Promise<string | null> {
+  if (process.env.NODE_ENV === "production" || process.env.DEV_AUTH_BYPASS !== "on") return null;
+  if (verify((await cookies()).get(PORTAL_COOKIE)?.value)) return null;
+  return process.env.DEV_EMPLOYEE_CODE ?? null;
+}
+
+/** Signed-in employee code without redirecting (for API routes). */
 export async function sessionEmployeeCode(): Promise<string | null> {
   const payload = verify((await cookies()).get(COOKIE)?.value);
-  return payload?.split("|")[0] ?? (process.env.NODE_ENV !== "production" ? process.env.DEV_EMPLOYEE_CODE ?? null : null);
+  return payload?.split("|")[0] ?? (await devEmployeeCode());
 }
 /** Signed-in portal contact id without redirecting. */
 export async function sessionContactId(): Promise<string | null> {
@@ -43,10 +54,9 @@ export async function sessionContactId(): Promise<string | null> {
   return payload?.split("|")[0] ?? null;
 }
 
-/** Dev fallback: DEV_EMPLOYEE_CODE lets the app run before login pages exist. Never set it in production. */
+/** Signed-in employee, or redirect to /login. */
 export async function currentEmployee() {
-  const payload = verify((await cookies()).get(COOKIE)?.value);
-  const code = payload?.split("|")[0] ?? process.env.DEV_EMPLOYEE_CODE;
+  const code = await sessionEmployeeCode();
   if (!code) redirect("/login");
   const e = await prisma.employee.findUnique({ where: { code } });
   if (!e || !e.active) redirect("/login");
