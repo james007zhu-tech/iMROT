@@ -8,6 +8,8 @@ import { openJob } from "@/lib/drafts";
 import { allocateNumber } from "@/lib/numbering-db";
 import { totals } from "@/lib/money";
 import { assetStatusForWork, canTransitionAsset } from "@/lib/lifecycle";
+import { costTotal, marginApprovalFor, marginPct } from "@/lib/margin";
+import { assertNotLocked, progressOrder } from "@/server/slm";
 import type { AssetStatus, Prisma } from "@prisma/client";
 
 const TestRow = z.object({ test: z.string(), criterion: z.string().optional(), result: z.string().optional(), recordId: z.string().optional(), pass: z.boolean().optional() });
@@ -52,6 +54,7 @@ export async function createInspection(input: z.input<typeof InspectionInput>) {
       },
     });
     await tx.document.create({ data: { no, type: "IN", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: eng.id, templateCode: "08" } });
+    await progressOrder(tx, order, "DIAGNOSING", eng.id, no);
     await tx.assetEvent.create({
       data: {
         assetId: asset.id, type: "INSPECTED", actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no,
@@ -77,6 +80,7 @@ export const QuoteLinesInput = z.object({
     qty: z.number().positive(),
     unit: z.string().default("pcs"),
     unitPrice: z.number().min(0),
+    unitCost: z.number().min(0).optional(), /// cost for the margin; defaults to the part's last purchase cost
   })).min(1),
 });
 
@@ -85,10 +89,13 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const d = QuoteLinesInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, assets: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
+  assertNotLocked(order);
   const vatRate = d.vatRate ?? Number(order.entity.vatRate);
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
   const fx = order.currency === "CNY" ? 1 : (await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny;
   const parts = await prisma.part.findMany({ where: { sku: { in: d.lines.map((l) => l.partSku).filter((s): s is string => !!s) } } });
+  const costed = d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.find((p) => p.sku === l.partSku)?.lastCost ?? 0) || undefined : undefined) }));
+  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct);
 
   return prisma.$transaction(async (tx) => {
     await tx.quoteLine.deleteMany({ where: { serviceOrderId: order.id } });
@@ -98,17 +105,21 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
         return {
           serviceOrderId: order.id, lineNo: i + 1, assetCode: l.assetCode, partId: part?.id, description: l.description,
           descriptionLocal: l.descriptionLocal, qty: l.qty, unit: l.unit, unitPrice: l.unitPrice,
-          amount: Math.round(l.qty * l.unitPrice * 100) / 100, costRef: part?.lastCost ?? undefined,
+          amount: Math.round(l.qty * l.unitPrice * 100) / 100, costRef: part?.lastCost ?? undefined, unitCost: costed[i].unitCost,
         };
       }),
     });
     const updated = await tx.serviceOrder.update({
       where: { id: order.id },
-      data: { subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx ? Number(fx) : undefined, totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined },
+      data: {
+        subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx ? Number(fx) : undefined, totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined,
+        costTotal: cost, marginPct: pct, marginApproval: approval, marginApprovedById: null, marginApprovedAt: null, marginNote: null,
+      },
     });
     for (const link of order.assets) {
-      await tx.assetEvent.create({ data: { assetId: link.assetId, type: "QUOTED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `${order.currency} ${t.total.toFixed(2)} · ${d.lines.length} lines`, payload: t as unknown as Prisma.InputJsonValue } });
+      await tx.assetEvent.create({ data: { assetId: link.assetId, type: "QUOTED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `${order.currency} ${t.total.toFixed(2)} · ${d.lines.length} lines`, payload: { ...t, costTotal: cost, marginPct: pct, marginApproval: approval } as unknown as Prisma.InputJsonValue } });
     }
+    await progressOrder(tx, order, "QUOTE_PENDING", actor.id);
     return updated;
   });
 }
@@ -242,6 +253,10 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   if (order.status !== "ACCEPTANCE_PENDING" && order.status !== "IN_PROGRESS") throw new Error(`${order.no} is ${order.status}; acceptance needs ACCEPTANCE_PENDING`);
   const ok = d.status !== "REJECTED";
+  if (ok) {
+    const missing = await missingForAcceptance(order.no);
+    if (missing.length) throw new Error(`ACCEPTANCE_INCOMPLETE:${missing.join(",")}`);
+  }
 
   return prisma.$transaction(async (tx) => {
     const acc = await tx.acceptance.upsert({
@@ -249,7 +264,8 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
       update: { deliverables: d.deliverables as Prisma.InputJsonValue, punchList: d.punchList, status: d.status, acceptedAt: d.acceptedAt ?? new Date(), warrantyStart: d.warrantyStart, warrantyTerms: d.warrantyTerms, customerContactId: d.customerContactId, customerSignatory: d.customerSignatory, signatureUrl: d.signatureUrl, dcitSignatory: d.dcitSignatory },
       create: { serviceOrderId: order.id, deliverables: d.deliverables as Prisma.InputJsonValue, punchList: d.punchList, status: d.status, acceptedAt: d.acceptedAt ?? new Date(), warrantyStart: d.warrantyStart, warrantyTerms: d.warrantyTerms, customerContactId: d.customerContactId, customerSignatory: d.customerSignatory, signatureUrl: d.signatureUrl, dcitSignatory: d.dcitSignatory },
     });
-    await tx.serviceOrder.update({ where: { id: order.id }, data: { status: ok ? "ACCEPTED" : "DIAGNOSING" } });
+    // Acceptance is the financial freeze: price, cost, stock issues and purchasing are closed from here on.
+    await tx.serviceOrder.update({ where: { id: order.id }, data: { status: ok ? "ACCEPTED" : "DIAGNOSING", lockedAt: ok ? (d.acceptedAt ?? new Date()) : null, lockedById: ok ? actor.id : null } });
     for (const link of order.assets) {
       const from = link.asset.status;
       const to: AssetStatus = ok ? "IN_SERVICE" : "REPAIR";
@@ -265,6 +281,23 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
     }
     return acc;
   });
+}
+
+/**
+ * Document-completeness check before acceptance (流程图 验收第 4 条): INTH and RPTH/PMTH are always required;
+ * a workshop job also needs the machine's intake (ERTH) and a signed delivery note (DNTH) — the machine's in and out.
+ * Returns the missing document kinds, empty when acceptance may proceed. Shared by the service and the page.
+ */
+export async function missingForAcceptance(no: string): Promise<string[]> {
+  const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { inspections: { select: { id: true } }, repairJobs: { select: { location: true } }, documents: { select: { type: true } }, deliveries: { select: { status: true } } } });
+  const missing: string[] = [];
+  if (o.kind !== "CONTRACT" && o.kind !== "PARTS_SALE" && !o.inspections.length) missing.push("INTH");
+  if (!o.repairJobs.length) missing.push(o.kind === "MAINTENANCE" || o.kind === "CONTRACT" ? "PMTH" : "RPTH");
+  if (o.repairJobs.some((j) => j.location === "WORKSHOP")) {
+    if (!o.documents.some((d) => d.type === "ER")) missing.push("ERTH");
+    if (!o.deliveries.some((d) => d.status === "SIGNED")) missing.push("DNTH");
+  }
+  return missing;
 }
 
 export { assetStatusForWork };

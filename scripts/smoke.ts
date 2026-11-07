@@ -169,7 +169,11 @@ async function main() {
   const o2 = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, assetCodes: [vfd.code], kind: "CONTRACT", reportedSymptom: "quarterly PM" });
   for (const st of ["ASSIGNED", "DIAGNOSING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] as const) await advanceServiceOrder(o2.no, st, admin.code);
   await setQuoteLines({ serviceOrderNo: o2.no, actorCode: admin.code, lines: [{ description: "PM visit", descriptionLocal: "บำรุงรักษา", qty: 1, unitPrice: 3000 }] });
+  try { await recordAcceptance({ serviceOrderNo: o2.no, actorCode: admin.code, deliverables: [{ deliverable: "PM done" }], status: "ACCEPTED" }); assert(false, "acceptance without PMTH must be refused"); }
+  catch (e) { assert(/ACCEPTANCE_INCOMPLETE:PMTH/.test((e as Error).message), "acceptance without a PMTH is refused (document completeness)"); }
+  await createRepairJob({ serviceOrderNo: o2.no, assetCode: vfd.code, engineerCode: admin.code, kind: "MAINTENANCE", location: "SITE", finishedAt: new Date(), level: "QUARTERLY", handled: "cleaned, checked", conditionRating: "GOOD" });
   await recordAcceptance({ serviceOrderNo: o2.no, actorCode: admin.code, deliverables: [{ deliverable: "PM done" }], status: "ACCEPTED" });
+  assert(!!(await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o2.no } })).lockedAt, "acceptance locks the order (price, cost, stock, purchasing)");
   const ti2 = await issueTaxInvoice({ serviceOrderNo: o2.no, actorCode: admin.code });
   await issueInvoice({ serviceOrderNo: o2.no, actorCode: admin.code, taxInvoiceNo: ti2.no });
   const bl = await issueMonthlyStatement(customer.code, "2611", admin.code);

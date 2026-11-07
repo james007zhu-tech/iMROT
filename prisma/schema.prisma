@@ -110,6 +110,7 @@ model Employee {
   dashboards        Dashboard[]
   auditLogs         AuditLog[]
   deliveries        DeliveryNote[]
+  marginApprovals   ServiceOrder[] @relation("MarginApprover")
 }
 
 /// Who looked at or changed sensitive things: revealing contacts, creating/changing employees, overriding a delivery check.
@@ -474,6 +475,14 @@ enum ServiceOrderStatus {
   CANCELLED
 }
 
+/// Quote margin against the 50 % floor: NOT_NEEDED (at or above), PENDING (below, waiting for the MD), APPROVED, REJECTED.
+enum MarginApproval {
+  NOT_NEEDED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum ServiceKind {
   REPAIR
   MAINTENANCE
@@ -483,40 +492,51 @@ enum ServiceKind {
 }
 
 model ServiceOrder {
-  id               String             @id @default(cuid())
-  no               String             @unique /// QTTH26110201
-  entityId         String
-  entity           LegalEntity        @relation(fields: [entityId], references: [id])
-  customerId       String
-  customer         Customer           @relation(fields: [customerId], references: [id])
-  plantId          String?
-  plant            Plant?             @relation(fields: [plantId], references: [id])
-  kind             ServiceKind        @default(REPAIR)
-  status           ServiceOrderStatus @default(RECEIVED)
-  reportedSymptom  String?
-  reportedAlarm    String?
-  productionImpact String?
-  reportedById     String?
-  reportedBy       Contact?           @relation(fields: [reportedById], references: [id])
-  reportedAt       DateTime           @default(now())
-  assigneeId       String?
-  assignee         Employee?          @relation("OrderAssignee", fields: [assigneeId], references: [id])
-  createdById      String
-  createdBy        Employee           @relation("OrderCreator", fields: [createdById], references: [id])
-  customerRef      String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
-  poLines          Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
-  attachments      Json? /// [{name, url, kind: PO | REPORT_MSG | PHOTO}] — originals kept for later comparison
-  currency         String             @default("THB")
-  fxRateToCny      Decimal?           @db.Decimal(18, 8)
-  subtotal         Decimal?           @db.Decimal(18, 2)
-  vatAmount        Decimal?           @db.Decimal(18, 2)
-  total            Decimal?           @db.Decimal(18, 2)
-  totalCny         Decimal?           @db.Decimal(18, 2)
-  quoteSentAt      DateTime?
-  quoteConfirmedAt DateTime?
-  closedAt         DateTime?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id                 String             @id @default(cuid())
+  no                 String             @unique /// QTTH26110201
+  entityId           String
+  entity             LegalEntity        @relation(fields: [entityId], references: [id])
+  customerId         String
+  customer           Customer           @relation(fields: [customerId], references: [id])
+  plantId            String?
+  plant              Plant?             @relation(fields: [plantId], references: [id])
+  kind               ServiceKind        @default(REPAIR)
+  status             ServiceOrderStatus @default(RECEIVED)
+  reportedSymptom    String?
+  reportedAlarm      String?
+  productionImpact   String?
+  reportedById       String?
+  reportedBy         Contact?           @relation(fields: [reportedById], references: [id])
+  reportedAt         DateTime           @default(now())
+  assigneeId         String?
+  assignee           Employee?          @relation("OrderAssignee", fields: [assigneeId], references: [id])
+  createdById        String
+  createdBy          Employee           @relation("OrderCreator", fields: [createdById], references: [id])
+  customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
+  poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
+  attachments        Json? /// [{name, url, kind: PO | REPORT_MSG | PHOTO}] — originals kept for later comparison
+  currency           String             @default("THB")
+  fxRateToCny        Decimal?           @db.Decimal(18, 8)
+  subtotal           Decimal?           @db.Decimal(18, 2)
+  vatAmount          Decimal?           @db.Decimal(18, 2)
+  total              Decimal?           @db.Decimal(18, 2)
+  totalCny           Decimal?           @db.Decimal(18, 2)
+  quoteSentAt        DateTime?
+  quoteConfirmedAt   DateTime?
+  closedAt           DateTime?
+  // ── margin gate (流程图: 毛利率不低于 50%，否则 MD 审批) ──
+  costTotal          Decimal?           @db.Decimal(18, 2) /// sum of line qty × unitCost, order currency
+  marginPct          Decimal?           @db.Decimal(6, 4) /// (subtotal − costTotal) / subtotal
+  marginApproval     MarginApproval     @default(NOT_NEEDED)
+  marginApprovedById String?
+  marginApprovedBy   Employee?          @relation("MarginApprover", fields: [marginApprovedById], references: [id])
+  marginApprovedAt   DateTime?
+  marginNote         String?
+  // ── acceptance lock (流程图: 验收后锁定成本与价格，不再新增 PR/PO) ──
+  lockedAt           DateTime?
+  lockedById         String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   assets         ServiceOrderAsset[]
   lines          QuoteLine[]
@@ -558,6 +578,7 @@ model QuoteLine {
   unitPrice        Decimal      @db.Decimal(18, 2)
   amount           Decimal      @db.Decimal(18, 2)
   costRef          Decimal?     @db.Decimal(18, 2) /// last purchase cost shown to sales, not to customer
+  unitCost         Decimal?     @db.Decimal(18, 2) /// cost used for the margin: entered, or the part's last cost / purchase comparison
 
   @@unique([serviceOrderId, lineNo])
 }
@@ -756,6 +777,28 @@ model Invoice {
   bankRef        String?
   statementId    String?
   statement      MonthlyStatement? @relation(fields: [statementId], references: [id])
+  attachments    Json? /// customer's payment proofs: [{name, url, kind: PAYMENT_PROOF | WHT_CERT}]
+
+  receipts Receipt[]
+}
+
+/// RCTH — ใบเสร็จรับเงิน, one per payment received against an IVTH (decided 2026-11-07). Records this
+/// payment's cash, withholding and settled amount, the bank reference and the original tax invoice; never recomputes VAT.
+model Receipt {
+  id            String   @id @default(cuid())
+  no            String   @unique /// RCTH26110701
+  invoiceId     String
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
+  taxInvoiceNo  String? /// original TITH, printed on the receipt
+  receivedAt    DateTime /// actual date the money arrived
+  currency      String
+  cashAmount    Decimal  @db.Decimal(18, 2)
+  whtAmount     Decimal  @db.Decimal(18, 2)
+  settledAmount Decimal  @db.Decimal(18, 2) /// cash + WHT
+  bankRef       String?
+  whtCertRef    String?
+  attachments   Json?
+  createdAt     DateTime @default(now())
 }
 
 /// BLTH — monthly statement for credit customers: the list of IVTH due this month.
@@ -794,6 +837,7 @@ enum DocType {
   SC // service contract
   PV // payment voucher
   TR // training
+  RC // receipt (RCTH) — decided 2026-11-07
 }
 
 /// Every issued number is registered here once, whatever table holds the detail. Voided rows stay.

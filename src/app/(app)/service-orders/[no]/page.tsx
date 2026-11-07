@@ -11,6 +11,8 @@ import { OrderStatusBadge } from "@/components/StatusBadge";
 import { AssetTriple, Card, FaultText, Field, Grid, PageHeader, Table, Value, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { ORDER_TRANSITIONS, type OrderStatus } from "@/lib/lifecycle";
 import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps";
+import { MIN_MARGIN_PCT } from "@/lib/margin";
+import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +55,12 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     "use server";
     await guarded(async () => { const me = await currentEmployee(); await advanceServiceOrder(no, form.get("to") as OrderStatus, me.code); }, `/service-orders/${no}`);
   }
+  async function decideMargin(form: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await approveMargin({ no, actorCode: me.code, decision: form.get("decision") as "APPROVED" | "REJECTED", note: String(form.get("note") || "") || undefined }); }, `/service-orders/${no}`);
+  }
+  const me = await currentEmployee();
+  const marginLow = order.marginPct != null && Number(order.marginPct) < MIN_MARGIN_PCT;
 
   // One line per document: who, when, what it says, which reports it renders to.
   const summaryOf = (docNo: string, type: string): React.ReactNode => {
@@ -117,6 +125,15 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               {order.lines.map((l) => <tr key={l.id}><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-navy/70">{l.descriptionLocal}</span> : null}</td><td>{Number(l.qty)} {l.unit}</td><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></tr>)}
             </Table>
             <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>
+            {order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: order.lockedAt.toISOString().slice(0, 10) })}` : ""}</p>}
+            {order.marginApproval === "PENDING" && me.role === "MD" && (
+              <form action={decideMargin} className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">
+                <span className="text-sm font-semibold text-alert-ink">{u("marginDecision")}</span>
+                <input name="note" placeholder={u("marginNotePh")} className={`${inputCls} max-w-xs`} />
+                <button name="decision" value="APPROVED" className={btnBlue}>{u("marginApprove")}</button>
+                <button name="decision" value="REJECTED" className={btnGhost}>{u("marginReject")}</button>
+              </form>)}
+            {order.marginApproval === "PENDING" && me.role !== "MD" && <p className="mt-2 rounded-lg border border-alert bg-alert/10 p-2 text-sm text-alert-ink">{u("marginWaitingMd")}</p>}
           </Card>}
         </div>
 
