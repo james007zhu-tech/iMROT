@@ -7,8 +7,8 @@ import type { Locale } from "@/i18n/request";
 
 const LABELS: Record<Locale, string> = { th: "ไทย", zh: "中文", en: "EN" };
 
-/** Top-right language switch; sets the cookie and refreshes server components. */
-export function LanguageSwitcher() {
+/** Language switch; sets the cookie and refreshes server components. `light` for the white side menu. */
+export function LanguageSwitcher({ tone = "dark" }: { tone?: "dark" | "light" }) {
   const locale = useLocale() as Locale;
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -19,7 +19,7 @@ export function LanguageSwitcher() {
           key={l}
           disabled={pending}
           onClick={() => start(async () => { await setLocale(l); router.refresh(); })}
-          className={`rounded px-2 py-1 ${l === locale ? "bg-white/20 font-bold" : "hover:bg-white/10"}`}
+          className={`rounded px-2 py-1 ${tone === "light" ? (l === locale ? "bg-[#EEF3F9] font-bold text-navy" : "text-navy/70 hover:bg-[#EEF3F9]") : l === locale ? "bg-white/20 font-bold" : "hover:bg-white/10"}`}
         >
           {LABELS[l]}
         </button>

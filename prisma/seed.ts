@@ -43,6 +43,11 @@ async function main() {
   });
 
   // First employee is created by hand: there is nobody yet whose code could derive the country.
+  // Vietnam and China entities so "所属法人" offers DCiT / DCiV / DCiC (decision 2026-11-03).
+  // Placeholders only: the MD completes name, tax ID and bank details under System → Legal entities; edits are never overwritten.
+  for (const e of [{ countryCode: "VN", code: "DCiV", nameEn: "DCiV (Vietnam)", localCurrency: "VND", vatRate: 0.1 }, { countryCode: "CN", code: "DCiC", nameEn: "DCiC (China)", localCurrency: "CNY", vatRate: 0.13 }]) {
+    await prisma.legalEntity.upsert({ where: { countryCode: e.countryCode }, update: {}, create: { ...e, brand: "DCiT", bookCurrency: "CNY" } });
+  }
   await prisma.employee.upsert({
     where: { code: "ETH2611001" },
     update: { passwordHash: hashPassword(process.env.SEED_ADMIN_PASSWORD ?? "dcit2026"), role: "MD" },

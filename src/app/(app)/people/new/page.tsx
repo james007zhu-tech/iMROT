@@ -1,5 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
+import { entityLabel } from "@/lib/entity";
 import { currentEmployee } from "@/server/auth";
 import { createEmployee, STAFF_ROLES } from "@/server/opd";
 import { guarded } from "@/lib/action-result";
@@ -17,7 +18,7 @@ export default async function NewEmployee({ searchParams }: { searchParams: Prom
   const me = await currentEmployee();
   if (me.role !== "MD") return <Forbidden />;
   const [t, c, r] = await Promise.all([getTranslations("ui"), getTranslations("common"), getTranslations("role")]);
-  const entities = await prisma.legalEntity.findMany({ orderBy: { countryCode: "asc" } });
+  const entities = await prisma.legalEntity.findMany({ orderBy: { createdAt: "asc" } });
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
@@ -39,7 +40,7 @@ export default async function NewEmployee({ searchParams }: { searchParams: Prom
             <Field label={c("name")} required><input name="name" required className={inputCls} /></Field>
             <Field label={t("nameLocal")}><input name="nameLocal" className={inputCls} /></Field>
             <Field label={c("role")} required><select name="role" className={inputCls} defaultValue="ENGINEER">{STAFF_ROLES.map((x) => <option key={x} value={x}>{r(x)}</option>)}</select></Field>
-            <Field label={t("legalEntity")} required><select name="entityCode" className={inputCls} defaultValue={entities[0]?.code}>{entities.map((e) => <option key={e.id} value={e.code}>{e.code} · {e.countryCode} · {e.localCurrency}</option>)}</select></Field>
+            <Field label={t("legalEntity")} required><select name="entityCode" className={inputCls} defaultValue={entities.find((e) => e.id === me.entityId)?.code ?? entities[0]?.code}>{entities.map((e) => <option key={e.id} value={e.code}>{entityLabel(e, t)}</option>)}</select></Field>
             <Field label={t("emailLogin")} required><input name="email" type="email" required className={inputCls} /></Field>
             <Field label={c("phone")}><input name="phone" className={inputCls} /></Field>
             <Field label={t("initialPassword")} required><input name="password" type="password" minLength={6} required className={inputCls} /></Field>

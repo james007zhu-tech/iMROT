@@ -1,6 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { advanceServiceOrder } from "@/server/slm";
+import { catchUpOrder } from "@/server/slm";
 import { setQuoteLines } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
@@ -26,7 +26,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
       if (!rows.length) throw new Error("QUOTE_NEEDS_LINE");
       await setQuoteLines({ serviceOrderNo: no, actorCode: me.code, lines: rows });
       const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
-      if (cur.status === "DIAGNOSING") await advanceServiceOrder(no, "QUOTE_PENDING", me.code);
+      if (["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(cur.status)) await catchUpOrder(no, "QUOTE_PENDING", me.code);
       return { ok: no, to: `/service-orders/${no}` };
     }, `/service-orders/${no}/quote`);
   }

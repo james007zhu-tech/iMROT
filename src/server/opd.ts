@@ -49,3 +49,33 @@ export async function updateEmployee(input: { actorCode: string; code: string; r
   await audit(actor.id, "EMPLOYEE_UPDATE", input.code, { role: input.role, active: input.active, passwordReset: !!input.password });
   return e;
 }
+
+/** Legal entities (DCiT / DCiV / DCiC …): MD only, audited. The country code is fixed once created — it is in every number. */
+export const EntityInput = z.object({
+  actorCode: z.string(),
+  countryCode: z.string().regex(/^[A-Z]{2}$/, "ENTITY_COUNTRY"),
+  code: z.string().regex(/^DCi[A-Z]$/, "ENTITY_CODE"),
+  nameEn: z.string().min(1),
+  nameLocal: z.string().optional(),
+  taxId: z.string().optional(),
+  branchCode: z.string().optional(),
+  addressEn: z.string().optional(),
+  addressLocal: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().optional(),
+  website: z.string().optional(),
+  signatoryName: z.string().optional(),
+  localCurrency: z.string().regex(/^[A-Z]{3}$/),
+  vatRate: z.number().min(0).max(1),
+});
+
+export async function saveLegalEntity(input: z.input<typeof EntityInput>) {
+  const { actorCode, countryCode, ...data } = EntityInput.parse(input);
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
+  assertMd(actor.role);
+  const clash = await prisma.legalEntity.findFirst({ where: { code: data.code, NOT: { countryCode } } });
+  if (clash) throw new Error(`ENTITY_CODE_TAKEN:${data.code}:${clash.countryCode}`);
+  const saved = await prisma.legalEntity.upsert({ where: { countryCode }, update: data, create: { countryCode, ...data, bookCurrency: "CNY" } });
+  await audit(actor.id, "ENTITY_SAVE", saved.code, { countryCode, ...data });
+  return saved;
+}

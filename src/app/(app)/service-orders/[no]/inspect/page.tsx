@@ -1,6 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { advanceServiceOrder } from "@/server/slm";
+import { catchUpOrder } from "@/server/slm";
 import { createInspection } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
@@ -23,8 +23,8 @@ export default async function Inspect({ params, searchParams }: { params: Promis
       const me = await currentEmployee();
       const tests = TESTS.map((k) => ({ test: str(f, `t_${k}`) ?? "", criterion: str(f, `c_${k}`), result: str(f, `r_${k}`), recordId: str(f, `id_${k}`), pass: f.get(`p_${k}`) ? f.get(`p_${k}`) === "yes" : undefined })).filter((x) => x.test && (x.criterion || x.result));
       const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
-      const i = await createInspection({ serviceOrderNo: no, assetCode: String(f.get("assetCode")), engineerCode: str(f, "engineerCode") ?? me.code, inspectedAt: str(f, "inspectedAt") ? new Date(str(f, "inspectedAt")!) : undefined, symptoms: str(f, "symptoms"), conditions: str(f, "conditions"), findings: str(f, "findings"), probableCause: str(f, "probableCause"), recommendation: str(f, "recommendation"), instruments: str(f, "instruments"), openIssues: str(f, "openIssues"), conclusion: str(f, "conclusion"), tests, attachments: atts(f) });
-      if (cur.status === "ASSIGNED") await advanceServiceOrder(no, "DIAGNOSING", me.code);
+      const i = await createInspection({ serviceOrderNo: no, assetCode: String(f.get("assetCode")), engineerCode: str(f, "engineerCode") ?? me.code, inspectedAt: str(f, "inspectedAt") ? new Date(str(f, "inspectedAt")!) : undefined, symptoms: str(f, "symptoms"), conditions: str(f, "conditions"), findings: str(f, "findings"), probableCause: str(f, "probableCause"), recommendation: str(f, "recommendation"), instruments: str(f, "instruments"), openIssues: str(f, "openIssues"), conclusion: str(f, "conclusion"), tests, attachments: atts(f), location: (str(f, "location") as "SITE" | undefined), attachmentRefs: str(f, "attachmentRefs") });
+      if (cur.status === "RECEIVED" || cur.status === "ASSIGNED") await catchUpOrder(no, "DIAGNOSING", me.code, str(f, "engineerCode") ?? me.code);
       return { ok: i.no, to: `/service-orders/${no}` };
     }, `/service-orders/${no}/inspect`);
   }
@@ -36,6 +36,7 @@ export default async function Inspect({ params, searchParams }: { params: Promis
             <Field label={t("asset")} required><select name="assetCode" className={inputCls}>{order.assets.map((l) => <option key={l.assetId} value={l.asset.code}>{l.asset.code} · S/N {l.asset.serialNumber}</option>)}</select></Field>
             <Field label={u("inspector")}><select name="engineerCode" defaultValue={order.assignee?.code} className={inputCls}>{engineers.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select></Field>
             <Field label={u("inspectedAt")}><input name="inspectedAt" type="datetime-local" defaultValue={now} className={inputCls} /></Field>
+            <Field label={u("inspectPlace")} required><select name="location" defaultValue={order.documents.some((d) => d.type === "ER") ? "WORKSHOP" : "SITE"} className={inputCls}><option value="SITE">{u("locSite")}</option><option value="WORKSHOP">{u("locWorkshop")}</option></select></Field>
           </Grid>
         </Card>
         <Card title={u("inspectSteps")}>
@@ -55,9 +56,10 @@ export default async function Inspect({ params, searchParams }: { params: Promis
           </Table>
           <Grid>
             <Field label={u("instrumentCal")}><input name="instruments" className={inputCls} /></Field>
+            <Field label={u("attachmentRefs")}><input name="attachmentRefs" placeholder="P1–P3, M1, LOG" className={inputCls} /></Field>
             <Field label={u("openIssues")}><input name="openIssues" className={inputCls} /></Field>
-            <Field label={u("conclusionLimits")}><input name="conclusion" className={inputCls} /></Field>
           </Grid>
+          <Field label={u("conclusionLimits")}><input name="conclusion" className={inputCls} /></Field>
         </Card>
       </form>
     </StepPage>

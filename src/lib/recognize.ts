@@ -5,7 +5,7 @@
  */
 export type RecognizeKind =
   | "asset" | "customer" | "service" | "inspection" | "receive" | "repair" | "maintenance"
-  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote";
+  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "entity";
 
 export interface RecognizeSpec { fields: Record<string, string>; accept?: string[]; attachKind: string }
 
@@ -23,6 +23,7 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
   stock: { attachKind: "STOCK", fields: { vendorPartNo: "vendor part number", qty: "quantity", batch: "batch / lot" } },
   employee: { attachKind: "ID_DOC", fields: { name: "full name", nameLocal: "name in Thai or Chinese", phone: "phone", email: "email" } },
   quote: { attachKind: "QUOTE", fields: {} },
+  entity: { attachKind: "COMPANY_DOC", fields: { nameEn: "company name in English", nameLocal: "company name in the local language", taxId: "tax ID", branchCode: "branch code", addressEn: "registered address in English", addressLocal: "registered address in the local language", phone: "phone", email: "email", signatoryName: "authorised signatory" } },
 };
 
 const ALARM = /\b([FA]\d{4,5})\b/;

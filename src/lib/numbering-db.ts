@@ -15,9 +15,12 @@ export async function allocateNumber(
   const country = opts.country ?? countryFromEmployeeCode(opts.createdByEmployeeCode);
   const period = periodKey(opts.prefix, date);
 
+  // The serial runs per country in the number, not per entity booked: a TH employee opening a customer for DCiV still
+  // gets a CTH number, so it must come from the TH counter or it would collide with CTH numbers already issued.
+  const owner = (await tx.legalEntity.findUnique({ where: { countryCode: country }, select: { id: true } }))?.id ?? opts.entityId;
   const seq = await tx.docSequence.upsert({
-    where: { entityId_prefix_period: { entityId: opts.entityId, prefix: opts.prefix, period } },
-    create: { entityId: opts.entityId, prefix: opts.prefix, period, last: 1 },
+    where: { entityId_prefix_period: { entityId: owner, prefix: opts.prefix, period } },
+    create: { entityId: owner, prefix: opts.prefix, period, last: 1 },
     update: { last: { increment: 1 } },
     select: { last: true },
   });

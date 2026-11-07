@@ -2,6 +2,7 @@
  * Server actions never throw at the user: they redirect back with ?ok= or ?error= and the page shows a banner.
  */
 import { redirect } from "next/navigation";
+import { errorCode } from "@/lib/errors";
 
 /** `run` may return a message, or `{ ok, to }` to land somewhere else on success (a step form returns to its order). */
 export async function guarded(run: () => Promise<string | void | { ok?: string; to: string }>, backTo: string): Promise<void> {
@@ -14,8 +15,9 @@ export async function guarded(run: () => Promise<string | void | { ok?: string; 
   } catch (e) {
     const digest = (e as { digest?: string }).digest;
     if (typeof digest === "string" && (digest.startsWith("NEXT_REDIRECT") || digest.startsWith("NEXT_NOT_FOUND"))) throw e; // let Next handle its own control-flow errors
-    const msg = (e as Error).message ?? "error";
+    const msg = errorCode(e);
     target = `${backTo}${backTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(msg.slice(0, 300))}`;
   }
   redirect(target);
 }
+

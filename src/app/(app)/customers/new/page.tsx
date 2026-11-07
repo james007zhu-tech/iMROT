@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
+import { entityLabel } from "@/lib/entity";
 import { currentEmployee } from "@/server/auth";
 import { createCustomer } from "@/server/crm";
 import { guarded } from "@/lib/action-result";
@@ -19,7 +20,7 @@ const CONTACTS = 8;
 export default async function NewCustomer({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
-  const entities = await prisma.legalEntity.findMany({ orderBy: { countryCode: "asc" } });
+  const [entities, viewer] = await Promise.all([prisma.legalEntity.findMany({ orderBy: { createdAt: "asc" } }), currentEmployee()]);
 
   async function save(f: FormData) {
     "use server";
@@ -72,7 +73,7 @@ export default async function NewCustomer({ searchParams }: { searchParams: Prom
           </Grid>
           <Grid>
             <Field label={t("termDays")}><input name="paymentTermDays" type="number" defaultValue={30} className={inputCls} /></Field>
-            <Field label={u("legalEntity")} required><select name="entityCode" className={inputCls}>{entities.map((e) => <option key={e.id} value={e.code}>{e.code} · {e.countryCode} · {e.localCurrency}</option>)}</select></Field>
+            <Field label={u("legalEntity")} required><select name="entityCode" defaultValue={entities.find((e) => e.id === viewer.entityId)?.code} className={inputCls}>{entities.map((e) => <option key={e.id} value={e.code}>{entityLabel(e, u)}</option>)}</select></Field>
             <Field label={u("customerSource")}><select name="source" className={inputCls}><option value="EXISTING">{u("srcExisting")}</option><option value="REFERRAL">{u("srcReferral")}</option><option value="OUTREACH">{u("srcOutreach")}</option><option value="TENDER">{u("srcTender")}</option></select></Field>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="monthlyStatement" /> {u("monthlyCustomer")}</label>
           </Grid>

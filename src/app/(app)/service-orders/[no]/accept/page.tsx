@@ -4,6 +4,8 @@ import { recordAcceptance } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { maskName } from "@/lib/mask";
+import { saveUpload } from "@/lib/uploads";
+import { shortDate } from "@/lib/dates";
 import { RevealRows } from "@/components/RevealRows";
 import { Card, Field, Grid, inputCls } from "@/components/ui";
 import { StepPage, atts, dayNow, loadOrder, str } from "../_shell";
@@ -32,13 +34,16 @@ export default async function Accept({ params, searchParams }: { params: Promise
       if (status === "CONDITIONAL" && !str(f, "punchList")) throw new Error("CONDITIONAL_NEEDS_PUNCH");
       const contactId = str(f, "contactId");
       const contact = contactId ? await prisma.contact.findUnique({ where: { id: contactId } }) : null;
-      await recordAcceptance({ serviceOrderNo: no, actorCode: me.code, deliverables, status, punchList: str(f, "punchList"), acceptedAt: dayNow(str(f, "acceptedAt")), warrantyStart: str(f, "warrantyStart") ? new Date(str(f, "warrantyStart")!) : undefined, warrantyTerms: str(f, "warrantyTerms"), customerContactId: contactId, customerSignatory: str(f, "customerSignatory") ?? contact?.name, signatureUrl: atts(f)[0]?.url, dcitSignatory: str(f, "dcitSignatory") ?? me.name });
+      // The customer's signature: a photo taken here, else the signed form from the upload box, else what the portal already has.
+      const photo = f.get("signaturePhoto");
+      const signed = photo instanceof File && photo.size > 0 ? (await saveUpload(photo, "signature")).url : atts(f).find((a) => a.kind === "ACCEPTANCE")?.url ?? atts(f)[0]?.url;
+      await recordAcceptance({ serviceOrderNo: no, actorCode: me.code, deliverables, status, punchList: str(f, "punchList"), acceptedAt: dayNow(str(f, "acceptedAt")), warrantyStart: str(f, "warrantyStart") ? new Date(str(f, "warrantyStart")!) : undefined, warrantyTerms: str(f, "warrantyTerms"), customerContactId: contactId, customerSignatory: str(f, "customerSignatory") ?? contact?.name, signatureUrl: signed, dcitSignatory: str(f, "dcitSignatory") ?? me.name });
       return { ok: no, to: `/service-orders/${no}` };
     }, `/service-orders/${no}/accept`);
   }
   return (
     <StepPage order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={u("saveAcceptance")}>
-      <form id="f" action={save} className="space-y-4">
+      <form id="f" action={save} encType="multipart/form-data" className="space-y-4">
         <Card title={u("deliverables")}>
           <div className="hidden grid-cols-3 gap-2 text-xs text-navy/70 md:grid"><span>{u("deliverable")}</span><span>{t("criterion")}</span><span>{t("result")}</span></div>
           <RevealRows initial={Math.max(rows.length, 1)} addLabel={u("addDeliverable")}>
@@ -52,6 +57,12 @@ export default async function Accept({ params, searchParams }: { params: Promise
             <Field label={u("warranty")}><div className="flex gap-2"><input name="warrantyStart" type="date" defaultValue={today} className={inputCls} /><input name="warrantyTerms" placeholder={u("warrantyTermsPh")} className={inputCls} /></div></Field>
             <Field label={u("punchListOwner")}><input name="punchList" className={inputCls} /></Field>
             <Field label={u("customerRep")} required><select name="contactId" className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)}{c.title ? ` · ${c.title}` : ""}</option>)}</select></Field>
+            <Field label={u("acceptSignature")}>
+              <div className="flex flex-wrap items-center gap-2">
+                {order.acceptance?.signatureUrl && <a href={order.acceptance.signatureUrl} target="_blank" className="rounded-full border border-navy/35 bg-tint px-2.5 py-1 text-xs font-semibold text-navy">✓ {u("signedOn", { date: shortDate(order.acceptance.acceptedAt) })}</a>}
+                <input name="signaturePhoto" type="file" accept="image/*" capture="environment" className={inputCls} />
+              </div>
+            </Field>
             <Field label={u("dcitRep")}><input name="dcitSignatory" defaultValue={me.name} className={inputCls} /></Field>
           </Grid>
           <p className="text-xs text-navy/70">{u("acceptRuleNote")}</p>

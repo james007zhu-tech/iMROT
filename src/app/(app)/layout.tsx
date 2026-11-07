@@ -18,13 +18,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   async function out() { "use server"; await signOut(); redirect("/login"); }
   return (
     <div className="min-h-screen md:flex">
-      <aside className="bg-navy text-white md:w-56 md:shrink-0">
-        <div className="flex items-center justify-between px-4 py-3 md:block">
-          <Link href="/assets" className="text-lg font-bold tracking-wide">{c("appName")}</Link>
-          <div className="md:mt-2"><LanguageSwitcher /></div>
+      <aside className="border-b border-hair bg-white text-navy md:sticky md:top-0 md:h-screen md:w-56 md:shrink-0 md:border-b-0 md:border-r">
+        <div className="flex items-center justify-between px-4 py-3 md:block md:px-5 md:pt-5">
+          <Link href="/assets" className="text-lg font-bold tracking-wide text-navy">{c("appName")}</Link>
+          <div className="md:mt-2 md:-ml-2"><LanguageSwitcher tone="light" /></div>
         </div>
         {/* OPD (employees) is MD-only (decision 2026-11-03): others do not see the menu at all. */}
-        <NavLinks items={NAV.filter((n) => n.key !== "opd" || me.role === "MD").map((n) => ({ href: n.href, label: t(n.key) }))} />
+        <NavLinks items={NAV.filter((n) => n.key !== "opd" || me.role === "MD").map((n) => ({ key: n.key, href: n.href, label: t(n.key) }))} />
       </aside>
       <div className="flex-1">
         <header className="flex items-center gap-3 border-b border-line bg-white px-4 py-2">
