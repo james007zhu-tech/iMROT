@@ -888,7 +888,8 @@
     "err_ACCEPTANCE_CONFIRM_REQUIRED": "请勾选“确认验收”",
     "err_MARGIN_APPROVAL_REQUIRED": "报价 {detail} 毛利低于门槛，须 MD 审批后才能确认",
     "err_MD_ONLY": "只有 MD 可以操作",
-    "err_MARGIN_NOT_PENDING": "报价 {detail} 不在待审批状态"
+    "err_MARGIN_NOT_PENDING": "报价 {detail} 不在待审批状态",
+    "filledNCheck": "已填入 {n} 项，其中 {c} 项（橙色）识别不确定，请核对后再保存"
   },
   "role": {
     "MD": "董事总经理 MD",

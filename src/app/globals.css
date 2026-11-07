@@ -31,6 +31,7 @@ body { background: #F4F7FB; color: #0B2D53; }
 }
 /* Fields the AI filled from an uploaded file: light blue until a person touches them. */
 .ai-filled { background: var(--color-tint) !important; border-color: #2374D5 !important; }
+.ai-uncertain { background: color-mix(in srgb, var(--color-alert) 12%, white) !important; border-color: var(--color-alert) !important; }
 
 /* Placeholders are examples, never values: lighter and italic so an empty required field does not look filled (trial 2026-11-05). */
 input::placeholder, textarea::placeholder { color: rgb(11 45 83 / 0.38); font-style: italic; }
