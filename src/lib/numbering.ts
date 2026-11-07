@@ -44,6 +44,7 @@ export const DOC_PREFIXES = {
   SC: { name: "service contract", digits: 2 },
   PV: { name: "payment voucher", digits: 2 },
   TR: { name: "training", digits: 2 },
+  RC: { name: "receipt", digits: 2 },
 } as const;
 
 export type MasterPrefix = keyof typeof MASTER_PREFIXES;

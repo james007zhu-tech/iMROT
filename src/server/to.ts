@@ -113,18 +113,26 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
   const outstanding = expectedReceipt(Number(iv.amountDue), Number(iv.paidAmount ?? 0) + Number(iv.whtAmount ?? 0), 0);
   const settled = round2(d.paidAmount + d.whtAmount) >= outstanding;
 
+  const taxInvoice = iv.taxInvoiceId ? await prisma.taxInvoice.findUnique({ where: { id: iv.taxInvoiceId }, select: { no: true } }) : null;
+  const proofs = (d.attachments ?? []).map((a) => ({ ...a, kind: a.kind ?? "PAYMENT_PROOF" }));
+
   return prisma.$transaction(async (tx) => {
     const updated = await tx.invoice.update({
       where: { id: iv.id },
-      data: { paidAmount: round2(Number(iv.paidAmount ?? 0) + d.paidAmount), whtAmount: round2(Number(iv.whtAmount ?? 0) + d.whtAmount), whtCertRef: d.whtCertRef ?? iv.whtCertRef, paidAt: d.paidAt, bankRef: d.bankRef ?? iv.bankRef },
+      data: { paidAmount: round2(Number(iv.paidAmount ?? 0) + d.paidAmount), whtAmount: round2(Number(iv.whtAmount ?? 0) + d.whtAmount), whtCertRef: d.whtCertRef ?? iv.whtCertRef, paidAt: d.paidAt, bankRef: d.bankRef ?? iv.bankRef,
+        attachments: [...((iv.attachments as unknown[] | null) ?? []), ...proofs] as Prisma.InputJsonValue },
     });
+    // RCTH — one receipt per payment received (決定 2026-11-07): this payment's cash, WHT and settled amount against the TITH.
+    const rcNo = await allocateNumber(tx, { prefix: "RC", createdByEmployeeCode: actor.code, entityId: iv.serviceOrder.entityId });
+    const receipt = await tx.receipt.create({ data: { no: rcNo, invoiceId: iv.id, taxInvoiceNo: taxInvoice?.no, receivedAt: d.paidAt, currency: iv.currency, cashAmount: round2(d.paidAmount), whtAmount: round2(d.whtAmount), settledAmount: round2(d.paidAmount + d.whtAmount), bankRef: d.bankRef, whtCertRef: d.whtCertRef, attachments: proofs as Prisma.InputJsonValue } });
+    await tx.document.create({ data: { no: rcNo, type: "RC", entityId: iv.serviceOrder.entityId, countryCode: rcNo.slice(2, 4), customerId: iv.serviceOrder.customerId, serviceOrderId: iv.serviceOrderId, createdById: actor.id, issuedAt: d.paidAt } });
+    for (const a of iv.serviceOrder.assets) {
+      await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: rcNo, occurredAt: d.paidAt, summary: `${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? ` + WHT ${d.whtAmount.toFixed(2)}` : ""} · ${iv.no}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef, receiptNo: rcNo, settled } as Prisma.InputJsonValue, attachments: proofs as Prisma.InputJsonValue } });
+    }
     if (settled) {
       await tx.serviceOrder.update({ where: { id: iv.serviceOrderId }, data: { status: "CLOSED", closedAt: d.paidAt } });
-      for (const a of iv.serviceOrder.assets) {
-        await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: iv.no, occurredAt: d.paidAt, summary: `${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? ` + WHT ${d.whtAmount.toFixed(2)}` : ""}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef } as Prisma.InputJsonValue, attachments: (d.attachments ?? []) as Prisma.InputJsonValue } });
-      }
     }
-    return updated;
+    return { ...updated, receiptNo: receipt.no };
   });
 }
 

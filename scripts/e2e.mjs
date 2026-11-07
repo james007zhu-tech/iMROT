@@ -153,7 +153,7 @@ await step("delivery-issued-and-signed", async () => {
   await save(); await page.waitForURL(/\/deliver\/DNTH/); dnNo = page.url().split("/").pop().split("?")[0];
   await page.fill("[name=signedBy]", "Khun Somchai"); await save(); await page.waitForURL(new RegExp(`/service-orders/${orderNo}\\?`)); await noFlashError(); await expectText("Signed by Khun S****");
 });
-await step("acceptance", async () => { await go("accept"); await page.selectOption("[name=contactId]", { index: 1 }); await save(); await noFlashError(); await expectText("Service completion"); });
+await step("acceptance", async () => { await go("accept"); await page.selectOption("[name=contactId]", { index: 1 }); await page.locator("[name=confirmLock]").check(); await save(); await noFlashError(); await expectText("Service completion"); });
 await step("invoice", async () => { await go("invoice"); await save(); await noFlashError(); await expectText("TITH2611"); await expectText("IVTH2611"); });
 await step("payment", async () => { await go("payment"); await page.fill("[name=paidAmount]", "13000"); await page.fill("[name=whtAmount]", "375"); await save(); await noFlashError(); });
 await step("archive-case", async () => { await go("archive"); await page.fill("[name=lesson]", "check fan before capacitors"); await page.locator("[name=toFaultCode]").check(); await save(); await noFlashError(); });
