@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { assertNotLocked } from "@/server/slm";
 import { allocateNumber } from "@/lib/numbering-db";
 import type { Prisma } from "@prisma/client";
 
@@ -40,6 +41,7 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
   if (unknown.length) throw new Error(`UNKNOWN_SKU:${unknown.join(",")}`);
   const asset = d.assetCode ? await prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }) : null;
   const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }) : null;
+  if (order) assertNotLocked(order);
   if (d.direction === "OUT" && !asset && !order) throw new Error("an OUT movement must name the asset or the service order it serves");
 
   return prisma.$transaction(async (tx) => {

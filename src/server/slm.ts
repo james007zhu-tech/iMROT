@@ -7,6 +7,50 @@ import { allocateNumber } from "@/lib/numbering-db";
 import { keepCustomerRef } from "@/lib/numbering";
 import type { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { canTransitionOrder } from "@/lib/lifecycle";
+import { quoteMayGoOut } from "@/lib/margin";
+
+/** Shortest path through the status chain, e.g. RECEIVED → ASSIGNED → DIAGNOSING. */
+const CHAIN: ServiceOrderStatus[] = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED", "INVOICED", "CLOSED"];
+
+/**
+ * Move an order forward to `to` inside a transaction, hop by hop, writing one STATUS_CHANGED event per hop.
+ * Used by the documents that imply progress (an INTH means diagnosing, quote lines mean quote pending), so an order
+ * that nobody assigned by hand still moves — it is assigned to whoever did the work. No-op when already at or past `to`.
+ */
+export async function progressOrder(tx: Prisma.TransactionClient, order: { id: string; no: string; status: ServiceOrderStatus; assigneeId: string | null }, to: ServiceOrderStatus, actorId: string, sourceDocNo?: string) {
+  const from = CHAIN.indexOf(order.status), target = CHAIN.indexOf(to);
+  if (from < 0 || target < 0 || from >= target) return order.status;
+  const assets = await tx.serviceOrderAsset.findMany({ where: { serviceOrderId: order.id }, select: { assetId: true } });
+  let cur = order.status;
+  for (let i = from + 1; i <= target; i++) {
+    const next = CHAIN[i];
+    if (!canTransitionOrder(cur, next)) throw new Error(`${order.no}: ${cur} → ${next} not allowed`);
+    await tx.serviceOrder.update({ where: { id: order.id }, data: { status: next, assigneeId: order.assigneeId ?? actorId, quoteSentAt: next === "QUOTE_PENDING" ? new Date() : undefined } });
+    for (const a of assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "STATUS_CHANGED", actorId, serviceOrderId: order.id, sourceDocNo: sourceDocNo ?? order.no, summary: `${order.no} ${cur} → ${next}`, payload: { orderStatusFrom: cur, orderStatusTo: next } } });
+    cur = next;
+  }
+  return cur;
+}
+
+/** After acceptance the order is frozen: no price, cost, stock or purchasing changes (流程图 验收锁定). */
+export function assertNotLocked(order: { no: string; lockedAt: Date | null }) {
+  if (order.lockedAt) throw new Error(`ORDER_LOCKED:${order.no}`);
+}
+
+/** MD decides on a quote whose margin is below the floor. Re-pricing the quote resets the decision. */
+export async function approveMargin(input: { no: string; actorCode: string; decision: "APPROVED" | "REJECTED"; note?: string }) {
+  const [order, actor] = await Promise.all([
+    prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: true } }),
+    prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } }),
+  ]);
+  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  if (order.marginApproval !== "PENDING" && order.marginApproval !== "REJECTED") throw new Error(`MARGIN_NOT_PENDING:${order.no}`);
+  return prisma.$transaction(async (tx) => {
+    const u = await tx.serviceOrder.update({ where: { id: order.id }, data: { marginApproval: input.decision, marginApprovedById: actor.id, marginApprovedAt: new Date(), marginNote: input.note } });
+    for (const l of order.assets) await tx.assetEvent.create({ data: { assetId: l.assetId, type: "STATUS_CHANGED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `margin ${input.decision}${input.note ? ` · ${input.note}` : ""}`, payload: { marginApproval: input.decision, marginPct: order.marginPct, note: input.note } as Prisma.InputJsonValue } });
+    return u;
+  });
+}
 
 export const CreateServiceOrderInput = z.object({
   createdByEmployeeCode: z.string(),
@@ -75,6 +119,7 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
 
 export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, actorEmployeeCode: string, note?: string, assigneeCode?: string) {
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { assets: true } });
+  if (order.status === to) return order; // documents may already have moved the order there (progressOrder)
   if (!canTransitionOrder(order.status, to)) throw new Error(`${no}: ${order.status} → ${to} not allowed`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorEmployeeCode } });
   const assignee = assigneeCode ? await prisma.employee.findUniqueOrThrow({ where: { code: assigneeCode } }) : null;
@@ -135,6 +180,7 @@ export async function poLinesFromQuote(no: string): Promise<PoLine[]> {
 export async function confirmCustomerPo(input: { no: string; actorCode: string; customerRef?: string; poLines: PoLine[]; attachments?: { name: string; url: string; kind: string }[]; note?: string }) {
   const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: true } });
   if (o.status !== "QUOTE_PENDING") throw new Error(`${o.no} is ${o.status}; PO confirmation needs QUOTE_PENDING`);
+  if (!quoteMayGoOut(o.marginApproval)) throw new Error(`MARGIN_APPROVAL_REQUIRED:${o.no}`);
   if (!input.poLines.length) throw new Error("PO_LINES_REQUIRED");
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const merged = [...((o.attachments as { name: string; url: string; kind: string }[] | null) ?? []), ...(input.attachments ?? [])];
