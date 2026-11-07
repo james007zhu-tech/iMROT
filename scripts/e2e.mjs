@@ -126,8 +126,17 @@ await step("repair-finish", async () => {
   await save(); await noFlashError(); await expectText("RPTH"); await expectText("Delivery note DNTH");
 });
 let dnNo;
+await step("delivery-linked-docs-and-live-check", async () => {
+  await go("deliver"); await expectText("Must go back"); await expectText("Linked documents"); await expectText("PO-E2E-001"); await expectText("INTH2611"); await expectText("ERTH2611");
+  const cable = page.locator("tr", { hasText: "cable" }); await cable.locator("input[type=number]").fill("1"); await cable.getByText("Short 1").waitFor();
+  await cable.locator("input[type=number]").fill("2"); await cable.getByText("✓ Matches").waitFor();
+});
+await step("delivery-draft-keeps-number", async () => {
+  const cable = page.locator("tr", { hasText: "cable" }).locator("input[type=number]"); await cable.fill("1");
+  await page.locator("button[name=draft][value='1']").click(); await page.waitForLoadState("networkidle"); await noFlashError();
+  await expectText("Draft"); if ((await page.locator("tr", { hasText: "cable" }).locator("input[type=number]").inputValue()) !== "1") throw new Error("draft quantity not restored");
+});
 await step("delivery-mismatch-blocked", async () => {
-  await go("deliver"); await expectText("Must go back");
   await page.selectOption("[name=contactId]", { index: 1 });
   const cable = page.locator("tr", { hasText: "cable" }).locator("input[type=number]"); await cable.fill("1");
   await save(); await expectText("Cannot issue");

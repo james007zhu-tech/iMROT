@@ -29,6 +29,8 @@ async function ensureSeed() {
   await prisma.model.upsert({ where: { seriesId_code: { seriesId: s120.id, code: "6SL3120-2TE41-0AA1" } }, update: {}, create: { seriesId: s120.id, code: "6SL3120-2TE41-0AA1" } });
 }
 
+const assertJobEvents = (n: number) => n === 1;
+
 async function main() {
   await ensureSeed();
   const admin = await prisma.employee.findUniqueOrThrow({ where: { code: "ETH2611001" } });
@@ -91,7 +93,11 @@ async function main() {
   console.log("6. stock out → repair (RPTH) → finished → ACCEPTANCE_PENDING");
   const out = await recordMovement({ actorCode: admin.code, direction: "OUT", partSku: part.sku, qty: 1, assetCode: vfd.code, serviceOrderNo: order.no, oldPartDisposition: "RETURN_TO_CUSTOMER" });
   assert(parseNumber(out.no)?.prefix === "OB" && out.no.length === 13, `stock out ${out.no} has 3-digit serial`);
-  const job = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", finishedAt: new Date(), confirmedFault: "fan 1 seized", rootCause: "bearing wear, dust", workPerformed: "replaced fan 1, cleaned heatsink, re-torqued DC bus", partsReplaced: [{ partSku: part.sku, name: "Power module fan", qty: 1, obthNo: out.no, oldSerial: "F-OLD-1", oldDisposition: "RETURN_TO_CUSTOMER" }], laborHours: 4, tests: [{ test: "No load", criterion: "runs 0-50 Hz", result: "ok", pass: true }, { test: "Load", criterion: "rated current", result: "92%", pass: true }] });
+  // "Save draft" twice, then finish: one RPTH number, one work event.
+  const d1 = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", confirmedFault: "fan 1 seized", travelCost: 350 });
+  const d2 = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", confirmedFault: "fan 1 seized", rootCause: "bearing wear", travelCost: 350 });
+  assert(d1.no === d2.no && !d2.finishedAt, `draft RPTH saved twice keeps ${d1.no}`);
+  const job = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", finishedAt: new Date(), travelCost: 350, confirmedFault: "fan 1 seized", rootCause: "bearing wear, dust", workPerformed: "replaced fan 1, cleaned heatsink, re-torqued DC bus", partsReplaced: [{ partSku: part.sku, name: "Power module fan", qty: 1, obthNo: out.no, oldSerial: "F-OLD-1", oldDisposition: "RETURN_TO_CUSTOMER" }], laborHours: 4, tests: [{ test: "No load", criterion: "runs 0-50 Hz", result: "ok", pass: true }, { test: "Load", criterion: "rated current", result: "92%", pass: true }] });
   await advanceServiceOrder(order.no, "ACCEPTANCE_PENDING", admin.code);
   let a = await getAssetPage(vfd.code);
   assert(a!.status === "ACCEPTANCE", `asset is ACCEPTANCE after finished job ${job.no}`);
@@ -108,8 +114,11 @@ async function main() {
   let blocked = false;
   try { await issueDelivery({ serviceOrderNo: order.no, actorCode: admin.code, deliverOn: new Date(), delivered: { ...full, [cableKey]: 1 } }); } catch (e) { blocked = String((e as Error).message).startsWith("DELIVERY_MISMATCH"); }
   assert(blocked && keys[cableKey].expected === 2, "one cable short → delivery blocked");
+  const draftDn = await issueDelivery({ serviceOrderNo: order.no, actorCode: admin.code, deliverOn: new Date(), delivered: { ...full, [cableKey]: 1 }, draft: true });
+  assert(draftDn.status === "DRAFT" && (await deliveryPlan(order.no)).lines.every((l) => l.deliveredBefore === 0), `draft ${draftDn.no} saved without the check and counts as nothing delivered`);
   const dn = await issueDelivery({ serviceOrderNo: order.no, actorCode: admin.code, deliverOn: new Date(), delivered: full, vehicle: "pickup" });
-  assert(parseNumber(dn.no)?.prefix === "DN" && dn.status === "ISSUED", `delivery note ${dn.no}`);
+  assert(parseNumber(dn.no)?.prefix === "DN" && dn.status === "ISSUED" && dn.no === draftDn.no, `delivery note ${dn.no} issued from the draft, same number`);
+  assert(assertJobEvents(await prisma.assetEvent.count({ where: { sourceDocNo: job.no, type: "REPAIRED" } })), `${job.no}: one repair event on the timeline`);
   await signDelivery({ no: dn.no, actorCode: admin.code, signedBy: "Khun Somchai" });
   assert((await prisma.deliveryNote.findUniqueOrThrow({ where: { no: dn.no } })).status === "SIGNED", "delivery signed");
 
@@ -172,6 +181,11 @@ async function main() {
   console.log("10d. CRM customer from documents; OPD is MD-only");
   const c2 = await createCustomer({ actorCode: admin.code, entityCode: "DCiT", taxId: "0205568072149", branchCode: "00001", nameLocal: "บริษัท ทดสอบ จำกัด", name: `Smoke Customer ${Date.now()}`, plants: [{ code: "P1", name: "Plant 1" }], contacts: [{ name: "Khun Anan", phone: "081-234-5612" }], files: [{ name: "dbd.pdf", url: "/x", kind: "DBD" }] }).catch((e) => { if (String(e.message).startsWith("CUSTOMER_EXISTS")) return null; throw e; });
   assert(c2 === null || parseNumber(c2.code)?.prefix === "C", `customer from documents ${c2?.code ?? "(exists)"}`);
+  if (await prisma.legalEntity.findUnique({ where: { code: "DCiV" } })) {
+    // Booked under DCiV by a TH employee: still a CTH number, from the TH counter, never colliding with existing CTH numbers.
+    const c3 = await createCustomer({ actorCode: admin.code, entityCode: "DCiV", taxId: String(Date.now()).padStart(13, "9").slice(-13), nameLocal: "บริษัท ทดสอบ เวียดนาม จำกัด", name: `Smoke VN ${Date.now()}`, plants: [{ code: "P1", name: "Plant 1" }], contacts: [] });
+    assert(c3.code.startsWith("CTH"), `DCiV customer by a TH employee is ${c3.code}`);
+  }
   const eng = await prisma.employee.findFirst({ where: { role: { not: "MD" }, active: true } });
   if (eng) { let denied = false; try { await createEmployee({ actorCode: eng.code, entityCode: "DCiT", name: "x", role: "ENGINEER", email: `x${Date.now()}@x.com`, password: "secret12" }); } catch (e) { denied = (e as Error).message === "MD only"; } assert(denied, "non-MD cannot create employees"); }
 

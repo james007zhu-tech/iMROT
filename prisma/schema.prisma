@@ -583,6 +583,8 @@ model Inspection {
   openIssues     String?
   conclusion     String?
   attachments    Json?
+  location       RepairLocation? /// where it was inspected: SITE or WORKSHOP
+  attachmentRefs String? /// photo / record IDs referred to in the evidence table (P1–P3, M1 …)
 }
 
 enum RepairKind {
@@ -631,6 +633,10 @@ model RepairJob {
   conditionRating String? /// GOOD | GOOD_WITH_ISSUE | POOR
   nextDueAt       DateTime?
   nextDueHours    Int?
+  consumables     String? /// PMTH: consumables / parts used (stock-out brings them in)
+  escortContactId String? /// PMTH: the customer's person on site (a Contact; masked wherever shown)
+  // ── RPTH ──
+  travelCost      Decimal?       @db.Decimal(14, 2) /// travel / other costs, in the order's currency
 }
 
 enum AcceptanceStatus {

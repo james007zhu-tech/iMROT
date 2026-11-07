@@ -13,7 +13,9 @@
   --color-alert: #F2A33A;                  /* orange: only alarms, conflicts, required stars, overdue */
   --color-alert-ink: #8A5A00;
   --color-fault: #D0021B;                  /* red: only fault descriptions and alarm codes */
-  --font-sans: "Sarabun", "Noto Sans SC", system-ui, sans-serif;
+  /* Latin and digits in Helvetica (decision 2026-11-07); Thai falls through to Sarabun, Chinese to Noto Sans SC.
+     Arial / TeX Gyre Heros / Nimbus Sans stand in where Helvetica is not installed (Windows, Linux). */
+  --font-sans: Helvetica, "Helvetica Neue", Arial, "TeX Gyre Heros", "Nimbus Sans", "Sarabun", "Noto Sans SC", system-ui, sans-serif;
 }
 
 html { font-family: var(--font-sans); }
@@ -29,3 +31,6 @@ body { background: #F4F7FB; color: #0B2D53; }
 }
 /* Fields the AI filled from an uploaded file: light blue until a person touches them. */
 .ai-filled { background: var(--color-tint) !important; border-color: #2374D5 !important; }
+
+/* Placeholders are examples, never values: lighter and italic so an empty required field does not look filled (trial 2026-11-05). */
+input::placeholder, textarea::placeholder { color: rgb(11 45 83 / 0.38); font-style: italic; }

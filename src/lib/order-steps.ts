@@ -20,9 +20,10 @@ export function stepHref(no: string, s: StepKey): string {
 export function nextSteps(o: OrderShape): { primary: StepKey | null; also: StepKey[] } {
   const work: StepKey = MAINT.has(o.kind) ? "maintain" : "repair";
   switch (o.status) {
-    case "RECEIVED": return { primary: "assign", also: [] };
     // In-contract maintenance needs no quote: the PMTH form itself moves the order on.
-    case "ASSIGNED": return o.kind === "CONTRACT" ? { primary: "maintain", also: ["inspect", "receive"] } : { primary: "inspect", also: ["receive"] };
+    // Paid maintenance is quoted first, then done on a PMTH; repairs are inspected first.
+    case "ASSIGNED": return o.kind === "CONTRACT" ? { primary: "maintain", also: ["inspect", "receive"] } : o.kind === "MAINTENANCE" ? { primary: "quote", also: ["inspect", "receive"] } : { primary: "inspect", also: ["receive"] };
+    case "RECEIVED": return { primary: "assign", also: o.kind === "CONTRACT" ? [] : ["inspect", "quote"] };
     case "DIAGNOSING": return o.kind === "CONTRACT" ? { primary: "maintain", also: ["contractDirect", "inspect", "quote"] } : { primary: "quote", also: ["inspect", "receive"] };
     case "QUOTE_PENDING": return { primary: "confirm", also: ["quote"] };
     case "IN_PROGRESS": return { primary: work, also: ["receive", "stockOut", "inspect", ...(o.workshop ? (["deliver"] as StepKey[]) : [])] };

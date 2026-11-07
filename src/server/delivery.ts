@@ -21,7 +21,8 @@ export async function deliveryPlan(no: string): Promise<{ lines: DeliveryLine[];
   const stored = o.poLines as PoLine[] | null;
   const po = stored?.length ? stored : await poLinesFromQuote(no);
   const before = new Map<string, number>();
-  for (const d of o.deliveries) for (const l of d.lines as { key: string; delivered: number }[]) before.set(l.key, (before.get(l.key) ?? 0) + Number(l.delivered || 0));
+  // A draft reserves a DNTH number but nothing has gone out yet.
+  for (const d of o.deliveries.filter((x) => x.status !== "DRAFT")) for (const l of d.lines as { key: string; delivered: number }[]) before.set(l.key, (before.get(l.key) ?? 0) + Number(l.delivered || 0));
   const lines: DeliveryLine[] = po.map((l) => ({ key: `PO:${l.lineNo}`, kind: "PO", poLineNo: l.lineNo, description: l.description, assetCode: l.assetCode, partSku: l.partSku, expected: l.isService ? 0 : l.qty, deliveredBefore: before.get(`PO:${l.lineNo}`) ?? 0, isService: l.isService }));
   for (const e of o.events) {
     const list = ((e.payload as { accessoryList?: { item: string; qty: number }[] } | null)?.accessoryList) ?? [];
@@ -53,29 +54,34 @@ export const DeliveryInput = z.object({
   partial: z.boolean().default(false), /// split delivery: quantities may be below what is due, never above
   overrideReason: z.string().optional(),
   remark: z.string().optional(),
+  draft: z.boolean().default(false), /// save without checking; the same DNTH is issued later
 });
 
+/** Issue a DNTH (checked against the PO), or save/update this order's draft. An open draft is reused, so it keeps its number. */
 export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
   const d = DeliveryInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const { lines } = await deliveryPlan(order.no);
-  const bad = mismatches(lines, d.delivered, d.partial);
+  const bad = d.draft ? [] : mismatches(lines, d.delivered, d.partial);
   if (bad.length && !d.overrideReason) throw new Error(`DELIVERY_MISMATCH:${bad.map((b) => `${b.description} ${b.now}/${b.due}`).join("; ")}`);
   if (bad.length && actor.role !== "MD") throw new Error("DELIVERY_OVERRIDE_MD_ONLY");
-  if (!lines.some((l) => (d.delivered[l.key] ?? 0) > 0)) throw new Error("DELIVERY_EMPTY");
+  if (!d.draft && !lines.some((l) => (d.delivered[l.key] ?? 0) > 0)) throw new Error("DELIVERY_EMPTY");
   const driver = d.driverCode ? await prisma.employee.findUniqueOrThrow({ where: { code: d.driverCode } }) : null;
+  const draft = await prisma.deliveryNote.findFirst({ where: { serviceOrderId: order.id, status: "DRAFT" } });
+  const data = {
+    status: d.draft ? ("DRAFT" as const) : ("ISSUED" as const), deliverOn: d.deliverOn, plantId: d.plantId ?? order.plantId, address: d.address ?? null, contactId: d.contactId ?? null, driverId: driver?.id ?? null, vehicle: d.vehicle ?? null,
+    lines: lines.map((l) => ({ ...l, delivered: d.delivered[l.key] ?? 0 })) as unknown as Prisma.InputJsonValue,
+    mismatch: bad.length ? (bad as unknown as Prisma.InputJsonValue) : undefined, overrideReason: bad.length ? d.overrideReason : null, overrideById: bad.length ? actor.id : null, remark: d.remark ?? null,
+  };
   return prisma.$transaction(async (tx) => {
-    const no = await allocateNumber(tx, { prefix: "DN", createdByEmployeeCode: actor.code, entityId: order.entityId, date: d.deliverOn });
-    const dn = await tx.deliveryNote.create({
-      data: {
-        no, serviceOrderId: order.id, status: "ISSUED", deliverOn: d.deliverOn, plantId: d.plantId ?? order.plantId, address: d.address, contactId: d.contactId, driverId: driver?.id, vehicle: d.vehicle,
-        lines: lines.map((l) => ({ ...l, delivered: d.delivered[l.key] ?? 0 })) as unknown as Prisma.InputJsonValue,
-        mismatch: bad.length ? (bad as unknown as Prisma.InputJsonValue) : undefined, overrideReason: bad.length ? d.overrideReason : undefined, overrideById: bad.length ? actor.id : undefined, remark: d.remark,
-      },
-    });
-    await tx.document.create({ data: { no, type: "DN", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, templateCode: "19", issuedAt: d.deliverOn } });
-    if (bad.length) await audit(actor.id, "DELIVERY_OVERRIDE", no, { reason: d.overrideReason, mismatch: bad.map((b) => ({ key: b.key, due: b.due, now: b.now })) }, tx);
+    const dn = draft
+      ? await tx.deliveryNote.update({ where: { id: draft.id }, data })
+      : await tx.deliveryNote.create({ data: { ...data, no: await allocateNumber(tx, { prefix: "DN", createdByEmployeeCode: actor.code, entityId: order.entityId, date: d.deliverOn }), serviceOrderId: order.id } });
+    if (d.draft) return dn;
+    // Only an issued note is a registered document (printable, listed in the portal).
+    await tx.document.create({ data: { no: dn.no, type: "DN", entityId: order.entityId, countryCode: dn.no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, templateCode: "19", issuedAt: d.deliverOn } });
+    if (bad.length) await audit(actor.id, "DELIVERY_OVERRIDE", dn.no, { reason: d.overrideReason, mismatch: bad.map((b) => ({ key: b.key, due: b.due, now: b.now })) }, tx);
     return dn;
   });
 }
@@ -84,6 +90,7 @@ export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
 export async function signDelivery(input: { no: string; actorCode: string; signedBy: string; signedAt?: Date; remark?: string; attachments?: { name: string; url: string; kind?: string }[] }) {
   const dn = await prisma.deliveryNote.findUniqueOrThrow({ where: { no: input.no }, include: { serviceOrder: { include: { assets: true, plant: true } } } });
   if (dn.status === "SIGNED") throw new Error(`${dn.no} is already signed`);
+  if (dn.status === "DRAFT") throw new Error("DELIVERY_NOT_ISSUED");
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const codes = new Set((dn.lines as { assetCode?: string; delivered: number }[]).filter((l) => l.delivered > 0 && l.assetCode).map((l) => l.assetCode!));
   const assets = await prisma.asset.findMany({ where: { code: { in: [...codes] } } });

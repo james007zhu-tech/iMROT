@@ -144,3 +144,20 @@ export async function confirmCustomerPo(input: { no: string; actorCode: string; 
   });
   return advanceServiceOrder(o.no, "IN_PROGRESS", input.actorCode, input.note ?? input.customerRef);
 }
+
+const EARLY = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING"] as const;
+/**
+ * Inspecting or quoting an order that was never dispatched still moves it on (trial 2026-11-05: it stayed "received"
+ * and the customer never saw the quote). Walks RECEIVED → ASSIGNED → DIAGNOSING → QUOTE_PENDING up to `target`;
+ * passing ASSIGNED assigns the engineer doing the work.
+ */
+export async function catchUpOrder(no: string, target: "DIAGNOSING" | "QUOTE_PENDING", actorCode: string, assigneeCode?: string) {
+  let cur = (await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } })).status as string;
+  const goal = EARLY.indexOf(target);
+  for (let i = EARLY.indexOf(cur as (typeof EARLY)[number]); i >= 0 && i < goal; i++) {
+    const next = EARLY[i + 1];
+    await advanceServiceOrder(no, next, actorCode, undefined, next === "ASSIGNED" ? assigneeCode ?? actorCode : undefined);
+    cur = next;
+  }
+  return cur;
+}

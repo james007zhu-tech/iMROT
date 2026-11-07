@@ -17,6 +17,8 @@ Read this before changing anything. Also read README.md and the design doc linke
 12. **Show report names, never template numbers** (`reportsFor` in `src/lib/order-steps.ts`).
 13. **Contacts are masked by default** (`src/lib/mask.ts`); full view needs a password re-check and is audited. OPD and legal entities are MD-only.
 14. **Services throw stable codes** (`DELIVERY_MISMATCH:…`, `SERIAL_EXISTS:…`); pages translate `err_<CODE>` from `messages/*.json`. Server actions must not close over translators (`t`, `u`) — Next cannot serialise them.
+15. **Side menu (2026-11-07):** white, icon + four-character Chinese labels; Latin text in Helvetica, Thai Sarabun, Chinese Noto Sans SC. Customer documents keep Sarabun + Noto Sans SC.
+16. **Drafts keep their number:** "save draft" on RPTH / PMTH / DNTH updates the same open document; never open a second number for the same unfinished work.
 
 ## Before a PR
 ```bash

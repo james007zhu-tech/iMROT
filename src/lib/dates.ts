@@ -7,3 +7,11 @@ export function dayNow(v: string | undefined): Date | undefined {
   d.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
   return d;
 }
+
+/** Short date for tables and timelines: "11-03" within the current year, "2025-11-03" otherwise (work often spans days or years). */
+export function shortDate(d: Date | null | undefined, now = new Date()): string {
+  if (!d) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  const md = `${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}-${md}`;
+}

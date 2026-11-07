@@ -28,6 +28,8 @@ export const InspectionInput = z.object({
   openIssues: z.string().optional(),
   conclusion: z.string().optional(),
   attachments: z.array(z.object({ name: z.string(), url: z.string() })).optional(),
+  location: z.enum(["SITE", "WORKSHOP"]).optional(),
+  attachmentRefs: z.string().optional(),
 });
 
 export async function createInspection(input: z.input<typeof InspectionInput>) {
@@ -45,6 +47,7 @@ export async function createInspection(input: z.input<typeof InspectionInput>) {
         symptoms: d.symptoms, conditions: d.conditions, findings: d.findings, probableCause: d.probableCause,
         recommendation: d.recommendation, tests: d.tests as Prisma.InputJsonValue | undefined, instruments: d.instruments,
         openIssues: d.openIssues, conclusion: d.conclusion, attachments: d.attachments as Prisma.InputJsonValue | undefined,
+        location: d.location, attachmentRefs: d.attachmentRefs,
       },
     });
     await tx.document.create({ data: { no, type: "IN", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: eng.id, templateCode: "08" } });
@@ -139,6 +142,9 @@ export const RepairJobInput = z.object({
   conditionRating: z.enum(["GOOD", "GOOD_WITH_ISSUE", "POOR"]).optional(),
   nextDueAt: z.coerce.date().optional(),
   nextDueHours: z.number().int().optional(),
+  consumables: z.string().optional(),
+  escortContactId: z.string().optional(),
+  travelCost: z.number().min(0).optional(),
 });
 
 /** Opening a job moves the asset IN_SERVICE → MAINTENANCE/REPAIR/OVERHAUL; finishing it moves to ACCEPTANCE. */
@@ -153,20 +159,27 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
   const workStatus: AssetStatus = d.kind === "MAINTENANCE" ? "MAINTENANCE" : d.kind === "OVERHAUL" ? "OVERHAUL" : "REPAIR";
   const target: AssetStatus = d.finishedAt ? "ACCEPTANCE" : workStatus;
 
+  // "Save draft" keeps working on the same unfinished RPTH / PMTH instead of opening a new number each time.
+  const open = await prisma.repairJob.findFirst({ where: { serviceOrderId: order.id, assetId: asset.id, finishedAt: null, kind: d.kind === "MAINTENANCE" ? "MAINTENANCE" : { not: "MAINTENANCE" } }, orderBy: { startedAt: "desc" } });
+
   return prisma.$transaction(async (tx) => {
-    const no = await allocateNumber(tx, { prefix, createdByEmployeeCode: eng.code, entityId: order.entityId });
-    const job = await tx.repairJob.create({
-      data: {
-        no, serviceOrderId: order.id, assetId: asset.id, engineerId: eng.id, kind: d.kind, location: d.location,
-        startedAt: d.startedAt ?? new Date(), finishedAt: d.finishedAt, confirmedFault: d.confirmedFault, rootCause: d.rootCause,
-        workPerformed: d.workPerformed, partsReplaced: d.partsReplaced as Prisma.InputJsonValue | undefined, configBackupRef: d.configBackupRef,
-        laborHours: d.laborHours, tests: d.tests as Prisma.InputJsonValue | undefined, openIssues: d.openIssues, conclusion: d.conclusion,
-        attachments: d.attachments as Prisma.InputJsonValue | undefined,
-        level: d.level, runHours: d.runHours, checklist: d.checklist as Prisma.InputJsonValue | undefined, hazards: d.hazards, handled: d.handled,
-        recommendation: d.recommendation, conditionRating: d.conditionRating, nextDueAt: d.nextDueAt, nextDueHours: d.nextDueHours,
-      },
-    });
-    await tx.document.create({ data: { no, type: prefix, entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: eng.id, templateCode: d.kind === "MAINTENANCE" ? "11" : d.location === "SITE" ? "10" : "09" } });
+    const fields = {
+      engineerId: eng.id, kind: d.kind, location: d.location,
+      startedAt: d.startedAt ?? open?.startedAt ?? new Date(), finishedAt: d.finishedAt, confirmedFault: d.confirmedFault, rootCause: d.rootCause,
+      workPerformed: d.workPerformed, partsReplaced: d.partsReplaced as Prisma.InputJsonValue | undefined, configBackupRef: d.configBackupRef,
+      laborHours: d.laborHours, tests: d.tests as Prisma.InputJsonValue | undefined, openIssues: d.openIssues, conclusion: d.conclusion,
+      attachments: (d.attachments?.length ? [...((open?.attachments as unknown[] | null) ?? []), ...d.attachments] : open?.attachments ?? undefined) as Prisma.InputJsonValue | undefined,
+      level: d.level, runHours: d.runHours, checklist: d.checklist as Prisma.InputJsonValue | undefined, hazards: d.hazards, handled: d.handled,
+      recommendation: d.recommendation, conditionRating: d.conditionRating, nextDueAt: d.nextDueAt, nextDueHours: d.nextDueHours,
+      consumables: d.consumables, escortContactId: d.escortContactId, travelCost: d.travelCost,
+    };
+    const no = open?.no ?? (await allocateNumber(tx, { prefix, createdByEmployeeCode: eng.code, entityId: order.entityId }));
+    const templateCode = d.kind === "MAINTENANCE" ? "11" : d.location === "SITE" ? "10" : "09";
+    const job = open
+      ? await tx.repairJob.update({ where: { id: open.id }, data: fields })
+      : await tx.repairJob.create({ data: { no, serviceOrderId: order.id, assetId: asset.id, ...fields } });
+    if (open) await tx.document.update({ where: { no }, data: { templateCode } });
+    else await tx.document.create({ data: { no, type: prefix, entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: eng.id, templateCode } });
 
     // status: step into work, and if already finished, on to acceptance
     let status = asset.status;
@@ -177,17 +190,22 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
     }
     if (status !== asset.status) await tx.asset.update({ where: { id: asset.id }, data: { status } });
 
-    await tx.assetEvent.create({
-      data: {
-        assetId: asset.id, type: d.kind === "MAINTENANCE" ? "MAINTAINED" : d.kind === "OVERHAUL" ? "OVERHAULED" : "REPAIRED",
-        actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.finishedAt ?? d.startedAt,
-        summary: `${d.rootCause ?? d.workPerformed ?? ""}`,
-        payload: { confirmedFault: d.confirmedFault, rootCause: d.rootCause, partsReplaced: d.partsReplaced, laborHours: d.laborHours, statusFrom: asset.status, statusTo: status, hazards: d.hazards, handled: d.handled, nextDueAt: d.nextDueAt, nextDueHours: d.nextDueHours, runHours: d.runHours } as Prisma.InputJsonValue,
-        attachments: d.attachments as Prisma.InputJsonValue | undefined,
-      },
-    });
+    // One work event and one test event per RPTH / PMTH: a draft saved again updates them instead of adding more.
+    const type = d.kind === "MAINTENANCE" ? "MAINTAINED" : d.kind === "OVERHAUL" ? "OVERHAULED" : "REPAIRED";
+    const work = {
+      assetId: asset.id, type, actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.finishedAt ?? d.startedAt ?? open?.startedAt ?? undefined,
+      summary: `${d.rootCause ?? d.workPerformed ?? ""}`,
+      payload: { confirmedFault: d.confirmedFault, rootCause: d.rootCause, partsReplaced: d.partsReplaced, laborHours: d.laborHours, statusFrom: asset.status, statusTo: status, hazards: d.hazards, handled: d.handled, nextDueAt: d.nextDueAt, nextDueHours: d.nextDueHours, runHours: d.runHours, finished: !!d.finishedAt } as Prisma.InputJsonValue,
+      attachments: fields.attachments,
+    } as const;
+    const prevWork = open ? await tx.assetEvent.findFirst({ where: { sourceDocNo: no, type } }) : null;
+    if (prevWork) await tx.assetEvent.update({ where: { id: prevWork.id }, data: work });
+    else await tx.assetEvent.create({ data: work });
     if (d.tests?.length) {
-      await tx.assetEvent.create({ data: { assetId: asset.id, type: "TESTED", actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no, summary: `${d.tests.filter((t) => t.pass !== false).length}/${d.tests.length} pass`, payload: { tests: d.tests } as Prisma.InputJsonValue } });
+      const test = { assetId: asset.id, type: "TESTED" as const, actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no, summary: `${d.tests.filter((t) => t.pass !== false).length}/${d.tests.length} pass`, payload: { tests: d.tests } as Prisma.InputJsonValue };
+      const prevTest = open ? await tx.assetEvent.findFirst({ where: { sourceDocNo: no, type: "TESTED" } }) : null;
+      if (prevTest) await tx.assetEvent.update({ where: { id: prevTest.id }, data: test });
+      else await tx.assetEvent.create({ data: test });
     }
     return job;
   });
