@@ -32,7 +32,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
     }, `/service-orders/${no}/quote`);
   }
   return (
-    <StepPage order={order} title={u("step_quote")} error={error} kind="quote" uploadTitle={u("upQuoteTitle")} uploadHint={u("upQuoteHint")} saveLabel={u("saveQuote")}>
+    <StepPage order={order} title={u("step_quote")} error={error} kind="quote" uploadTitle={u("upQuoteTitle")} uploadHint={u("upQuoteHint")} lineFields={{ description: "d", qty: "q", unit: "u", unitPrice: "c" }} saveLabel={u("saveQuote")}>
       <form id="f" action={save}>
         <Card title={u("quoteLines")}>
           {order.marginPct != null && Number(order.marginPct) < MIN_MARGIN_PCT && <Alert>{u("marginBelowFloor", { pct: (Number(order.marginPct) * 100).toFixed(1), floor: MIN_MARGIN_PCT * 100 })}</Alert>}
