@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { openJob } from "@/lib/drafts";
 import { allocateNumber } from "@/lib/numbering-db";
 import { totals } from "@/lib/money";
 import { assetStatusForWork, canTransitionAsset } from "@/lib/lifecycle";
@@ -160,18 +161,22 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
   const target: AssetStatus = d.finishedAt ? "ACCEPTANCE" : workStatus;
 
   // "Save draft" keeps working on the same unfinished RPTH / PMTH instead of opening a new number each time.
-  const open = await prisma.repairJob.findFirst({ where: { serviceOrderId: order.id, assetId: asset.id, finishedAt: null, kind: d.kind === "MAINTENANCE" ? "MAINTENANCE" : { not: "MAINTENANCE" } }, orderBy: { startedAt: "desc" } });
+  const open = openJob(await prisma.repairJob.findMany({ where: { serviceOrderId: order.id, assetId: asset.id } }), { maintenance: d.kind === "MAINTENANCE", orderStatus: order.status, assetId: asset.id }) ?? null;
+  if (d.escortContactId && !(await prisma.contact.findFirst({ where: { id: d.escortContactId, customerId: order.customerId } }))) throw new Error("ESCORT_NOT_CUSTOMER");
 
   return prisma.$transaction(async (tx) => {
+    // Re-saving a draft replaces it: a field left blank this time is cleared, not kept from the last save.
+    const v = <T,>(x: T | undefined) => (open ? (x ?? null) : x);
+    const list = (x: unknown[] | undefined) => (open ? (x ?? []) : x) as Prisma.InputJsonValue | undefined;
     const fields = {
       engineerId: eng.id, kind: d.kind, location: d.location,
-      startedAt: d.startedAt ?? open?.startedAt ?? new Date(), finishedAt: d.finishedAt, confirmedFault: d.confirmedFault, rootCause: d.rootCause,
-      workPerformed: d.workPerformed, partsReplaced: d.partsReplaced as Prisma.InputJsonValue | undefined, configBackupRef: d.configBackupRef,
-      laborHours: d.laborHours, tests: d.tests as Prisma.InputJsonValue | undefined, openIssues: d.openIssues, conclusion: d.conclusion,
+      startedAt: d.startedAt ?? open?.startedAt ?? new Date(), finishedAt: v(d.finishedAt), confirmedFault: v(d.confirmedFault), rootCause: v(d.rootCause),
+      workPerformed: v(d.workPerformed), partsReplaced: list(d.partsReplaced), configBackupRef: v(d.configBackupRef),
+      laborHours: v(d.laborHours), tests: list(d.tests), openIssues: v(d.openIssues), conclusion: v(d.conclusion),
       attachments: (d.attachments?.length ? [...((open?.attachments as unknown[] | null) ?? []), ...d.attachments] : open?.attachments ?? undefined) as Prisma.InputJsonValue | undefined,
-      level: d.level, runHours: d.runHours, checklist: d.checklist as Prisma.InputJsonValue | undefined, hazards: d.hazards, handled: d.handled,
-      recommendation: d.recommendation, conditionRating: d.conditionRating, nextDueAt: d.nextDueAt, nextDueHours: d.nextDueHours,
-      consumables: d.consumables, escortContactId: d.escortContactId, travelCost: d.travelCost,
+      level: v(d.level), runHours: v(d.runHours), checklist: list(d.checklist), hazards: v(d.hazards), handled: v(d.handled),
+      recommendation: v(d.recommendation), conditionRating: v(d.conditionRating), nextDueAt: v(d.nextDueAt), nextDueHours: v(d.nextDueHours),
+      consumables: v(d.consumables), escortContactId: v(d.escortContactId), travelCost: v(d.travelCost),
     };
     const no = open?.no ?? (await allocateNumber(tx, { prefix, createdByEmployeeCode: eng.code, entityId: order.entityId }));
     const templateCode = d.kind === "MAINTENANCE" ? "11" : d.location === "SITE" ? "10" : "09";
@@ -198,8 +203,10 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
       payload: { confirmedFault: d.confirmedFault, rootCause: d.rootCause, partsReplaced: d.partsReplaced, laborHours: d.laborHours, statusFrom: asset.status, statusTo: status, hazards: d.hazards, handled: d.handled, nextDueAt: d.nextDueAt, nextDueHours: d.nextDueHours, runHours: d.runHours, finished: !!d.finishedAt } as Prisma.InputJsonValue,
       attachments: fields.attachments,
     } as const;
+    // The job's own event is kept current while it is a draft, but where the asset came from stays as first recorded.
     const prevWork = open ? await tx.assetEvent.findFirst({ where: { sourceDocNo: no, type } }) : null;
-    if (prevWork) await tx.assetEvent.update({ where: { id: prevWork.id }, data: work });
+    const firstFrom = (prevWork?.payload as { statusFrom?: string } | null)?.statusFrom;
+    if (prevWork) await tx.assetEvent.update({ where: { id: prevWork.id }, data: { ...work, payload: { ...(work.payload as object), statusFrom: firstFrom ?? asset.status } as Prisma.InputJsonValue } });
     else await tx.assetEvent.create({ data: work });
     if (d.tests?.length) {
       const test = { assetId: asset.id, type: "TESTED" as const, actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no, summary: `${d.tests.filter((t) => t.pass !== false).length}/${d.tests.length} pass`, payload: { tests: d.tests } as Prisma.InputJsonValue };

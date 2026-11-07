@@ -1,6 +1,6 @@
 {
   "name": "dcit-os",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "private": true,
   "description": "DCiT OS \u2014 iMROT 'i': equipment-centred service operations system (ALM/CRM/SLM/SCM/FIN/T&O/OPD/Admin)",
   "scripts": {

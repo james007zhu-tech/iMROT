@@ -94,9 +94,12 @@ async function main() {
   const out = await recordMovement({ actorCode: admin.code, direction: "OUT", partSku: part.sku, qty: 1, assetCode: vfd.code, serviceOrderNo: order.no, oldPartDisposition: "RETURN_TO_CUSTOMER" });
   assert(parseNumber(out.no)?.prefix === "OB" && out.no.length === 13, `stock out ${out.no} has 3-digit serial`);
   // "Save draft" twice, then finish: one RPTH number, one work event.
+  const before = (await prisma.asset.findUniqueOrThrow({ where: { code: vfd.code } })).status;
   const d1 = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", confirmedFault: "fan 1 seized", travelCost: 350 });
   const d2 = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", confirmedFault: "fan 1 seized", rootCause: "bearing wear", travelCost: 350 });
   assert(d1.no === d2.no && !d2.finishedAt, `draft RPTH saved twice keeps ${d1.no}`);
+  const d3 = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", confirmedFault: "fan 1 seized" });
+  assert(d3.no === d1.no && d3.rootCause === null && d3.travelCost === null, "a field left blank when the draft is saved again is cleared");
   const job = await createRepairJob({ serviceOrderNo: order.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", finishedAt: new Date(), travelCost: 350, confirmedFault: "fan 1 seized", rootCause: "bearing wear, dust", workPerformed: "replaced fan 1, cleaned heatsink, re-torqued DC bus", partsReplaced: [{ partSku: part.sku, name: "Power module fan", qty: 1, obthNo: out.no, oldSerial: "F-OLD-1", oldDisposition: "RETURN_TO_CUSTOMER" }], laborHours: 4, tests: [{ test: "No load", criterion: "runs 0-50 Hz", result: "ok", pass: true }, { test: "Load", criterion: "rated current", result: "92%", pass: true }] });
   await advanceServiceOrder(order.no, "ACCEPTANCE_PENDING", admin.code);
   let a = await getAssetPage(vfd.code);
@@ -119,6 +122,8 @@ async function main() {
   const dn = await issueDelivery({ serviceOrderNo: order.no, actorCode: admin.code, deliverOn: new Date(), delivered: full, vehicle: "pickup" });
   assert(parseNumber(dn.no)?.prefix === "DN" && dn.status === "ISSUED" && dn.no === draftDn.no, `delivery note ${dn.no} issued from the draft, same number`);
   assert(assertJobEvents(await prisma.assetEvent.count({ where: { sourceDocNo: job.no, type: "REPAIRED" } })), `${job.no}: one repair event on the timeline`);
+  const ev = await prisma.assetEvent.findFirstOrThrow({ where: { sourceDocNo: job.no, type: "REPAIRED" } });
+  assert((ev.payload as { statusFrom?: string }).statusFrom === before && (ev.payload as { statusTo?: string }).statusTo === "ACCEPTANCE", `repair event keeps where it started: ${before} → ACCEPTANCE`);
   await signDelivery({ no: dn.no, actorCode: admin.code, signedBy: "Khun Somchai" });
   assert((await prisma.deliveryNote.findUniqueOrThrow({ where: { no: dn.no } })).status === "SIGNED", "delivery signed");
 

@@ -15,8 +15,8 @@ export function FormMemory({ formId }: { formId: string }) {
       const saved = sessionStorage.getItem(key);
       if (saved && failed) {
         const values = JSON.parse(saved) as Record<string, string | boolean>;
-        for (const el of Array.from(form.elements) as (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement)[]) {
-          if (!el.name || !(el.name in values) || (el as HTMLInputElement).type === "file") continue;
+        for (const el of fields(form)) {
+          if (!(el.name in values) || (el as HTMLInputElement).type === "file") continue;
           if ((el as HTMLInputElement).type === "checkbox") (el as HTMLInputElement).checked = values[el.name] === true;
           else el.value = String(values[el.name]);
         }
@@ -26,8 +26,8 @@ export function FormMemory({ formId }: { formId: string }) {
     } catch { /* storage unavailable: nothing to restore */ }
     const onSubmit = () => {
       const values: Record<string, string | boolean> = {};
-      for (const el of Array.from(form.elements) as (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement)[]) {
-        if (!el.name || (el as HTMLInputElement).type === "file" || (el as HTMLInputElement).type === "password") continue;
+      for (const el of fields(form)) {
+        if ((el as HTMLInputElement).type === "file" || (el as HTMLInputElement).type === "password") continue;
         values[el.name] = (el as HTMLInputElement).type === "checkbox" ? (el as HTMLInputElement).checked : el.value;
       }
       try { sessionStorage.setItem(key, JSON.stringify(values)); } catch { /* ignore */ }
@@ -36,4 +36,10 @@ export function FormMemory({ formId }: { formId: string }) {
     return () => form.removeEventListener("submit", onSubmit);
   }, [formId]);
   return null;
+}
+
+/** The form's data fields. Buttons are left out: a button's value says which action was clicked (e.g. draft=1) and must never be saved or restored. */
+function fields(form: HTMLFormElement) {
+  return (Array.from(form.elements) as (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement)[])
+    .filter((el): el is HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement => !!el.name && !(el instanceof HTMLButtonElement) && !["submit", "button", "reset", "image"].includes((el as HTMLInputElement).type));
 }

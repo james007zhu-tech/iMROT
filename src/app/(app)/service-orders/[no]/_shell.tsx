@@ -37,15 +37,12 @@ export async function StepPage({ order, title, badge, formId = "f", kind, upload
   order: Order; title: React.ReactNode; badge?: React.ReactNode; formId?: string; kind?: RecognizeKind; uploadTitle?: string; uploadHint?: string;
   saveLabel: string; extraActions?: React.ReactNode; ok?: string; error?: string; notice?: string; children: React.ReactNode;
 }) {
-  const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
-  // Services throw stable codes ("DELIVERY_MISMATCH:…"); show them in the viewer's language when we have a text for them.
-  const [code, ...rest] = (error ?? "").split(":");
-  const shown = error && /^[A-Z_]+$/.test(code) && u.has(`err_${code}`) ? u(`err_${code}`, { detail: rest.join(":") }) : error;
+  const t = await getTranslations("common"); // error codes and field names are translated by Flash
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: `/service-orders/${order.no}`, label: order.no }} title={title} badge={badge ?? <OrderStatusBadge status={order.status} />}
         actions={<><Link href={`/service-orders/${order.no}`} className={btnGhost}>{t("cancel")}</Link>{extraActions}{saveLabel && <button form={formId} className={btnPrimary}>{saveLabel}</button>}</>} />
-      <Flash ok={ok} error={shown} />
+      <Flash ok={ok} error={error} />
       {notice && <div className="rounded-lg border border-alert bg-alert/10 px-4 py-2 text-sm text-alert-ink">{notice}</div>}
       <OrderBrief order={order} />
       <FormMemory formId={formId} />

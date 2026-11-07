@@ -34,7 +34,7 @@ export default async function Deliver({ params, searchParams }: { params: Promis
     "use server";
     await guarded(async () => {
       const me = await currentEmployee();
-      const asDraft = f.getAll("draft").includes("1");
+      const asDraft = f.get("draft") === "1"; // only the "save draft" button posts draft=1
       const { lines } = await deliveryPlan(no);
       const delivered = Object.fromEntries(lines.map((l) => [l.key, Number(f.get(`q_${l.key}`) || 0)]));
       const dn = await issueDelivery({ serviceOrderNo: no, actorCode: me.code, deliverOn: dayNow(String(f.get("deliverOn")))!, plantId: str(f, "plantId"), address: str(f, "address"), contactId: str(f, "contactId"), driverCode: str(f, "driverCode"), vehicle: str(f, "vehicle"), delivered, partial: f.get("partial") === "on", overrideReason: str(f, "overrideReason"), remark: str(f, "remark"), draft: asDraft });
@@ -65,7 +65,6 @@ export default async function Deliver({ params, searchParams }: { params: Promis
       {issued.length > 0 && <Card title={u("deliveriesSoFar")}><div className="flex flex-wrap gap-2">{issued.map((d) => <Link key={d.id} href={`/service-orders/${no}/deliver/${d.no}`} className="rounded-full border border-navy/35 bg-white px-3 py-1 text-sm"><span className="font-mono">{d.no}</span> · {u(`dn_${d.status}`)}</Link>)}</div></Card>}
       <LinkedDocs order={order} />
       <form id="f" action={save} className="space-y-4">
-        <input type="hidden" name="draft" value="0" />
         <Card title={u("deliverWhere")}>
           <Grid>
             <Field label={t("customer")}><div className="min-h-10 rounded-md border bg-white px-2.5 py-2 text-sm">{order.customer.name}</div></Field>

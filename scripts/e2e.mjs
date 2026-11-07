@@ -141,6 +141,12 @@ await step("delivery-mismatch-blocked", async () => {
   const cable = page.locator("tr", { hasText: "cable" }).locator("input[type=number]"); await cable.fill("1");
   await save(); await expectText("Cannot issue");
 });
+await step("draft-after-error-stays-draft", async () => {
+  // FormMemory used to restore the draft button's value from the hidden field, so "save draft" after an error issued the note.
+  await page.locator("button[name=draft][value='1']").click(); await page.waitForLoadState("networkidle");
+  if (/\/deliver\/DNTH/.test(page.url())) throw new Error("save draft after an error issued the delivery note");
+  await expectText("Draft");
+});
 await step("delivery-issued-and-signed", async () => {
   await page.selectOption("[name=contactId]", { index: 1 });
   const cable = page.locator("tr", { hasText: "cable" }).locator("input[type=number]"); await cable.fill("2");
