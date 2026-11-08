@@ -47,6 +47,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
     await guarded(async () => { const me = await currentEmployee(); const bl = await issueMonthlyStatement(code, new Date().toISOString().slice(2, 7).replace("-", ""), me.code); return `${bl.no} · ${bl.currency} ${Number(bl.total).toFixed(2)}`; }, `/customers/${code}`);
   }
   const files = (c.files as { name: string; url: string; kind: string }[] | null) ?? [];
+  const statements = c.monthlyStatement ? await prisma.monthlyStatement.findMany({ where: { customerId: c.id }, orderBy: { issuedAt: "desc" }, take: 12, include: { _count: { select: { invoices: true } } } }) : [];
   const errorCode = error === "WRONG_PASSWORD" ? u("wrongPassword") : error;
   return (
     <div className="space-y-4">
@@ -94,6 +95,11 @@ export default async function CustomerDetail({ params, searchParams }: { params:
           {c.serviceOrders.map((o) => <tr key={o.id}><td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link></td><td><OrderStatusBadge status={o.status} /></td><td className="text-fault">{o.reportedSymptom ?? ""}</td><td>{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : ""}</td></tr>)}
         </Table>
       </Card>
+      {statements.length > 0 && <Card title={u("statementsBl")}>
+        <Table head={["BLTH", u("period"), t("date"), u("invoicesOnStatement"), t("amount"), "PDF"]}>
+          {statements.map((b) => <tr key={b.id}><td className="font-mono">{b.no}</td><td>20{b.period.slice(0, 2)}-{b.period.slice(2, 4)}</td><td>{b.issuedAt.toISOString().slice(0, 10)}</td><td>{b._count.invoices}</td><td>{b.currency} {Number(b.total).toFixed(2)}</td><td className="text-xs"><a className="text-blue hover:underline" href={`/api/documents/${b.no}/render?format=pdf`}>BLTH</a></td></tr>)}
+        </Table>
+      </Card>}
       {c.editedFields && <p className="text-xs text-navy/70">{u("dbdEdited", { fields: (c.editedFields as string[]).join(", ") })}</p>}
     </div>
   );

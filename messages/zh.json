@@ -1123,7 +1123,14 @@
     "empFilesNote": "通过上方上传框归档的简历、合同、证件原件会出现在这里，并随档案保存。",
     "err_MD_SELF_DEMOTE": "MD 不能取消自己的 MD 角色",
     "err_MANAGER_UNKNOWN": "找不到直属上级 {detail}",
-    "err_WRONG_PASSWORD": "密码不正确"
+    "err_WRONG_PASSWORD": "密码不正确",
+    "rpt20": "税务发票 TITH（正本 + 副本）",
+    "rpt21": "请款单 IVTH",
+    "rpt22": "收据 RCTH（正本 + 副本）",
+    "rpt23": "月度账单 BLTH",
+    "statementsBl": "月度账单 BLTH",
+    "period": "账期",
+    "invoicesOnStatement": "包含发票数"
   },
   "role": {
     "MD": "董事总经理 MD",

@@ -13,7 +13,7 @@ const prisma = new PrismaClient();
 async function main() {
   const th = await prisma.legalEntity.upsert({
     where: { countryCode: "TH" },
-    update: { code: "DCiT" },
+    update: { code: "DCiT", vatRegisteredFrom: new Date(master.vat_registered_from) },
     create: {
       countryCode: "TH",
       code: "DCiT",
@@ -31,6 +31,7 @@ async function main() {
       localCurrency: "THB",
       bookCurrency: "CNY",
       vatRate: master.vat_rate,
+      vatRegisteredFrom: new Date(master.vat_registered_from),
       bankDetails: {
         bank: master.bank,
         branch: master.bank_branch,

@@ -16,25 +16,26 @@ datasource db {
 
 /// A legal entity = one company in one country. Country code (TH / VN / CN) is what appears in every number.
 model LegalEntity {
-  id            String   @id @default(cuid())
-  countryCode   String   @unique /// TH, VN, CN — used verbatim in ATH / CTH / ETH / QTTH …
-  code          String   @unique @default("DCiT") /// DCiT / DCiV / DCiC (default only so existing databases upgrade with db push) — what people pick in "所属法人"
-  nameEn        String
-  nameLocal     String?
-  brand         String   @default("DCiT")
-  taxId         String?
-  branchCode    String? /// Thailand: 00000 = head office
-  addressEn     String?
-  addressLocal  String?
-  phone         String?
-  email         String?
-  website       String?
-  signatoryName String? /// used only where a template demands a signature line
-  localCurrency String /// THB for TH — tax invoices are issued in this currency
-  bookCurrency  String   @default("CNY") /// accounting currency for the whole group
-  vatRate       Decimal  @default(0.07) @db.Decimal(5, 4)
-  bankDetails   Json? /// bank, branch, swift, accounts by currency
-  createdAt     DateTime @default(now())
+  id                String    @id @default(cuid())
+  countryCode       String    @unique /// TH, VN, CN — used verbatim in ATH / CTH / ETH / QTTH …
+  code              String    @unique @default("DCiT") /// DCiT / DCiV / DCiC (default only so existing databases upgrade with db push) — what people pick in "所属法人"
+  nameEn            String
+  nameLocal         String?
+  brand             String    @default("DCiT")
+  taxId             String?
+  branchCode        String? /// Thailand: 00000 = head office
+  addressEn         String?
+  addressLocal      String?
+  phone             String?
+  email             String?
+  website           String?
+  signatoryName     String? /// used only where a template demands a signature line
+  localCurrency     String /// THB for TH — tax invoices are issued in this currency
+  bookCurrency      String    @default("CNY") /// accounting currency for the whole group
+  vatRate           Decimal   @default(0.07) @db.Decimal(5, 4)
+  bankDetails       Json? /// bank, branch, swift, accounts by currency
+  vatRegisteredFrom DateTime? /// printed in the tax-invoice footer (ภ.พ.20 effective date)
+  createdAt         DateTime  @default(now())
 
   employees     Employee[]
   customers     Customer[]

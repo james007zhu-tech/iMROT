@@ -26,4 +26,16 @@ describe("docx fill", () => {
     expect(doc).not.toContain("[[");
     expect(doc).toContain("FINDINGS_CAUSE");
   });
+
+  it("repeats a row per line for L_ keys and drops the row when there are no lines", () => {
+    const row = '<w:tr><w:tc><w:p><w:r><w:t>[[L_NO]]</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>[[L_DESC]]</w:t></w:r></w:p></w:tc></w:tr>';
+    const xml = `<w:tbl><w:tr><w:tc><w:p><w:r><w:t>#</w:t></w:r></w:p></w:tc></w:tr>${row}</w:tbl><w:p><w:r><w:t>[[TOTAL]]</w:t></w:r></w:p>`;
+    const r = fillXml(xml, { L_NO: [1, 2], L_DESC: ["Module", "Labour"], TOTAL: "9" });
+    expect(r.xml.match(/<w:tr>/g)!.length).toBe(3);
+    expect(r.xml).toContain("<w:t>1</w:t>"); expect(r.xml).toContain("<w:t>Labour</w:t>"); expect(r.xml).toContain("<w:t>9</w:t>");
+    expect(r.unfilled).toEqual([]);
+    const none = fillXml(xml, { L_NO: [], L_DESC: [], TOTAL: "0" });
+    expect(none.xml.match(/<w:tr>/g)!.length).toBe(1);
+    expect(fillXml(xml, { TOTAL: "0" }).unfilled.sort()).toEqual(["L_DESC", "L_NO"]);
+  });
 });
