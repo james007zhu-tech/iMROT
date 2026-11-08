@@ -4,8 +4,9 @@
  * It does not run payroll. Every statutory figure below is a DEFAULT the form pre-fills and the MD may override per
  * record; the record keeps the values that were actually used, so later law changes never rewrite history.
  *
- * Thailand social security (ประกันสังคม, Section 33) defaults — PLACEHOLDERS to confirm with the accountant:
- *   contribution 5 % employee + 5 % employer on a wage base between the legal floor and ceiling.
+ * Thailand social security (ประกันสังคม, Section 33) — CONFIRMED 2026-11-08 against the ministerial regulation in force
+ * from 1 Jan 2569 (2026): 5 % employee + 5 % employer on a wage base between 1,650 and 17,500 THB (max 875 THB each).
+ * Scheduled steps: ceiling 20,000 from 2029 (2572), 23,000 from 2032 (2575) — update `ssoWageCeiling` then.
  */
 export interface StatutoryDefaults { ssoEmployeeRate: number; ssoEmployerRate: number; ssoWageFloor: number; ssoWageCeiling: number }
 

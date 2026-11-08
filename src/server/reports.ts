@@ -24,8 +24,12 @@ const TEMPLATE_FILES: Record<string, string> = {
   "24": "24_Purchase_Inquiry.docx", "25": "25_Purchase_Order.docx", "26": "26_Goods_Receipt.docx", "27": "27_Stock_Issue.docx",
 };
 
-/** Withholding tax shown on invoices as the customer's expected deduction on services — PLACEHOLDER rate (decision 2026-11-08: rate is a placeholder). */
-export const WHT_RATE_PLACEHOLDER = 0.03;
+/**
+ * Withholding tax the customer is expected to deduct from a service / hire-of-work invoice: 3 % when payer and payee
+ * are both Thai juristic persons (Revenue Department rate table; confirmed 2026-11-08). Pure sale of goods is not
+ * withheld; transport 1 %, advertising 2 %, rent 5 % — a repair with parts supplied is hire of work → 3 %.
+ */
+export const WHT_SERVICE_RATE = 0.03;
 const money = (n: unknown) => Number(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pctLabel = (r: unknown) => `${(Number(r) * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -147,12 +151,12 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
       const vat = iv.taxInvoice ? Number(iv.taxInvoice.vatAmount) : round2(subtotal * vatRate);
       const total = Number(iv.amountDue);
       const settled = round2(iv.receipts.reduce((s, r) => s + Number(r.settledAmount), 0));
-      const wht = settled ? 0 : round2(subtotal * WHT_RATE_PLACEHOLDER);
+      const wht = settled ? 0 : round2(subtotal * WHT_SERVICE_RATE);
       const lf = tiLines(lines);
       return { template: "21", values: { ...common, ISSUE_DATE: d(iv.issuedAt), DUE_DATE: d(iv.dueAt ?? addDays(iv.issuedAt, c.paymentTermDays)), TAX_INVOICE_NO: iv.taxInvoice?.no ?? "—", REFERENCE: [o!.no, o!.customerRef ? `PO ${o!.customerRef}` : ""].filter(Boolean).join("\n"),
         BILL_TO: c.name, BILL_BRANCH: [o!.plant?.name, c.branchCode ? `branch ${c.branchCode}` : ""].filter(Boolean).join(", "), BILL_ADDRESS: c.billingAddress ?? c.addressEn ?? c.addressLocal ?? "", CUSTOMER_TAX_ID: c.taxId ?? "", ATTN: "Accounts Payable",
         L_NO: lf.L_NO, L_DESC: lines.map((l) => l.descriptionEn ?? l.description ?? l.descriptionLocal ?? ""), L_QTY: lf.L_QTY, L_PRICE: lf.L_PRICE, L_AMOUNT: lf.L_AMOUNT,
-        SUBTOTAL: money(subtotal), VAT_LABEL: pctLabel(vatRate), VAT_AMOUNT: money(vat), INVOICE_TOTAL: money(total), SETTLED_TO_DATE: money(settled), WHT_LABEL: wht ? `${pctLabel(WHT_RATE_PLACEHOLDER)} on ${money(subtotal)}` : "", WHT_AMOUNT: wht ? `(${money(wht)})` : money(0), CURRENCY: iv.currency, AMOUNT_PAYABLE: money(round2(total - settled - wht)),
+        SUBTOTAL: money(subtotal), VAT_LABEL: pctLabel(vatRate), VAT_AMOUNT: money(vat), INVOICE_TOTAL: money(total), SETTLED_TO_DATE: money(settled), WHT_LABEL: wht ? `${pctLabel(WHT_SERVICE_RATE)} on ${money(subtotal)}` : "", WHT_AMOUNT: wht ? `(${money(wht)})` : money(0), CURRENCY: iv.currency, AMOUNT_PAYABLE: money(round2(total - settled - wht)),
         BANK_LINES: bankLines(e.bankDetails as Bank | null, iv.currency), ACCOUNTS_EMAIL: e.email ?? "", TAX_INVOICE_NOTE_TH: iv.taxInvoice ? `ใบแจ้งหนี้นี้ไม่ใช่ใบกำกับภาษี ใบกำกับภาษีคือ ${iv.taxInvoice.no} ที่แนบมาด้วย` : "", TAX_INVOICE_NOTE_EN: iv.taxInvoice ? `This invoice is not a tax invoice; the tax invoice is ${iv.taxInvoice.no}, attached.` : "",
         PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: e.signatoryName ?? "" } };
     }
