@@ -152,10 +152,13 @@ async function main() {
   const iv = await issueInvoice({ serviceOrderNo: order.no, actorCode: admin.code, taxInvoiceNo: ti.no });
   assert(parseNumber(iv.no)?.prefix === "IV", `invoice ${iv.no}`);
 
-  console.log("9. payment with 3% WHT → CLOSED");
-  await recordPayment({ invoiceNo: iv.no, actorCode: admin.code, paidAt: new Date(), paidAmount: 13000, whtAmount: 375, whtCertRef: "WHT-2611-001", bankRef: "BOC 1234" });
+  console.log("9. payment with 3% WHT → settled, then 项目完成 closes the order");
+  const pay = await recordPayment({ invoiceNo: iv.no, actorCode: admin.code, paidAt: new Date(), paidAmount: 13000, whtAmount: 375, whtCertRef: "WHT-2611-001", bankRef: "BOC 1234" });
+  assert(pay.settled === true, "invoice settled by the payment");
+  assert((await prisma.serviceOrder.findUniqueOrThrow({ where: { no: order.no } })).status === "INVOICED", "settlement alone does not close the order (decision 2026-11-08)");
+  await advanceServiceOrder(order.no, "CLOSED", admin.code, "项目完成");
   const closed = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: order.no } });
-  assert(closed.status === "CLOSED", "order CLOSED after settlement");
+  assert(closed.status === "CLOSED" && closed.closedAt, "order CLOSED after the person confirms project completion");
 
   console.log("10. reports from events");
   const r08 = await renderDocument(insp.no);

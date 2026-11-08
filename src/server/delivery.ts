@@ -95,7 +95,7 @@ export async function signDelivery(input: { no: string; actorCode: string; signe
   const codes = new Set((dn.lines as { assetCode?: string; delivered: number }[]).filter((l) => l.delivered > 0 && l.assetCode).map((l) => l.assetCode!));
   const assets = await prisma.asset.findMany({ where: { code: { in: [...codes] } } });
   return prisma.$transaction(async (tx) => {
-    const signed = await tx.deliveryNote.update({ where: { id: dn.id }, data: { status: "SIGNED", signedBy: input.signedBy, signedAt: input.signedAt ?? new Date(), remark: input.remark ?? dn.remark, signatureUrl: input.attachments?.[0]?.url } });
+    const signed = await tx.deliveryNote.update({ where: { id: dn.id }, data: { status: "SIGNED", signedBy: input.signedBy, signedAt: input.signedAt ?? new Date(), remark: input.remark ?? dn.remark, signatureUrl: input.attachments?.find((a) => a.kind !== "CUSTOMER_DN")?.url ?? input.attachments?.[0]?.url, attachments: input.attachments?.length ? ([...((dn.attachments as unknown[] | null) ?? []), ...input.attachments] as Prisma.InputJsonValue) : undefined } });
     for (const a of assets.length ? assets : []) {
       await tx.assetEvent.create({ data: { assetId: a.id, type: "DELIVERED", actorId: actor.id, actorName: input.signedBy, serviceOrderId: dn.serviceOrderId, sourceDocNo: dn.no, occurredAt: input.signedAt, summary: dn.no, payload: { signedBy: input.signedBy, remark: input.remark } as Prisma.InputJsonValue, attachments: (input.attachments ?? []) as Prisma.InputJsonValue } });
     }

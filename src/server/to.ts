@@ -129,10 +129,8 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
     for (const a of iv.serviceOrder.assets) {
       await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: rcNo, occurredAt: d.paidAt, summary: `${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? ` + WHT ${d.whtAmount.toFixed(2)}` : ""} · ${iv.no}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef, receiptNo: rcNo, settled } as Prisma.InputJsonValue, attachments: proofs as Prisma.InputJsonValue } });
     }
-    if (settled) {
-      await tx.serviceOrder.update({ where: { id: iv.serviceOrderId }, data: { status: "CLOSED", closedAt: d.paidAt } });
-    }
-    return { ...updated, receiptNo: receipt.no };
+    // Settlement no longer closes the order by itself (decision 2026-11-08): the person presses "项目完成" on the QTTH (INVOICED → CLOSED).
+    return { ...updated, receiptNo: receipt.no, settled };
   });
 }
 

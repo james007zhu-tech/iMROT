@@ -8,7 +8,7 @@ import { maskName } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
 import { OrderProgress } from "@/components/OrderProgress";
 import { OrderStatusBadge } from "@/components/StatusBadge";
-import { AssetTriple, Card, FaultText, Field, Grid, PageHeader, Table, Value, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
+import { Alert, AssetTriple, Card, FaultText, Field, Grid, PageHeader, Table, Value, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { ORDER_TRANSITIONS, type OrderStatus } from "@/lib/lifecycle";
 import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps";
 import { businessClosureOn } from "@/lib/closure";
@@ -45,6 +45,9 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const also = businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k));
   const stepLabel = (s: StepKey) => u(`step_${s}`);
   const transitions = ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CANCELLED" || s === "CLOSED");
+  // "项目完成" (flow step 10): the person confirms the close once the money is in; the system no longer closes by itself.
+  const outstanding = order.invoices.reduce((s, i) => s + Math.max(0, Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0)), 0);
+  const settledAwaitingClose = order.status === "INVOICED" && order.invoices.length > 0 && outstanding < 0.005;
 
   async function assign(form: FormData) {
     "use server";
@@ -112,7 +115,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               <Field label={t("customerRef")}><Value className="font-mono">{order.customerRef ?? "—"}</Value></Field>
             </Grid>
             <Field label={t("symptom")}><Value><FaultText>{order.reportedSymptom ?? "—"}{order.reportedAlarm ? ` · ${order.reportedAlarm}` : ""}</FaultText>{order.productionImpact ? <span className="ml-2 text-navy/80">· {["STOPPED", "DEGRADED", "NONE"].includes(order.productionImpact) ? u(`impact${order.productionImpact[0]}${order.productionImpact.slice(1).toLowerCase()}`) : order.productionImpact}</span> : null}</Value></Field>
-            {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.kind === "PO" ? "PO · " : ""}{a.name}</a>)}</div>}
+            {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {["INQUIRY", "PO", "MESSAGE", "PAYMENT", "CUSTOMER_DN"].includes(a.kind) ? `${u(`kind_${a.kind}`)} · ` : ""}{a.name}</a>)}</div>}
           </Card>
 
           <Card title={u("documentsDone")}>
@@ -163,7 +166,9 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={stepHref(order.no, s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
           </Card>}
           {transitions.length > 0 && <Card title={t("status")}>
-            <form action={move} className="flex flex-wrap gap-2">{transitions.map((s) => <button key={s} name="to" value={s} className={`min-h-10 rounded-lg border px-3 text-sm font-semibold ${s === "CANCELLED" ? "border-alert text-alert-ink" : "border-navy/45"}`}>{u(s === "CANCELLED" ? "actionCancelOrder" : "actionCloseOrder")}</button>)}</form>
+            {settledAwaitingClose && <Alert>{u("settledAwaitingClose")}</Alert>}
+            {order.status === "INVOICED" && outstanding >= 0.005 && <p className="text-xs text-alert-ink">{u("closeWithOutstanding", { amount: `${order.currency} ${outstanding.toFixed(2)}` })}</p>}
+            <form action={move} className="flex flex-wrap gap-2">{transitions.map((s) => <button key={s} name="to" value={s} className={`min-h-10 rounded-lg border px-3 text-sm font-semibold ${s === "CANCELLED" ? "border-alert text-alert-ink" : settledAwaitingClose ? "border-navy bg-navy text-white" : "border-navy/45"}`}>{u(s === "CANCELLED" ? "actionCancelOrder" : order.status === "INVOICED" ? "actionProjectComplete" : "actionCloseOrder")}</button>)}</form>
           </Card>}
           <Card title={u("timeline")}>
             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs text-navy/85">

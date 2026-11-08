@@ -29,8 +29,10 @@ const ENUM_FIELDS: Record<string, string[]> = { productionImpact: ["STOPPED", "D
 export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
   asset: { attachKind: "NAMEPLATE", fields: { brand: "manufacturer, e.g. SIEMENS", series: "product series, e.g. SINAMICS S120", modelCode: "model / order number exactly as printed", serialNumber: "serial number exactly as printed", ratedPowerKw: "rated power kW", ratedVoltageV: "rated voltage V", ratedCurrentA: "rated current A", customerAssetNo: "customer's own asset tag if visible" } },
   customer: { attachKind: "COMPANY_DOC", accept: ["DBD", "PP20", "BILLING"], fields: { taxId: "13-digit Thai tax ID", branchCode: "5-digit branch code, 00000 = head office" } },
+  /** The customer's inquiry (RFQ / e-mail / LINE message), purchase order or fault report: filed under its own kind (rule: inquiry files are found on the QTTH and in the customer's "historical inquiries"). */
   service: {
-    attachKind: "PO",
+    attachKind: "INQUIRY",
+    accept: ["INQUIRY", "PO", "MESSAGE"],
     fields: { serialNumber: "equipment serial number mentioned", location: "machine / line / position mentioned", reportedSymptom: "what the customer says is wrong, in their words", reportedAlarm: "alarm or fault code shown on the drive, e.g. F30001", customerRef: "customer's PO or work-order number, verbatim", poDate: "PO date YYYY-MM-DD", productionImpact: "STOPPED if the line is down, DEGRADED if running slower, NONE otherwise" },
     lines: { description: "PO line description as printed", qty: "quantity", unit: "unit (pcs, set, job, h)", unitPrice: "unit price if printed" },
   },

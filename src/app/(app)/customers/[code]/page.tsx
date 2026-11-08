@@ -47,6 +47,9 @@ export default async function CustomerDetail({ params, searchParams }: { params:
     await guarded(async () => { const me = await currentEmployee(); const bl = await issueMonthlyStatement(code, new Date().toISOString().slice(2, 7).replace("-", ""), me.code); return `${bl.no} · ${bl.currency} ${Number(bl.total).toFixed(2)}`; }, `/customers/${code}`);
   }
   const files = (c.files as { name: string; url: string; kind: string }[] | null) ?? [];
+  // Historical inquiry files (decision 2026-11-08): every INQUIRY attachment on this customer's orders, newest first.
+  const inquiryFiles = (await prisma.serviceOrder.findMany({ where: { customerId: c.id }, select: { no: true, reportedAt: true, attachments: true }, orderBy: { reportedAt: "desc" } }))
+    .flatMap((o) => (((o.attachments as { name: string; url: string; kind: string }[] | null) ?? []).filter((a) => a.kind === "INQUIRY").map((a) => ({ ...a, orderNo: o.no, at: o.reportedAt }))));
   const statements = c.monthlyStatement ? await prisma.monthlyStatement.findMany({ where: { customerId: c.id }, orderBy: { issuedAt: "desc" }, take: 12, include: { _count: { select: { invoices: true } } } }) : [];
   const errorCode = error === "WRONG_PASSWORD" ? u("wrongPassword") : error;
   return (
@@ -94,6 +97,11 @@ export default async function CustomerDetail({ params, searchParams }: { params:
         <Table head={["QTTH", t("status"), t("symptom"), t("amount")]}>
           {c.serviceOrders.map((o) => <tr key={o.id}><td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link></td><td><OrderStatusBadge status={o.status} /></td><td className="text-fault">{o.reportedSymptom ?? ""}</td><td>{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : ""}</td></tr>)}
         </Table>
+      </Card>
+      <Card title={<>{u("inquiryHistory")} <Tag>{inquiryFiles.length}</Tag></>}>
+        {inquiryFiles.length ? <Table head={[t("date"), "QTTH", u("file")]}>
+          {inquiryFiles.map((f) => <tr key={f.url}><td>{f.at.toISOString().slice(0, 10)}</td><td><Link href={`/service-orders/${f.orderNo}`} className="font-mono text-blue hover:underline">{f.orderNo}</Link></td><td><a href={f.url} target="_blank" className="text-blue hover:underline">📄 {f.name}</a></td></tr>)}
+        </Table> : <p className="text-sm text-navy/60">{u("noInquiryFiles")}</p>}
       </Card>
       {statements.length > 0 && <Card title={u("statementsBl")}>
         <Table head={["BLTH", u("period"), t("date"), u("invoicesOnStatement"), t("amount"), "PDF"]}>

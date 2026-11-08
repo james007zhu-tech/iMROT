@@ -1185,7 +1185,20 @@
     "stockCheck": "库存核对",
     "short": "缺 {n}",
     "checkedOnSave": "保存时核对",
-    "quoteFromInth": "报价行已按检测单的所需物料与人工预填（成本取部件最近采购价），请填写单价后保存。"
+    "quoteFromInth": "报价行已按检测单的所需物料与人工预填（成本取部件最近采购价），请填写单价后保存。",
+    "inquiryHistory": "历史询价文件",
+    "file": "文件",
+    "noInquiryFiles": "尚无询价文件。在服务单上传客户的询价邮件 / 询价单，会自动归到这里。",
+    "kind_INQUIRY": "询价文件",
+    "kind_PO": "客户 PO",
+    "kind_MESSAGE": "报修消息",
+    "kind_PAYMENT": "回款凭证",
+    "kind_CUSTOMER_DN": "客户送货单",
+    "customerDnFiles": "客户自己的送货单（可选）",
+    "customerDnHint": "客户要求用他们的送货单签收时，上传其签收件归档；我们的 DNTH 照常生成。",
+    "actionProjectComplete": "项目完成",
+    "settledAwaitingClose": "款项已收齐。请确认后点击「项目完成」结束本单。",
+    "closeWithOutstanding": "尚有 {amount} 未收，仍可点「项目完成」结单，但请确认已知悉。"
   },
   "role": {
     "MD": "董事总经理 MD",

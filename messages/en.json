@@ -1185,7 +1185,20 @@
     "stockCheck": "Stock check",
     "short": "short {n}",
     "checkedOnSave": "checked on save",
-    "quoteFromInth": "Quote lines pre-filled from the inspection's parts and labour (cost = part's last purchase price). Enter unit prices and save."
+    "quoteFromInth": "Quote lines pre-filled from the inspection's parts and labour (cost = part's last purchase price). Enter unit prices and save.",
+    "inquiryHistory": "Inquiry files",
+    "file": "File",
+    "noInquiryFiles": "No inquiry files yet. Upload the customer's inquiry e-mail / RFQ on a service order and it is collected here.",
+    "kind_INQUIRY": "Inquiry",
+    "kind_PO": "Customer PO",
+    "kind_MESSAGE": "Fault report",
+    "kind_PAYMENT": "Payment proof",
+    "kind_CUSTOMER_DN": "Customer's delivery note",
+    "customerDnFiles": "Customer's own delivery note (optional)",
+    "customerDnHint": "When the customer signs on their own form, archive the signed copy here; our DNTH is issued as usual.",
+    "actionProjectComplete": "Project complete",
+    "settledAwaitingClose": "Fully paid. Confirm and press “Project complete” to close this order.",
+    "closeWithOutstanding": "{amount} is still outstanding; you may still close the project, but please be aware."
   },
   "role": {
     "MD": "Managing Director",
