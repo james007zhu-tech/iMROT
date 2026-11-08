@@ -250,6 +250,55 @@ await step("purchase-order-and-receipt", async () => {
   await page.goto(`${BASE}/purchasing/orders`); await expectText(poNo); await page.goto(`${BASE}/purchasing/inquiries`); await expectText(prNo); await expectText("Ordered");
   for (const no of [prNo, poNo]) { const r = await ctx.request.get(`${BASE}/api/documents/${no}/render?format=pdf`); if (r.status() !== 200) throw new Error(`${no} PDF → ${r.status()}`); }
 });
+// ── 合作维修 (flow v4, 2026-11-08): partner profile → route → partner PRTH → quote → PO → 外送 → track → 取回 → retest → payable → rating ──
+let partnerCode, pOrderNo;
+await step("partner-supplier-profile", async () => {
+  await page.goto(`${BASE}/suppliers/new`); await page.fill("[name=nameEn]", `Rayong Rewind ${stamp}`); await page.fill("[name=leadTimeDays]", "7");
+  await save(); await page.waitForURL(/\/suppliers\?/); await page.click(`a:has-text("Rayong Rewind ${stamp}")`); await page.waitForURL(/\/suppliers\/STH/); partnerCode = page.url().split("/").pop().split("?")[0];
+  const f = page.locator("form").filter({ has: page.locator("[name=isPartner]") }); await f.locator("[name=isPartner]").check(); await f.locator("input[name=cap][value=MOTOR]").check(); await f.locator("[name=extraCapabilities]").fill("CNC");
+  await submit(f); await noFlashError(); await expectText("Repair partner"); if (!(await page.locator("input[name=cap][value=MOTOR]").isChecked())) throw new Error("capability not saved");
+  if ((await page.locator("[name=paymentMode]").inputValue()) !== "MONTHLY") throw new Error("Thai partner should default to monthly terms");
+});
+await step("partner-route-from-inth", async () => {
+  await page.goto(`${BASE}/service-orders/new?asset=${motorCode}`); await page.fill("[name=reportedSymptom]", "motor overheats"); await page.fill("[name=customerRef]", `PO-SECRET-${stamp}`);
+  await page.selectOption("[name=assigneeCode]", { index: 1 }); await page.locator("button[name=assign]").click(); await page.waitForURL(/\/service-orders\/QTTH/); pOrderNo = page.url().split("/").pop().split("?")[0];
+  await page.goto(`${BASE}/service-orders/${pOrderNo}/inspect`); await page.fill("[name=conditions]", "isolated and locked out"); await page.fill("[name=findings]", "winding insulation 0.3 MOhm"); await page.fill("[name=probableCause]", "stator winding"); await page.fill("[name=recommendation]", "rewind");
+  await save(); await page.waitForURL(new RegExp(`/service-orders/${pOrderNo}\\?`)); await noFlashError();
+  const f = page.locator("form").filter({ has: page.locator("[name=reason]") }); await f.locator("[name=reason]").fill("rewinding is not our trade"); await submit(f);
+  await page.waitForURL(/\/partner/); await noFlashError(); await expectText("never deals with the customer"); await expectText("Recommended partners"); // the new partner (0 jobs) may rank below the test DB's rated ones
+});
+await step("partner-inquiry-quote-compare", async () => {
+  await page.locator("button:has-text('Send partner inquiry')").click(); await page.waitForURL(/\/purchasing\/inquiries\/PRTH/); await expectText("Partner warranty (days)"); await expectText(`Repair`);
+  const q = page.locator("form#q"); await selectByText(q, "[name=supplierId]", `Rayong Rewind ${stamp}`); await q.locator("[name=warrantyDays]").fill("60"); await q.locator("[name=solution]").fill("full rewind class F"); await q.locator("[name=leadTime]").fill("10"); await q.locator("[name=p0]").fill("6000");
+  await q.locator("button").last().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("full rewind class F");
+  await page.locator("form").filter({ has: page.locator("[name=quoteId]") }).locator("button").click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("Compared");
+  const pr = await ctx.request.get(`${BASE}/api/documents/${page.url().split("/").pop().split("?")[0]}/render?format=pdf`); if (pr.status() !== 200) throw new Error(`partner PRTH PDF → ${pr.status()}`);
+});
+await step("partner-quote-33pct-and-po", async () => {
+  await page.goto(`${BASE}/service-orders/${pOrderNo}/quote`); if ((await page.inputValue("[name=c0]")) !== "6000") throw new Error(`partner cost not prefilled: ${await page.inputValue("[name=c0]")}`);
+  await page.fill("[name=d0]", "Motor repair (rewind)"); await page.fill("[name=p0]", "9500"); await page.fill("[name=warrantyDays]", "60");
+  await save(); await noFlashError(); await expectText("floor 33 %"); await expectText("36.8");
+  await page.goto(`${BASE}/service-orders/${pOrderNo}/confirm`); await save(); await noFlashError();
+  await page.goto(`${BASE}/service-orders/${pOrderNo}/partner`); await expectText("POTH"); await expectText("60 d");
+});
+await step("partner-dispatch-track-return-retest", async () => {
+  const d = page.locator("form[id^=d-]"); await d.locator("[name=accessories]").fill("Fan cover × 1"); await d.locator("[name=condition]").fill("burnt smell"); await d.locator("[name=carriedBy]").fill("Art");
+  await d.locator("button").last().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("At the partner"); await expectText("OBTH");
+  const m = page.locator("form[id^=m-]"); await m.locator("[name=stage]").selectOption("COMPLETED"); await m.locator("[name=note]").fill("test report RR-1"); await m.locator("button").last().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("test report RR-1");
+  const r = page.locator("form[id^=r-]"); await r.locator("[name=returned]").fill(""); await r.locator("button").last().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await expectText("Items missing"); // nothing came back → refused
+  const r2 = page.locator("form[id^=r-]"); await r2.locator("[name=returned]").fill("Fan cover × 1"); await r2.locator("[name=partnerSigned]").fill("Somchai"); await r2.locator("button").last().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("Back, awaiting retest");
+  const t = page.locator("form[id^=t-]"); await t.locator("[name=note]").fill("vibration 1.1 mm/s"); await t.locator("button[name=passed][value='1']").click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("Retest passed");
+  const docs = (await page.locator("body").innerText()).match(/(OBTH|IBTH)\d{9}/g) ?? []; if (docs.length < 2) throw new Error("dispatch / return numbers not shown");
+  for (const no of [...new Set(docs)]) { const x = await ctx.request.get(`${BASE}/api/documents/${no}/render?format=pdf`); if (x.status() !== 200) throw new Error(`${no} PDF → ${x.status()}`); }
+});
+await step("partner-payable-and-rating", async () => {
+  const i = page.locator("form[id^=inv-]"); await i.locator("[name=invoiceNo]").fill(`RR-INV-${stamp}`); await i.locator("button").last().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText(`RR-INV-${stamp}`);
+  const g = page.locator("form").filter({ has: page.locator("[name=cooperation]") }); await g.locator("[name=quality]").selectOption("5"); await submit(g); await noFlashError(); await expectText("Update rating");
+  await page.goto(`${BASE}/finance/payables`); await expectText(`RR-INV-${stamp}`); await expectText("180.00"); // WHT 3 % of 6000
+  const f = page.locator("form").filter({ has: page.locator("[name=paymentRef]") }).first(); await f.locator("[name=paymentRef]").fill("KBANK-E2E"); await submit(f); await noFlashError(); await expectText("PVTH");
+  await page.goto(`${BASE}/suppliers/${partnerCode}`); await expectText("Ratings"); await expectText(`RR-INV-${stamp}`);
+  await page.goto(`${BASE}/service-orders/${pOrderNo}`); await expectText("Partner repair"); await expectText("Sent to partner");
+});
 await step("dashboard-build", async () => { await page.goto(`${BASE}/dashboard`); await page.fill("input[placeholder*=\"Describe\"]", "本月维修看板：工单、收入、工程师"); await page.click("form button:has-text('AI')"); await page.waitForURL(/\/dashboard\/[a-z0-9]+/, { timeout: 15000 }); });
 await step("employee-create-md-only", async () => {
   await page.goto(`${BASE}/people`); await page.click("a:has-text('New employee')"); await page.waitForURL(/\/people\/new/);

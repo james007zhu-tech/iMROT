@@ -8,6 +8,7 @@ import { sofficePath } from "./office";
 import { promisify } from "node:util";
 import path from "node:path";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { fillDocx, type FieldValues } from "@/lib/docx/fill";
 import { maskNamesIn } from "@/lib/mask";
 import { englishAmount, thaiAmount } from "@/lib/amount-words";
@@ -22,6 +23,7 @@ const TEMPLATE_FILES: Record<string, string> = {
   "11": "11_Preventive_Maintenance_Record.docx", "12": "12_Service_Completion.docx", "13": "13_Customer_Acceptance.docx", "19": "19_Delivery_Note.docx",
   "20": "20_Tax_Invoice.docx", "21": "21_Invoice.docx", "22": "22_Receipt.docx", "23": "23_Statement.docx",
   "24": "24_Purchase_Inquiry.docx", "25": "25_Purchase_Order.docx", "26": "26_Goods_Receipt.docx", "27": "27_Stock_Issue.docx",
+  "28": "28_Subcontract_Dispatch.docx", "29": "29_Subcontract_Return.docx",
 };
 
 /**
@@ -70,6 +72,9 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
     PO_JOB: [o?.customerRef, o?.no].filter(Boolean).join(" / "),
     MODEL_SERIAL: a ? `${a.model ? `${a.model.series.brand.name} ${a.model.series.name} ${a.model.code}` : a.type} · ${a.code} · S/N ${a.serialNumber}` : "",
   };
+
+  // 合作维修 (2026-11-08): partner-facing documents never carry the customer — not even as unused fill values
+  const partnerSafe = (v: FieldValues): FieldValues => ({ ...v, CUSTOMER_SITE: "", CUSTOMER_NAME: "", SITE: "", JOB_PO: "", PO_JOB: "" });
 
   switch (doc.type) {
     case "IN": {
@@ -193,7 +198,9 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
       const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no }, include: { requestedBy: true, quotes: { include: { supplier: true } } } });
       const lines = inq.lines as { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; assetCode?: string }[];
       const sup = inq.quotes.find((q) => q.selected)?.supplier ?? inq.quotes[0]?.supplier; // addressed to the chosen supplier when one exists, otherwise generic
-      return { template: "24", values: { ...common, ISSUE_DATE: d(inq.createdAt), NEEDED_BY: d(inq.neededBy) || "—", REFERENCE: [o?.no, o?.customerRef ? `PO ${o.customerRef}` : ""].filter(Boolean).join("\n") || "—",
+      // 合作维修: the partner never learns who the customer is — no QTTH, no customer PO, only the machines (ATH)
+      const ref = inq.kind === "SUBCONTRACT" ? [...new Set(lines.map((l) => l.assetCode).filter(Boolean))].join("\n") : [o?.no, o?.customerRef ? `PO ${o.customerRef}` : ""].filter(Boolean).join("\n");
+      return { template: "24", values: { ...(inq.kind === "SUBCONTRACT" ? partnerSafe(common) : common), ISSUE_DATE: d(inq.createdAt), NEEDED_BY: d(inq.neededBy) || "—", REFERENCE: ref || "—",
         SUPPLIER_NAME: sup?.name ?? "", SUPPLIER_ATTN: sup?.contactName ? `Attn: ${sup.contactName}` : "", SUPPLIER_EMAIL: sup?.email ?? "", SUPPLIER_PHONE: sup?.phone ?? "",
         REQUESTED_BY: inq.requestedBy.name, REQUESTER_PHONE: inq.requestedBy.phone ?? "", NOTE: inq.note ?? "", APPROVED_BY: doc.entity.signatoryName ?? "",
         L_NO: lines.map((l, i) => l.lineNo ?? i + 1), L_PART: lines.map((l) => l.vendorPartNo ?? l.partSku ?? "—"), L_DESC: lines.map((l) => l.description), L_QTY: lines.map((l) => String(Number(l.qty))), L_UNIT: lines.map((l) => l.unit ?? "pcs"), L_REMARK: lines.map((l) => l.assetCode ? `for ${l.assetCode}` : "") } };
@@ -201,26 +208,33 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
     case "PO": {
       const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no }, include: { supplier: true, inquiry: { include: { quotes: { where: { selected: true } } } }, createdBy: true } });
       const lines = po.lines as { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; unitPrice: number; amount: number }[];
-      const q = po.inquiry?.quotes[0]; const e = doc.entity;
-      return { template: "25", values: { ...common, ISSUE_DATE: d(po.orderedAt), EXPECTED_AT: d(po.expectedAt) || "—", REFERENCE: [po.inquiry?.no, o?.no].filter(Boolean).join("\n") || "—",
+      const q = po.inquiry?.quotes[0]; const e = doc.entity; const sub = po.kind === "SUBCONTRACT";
+      if (sub) {
+        // scope, warranty (back-to-back with what we promised the customer) and the version go on the order itself
+        const head = [po.scope ? `Scope  ขอบเขต: ${po.scope}` : "", po.warrantyDays != null ? `Warranty  รับประกัน: ${po.warrantyDays} days` : "", po.version > 1 ? `Revision  แก้ไขครั้งที่ ${po.version - 1}` : ""].filter(Boolean);
+        if (head.length && lines[0]) lines[0] = { ...lines[0], description: [lines[0].description, ...head].join("\n") };
+      }
+      return { template: "25", values: { ...(sub ? partnerSafe(common) : common), ISSUE_DATE: d(po.orderedAt), EXPECTED_AT: d(po.expectedAt) || "—", REFERENCE: (sub ? [po.inquiry?.no] : [po.inquiry?.no, o?.no]).filter(Boolean).join("\n") || "—",
         SUPPLIER_NAME: po.supplier.name, SUPPLIER_ADDRESS: po.supplier.address ?? "", SUPPLIER_TAX_ID: po.supplier.taxId ?? "—", SUPPLIER_BRANCH: po.supplier.branchCode ? (po.supplier.branchCode === "00000" ? "Head Office 00000" : `Branch ${po.supplier.branchCode}`) : "", SUPPLIER_ATTN: po.supplier.contactName ? `Attn: ${po.supplier.contactName}${po.supplier.phone ? `\n${po.supplier.phone}` : ""}` : (po.supplier.phone ?? ""),
         SUPPLIER_QUOTE: [q?.quoteNo, d(q?.quoteDate)].filter(Boolean).join("\n") || "—",
         L_NO: lines.map((l, i) => l.lineNo ?? i + 1), L_PART: lines.map((l) => l.vendorPartNo ?? l.partSku ?? "—"), L_DESC: lines.map((l) => l.description), L_QTY: lines.map((l) => String(Number(l.qty))), L_UNIT: lines.map((l) => l.unit ?? "pcs"), L_PRICE: lines.map((l) => money(l.unitPrice)), L_AMOUNT: lines.map((l) => money(l.amount)),
         SUBTOTAL: money(po.subtotal), VAT_LABEL: pctLabel(po.vatRate), VAT_AMOUNT: money(po.vatAmount), CURRENCY: po.currency, TOTAL: money(po.total),
-        DELIVER_TO: `DCiT workshop\n${e.addressEn ?? ""}`, PAYMENT_TERMS: po.paymentTerms ?? po.supplier.paymentTerms ?? "30 days after delivery and tax invoice", INVOICE_TO: `${e.nameEn}\nTax ID ${e.taxId ?? ""}\n${e.branchCode === "00000" || !e.branchCode ? "Head Office" : `Branch ${e.branchCode}`}`,
+        DELIVER_TO: sub ? `Return the repaired machine to DCiT only — never to a third party\nส่งคืนเครื่องที่ซ่อมแล้วให้ DCiT เท่านั้น\n${e.addressEn ?? ""}` : `DCiT workshop\n${e.addressEn ?? ""}`, PAYMENT_TERMS: po.paymentTerms ?? po.supplier.paymentTerms ?? "30 days after delivery and tax invoice", INVOICE_TO: `${e.nameEn}\nTax ID ${e.taxId ?? ""}\n${e.branchCode === "00000" || !e.branchCode ? "Head Office" : `Branch ${e.branchCode}`}`,
         PREPARED_BY: po.createdBy.name, AUTHORISED_BY: e.signatoryName ?? "" } };
     }
     case "IB":
     case "OB": {
+      const custody = await prisma.stockMovement.findFirst({ where: { no, kind: { in: ["SUBCONTRACT_OUT", "SUBCONTRACT_RETURN"] } }, include: { purchaseOrder: { include: { supplier: true, milestones: { orderBy: { at: "asc" } } } }, asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } });
+      if (custody) return custodyFields(no, doc, custody, partnerSafe(common));
       const mv = await prisma.stockMovement.findMany({ where: { no }, orderBy: { lineNo: "asc" }, include: { part: true, purchaseOrder: { include: { supplier: true } }, asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } });
       if (!mv.length) throw new Error(`no stock lines for ${no}`);
       const first = mv[0];
       const base = { ...common, ISSUE_DATE: d(first.movedAt), REFERENCE: [o?.no, ...new Set(mv.map((m) => m.asset?.code).filter(Boolean))].filter(Boolean).join("\n") || "—",
-        L_NO: mv.map((m) => m.lineNo), L_SKU: mv.map((m) => m.part.sku), L_DESC: mv.map((m) => m.part.name), L_QTY: mv.map((m) => String(Number(m.qty))), L_UNIT: mv.map((m) => m.part.unit), L_BATCH: mv.map((m) => m.batch ?? ""), L_COST: mv.map((m) => (m.unitCost != null ? money(m.unitCost) : "")) };
+        L_NO: mv.map((m) => m.lineNo), L_SKU: mv.map((m) => m.part?.sku ?? ""), L_DESC: mv.map((m) => m.part?.name ?? ""), L_QTY: mv.map((m) => String(Number(m.qty))), L_UNIT: mv.map((m) => m.part?.unit ?? ""), L_BATCH: mv.map((m) => m.batch ?? ""), L_COST: mv.map((m) => (m.unitCost != null ? money(m.unitCost) : "")) };
       if (doc.type === "IB") {
         const po = first.purchaseOrder;
         return { template: "26", values: { ...base, SUPPLIER_NAME: po?.supplier.name ?? "—", SUPPLIER_DOC: [...new Set(mv.map((m) => m.supplierRef).filter(Boolean))].join("\n"), PO_NO: po?.no ?? "—", WAREHOUSE: first.warehouse,
-          L_VENDOR_PART: mv.map((m) => m.part.vendorPartNo), RECEIVED_BY: first.byName ?? doc.createdBy.name, CHECKED_BY: "", STOCK_KEEPER: "" } };
+          L_VENDOR_PART: mv.map((m) => m.part?.vendorPartNo ?? ""), RECEIVED_BY: first.byName ?? doc.createdBy.name, CHECKED_BY: "", STOCK_KEEPER: "" } };
       }
       const a = first.asset;
       return { template: "27", values: { ...base, ISSUED_TO: first.byName ?? doc.createdBy.name, PURPOSE: o ? (o.kind === "MAINTENANCE" ? "Maintenance  บำรุงรักษา" : "Repair  ซ่อม") : "Parts sale  ขายอะไหล่",
@@ -269,4 +283,35 @@ export async function renderDocument(no: string, template?: string): Promise<{ d
     // LibreOffice not installed on this host: the .docx is still delivered
   }
   return { docxPath, pdfPath, unfilled };
+}
+
+type CustodyMove = Prisma.StockMovementGetPayload<{ include: { purchaseOrder: { include: { supplier: true; milestones: true } }; asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } }>;
+
+/**
+ * 外送维修单 (28) / 外协返回单 (29) — partner-facing, so nothing about the customer: no name, plant, PO or QTTH,
+ * only our POTH, the machine and what travels with it (principle 2026-11-08: the partner never meets the customer).
+ */
+async function custodyFields(no: string, doc: { createdBy: { name: string } }, m: CustodyMove, common: FieldValues): Promise<{ template: string; values: FieldValues }> {
+  const po = m.purchaseOrder, sup = po?.supplier, a = m.asset;
+  const d = (x?: Date | null) => (x ? x.toISOString().slice(0, 10) : "");
+  const equipment = a ? [a.code, a.model ? `${a.model.series.brand.name} ${a.model.code}` : a.type, `S/N ${a.serialNumber}`].join("\n") : "—";
+  const sentMs = po?.milestones.find((x) => x.sourceDocNo === (m.kind === "SUBCONTRACT_OUT" ? no : m.refNo) && x.stage === "SENT"); // the condition written by this very dispatch
+  const base: FieldValues = { ...common, ISSUE_DATE: d(m.movedAt), PO_NO: po ? `${po.no}${po.version > 1 ? ` (rev ${po.version - 1})` : ""}` : "—",
+    PARTNER_NAME: sup?.name ?? "—", PARTNER_ADDRESS: sup?.address ?? "", PARTNER_ATTN: sup?.contactName ? `Attn: ${sup.contactName}${sup.phone ? `\n${sup.phone}` : ""}` : (sup?.phone ?? ""),
+    WARRANTY: po?.warrantyDays != null ? `${po.warrantyDays} days  วัน` : "—", EQUIPMENT: equipment, SCOPE: po?.scope ?? ((po?.lines as { description: string }[] | undefined)?.[0]?.description ?? "—"),
+    CONDITION: sentMs?.note ?? "—", PARTNER_SIGNED: m.counterpartySigned ?? "", NOTE: "" };
+  const acc = (m.accessories as { item: string; qty: number }[] | null) ?? [];
+  if (m.kind === "SUBCONTRACT_OUT") {
+    const rows = acc.length ? acc : [{ item: "Machine only  เฉพาะตัวเครื่อง", qty: 0 }];
+    return { template: "28", values: { ...base, EXPECTED_AT: d(po?.expectedAt) || "—", ISSUED_BY: doc.createdBy.name, CARRIED_BY: m.byName ?? "",
+      L_NO: rows.map((_, i) => i + 1), L_ITEM: rows.map((r) => r.item), L_QTY: rows.map((r) => (r.qty ? String(r.qty) : "")), L_REMARK: rows.map(() => "") } };
+  }
+  const out = m.refNo ? await prisma.stockMovement.findFirst({ where: { no: m.refNo } }) : null;
+  const sent = (out?.accessories as { item: string; qty: number }[] | null) ?? [];
+  const names = [...new Map([...sent, ...acc].map((x) => [x.item.trim().toLowerCase(), x.item])).values()];
+  const qtyOf = (list: { item: string; qty: number }[], k: string) => list.filter((x) => x.item.trim().toLowerCase() === k.trim().toLowerCase()).reduce((s, x) => s + x.qty, 0);
+  const rows = names.length ? names : ["Machine only  เฉพาะตัวเครื่อง"];
+  return { template: "29", values: { ...base, DISPATCH_NO: m.refNo ?? "—", RECEIVED_BY: m.byName ?? doc.createdBy.name, CHECKED_BY: "", NOTE: m.oldPartDisposition ?? "",
+    L_NO: rows.map((_, i) => i + 1), L_ITEM: rows, L_SENT: rows.map((k) => (names.length ? String(qtyOf(sent, k)) : "")), L_QTY: rows.map((k) => (names.length ? String(qtyOf(acc, k)) : "")),
+    L_CHECK: rows.map((k) => (!names.length ? "✓" : qtyOf(acc, k) >= qtyOf(sent, k) ? "✓" : "✗")) } };
 }

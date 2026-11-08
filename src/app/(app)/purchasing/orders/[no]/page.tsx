@@ -59,7 +59,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
       </Card>
       {receiptsByNo.size > 0 && <Card title={u("receiptsIb")}>
         <Table head={["IBTH", t("date"), u("partSku"), t("qty"), u("unitCost"), u("supplierDocNo")]}>
-          {[...receiptsByNo.entries()].flatMap(([ibNo, rs]) => rs.map((r, i) => <tr key={r.id}><td className="font-mono">{i === 0 ? ibNo : ""}</td><td>{r.movedAt.toISOString().slice(0, 10)}</td><td className="font-mono">{r.part.sku}</td><td>{Number(r.qty)}</td><td className="text-right">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : ""}</td><td>{r.supplierRef ?? ""}</td></tr>))}
+          {[...receiptsByNo.entries()].flatMap(([ibNo, rs]) => rs.map((r, i) => <tr key={r.id}><td className="font-mono">{i === 0 ? ibNo : ""}</td><td>{r.movedAt.toISOString().slice(0, 10)}</td><td className="font-mono">{r.part?.sku ?? ""}</td><td>{Number(r.qty)}</td><td className="text-right">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : ""}</td><td>{r.supplierRef ?? ""}</td></tr>))}
         </Table>
       </Card>}
       {openPo && (<>
