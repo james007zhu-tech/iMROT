@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<title>DCiT print templates — mockup v0.2</title>
+<title>DCiT print templates — mockup v0.3</title>
 <style>
 @font-face{font-family:Sarabun;src:url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-thai-400-normal.woff2) format("woff2"),url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-latin-400-normal.woff2) format("woff2");font-weight:400}
 @font-face{font-family:Sarabun;src:url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-thai-700-normal.woff2) format("woff2"),url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-latin-700-normal.woff2) format("woff2");font-weight:700}
@@ -10,7 +10,8 @@
 @font-face{font-family:SarabunLatin;src:url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-latin-700-normal.woff2) format("woff2");font-weight:700}
 :root{--navy:#0B2D53;--blue:#2374D5;--tint:#EEF4FB;--line:#C9D6E6;--alert:#E8740C}
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;background:#fff;color:#111;font-family:SarabunLatin,Sarabun,"Noto Sans CJK SC","Noto Sans CJK JP",sans-serif;font-size:10.5pt;line-height:1.35}
+/* Fonts (DCiT System Reference, 2026-11-08): Western text Helvetica (Arial / Liberation Sans where Helvetica is absent), Thai Sarabun, Chinese Noto Sans SC */
+html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Helvetica,Arial,"Liberation Sans",Sarabun,"Noto Sans CJK SC","Noto Sans CJK JP",sans-serif;font-size:10.5pt;line-height:1.35}
 .page{width:210mm;height:297mm;padding:14mm 16mm 16mm;position:relative;page-break-after:always;overflow:hidden}
 .page:last-child{page-break-after:auto}
 .hdr{display:flex;align-items:flex-start;gap:6mm;border-bottom:2px solid var(--navy);padding-bottom:3mm}
@@ -24,7 +25,7 @@ th{vertical-align:bottom}
 .hdr .docbox .th{font-family:Sarabun;color:var(--navy);font-size:11pt}
 .hdr .docbox .zh{font-family:"Noto Sans CJK SC","Noto Sans CJK JP";color:#555;font-size:9pt}
 .hdr .docbox .no{margin-top:2mm;font-size:9.5pt}
-.hdr .docbox .no b{font-family:ui-monospace,Menlo,monospace;font-size:11pt;color:var(--navy)}
+.hdr .docbox .no b{font-size:11pt;color:var(--navy)}
 .meta{display:grid;grid-template-columns:1fr 1fr;gap:2mm 8mm;margin:4mm 0}
 .meta .cell{border-bottom:1px solid var(--line);padding:1mm 0}
 .meta .k{font-size:7.5pt;color:#556;text-transform:uppercase;letter-spacing:.3px}
@@ -41,7 +42,7 @@ td{padding:1.6mm 2mm;border-bottom:1px solid var(--line);vertical-align:top}
 tr:nth-child(even) td{background:var(--tint)}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 td.c,th.c{text-align:center}
-td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
+td.mono{font-size:9.5pt}
 .totals{margin-left:auto;width:82mm;margin-top:2mm}
 .totals div{display:flex;justify-content:space-between;padding:1.2mm 2mm;border-bottom:1px solid var(--line)}
 .totals .grand{background:var(--navy);color:#fff;font-weight:700;font-size:11pt;border:0}
@@ -82,7 +83,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 
 <!-- ═══════════════════ 1. PRTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.2 · 样稿</div>
+  <div class="tag">MOCKUP v0.3 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180<br>Tax ID 0205568072149 (Head Office 00000) · +66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
@@ -110,7 +111,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 
 <!-- ═══════════════════ 2. POTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.2 · 样稿</div>
+  <div class="tag">MOCKUP v0.3 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180<br>Tax ID 0205568072149 (Head Office 00000) · +66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
@@ -146,7 +147,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 
 <!-- ═══════════════════ 3. IBTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.2 · 样稿</div>
+  <div class="tag">MOCKUP v0.3 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>Rayong workshop · internal document <span class="th">เอกสารภายใน</span></div>
@@ -175,7 +176,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 
 <!-- ═══════════════════ 4. OBTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.2 · 样稿</div>
+  <div class="tag">MOCKUP v0.3 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>Rayong workshop · internal document <span class="th">เอกสารภายใน</span></div>
@@ -204,7 +205,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 
 <!-- ═══════════════════ 5. TITH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.2 · 样稿</div>
+  <div class="tag">MOCKUP v0.3 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด (สำนักงานใหญ่)</b><br>DUCHENG INDUSTRIAL (THAILAND) CO., LTD. (Head Office)<br><span class="th">437/3 หมู่ที่ 8 ตำบลพนานิคม อำเภอนิคมพัฒนา จังหวัดระยอง 21180</span><br><span class="th">เลขประจำตัวผู้เสียภาษี</span> 0205568072149<br><span class="th">โทร</span> +66 (0) 88 660 6999</div>
@@ -236,7 +237,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 
 <!-- ═══════════════════ 6. IVTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.2 · 样稿</div>
+  <div class="tag">MOCKUP v0.3 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180<br>Tax ID 0205568072149 (Head Office 00000) · +66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
@@ -271,7 +272,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 
 <!-- ═══════════════════ 7. RCTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.2 · 样稿</div>
+  <div class="tag">MOCKUP v0.3 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด (สำนักงานใหญ่)</b><br>DUCHENG INDUSTRIAL (THAILAND) CO., LTD. (Head Office)<br><span class="th">437/3 หมู่ที่ 8 ตำบลพนานิคม อำเภอนิคมพัฒนา จังหวัดระยอง 21180</span><br><span class="th">เลขประจำตัวผู้เสียภาษี</span> 0205568072149</div>
@@ -301,7 +302,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 
 <!-- ═══════════════════ 8. BLTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.2 · 样稿</div>
+  <div class="tag">MOCKUP v0.3 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180<br>Tax ID 0205568072149 (Head Office 00000) · +66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
