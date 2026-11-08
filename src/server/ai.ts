@@ -5,17 +5,41 @@
  */
 import { prisma } from "@/lib/db";
 import { offlineAssist } from "./ai-offline";
+import { maskNamesInText } from "@/lib/mask";
 
 type Msg = { role: "user"; content: unknown };
 
-export async function complete(system: string, messages: Msg[], maxTokens = 1500): Promise<string> {
+/** Default model (2026-11-08: claude-sonnet-4-5 no longer answers on DCiT's key — 404 not_found_error). Override with ANTHROPIC_MODEL. */
+export const DEFAULT_MODEL = "claude-sonnet-5-5";
+
+/**
+ * One Messages API call. If the configured model is unknown (an old name copied from .env.example into .env),
+ * the call is repeated once with DEFAULT_MODEL instead of failing every AI feature.
+ */
+export async function callClaude(body: Record<string, unknown>): Promise<Response> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const send = (model: string) => fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5", max_tokens: maxTokens, system, messages }),
+    body: JSON.stringify({ ...body, model }),
+    signal: AbortSignal.timeout(120000),
   });
+  const wanted = process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL;
+  const res = await send(wanted);
+  if (res.status === 404 && wanted !== DEFAULT_MODEL) {
+    const text = await res.text();
+    if (/not_found_error/.test(text) && /model/i.test(text)) {
+      console.warn(`[ai] model ${wanted} not available, using ${DEFAULT_MODEL}; update ANTHROPIC_MODEL in .env`);
+      return send(DEFAULT_MODEL);
+    }
+    return new Response(text, { status: 404 });
+  }
+  return res;
+}
+
+export async function complete(system: string, messages: Msg[], maxTokens = 1500): Promise<string> {
+  const res = await callClaude({ max_tokens: maxTokens, system, messages });
   if (!res.ok) throw new Error(`LLM call failed: ${res.status} ${await res.text()}`);
   const data = (await res.json()) as { content: { type: string; text?: string }[] };
   return data.content.filter((c) => c.type === "text").map((c) => c.text).join("");
@@ -160,7 +184,7 @@ export async function assist(messages: { role: "user" | "assistant"; content: st
   const convo: unknown[] = messages.map((m) => ({ role: m.role, content: m.content }));
   const used: string[] = [];
   for (let round = 0; round < 8; round++) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5", max_tokens: 2000, system: SYSTEM(ctx), tools, messages: convo }) });
+    const res = await callClaude({ max_tokens: 2000, system: SYSTEM(ctx), tools, messages: convo });
     if (!res.ok) throw new Error(`LLM call failed: ${res.status} ${await res.text()}`);
     const data = (await res.json()) as { stop_reason: string; content: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[] };
     convo.push({ role: "assistant", content: data.content });
@@ -169,17 +193,28 @@ export async function assist(messages: { role: "user" | "assistant"; content: st
       return { text: text.replace(/\n?(FORM|GOTO):[\s\S]*$/, "").trim(), actions: parseActions(text), toolsUsed: used };
     }
     const results: { type: "tool_result"; tool_use_id: string | undefined; content: string }[] = [];
+    const names = await personNames(); // customer people are masked for the model too, so it cannot repeat full names (rule 13)
     for (const c of data.content) {
       if (c.type !== "tool_use") continue;
       const tool = allowed.find((t) => t.name === c.name);
       used.push(c.name!);
       let out: ToolResult;
       try { out = tool ? await tool.run(c.input ?? {}, ctx) : "unknown tool"; } catch (e) { out = `error: ${(e as Error).message}`; }
-      results.push({ type: "tool_result", tool_use_id: c.id, content: JSON.stringify(out, (_, v) => (typeof v === "bigint" ? Number(v) : v)).slice(0, 20000) });
+      results.push({ type: "tool_result", tool_use_id: c.id, content: maskNamesInText(JSON.stringify(out, (_, v) => (typeof v === "bigint" ? Number(v) : v)), names).slice(0, 20000) });
     }
     convo.push({ role: "user", content: results });
   }
   return { text: "Stopped after too many tool calls.", actions: [], toolsUsed: used };
+}
+
+/** Names of customer people (contacts, delivery signers, acceptance signatories) — masked wherever the assistant shows records. */
+export async function personNames(): Promise<string[]> {
+  const [contacts, notes, accepts] = await Promise.all([
+    prisma.contact.findMany({ select: { name: true } }),
+    prisma.deliveryNote.findMany({ where: { signedBy: { not: null } }, select: { signedBy: true } }),
+    prisma.acceptance.findMany({ where: { customerSignatory: { not: null } }, select: { customerSignatory: true } }),
+  ]);
+  return [...new Set([...contacts.map((c) => c.name), ...notes.map((n) => n.signedBy ?? ""), ...accepts.map((a) => a.customerSignatory ?? "")].map((n) => n.trim()).filter((n) => n.length >= 2))];
 }
 
 export function parseActions(text: string): AssistAction[] {

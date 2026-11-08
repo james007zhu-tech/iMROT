@@ -37,7 +37,14 @@ setup() {
 
 start_app() {
   log "starting next dev"
-  npx next dev -H 0.0.0.0 -p "${PORT:-3000}" >>"$OPS/app.log" 2>&1 &
+  # Values from .env were fixed when the container was created (env_file), so a key added to .env later never
+  # arrived. Drop them for next dev, which then reads the current .env on every restart; DATABASE_URL stays
+  # because compose points it at the db container.
+  local unset_args=()
+  for k in $(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' .env 2>/dev/null | tr -d '='); do
+    [ "$k" != DATABASE_URL ] && unset_args+=(-u "$k")
+  done
+  env "${unset_args[@]}" npx next dev -H 0.0.0.0 -p "${PORT:-3000}" >>"$OPS/app.log" 2>&1 &
   APP_PID=$!
 }
 
