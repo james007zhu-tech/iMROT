@@ -51,6 +51,10 @@ export function reportsFor(doc: { type: string; templateCode: string | null }, h
     case "IV": return [{ key: "rpt21" }];
     case "RC": return [{ key: "rpt22" }];
     case "BL": return [{ key: "rpt23" }];
+    case "PR": return [{ key: "rpt24" }];
+    case "PO": return [{ key: "rpt25" }];
+    case "IB": return [{ key: "rpt26" }];
+    case "OB": return [{ key: "rpt27" }];
     default: return [];
   }
 }

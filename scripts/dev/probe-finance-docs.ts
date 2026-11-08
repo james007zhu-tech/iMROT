@@ -1,5 +1,5 @@
 /**
- * Render the newest TITH / IVTH / RCTH / BLTH through the Word templates (20–23) and check that every placeholder
+ * Render the newest TITH / IVTH / RCTH / BLTH / PRTH / POTH / IBTH / OBTH through the Word templates (20–23) and check that every placeholder
  * was filled and the PDF has the expected pages (tax invoice and receipt print original + copy).
  *   npx tsx scripts/smoke.ts && npx tsx scripts/dev/probe-finance-docs.ts
  */
@@ -11,7 +11,7 @@ const assert = (c: unknown, m: string) => { if (!c) throw new Error(`FINANCE DOC
 const pages = (pdf: string) => Number(/Pages:\s+(\d+)/.exec(execFileSync("pdfinfo", [pdf]).toString())?.[1] ?? 0);
 
 async function main() {
-  const want: { type: "TI" | "IV" | "RC" | "BL"; pages: number }[] = [{ type: "TI", pages: 2 }, { type: "IV", pages: 1 }, { type: "RC", pages: 2 }, { type: "BL", pages: 1 }];
+  const want: { type: "TI" | "IV" | "RC" | "BL" | "PR" | "PO" | "IB" | "OB"; pages: number }[] = [{ type: "TI", pages: 2 }, { type: "IV", pages: 1 }, { type: "RC", pages: 2 }, { type: "BL", pages: 1 }, { type: "PR", pages: 1 }, { type: "PO", pages: 1 }, { type: "IB", pages: 1 }, { type: "OB", pages: 1 }];
   for (const w of want) {
     const doc = await prisma.document.findFirst({ where: { type: w.type }, orderBy: { no: "desc" } });
     if (!doc) { console.log(`  --  no ${w.type} document in this database, skipped`); continue; }
