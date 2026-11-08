@@ -20,7 +20,7 @@ Read this before changing anything. Also read README.md and the design doc linke
 15. **Side menu (2026-11-07):** white, icon + four-character Chinese labels; Latin text in Helvetica, Thai Sarabun, Chinese Noto Sans SC. Customer documents keep Sarabun + Noto Sans SC.
 16. **Drafts keep their number:** "save draft" on RPTH / PMTH / DNTH updates the same open document; never open a second number for the same unfinished work.
 16. **Signature and stamp blocks** sit at the foot of the page (floating table anchored to the bottom margin), never right after the body text; applies to every template that is signed (rule 2026-11-08). scripts/templates/anchor_signature_bottom.py re-applies it.
-17. **Print templates (2026-11-08):** fonts Sarabun (TH/EN) and Noto Sans SC (ZH) per the DCiT template system; never join items with " · " in body text or value cells — one item per line; table headers are always two lines, English above Thai, in every column; TITH and RCTH print as original + copy; every signature slot accepts an e-signature.
+17. **Print templates (2026-11-08):** fonts Helvetica for Western text (English, numbers, codes — Arial / Liberation Sans where Helvetica is absent), Sarabun for Thai, Noto Sans SC for Chinese (DCiT System Reference, updated 2026-11-08; `docs/brand/DCiT_System_Reference.docx`); never join items with " · " in body text or value cells — one item per line; table headers are always two lines, English above Thai, in every column; TITH and RCTH print as original + copy; every signature slot accepts an e-signature.
 
 ## Before a PR
 ```bash
