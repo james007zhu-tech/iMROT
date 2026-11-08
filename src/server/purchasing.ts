@@ -8,7 +8,8 @@ import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
 import { totals, round2 } from "@/lib/money";
 import { assertNotLocked } from "@/server/slm";
-import { recomputeMargin } from "@/server/slm-docs";
+import { recomputeMargin, partnerCostByAsset } from "@/server/slm-docs";
+import { paymentTermsText } from "@/lib/srm";
 import { recordStockDoc } from "@/server/scm";
 import type { Prisma } from "@prisma/client";
 
@@ -35,6 +36,7 @@ export async function createSupplier(input: z.input<typeof SupplierInput> & { ac
 export type InquiryLine = { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; assetCode?: string };
 export const InquiryInput = z.object({
   actorCode: z.string(),
+  kind: z.enum(["PARTS", "SUBCONTRACT"]).default("PARTS"),
   serviceOrderNo: z.string().optional(),
   neededBy: z.coerce.date().optional(),
   note: z.string().optional(),
@@ -51,7 +53,7 @@ export async function createInquiry(input: z.input<typeof InquiryInput>) {
   const lines: InquiryLine[] = d.lines.map((l, i) => ({ lineNo: i + 1, ...l }));
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "PR", createdByEmployeeCode: actor.code, entityId: order?.entityId ?? actor.entityId });
-    const inq = await tx.purchaseInquiry.create({ data: { no, entityId: order?.entityId ?? actor.entityId, serviceOrderId: order?.id, requestedById: actor.id, neededBy: d.neededBy, note: d.note, lines: lines as unknown as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined } });
+    const inq = await tx.purchaseInquiry.create({ data: { no, entityId: order?.entityId ?? actor.entityId, serviceOrderId: order?.id, kind: d.kind, requestedById: actor.id, neededBy: d.neededBy, note: d.note, lines: lines as unknown as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined } });
     await tx.document.create({ data: { no, type: "PR", entityId: inq.entityId, countryCode: no.slice(2, 4), customerId: order?.customerId, serviceOrderId: order?.id, createdById: actor.id } });
     for (const a of order?.assets ?? []) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "STATUS_CHANGED", actorId: actor.id, serviceOrderId: order!.id, sourceDocNo: no, summary: `${no} · ${lines.length} lines`, payload: { inquiry: no, lines: lines.length } as Prisma.InputJsonValue } });
     return inq;
@@ -88,7 +90,7 @@ export async function inquiryLinesFromOrder(no: string): Promise<InquiryLine[]> 
 
 /** Flow step 3: after an INTH is saved for real, raise one PRTH for the short parts — unless the order already has an open inquiry. Returns the PRTH number or null. */
 export async function autoInquiryForOrder(no: string, actorCode: string): Promise<string | null> {
-  const open = await prisma.purchaseInquiry.findFirst({ where: { serviceOrder: { no }, status: { in: ["OPEN", "COMPARED"] } } });
+  const open = await prisma.purchaseInquiry.findFirst({ where: { serviceOrder: { no }, kind: "PARTS", status: { in: ["OPEN", "COMPARED"] } } });
   if (open) return null;
   const lines = await inquiryLinesFromOrder(no);
   if (!lines.length) return null;
@@ -101,6 +103,7 @@ export const QuoteInput = z.object({
   inquiryNo: z.string(), actorCode: z.string(), supplierId: z.string(),
   quoteNo: z.string().optional(), quoteDate: z.coerce.date().optional(), validUntil: z.coerce.date().optional(),
   currency: z.string().default("THB"), vatRate: z.number().min(0).max(1).optional(), leadTimeDays: z.number().int().optional(), paymentTerms: z.string().optional(),
+  warrantyDays: z.number().int().min(0).optional(), solution: z.string().optional(),
   lines: z.array(z.object({ lineNo: z.number().int().positive(), vendorPartNo: z.string().optional(), description: z.string().optional(), qty: z.number().positive(), unit: z.string().optional(), unitPrice: z.number().min(0) })).min(1, "QUOTE_NEEDS_LINE"),
   attachments: z.array(Att).optional(),
 });
@@ -111,7 +114,7 @@ export async function addSupplierQuote(input: z.input<typeof QuoteInput>) {
   const lines = d.lines.map((l) => ({ ...l, amount: round2(l.qty * l.unitPrice) }));
   const sub = round2(lines.reduce((s, l) => s + l.amount, 0));
   const total = d.vatRate != null ? round2(sub * (1 + d.vatRate)) : undefined;
-  return prisma.supplierQuote.create({ data: { inquiryId: inq.id, supplierId: d.supplierId, quoteNo: d.quoteNo, quoteDate: d.quoteDate, validUntil: d.validUntil, currency: d.currency, vatRate: d.vatRate, subtotal: sub, total, leadTimeDays: d.leadTimeDays, paymentTerms: d.paymentTerms, lines: lines as unknown as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined } });
+  return prisma.supplierQuote.create({ data: { inquiryId: inq.id, supplierId: d.supplierId, quoteNo: d.quoteNo, quoteDate: d.quoteDate, validUntil: d.validUntil, currency: d.currency, vatRate: d.vatRate, subtotal: sub, total, leadTimeDays: d.leadTimeDays, paymentTerms: d.paymentTerms, warrantyDays: d.warrantyDays, solution: d.solution, lines: lines as unknown as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined } });
 }
 
 /** Pick the winning quote; its prices become the costs on the service order's quote lines (margin recomputed). */
@@ -123,12 +126,22 @@ export async function selectSupplierQuote(input: { inquiryNo: string; quoteId: s
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const inqLines = inq.lines as InquiryLine[];
   const qLines = q.lines as { lineNo: number; unitPrice: number }[];
+  // 合作维修: warranty back-to-back — the partner must cover at least what we promise; with no promise yet, theirs becomes ours
+  if (inq.kind === "SUBCONTRACT" && inq.serviceOrder?.warrantyDays != null && (q.warrantyDays ?? 0) < inq.serviceOrder.warrantyDays) throw new Error(`WARRANTY_SHORT:${q.warrantyDays ?? 0}<${inq.serviceOrder.warrantyDays}`);
   return prisma.$transaction(async (tx) => {
     await tx.supplierQuote.updateMany({ where: { inquiryId: inq.id }, data: { selected: false } });
     await tx.supplierQuote.update({ where: { id: q.id }, data: { selected: true } });
     await tx.purchaseInquiry.update({ where: { id: inq.id }, data: { status: "COMPARED" } });
     // 比价结果回流报价单: the chosen supplier price is the cost of the matching quote line (by SKU, else by description)
-    if (inq.serviceOrder) {
+    if (inq.serviceOrder && inq.kind === "SUBCONTRACT") {
+      if (inq.serviceOrder.warrantyDays == null && q.warrantyDays != null) await tx.serviceOrder.update({ where: { id: inq.serviceOrder.id }, data: { warrantyDays: q.warrantyDays } });
+      const costs = await partnerCostByAsset(tx, inq.serviceOrder.id);
+      for (const [assetCode, cost] of costs) {
+        const target = inq.serviceOrder.lines.filter((l) => l.assetCode === assetCode).sort((a, b) => a.lineNo - b.lineNo)[0];
+        if (target) await tx.quoteLine.update({ where: { id: target.id }, data: { unitCost: Math.round((cost / Number(target.qty)) * 100) / 100 } });
+      }
+      await recomputeMargin(tx, inq.serviceOrder.id, actor.id, inq.no);
+    } else if (inq.serviceOrder) {
       for (const il of inqLines) {
         const price = qLines.find((x) => x.lineNo === il.lineNo)?.unitPrice;
         if (price == null) continue;
@@ -145,6 +158,7 @@ export async function selectSupplierQuote(input: { inquiryNo: string; quoteId: s
 export type PoLineIn = { partSku?: string; vendorPartNo?: string; description: string; qty: number; unit?: string; unitPrice: number };
 export const PurchaseOrderInput = z.object({
   actorCode: z.string(), supplierId: z.string(),
+  kind: z.enum(["PARTS", "SUBCONTRACT"]).default("PARTS"), warrantyDays: z.number().int().min(0).optional(), scope: z.string().optional(),
   inquiryNo: z.string().optional(), serviceOrderNo: z.string().optional(),
   expectedAt: z.coerce.date().optional(), currency: z.string().default("THB"), vatRate: z.number().min(0).max(1).optional(),
   supplierRef: z.string().optional(), paymentTerms: z.string().optional(),
@@ -157,13 +171,21 @@ export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInp
   const inq = d.inquiryNo ? await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: d.inquiryNo }, include: { serviceOrder: true } }) : null;
   const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { assets: true } }) : inq?.serviceOrder ? await prisma.serviceOrder.findUniqueOrThrow({ where: { id: inq.serviceOrder.id }, include: { assets: true } }) : null;
   if (order) assertNotLocked(order);
+  const supplier = await prisma.supplier.findUniqueOrThrow({ where: { id: d.supplierId } });
+  const kind = inq?.kind ?? d.kind;
+  if (kind === "SUBCONTRACT") {
+    if (!supplier.isPartner) throw new Error(`NOT_A_PARTNER:${supplier.code ?? supplier.name}`);
+    // back-to-back (decided 2026-11-08): we promised the customer N days, the partner's POTH says N days
+    if (order?.warrantyDays != null && d.warrantyDays !== order.warrantyDays) throw new Error(`WARRANTY_NOT_BACK_TO_BACK:${d.warrantyDays ?? "-"}≠${order.warrantyDays}`);
+  }
+  const paymentTerms = d.paymentTerms ?? (kind === "SUBCONTRACT" ? paymentTermsText(supplier.paymentMode, supplier.paymentDays) : undefined);
   const vatRate = d.vatRate ?? Number(actor.entity.vatRate);
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
   const fx = d.currency === "CNY" ? 1 : Number((await prisma.fxRate.findFirst({ where: { currency: d.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny ?? 0) || undefined;
   const lines = d.lines.map((l, i) => ({ lineNo: i + 1, ...l, amount: round2(l.qty * l.unitPrice), receivedQty: 0 }));
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "PO", createdByEmployeeCode: actor.code, entityId: order?.entityId ?? actor.entityId });
-    const po = await tx.purchaseOrder.create({ data: { no, entityId: order?.entityId ?? actor.entityId, supplierId: d.supplierId, inquiryId: inq?.id, serviceOrderId: order?.id, expectedAt: d.expectedAt, currency: d.currency, fxRateToCny: fx, subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, totalCny: fx ? round2(t.total * fx) : undefined, supplierRef: d.supplierRef, paymentTerms: d.paymentTerms, lines: lines as unknown as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined, createdById: actor.id } });
+    const po = await tx.purchaseOrder.create({ data: { no, entityId: order?.entityId ?? actor.entityId, supplierId: d.supplierId, inquiryId: inq?.id, serviceOrderId: order?.id, kind, warrantyDays: d.warrantyDays, scope: d.scope, expectedAt: d.expectedAt, currency: d.currency, fxRateToCny: fx, subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, totalCny: fx ? round2(t.total * fx) : undefined, supplierRef: d.supplierRef, paymentTerms, lines: lines as unknown as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined, createdById: actor.id } });
     await tx.document.create({ data: { no, type: "PO", entityId: po.entityId, countryCode: no.slice(2, 4), customerId: order?.customerId, serviceOrderId: order?.id, createdById: actor.id } });
     if (inq) await tx.purchaseInquiry.update({ where: { id: inq.id }, data: { status: "ORDERED" } });
     for (const a of order?.assets ?? []) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "STATUS_CHANGED", actorId: actor.id, serviceOrderId: order!.id, sourceDocNo: no, summary: `${no} · ${d.currency} ${t.total.toFixed(2)}`, payload: { purchaseOrder: no, total: t.total } as Prisma.InputJsonValue } });
@@ -173,14 +195,16 @@ export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInp
 
 /** 客户回签 → 按 PRTH 生成 POTH: one draft POTH per compared inquiry of the order (from its selected quote). */
 export async function raisePurchaseOrdersForOrder(no: string, actorCode: string) {
-  const inqs = await prisma.purchaseInquiry.findMany({ where: { serviceOrder: { no }, status: "COMPARED" }, include: { quotes: { where: { selected: true }, include: { supplier: true } } } });
+  const inqs = await prisma.purchaseInquiry.findMany({ where: { serviceOrder: { no }, status: "COMPARED" }, include: { quotes: { where: { selected: true }, include: { supplier: true } }, serviceOrder: { select: { warrantyDays: true } } } });
   const made: string[] = [];
   for (const inq of inqs) {
     const q = inq.quotes[0];
     if (!q) continue;
     const il = inq.lines as InquiryLine[];
     const lines = (q.lines as { lineNo: number; vendorPartNo?: string; description?: string; qty: number; unit?: string; unitPrice: number }[]).map((l) => { const src = il.find((x) => x.lineNo === l.lineNo); return { partSku: src?.partSku, vendorPartNo: l.vendorPartNo ?? src?.vendorPartNo, description: l.description ?? src?.description ?? "", qty: l.qty, unit: l.unit ?? src?.unit ?? "pcs", unitPrice: l.unitPrice }; });
-    const po = await createPurchaseOrder({ actorCode, supplierId: q.supplierId, inquiryNo: inq.no, currency: q.currency, vatRate: q.vatRate != null ? Number(q.vatRate) : undefined, paymentTerms: q.paymentTerms ?? undefined, supplierRef: q.quoteNo ?? undefined, lines });
+    const sub = inq.kind === "SUBCONTRACT";
+    const expectedAt = sub && q.leadTimeDays ? new Date(Date.now() + q.leadTimeDays * 86_400_000) : undefined;
+    const po = await createPurchaseOrder({ actorCode, supplierId: q.supplierId, inquiryNo: inq.no, kind: inq.kind, warrantyDays: sub ? (inq.serviceOrder?.warrantyDays ?? q.warrantyDays ?? undefined) : undefined, scope: sub ? (q.solution ?? undefined) : undefined, expectedAt, currency: q.currency, vatRate: q.vatRate != null ? Number(q.vatRate) : undefined, paymentTerms: q.paymentTerms ?? undefined, supplierRef: q.quoteNo ?? undefined, lines });
     made.push(po.no);
   }
   return made;
@@ -190,6 +214,7 @@ export async function raisePurchaseOrdersForOrder(no: string, actorCode: string)
 export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; attachments?: { name: string; url: string; kind?: string }[] }) {
   const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.poNo }, include: { serviceOrder: true } });
   if (po.status === "CANCELLED" || po.status === "RECEIVED") throw new Error(`PO_CLOSED:${po.no}`);
+  if (po.kind === "SUBCONTRACT") throw new Error(`PO_IS_SUBCONTRACT:${po.no}`); // the machine comes back on a 外协返回 IBTH (srm.returnFromPartner)
   const lines = po.lines as { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; unitPrice: number; receivedQty: number }[];
   const take = input.received.filter((r) => r.qty > 0);
   if (!take.length) throw new Error("RECEIPT_EMPTY");

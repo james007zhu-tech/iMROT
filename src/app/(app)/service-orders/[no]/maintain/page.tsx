@@ -72,7 +72,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
     ...base.map((s) => { const x = saved.find((y) => y.item === s.item); return x ? fromSaved(x) : { item: s.item, criterion: s.criterion, measured: "", verdict: "", photo: "" }; }),
     ...saved.filter((x) => !base.some((s) => s.item === x.item)).map(fromSaved),
   ];
-  const outs = [...new Map(order.stockMovements.filter((m) => m.direction === "OUT").map((m) => [m.id, `${m.part.sku} ${m.part.name ?? ""} ×${Number(m.qty)}`])).values()].join("; ");
+  const outs = [...new Map(order.stockMovements.filter((m) => m.direction === "OUT" && m.part).map((m) => [m.id, `${m.part!.sku} ${m.part!.name ?? ""} ×${Number(m.qty)}`])).values()].join("; ");
   return (
     <StepPage order={order} title={u("step_maintain")} badge={draft ? <Tag><span className="font-mono">{draft.no}</span> · {u("dn_DRAFT")}</Tag> : undefined} error={error} kind="maintenance" uploadTitle={u("upMaintTitle")} uploadHint={u("upMaintHint")} saveLabel={u("finishToAcceptance")}
       extraActions={<button form="f" name="draft" value="1" formNoValidate className="inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold">{u("saveDraft")}</button>}>

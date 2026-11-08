@@ -2,12 +2,13 @@
  * What an order needs next, and which report each document produces. Pure, shared by the order page and tests.
  * Report names are shown to people; template numbers (04…19) stay internal.
  */
-export type StepKey = "assign" | "inspect" | "quote" | "confirm" | "receive" | "repair" | "maintain" | "stockOut" | "deliver" | "accept" | "invoice" | "payment" | "archive" | "contractDirect";
+export type StepKey = "assign" | "inspect" | "quote" | "confirm" | "receive" | "repair" | "maintain" | "stockOut" | "deliver" | "accept" | "invoice" | "payment" | "archive" | "contractDirect" | "partner";
 
 export interface OrderShape {
   status: string; kind: string;
   hasInspection: boolean; hasQuote: boolean; hasJob: boolean; jobFinished: boolean; workshop: boolean;
   deliveriesSigned: number; deliveriesOpen: number; invoicesUnpaid: number; hasAcceptance: boolean;
+  partner?: boolean; /// 合作维修: a partner repairs it — the partner page replaces the RPTH step
 }
 
 const MAINT = new Set(["MAINTENANCE", "CONTRACT"]);
@@ -18,6 +19,16 @@ export function stepHref(no: string, s: StepKey): string {
 
 /** The one thing to do next (shown as the blue button), plus what else makes sense in this status. */
 export function nextSteps(o: OrderShape): { primary: StepKey | null; also: StepKey[] } {
+  if (o.partner) {
+    // 合作维修 (flow 2026-11-08): partner PRTH → quote → customer PO → POTH → 外送 → track → 取回 → retest → DNTH → acceptance
+    switch (o.status) {
+      case "DIAGNOSING": return { primary: "partner", also: ["quote", "inspect", "receive"] };
+      case "QUOTE_PENDING": return { primary: "confirm", also: ["quote", "partner"] };
+      case "IN_PROGRESS": return { primary: "partner", also: ["receive"] };
+      case "ACCEPTANCE_PENDING": return o.deliveriesSigned === 0 ? { primary: "deliver", also: ["accept", "partner"] } : { primary: "accept", also: ["deliver", "partner"] };
+      default: break;
+    }
+  }
   const work: StepKey = MAINT.has(o.kind) ? "maintain" : "repair";
   switch (o.status) {
     // In-contract maintenance needs no quote: the PMTH form itself moves the order on.
@@ -53,8 +64,8 @@ export function reportsFor(doc: { type: string; templateCode: string | null }, h
     case "BL": return [{ key: "rpt23" }];
     case "PR": return [{ key: "rpt24" }];
     case "PO": return [{ key: "rpt25" }];
-    case "IB": return [{ key: "rpt26" }];
-    case "OB": return [{ key: "rpt27" }];
+    case "IB": return [{ key: doc.templateCode === "29" ? "rpt29" : "rpt26" }];
+    case "OB": return [{ key: doc.templateCode === "28" ? "rpt28" : "rpt27" }];
     default: return [];
   }
 }

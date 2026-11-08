@@ -164,7 +164,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
           </form>
         </Section>
         <Section title={t("addEvent")}>
-          <form action={note} encType="multipart/form-data" className="space-y-1">
+          <form action={note} className="space-y-1">
             <select name="type" className={input}>{["CONDITION_RECORDED", "PARAMETER_BACKUP", "READING", "ALARM", "CASE_ARCHIVED"].map((x) => <option key={x} value={x}>{te(x)}</option>)}</select>
             <input name="summary" placeholder={t("summary")} className={input} required />
             <textarea name="payload" placeholder={t("details")} className={input} rows={2} />

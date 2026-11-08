@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { partnerDeliveryBlockers } from "@/server/srm";
 import { allocateNumber } from "@/lib/numbering-db";
 import { audit } from "@/server/audit";
 import { poLinesFromQuote, type PoLine } from "@/server/slm";
@@ -62,6 +63,10 @@ export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
   const d = DeliveryInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
+  if (!d.draft) {
+    const blocked = await partnerDeliveryBlockers(order.id); // 合作维修: our retest must pass before the machine goes back
+    if (blocked.length) throw new Error(`RETEST_NOT_PASSED:${blocked.join(",")}`);
+  }
   const { lines } = await deliveryPlan(order.no);
   const bad = d.draft ? [] : mismatches(lines, d.delivered, d.partial);
   if (bad.length && !d.overrideReason) throw new Error(`DELIVERY_MISMATCH:${bad.map((b) => `${b.description} ${b.now}/${b.due}`).join("; ")}`);

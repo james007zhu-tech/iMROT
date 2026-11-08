@@ -13,7 +13,8 @@ import { ORDER_TRANSITIONS, type OrderStatus } from "@/lib/lifecycle";
 import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps";
 import { businessClosureOn } from "@/lib/closure";
 import { pdfAvailable } from "@/server/office";
-import { MIN_MARGIN_PCT } from "@/lib/margin";
+import { marginFloorFor } from "@/lib/srm";
+import { routeToPartnerAction } from "./partner/actions";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
 
@@ -37,6 +38,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     workshop: jobs.some((j) => j.location === "WORKSHOP") || order.documents.some((d) => d.type === "ER"),
     deliveriesSigned: order.deliveries.filter((d) => d.status === "SIGNED").length, deliveriesOpen: order.deliveries.filter((d) => d.status !== "SIGNED").length,
     invoicesUnpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, hasAcceptance: !!order.acceptance,
+    partner: order.fulfilment === "PARTNER",
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
   const money = (k: StepKey) => k === "invoice" || k === "payment";
@@ -69,7 +71,9 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     await guarded(async () => { const me = await currentEmployee(); await approveMargin({ no, actorCode: me.code, decision: form.get("decision") as "APPROVED" | "REJECTED", note: String(form.get("note") || "") || undefined }); }, `/service-orders/${no}`);
   }
   const me = await currentEmployee();
-  const marginLow = order.marginPct != null && Number(order.marginPct) < MIN_MARGIN_PCT;
+  const floor = marginFloorFor(order.fulfilment);
+  const marginLow = order.marginPct != null && Number(order.marginPct) < floor;
+  const mayRoute = order.fulfilment === "IN_HOUSE" && !order.lockedAt && ["ASSIGNED", "DIAGNOSING", "QUOTE_PENDING"].includes(order.status) && order.kind !== "CONTRACT" && order.kind !== "PARTS_SALE";
   const canBuy = !order.lockedAt && ["DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"].includes(order.status);
 
   // One line per document: who, when, what it says, which reports it renders to.
@@ -84,6 +88,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     if (type === "IV") { const x = order.invoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.amountDue).toFixed(2)}${x.paidAt ? ` · ${t("paid")}` : ""}` : ""; }
     if (type === "PR") { const x = order.inquiries.find((y) => y.no === docNo); return x ? <Link href={`/purchasing/inquiries/${x.no}`} className="text-blue hover:underline">{tInq(x.status)} · {(x.lines as unknown[]).length} {u("lines")}</Link> : ""; }
     if (type === "PO") { const x = order.purchaseOrders.find((y) => y.no === docNo); return x ? <Link href={`/purchasing/orders/${x.no}`} className="text-blue hover:underline">{tPo(x.status)} · {x.currency} {Number(x.total).toFixed(2)}</Link> : ""; }
+    if (type === "OB" || type === "IB") { const m = order.stockMovements.find((x) => x.no === docNo); if (m && m.kind !== "PART") return <Link href={`/service-orders/${order.no}/partner`} className="text-blue hover:underline">{u(m.kind === "SUBCONTRACT_OUT" ? "custodyOut" : "custodyBack")}</Link>; }
     if (type === "RC") { const e = order.events.find((x) => x.sourceDocNo === docNo); return e?.summary ?? ""; }
     return "";
   };
@@ -138,7 +143,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               {order.lines.map((l) => <tr key={l.id}><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-navy/70">{l.descriptionLocal}</span> : null}</td><td>{Number(l.qty)} {l.unit}</td><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></tr>)}
             </Table>
             <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>
-            {order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: order.lockedAt.toISOString().slice(0, 10) })}` : ""}</p>}
+            {order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: order.lockedAt.toISOString().slice(0, 10) })}` : ""}</p>}
             {order.marginApproval === "PENDING" && me.role === "MD" && (
               <form action={decideMargin} className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">
                 <span className="text-sm font-semibold text-alert-ink">{u("marginDecision")}</span>
@@ -161,6 +166,17 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             ) : primary === "contractDirect" ? (
               <form action={contractDirect}><button className={btnBlue}>{stepLabel("contractDirect")} →</button></form>
             ) : <Link href={stepHref(order.no, primary)} className={btnBlue}>{stepLabel(primary)} →</Link>}
+          </Card>}
+          {order.fulfilment === "PARTNER" && <Card title={u("partnerRepair")}>
+            <p className="text-sm">{order.partnerReason}</p>
+            <p className="mt-1 text-xs text-navy/70">{u("partnerPrinciple")}</p>
+            <Link href={`/service-orders/${order.no}/partner`} className={`${btnGhost} mt-2`}>{u("step_partner")} →</Link>
+          </Card>}
+          {mayRoute && shape.hasInspection && <Card title={u("selfRepairQuestion")}>
+            <form action={routeToPartnerAction.bind(null, order.no)} className="space-y-2">
+              <input name="reason" required placeholder={u("partnerReasonPh")} className={inputCls} />
+              <button className={btnGhost}>{u("routeToPartner")}</button>
+            </form>
           </Card>}
           {(also.length > 0 || canBuy) && <Card title={u("alsoPossible")}>
             <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={stepHref(order.no, s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>

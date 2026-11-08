@@ -5,6 +5,8 @@ Build the finance and purchasing Word templates from the approved print mockups 
   21_Invoice.docx       IVTH
   22_Receipt.docx       RCTH  — original + copy
   23_Statement.docx     BLTH
+  24–27                 PRTH, POTH, IBTH, OBTH
+  28_Subcontract_Dispatch.docx  OBTH 外协送修 (外送维修单) · 29_Subcontract_Return.docx  IBTH 外协返回 — partner-facing, no customer data
 Base: 19_Delivery_Note.docx (header with logo and company names, footer, page setup, styles). The body is rebuilt here.
 Rules applied (AGENTS #16, #17): Helvetica / Sarabun / Noto Sans SC; no " · " joins in body text — one item per line;
 two-line bilingual table headers (EN above TH) in every column; signature blocks float at the page foot; every
@@ -450,7 +452,47 @@ def build_stock_issue():
     set_footer(doc, "SCM-OB")
     doc.save(TPL / "27_Stock_Issue.docx")
 
+# ── 28 Subcontract dispatch (OBTH 外协送修, printed as 外送维修单) · 29 Subcontract return (IBTH 外协返回) ──────────
+# Partner-facing (decided 2026-11-08): the partner never meets the customer, so neither page carries any customer
+# name, plant, PO or contact — only our POTH, the machine's ATH / model / S/N and what travels with it.
+
+def custody_doc(title_th, title_en, title_zh, label, footer, out, returning):
+    doc = Document(BASE); clear_body(doc)
+    title_block(doc, title_th, title_en, title_zh, label, "[[DOC_NO]]")
+    rule(doc)
+    two_blocks(doc, ("Repair partner", "ผู้รับซ่อม"), ["[[PARTNER_NAME]]", "[[PARTNER_ADDRESS]]", "[[PARTNER_ATTN]]"],
+               [(["Date", "วันที่"], "[[ISSUE_DATE]]"), (["Purchase order", "ใบสั่งซื้อ"], "[[PO_NO]]"),
+                (["Dispatch note", "ใบส่งซ่อม"] if returning else ["Due back", "กำหนดส่งคืน"], "[[DISPATCH_NO]]" if returning else "[[EXPECTED_AT]]"),
+                (["Warranty", "รับประกัน"], "[[WARRANTY]]")])
+    para(doc, after=3)
+    kv_table(doc, [(["Equipment", "เครื่อง"], "[[EQUIPMENT]]"), (["Repair scope", "ขอบเขตงานซ่อม"], "[[SCOPE]]"), (["Condition", "สภาพ"], "[[CONDITION]]")], widths=(2000, 7866))
+    para(doc, after=3)
+    if returning:
+        lines_table(doc, [("#", "ลำดับ"), ("Item travelling with the machine", "อุปกรณ์ที่ส่งไปพร้อมเครื่อง"), ("Sent", "ส่งไป"), ("Returned", "รับคืน"), ("Check", "ตรวจ")], [500, 5966, 1100, 1100, 1200],
+                    ["[[L_NO]]", "[[L_ITEM]]", "[[L_SENT]]", "[[L_QTY]]", "[[L_CHECK]]"], [C, None, R, R, C])
+    else:
+        lines_table(doc, [("#", "ลำดับ"), ("Item travelling with the machine", "อุปกรณ์ที่ส่งไปพร้อมเครื่อง"), ("Qty", "จำนวน"), ("Remarks", "หมายเหตุ")], [500, 6266, 1100, 2000],
+                    ["[[L_NO]]", "[[L_ITEM]]", "[[L_QTY]]", "[[L_REMARK]]"], [C, None, R, None])
+    para(doc, after=3)
+    if returning:
+        lines(doc, ["The machine and every item sent with it are checked back against the dispatch note. DCiT retests the machine before it is accepted; a failed retest goes back to the partner under the purchase-order warranty at no charge.",
+                    "ตรวจรับเครื่องและอุปกรณ์ทุกรายการเทียบกับใบส่งซ่อม DCiT จะทดสอบซ้ำก่อนตรวจรับ หากไม่ผ่านจะส่งคืนผู้รับซ่อมภายใต้การรับประกันตามใบสั่งซื้อโดยไม่มีค่าใช้จ่าย", "[[NOTE]]"], 7.5, GREY, after=0)
+        signature_block(doc, [("Returned by (partner)", "ผู้ส่งคืน", "[[PARTNER_SIGNED]]"), ("Received by DCiT", "ผู้รับ", "[[RECEIVED_BY]]"), ("Retest by", "ผู้ทดสอบซ้ำ", "[[CHECKED_BY]]")])
+    else:
+        lines(doc, ["The machine is entrusted to the partner by DCiT for repair under the purchase order above and remains the owner's property. All communication about this machine goes through DCiT only. Report findings, extra cost or delay to DCiT before proceeding; return the machine with the test report, warranty card and replaced parts.",
+                    "เครื่องนี้ DCiT มอบให้ซ่อมตามใบสั่งซื้อข้างต้นและยังเป็นทรัพย์สินของเจ้าของ การติดต่อทั้งหมดเกี่ยวกับเครื่องนี้ผ่าน DCiT เท่านั้น ผลตรวจ ค่าใช้จ่ายเพิ่มหรือความล่าช้าต้องแจ้ง DCiT ก่อนดำเนินการ ส่งคืนพร้อมรายงานทดสอบ ใบรับประกัน และชิ้นส่วนที่เปลี่ยน", "[[NOTE]]"], 7.5, GREY, after=0)
+        signature_block(doc, [("Dispatched by DCiT", "ผู้ส่ง", "[[ISSUED_BY]]"), ("Carried by", "ผู้ขนส่ง", "[[CARRIED_BY]]"), ("Received by partner", "ผู้รับซ่อมลงนามรับ", "[[PARTNER_SIGNED]]")])
+    set_footer(doc, footer)
+    doc.save(TPL / out)
+
+def build_subcontract_dispatch():
+    custody_doc("ใบส่งซ่อมภายนอก", "REPAIR DISPATCH", "外送维修单", "OBTH No.", "SCM-OB-SUB", "28_Subcontract_Dispatch.docx", False)
+
+def build_subcontract_return():
+    custody_doc("ใบรับคืนจากการซ่อมภายนอก", "REPAIR RETURN", "外协返回单", "IBTH No.", "SCM-IB-SUB", "29_Subcontract_Return.docx", True)
+
 if __name__ == "__main__":
     build_tax_invoice(); build_invoice(); build_receipt(); build_statement()
     build_inquiry(); build_purchase_order(); build_goods_receipt(); build_stock_issue()
-    print("built 20–27")
+    build_subcontract_dispatch(); build_subcontract_return()
+    print("built 20–29")

@@ -27,7 +27,7 @@ export default async function Confirm({ params, searchParams }: { params: Promis
   }
   return (
     <StepPage order={order} title={u("step_confirm")} error={error} kind="service" uploadTitle={u("upPoTitle")} uploadHint={u("upPoHint")} lineFields={{ description: "d", qty: "q" }} saveLabel={u("confirmStart")}>
-      <form id="f" action={save} encType="multipart/form-data" className="space-y-4">
+      <form id="f" action={save} className="space-y-4">
         <Card title={u("customerPo")}>
           <Grid>
             <Field label={u("customerRefVerbatim")} required><input name="customerRef" required defaultValue={order.customerRef ?? ""} className={`${inputCls} font-mono`} /></Field>
