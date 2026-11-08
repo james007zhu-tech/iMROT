@@ -61,6 +61,8 @@ async function main() {
   const ti2 = await issueTaxInvoice({ serviceOrderNo: o.no, actorCode: md.code, lines });
   const iv2 = await issueInvoice({ serviceOrderNo: o.no, actorCode: md.code, taxInvoiceNo: ti2.no });
   assert(ti2.no !== ti1.no && !ti2.voidedAt, `new TITH ${ti2.no} issued on the INVOICED order`);
+  const size = (await prisma.legalEntity.findUniqueOrThrow({ where: { countryCode: "TH" } })).taxInvoiceBookSize;
+  assert(ti2.seq === ti1.seq! + 1 && ti2.bookNo === String(Math.ceil(ti2.seq! / size)).padStart(3, "0") && ti2.bookSeq === ((ti2.seq! - 1) % size) + 1, `เล่มที่ runs on: ${ti1.no} seq ${ti1.seq} book ${ti1.bookNo}/${ti1.bookSeq} → ${ti2.no} seq ${ti2.seq} book ${ti2.bookNo}/${ti2.bookSeq}; the voided one keeps its place`);
   const stillInvoiced = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } });
   assert(stillInvoiced.status === "INVOICED", "order stays INVOICED");
 

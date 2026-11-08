@@ -16,26 +16,27 @@ datasource db {
 
 /// A legal entity = one company in one country. Country code (TH / VN / CN) is what appears in every number.
 model LegalEntity {
-  id                String    @id @default(cuid())
-  countryCode       String    @unique /// TH, VN, CN — used verbatim in ATH / CTH / ETH / QTTH …
-  code              String    @unique @default("DCiT") /// DCiT / DCiV / DCiC (default only so existing databases upgrade with db push) — what people pick in "所属法人"
-  nameEn            String
-  nameLocal         String?
-  brand             String    @default("DCiT")
-  taxId             String?
-  branchCode        String? /// Thailand: 00000 = head office
-  addressEn         String?
-  addressLocal      String?
-  phone             String?
-  email             String?
-  website           String?
-  signatoryName     String? /// used only where a template demands a signature line
-  localCurrency     String /// THB for TH — tax invoices are issued in this currency
-  bookCurrency      String    @default("CNY") /// accounting currency for the whole group
-  vatRate           Decimal   @default(0.07) @db.Decimal(5, 4)
-  bankDetails       Json? /// bank, branch, swift, accounts by currency
-  vatRegisteredFrom DateTime? /// printed in the tax-invoice footer (ภ.พ.20 effective date)
-  createdAt         DateTime  @default(now())
+  id                 String    @id @default(cuid())
+  countryCode        String    @unique /// TH, VN, CN — used verbatim in ATH / CTH / ETH / QTTH …
+  code               String    @unique @default("DCiT") /// DCiT / DCiV / DCiC (default only so existing databases upgrade with db push) — what people pick in "所属法人"
+  nameEn             String
+  nameLocal          String?
+  brand              String    @default("DCiT")
+  taxId              String?
+  branchCode         String? /// Thailand: 00000 = head office
+  addressEn          String?
+  addressLocal       String?
+  phone              String?
+  email              String?
+  website            String?
+  signatoryName      String? /// used only where a template demands a signature line
+  localCurrency      String /// THB for TH — tax invoices are issued in this currency
+  bookCurrency       String    @default("CNY") /// accounting currency for the whole group
+  vatRate            Decimal   @default(0.07) @db.Decimal(5, 4)
+  bankDetails        Json? /// bank, branch, swift, accounts by currency
+  vatRegisteredFrom  DateTime? /// printed in the tax-invoice footer (ภ.พ.20 effective date)
+  taxInvoiceBookSize Int       @default(50) /// tax invoices per เล่ม (book); books are numbered consecutively per entity (朱总 2026-11-08)
+  createdAt          DateTime  @default(now())
 
   employees     Employee[]
   customers     Customer[]
@@ -1029,6 +1030,9 @@ model TaxInvoice {
   serviceOrderId    String
   serviceOrder      ServiceOrder @relation(fields: [serviceOrderId], references: [id])
   issuedAt          DateTime
+  seq               Int? /// running count of tax invoices of this entity (voided ones keep their place) → เล่มที่ / เลขที่ในเล่ม
+  bookNo            String? /// เล่มที่, 3 digits, consecutive per entity: book = ceil(seq / taxInvoiceBookSize)
+  bookSeq           Int? /// position inside the book, 1 … taxInvoiceBookSize
   currency          String /// THB in Thailand, by law
   lines             Json /// [{descriptionLocal, descriptionEn, qty, unitPrice, amount}]
   subtotal          Decimal      @db.Decimal(18, 2)

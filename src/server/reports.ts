@@ -135,7 +135,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
       const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no } });
       const c = o!.customer; const e = doc.entity;
       const dns = await prisma.deliveryNote.findMany({ where: { serviceOrderId: o!.id, status: { in: ["ISSUED", "SIGNED"] } }, select: { no: true } });
-      return { template: "20", values: { ...common, BOOK_NO: "001", ISSUE_DATE: d(ti.issuedAt),
+      return { template: "20", values: { ...common, BOOK_NO: ti.bookNo ? `${ti.bookNo}  เลขที่ในเล่ม  ${ti.bookSeq}` : "—", ISSUE_DATE: d(ti.issuedAt),
         CUSTOMER_NAME_TH: c.nameLocal ?? c.name, CUSTOMER_NAME_EN: c.nameLocal ? c.name : "", CUSTOMER_ADDRESS: c.billingAddress ?? c.addressLocal ?? c.addressEn ?? "", CUSTOMER_TAX_ID: ti.buyerTaxId ?? c.taxId ?? "", CUSTOMER_BRANCH: branchLabel(ti.buyerBranch ?? c.branchCode, o!.plant),
         REFERENCE: [o!.no, o!.customerRef ? `PO ${o!.customerRef}` : ""].filter(Boolean).join("\n"), PAYMENT_TERMS: `${c.paymentTermDays} วัน\ndue ${d(addDays(ti.issuedAt, c.paymentTermDays))}`, DELIVERY_NOTE: dns.map((x) => x.no).join("\n") || "—",
         ...tiLines(ti.lines as TiLine[]), SUBTOTAL: money(ti.subtotal), VAT_LABEL: pctLabel(ti.vatRate), VAT_AMOUNT: money(ti.vatAmount), CURRENCY: ti.currency, TOTAL: money(ti.total),
