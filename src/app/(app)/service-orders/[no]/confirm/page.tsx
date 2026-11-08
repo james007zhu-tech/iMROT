@@ -26,7 +26,7 @@ export default async function Confirm({ params, searchParams }: { params: Promis
     }, `/service-orders/${no}/confirm`);
   }
   return (
-    <StepPage order={order} title={u("step_confirm")} error={error} kind="service" uploadTitle={u("upPoTitle")} uploadHint={u("upPoHint")} saveLabel={u("confirmStart")}>
+    <StepPage order={order} title={u("step_confirm")} error={error} kind="service" uploadTitle={u("upPoTitle")} uploadHint={u("upPoHint")} lineFields={{ description: "d", qty: "q" }} saveLabel={u("confirmStart")}>
       <form id="f" action={save} encType="multipart/form-data" className="space-y-4">
         <Card title={u("customerPo")}>
           <Grid>

@@ -25,7 +25,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const { no } = await params;
   const { ok, error } = await searchParams;
   const order = await loadOrder(no);
-  const [t, u, ts, te, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getTranslations("eventType"), getLocale()]);
+  const [t, u, ts, te, locale, tInq, tPo] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getTranslations("eventType"), getLocale(), getTranslations("inquiryStatus"), getTranslations("poStatus")]);
   const engineers = await prisma.employee.findMany({ where: { active: true, role: { in: ["ENGINEER", "MANAGER", "MD", "ADMIN"] } }, orderBy: { name: "asc" } });
   const stamp = (d: Date) => new Intl.DateTimeFormat(locale, { ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}), month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
 
@@ -61,6 +61,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   }
   const me = await currentEmployee();
   const marginLow = order.marginPct != null && Number(order.marginPct) < MIN_MARGIN_PCT;
+  const canBuy = !order.lockedAt && ["DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"].includes(order.status);
 
   // One line per document: who, when, what it says, which reports it renders to.
   const summaryOf = (docNo: string, type: string): React.ReactNode => {
@@ -72,6 +73,9 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     if (type === "DN") { const d = order.deliveries.find((x) => x.no === docNo); return d ? (d.status === "SIGNED" ? `${u("signedBy")} ${maskName(d.signedBy)}` : u("awaitingSignature")) : ""; }
     if (type === "TI") { const x = order.taxInvoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.total).toFixed(2)}` : ""; }
     if (type === "IV") { const x = order.invoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.amountDue).toFixed(2)}${x.paidAt ? ` · ${t("paid")}` : ""}` : ""; }
+    if (type === "PR") { const x = order.inquiries.find((y) => y.no === docNo); return x ? <Link href={`/purchasing/inquiries/${x.no}`} className="text-blue hover:underline">{tInq(x.status)} · {(x.lines as unknown[]).length} {u("lines")}</Link> : ""; }
+    if (type === "PO") { const x = order.purchaseOrders.find((y) => y.no === docNo); return x ? <Link href={`/purchasing/orders/${x.no}`} className="text-blue hover:underline">{tPo(x.status)} · {x.currency} {Number(x.total).toFixed(2)}</Link> : ""; }
+    if (type === "RC") { const e = order.events.find((x) => x.sourceDocNo === docNo); return e?.summary ?? ""; }
     return "";
   };
   const reportLink = (docNo: string, r: { template?: string; key: string }) => <a key={r.key} className="text-blue hover:underline" href={`/api/documents/${docNo}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)}</a>;
@@ -149,8 +153,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               <form action={contractDirect}><button className={btnBlue}>{stepLabel("contractDirect")} →</button></form>
             ) : <Link href={stepHref(order.no, primary)} className={btnBlue}>{stepLabel(primary)} →</Link>}
           </Card>}
-          {also.length > 0 && <Card title={u("alsoPossible")}>
-            <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={stepHref(order.no, s)} className={btnGhost}>{stepLabel(s)}</Link>)}</div>
+          {(also.length > 0 || canBuy) && <Card title={u("alsoPossible")}>
+            <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={stepHref(order.no, s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
           </Card>}
           {transitions.length > 0 && <Card title={t("status")}>
             <form action={move} className="flex flex-wrap gap-2">{transitions.map((s) => <button key={s} name="to" value={s} className={`min-h-10 rounded-lg border px-3 text-sm font-semibold ${s === "CANCELLED" ? "border-alert text-alert-ink" : "border-navy/45"}`}>{ts(s)}</button>)}</form>

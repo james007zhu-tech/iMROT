@@ -8,6 +8,7 @@ import { keepCustomerRef } from "@/lib/numbering";
 import type { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { canTransitionOrder } from "@/lib/lifecycle";
 import { quoteMayGoOut } from "@/lib/margin";
+import { raisePurchaseOrdersForOrder } from "@/server/purchasing";
 
 /** Shortest path through the status chain, e.g. RECEIVED → ASSIGNED → DIAGNOSING. */
 const CHAIN: ServiceOrderStatus[] = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED", "INVOICED", "CLOSED"];
@@ -160,6 +161,8 @@ export async function getServiceOrder(no: string) {
       taxInvoices: true,
       invoices: true,
       deliveries: true,
+      inquiries: { select: { no: true, status: true, lines: true } },
+      purchaseOrders: { select: { no: true, status: true, currency: true, total: true } },
       reportedBy: true,
       events: { orderBy: { occurredAt: "desc" }, include: { actor: { select: { name: true } } } },
       stockMovements: { include: { part: true } },
@@ -188,7 +191,10 @@ export async function confirmCustomerPo(input: { no: string; actorCode: string; 
     await tx.serviceOrder.update({ where: { id: o.id }, data: { customerRef: keepCustomerRef(input.customerRef) ?? o.customerRef, poLines: input.poLines as unknown as Prisma.InputJsonValue, attachments: merged as Prisma.InputJsonValue } });
     for (const l of o.assets) await tx.assetEvent.create({ data: { assetId: l.assetId, type: "ORDER_CONFIRMED", actorId: actor.id, serviceOrderId: o.id, sourceDocNo: o.no, summary: input.customerRef ?? o.customerRef ?? "", payload: { customerRef: input.customerRef, lines: input.poLines.length } as Prisma.InputJsonValue, attachments: (input.attachments ?? []) as Prisma.InputJsonValue } });
   });
-  return advanceServiceOrder(o.no, "IN_PROGRESS", input.actorCode, input.note ?? input.customerRef);
+  const started = await advanceServiceOrder(o.no, "IN_PROGRESS", input.actorCode, input.note ?? input.customerRef);
+  // 流程图: 客户回签 → 按 PRTH 生成 POTH (one draft PO per compared inquiry; purchasing confirms and sends it)
+  await raisePurchaseOrdersForOrder(o.no, input.actorCode);
+  return started;
 }
 
 const EARLY = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING"] as const;

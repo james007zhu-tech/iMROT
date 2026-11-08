@@ -10,7 +10,11 @@ import type { RecognizeKind } from "@/lib/recognize";
 
 type Att = { name: string; url: string; kind: string };
 
-export function UploadRecognize({ kind, formId, title, hint, initial = [] }: { kind: RecognizeKind; formId: string; title: string; hint: string; initial?: Att[] }) {
+/**
+ * `lineFields` maps a recognised line column to the input-name prefix of the form's row inputs, e.g.
+ * { description: "d", qty: "q", unitPrice: "p" } fills d0/q0/p0, d1/q1/p1 … from the document's line items.
+ */
+export function UploadRecognize({ kind, formId, title, hint, initial = [], lineFields }: { kind: RecognizeKind; formId: string; title: string; hint: string; initial?: Att[]; lineFields?: Record<string, string> }) {
   const t = useTranslations("ui");
   const [busy, setBusy] = useState(false);
   const [atts, setAtts] = useState<Att[]>(initial);
@@ -32,8 +36,11 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [] }: { k
       if (!r.ok) throw new Error(j.error ?? r.statusText);
       if (j.rejected) { setMsg({ tone: "warn", text: t("rejectedDoc", { kind: j.docKind || "?" }) }); return; }
       setAtts((a) => [...a, ...(j.attachments as Att[])]);
-      const n = fill(formId, j.fields as Record<string, string>);
-      setMsg(n > 0 ? { tone: "ok", text: t("filledN", { n }) } : { tone: "warn", text: j.notes === "no-model" ? t("noModel") : t("nothingFound") });
+      const uncertain = new Set<string>((j.uncertain as string[] | undefined) ?? []);
+      let n = fill(formId, j.fields as Record<string, string>, uncertain);
+      if (lineFields && Array.isArray(j.lines)) n += fillLines(formId, j.lines as Record<string, string>[], lineFields);
+      const checks = uncertain.size;
+      setMsg(n > 0 ? { tone: checks ? "warn" : "ok", text: checks ? t("filledNCheck", { n, c: checks }) : t("filledN", { n }) } : { tone: "warn", text: j.notes === "no-model" ? t("noModel") : t("nothingFound") });
     } catch (e) {
       setMsg({ tone: "warn", text: (e as Error).message });
     } finally { setBusy(false); }
@@ -91,20 +98,45 @@ function AttachmentsField({ formId, atts }: { formId: string; atts: Att[] }) {
   return <input type="hidden" name="attachments" form={formId} value={JSON.stringify(atts)} readOnly />;
 }
 
-function fill(formId: string, fields: Record<string, string>): number {
+function setValue(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string, uncertain: boolean): boolean {
+  if (el instanceof HTMLSelectElement && !Array.from(el.options).some((o) => o.value === value)) return false;
+  if (el instanceof HTMLInputElement && el.type === "checkbox") { el.checked = /^(1|true|yes|y)$/i.test(value); }
+  else el.value = value;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  // light blue = filled by recognition; orange = filled but the person must check it (low confidence or code not found in the document)
+  el.classList.add(uncertain ? "ai-uncertain" : "ai-filled");
+  el.addEventListener("input", () => el.classList.remove("ai-filled", "ai-uncertain"), { once: true });
+  return true;
+}
+
+function fill(formId: string, fields: Record<string, string>, uncertain = new Set<string>()): number {
   const form = document.getElementById(formId) as HTMLFormElement | null;
   if (!form) return 0;
   let n = 0;
   for (const [name, value] of Object.entries(fields)) {
     const el = form.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
     if (!el || !("value" in el)) continue;
-    if (el instanceof HTMLSelectElement && !Array.from(el.options).some((o) => o.value === value)) continue;
-    el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-    el.classList.add("ai-filled");
-    el.addEventListener("input", () => el.classList.remove("ai-filled"), { once: true });
-    n++;
+    if (setValue(el, value, uncertain.has(name))) n++;
   }
+  return n;
+}
+
+/** Row inputs are named <prefix><index>; rows hidden by RevealRows are revealed by dispatching input on them. */
+function fillLines(formId: string, lines: Record<string, string>[], map: Record<string, string>): number {
+  const form = document.getElementById(formId) as HTMLFormElement | null;
+  if (!form) return 0;
+  let n = 0;
+  lines.forEach((line, i) => {
+    for (const [col, prefix] of Object.entries(map)) {
+      const value = line[col];
+      if (value == null) continue;
+      const el = form.elements.namedItem(`${prefix}${i}`) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      if (!el || !("value" in el)) continue;
+      const row = el.closest("[data-row]") as HTMLElement | null;
+      if (row) row.hidden = false;
+      if (setValue(el, value, false)) n++;
+    }
+  });
   return n;
 }
