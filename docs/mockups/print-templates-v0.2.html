@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<title>DCiT print templates — mockup v0.1</title>
+<title>DCiT print templates — mockup v0.2</title>
 <style>
 @font-face{font-family:Sarabun;src:url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-thai-400-normal.woff2) format("woff2"),url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-latin-400-normal.woff2) format("woff2");font-weight:400}
 @font-face{font-family:Sarabun;src:url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-thai-700-normal.woff2) format("woff2"),url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-latin-700-normal.woff2) format("woff2");font-weight:700}
@@ -19,6 +19,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:SarabunLatin
 .co b{font-size:9.5pt;letter-spacing:.2px}
 .co .th{font-family:Sarabun}
 .hdr .docbox{margin-left:auto;text-align:right}
+th{vertical-align:bottom}
 .hdr .docbox .code{font-weight:700;color:var(--navy);font-size:20pt;line-height:1.05;letter-spacing:.3px}
 .hdr .docbox .th{font-family:Sarabun;color:var(--navy);font-size:11pt}
 .hdr .docbox .zh{font-family:"Noto Sans CJK SC","Noto Sans CJK JP";color:#555;font-size:9pt}
@@ -35,7 +36,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:SarabunLatin
 .party .ttl .th{font-family:Sarabun;text-transform:none;font-weight:400;margin-left:3px}
 table{width:100%;border-collapse:collapse;margin-top:3mm;font-size:9.5pt}
 th{background:var(--navy);color:#fff;text-align:left;padding:1.8mm 2mm;font-weight:700;font-size:8.5pt}
-th .th{font-family:Sarabun;font-weight:400;opacity:.9}
+th .th{font-family:Sarabun;font-weight:400;opacity:.9;display:block}
 td{padding:1.6mm 2mm;border-bottom:1px solid var(--line);vertical-align:top}
 tr:nth-child(even) td{background:var(--tint)}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
@@ -53,7 +54,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 .sig .s{min-height:22mm;display:flex;flex-direction:column;justify-content:flex-end}
 .sig .s .line{border-top:1px solid #333;padding-top:1.5mm;margin-top:auto}
 .sig .s .stampbox{height:14mm;border:1px dashed var(--line);border-radius:2px;margin-bottom:2mm;color:#99a;font-size:7pt;display:flex;align-items:center;justify-content:center}
-.sig .s.first .stampbox{border-color:var(--blue);color:var(--blue)} /* first block: the person who filled the record, name pre-filled by the system, e-signature allowed */
+.sig .s.first .stampbox{border-color:var(--blue);color:var(--blue)} /* first block: the person who filled the record, name pre-filled by the system; every block accepts an e-signature */
 .sig .s{font-size:8.5pt;text-align:center}
 .sig .s .th{font-family:Sarabun;color:#556}
 .sig2{grid-template-columns:repeat(2,1fr)}
@@ -81,16 +82,16 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
 
 <!-- ═══════════════════ 1. PRTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.1 · 样稿</div>
+  <div class="tag">MOCKUP v0.2 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
-    <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180 · Tax ID 0205568072149 (Head Office 00000)<br>+66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com · www.ducheng-industrial.com</div>
+    <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180<br>Tax ID 0205568072149 (Head Office 00000) · +66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
     <div class="docbox"><div class="code">REQUEST FOR QUOTATION</div><div class="th">ใบขอราคา</div><div class="zh">采购询价单</div><div class="no">PRTH No. <b>PRTH26110801</b></div></div>
   </div>
   <div class="party">
-    <div class="box"><div class="ttl">To supplier <span class="th">ถึงผู้ขาย</span></div><b>Mitsubishi Electric Factory Automation (Thailand) Co., Ltd.</b><br>Attn: Khun Somchai · sales@example.co.th · 02-xxx-xxxx</div>
+    <div class="box"><div class="ttl">To supplier <span class="th">ถึงผู้ขาย</span></div><b>Mitsubishi Electric Factory Automation (Thailand) Co., Ltd.</b><br>Attn: Khun Somchai<br>sales@example.co.th<br>02-xxx-xxxx</div>
     <div class="box"><div class="ttl">Inquiry details <span class="th">รายละเอียด</span></div>
-      <div class="meta" style="margin:0"><div class="cell"><div class="k">Date <span class="th">วันที่</span></div><div class="v">2026-11-08</div></div><div class="cell"><div class="k">Quote needed by <span class="th">ต้องการใบเสนอราคาภายใน</span></div><div class="v alert">2026-11-10</div></div><div class="cell"><div class="k">Our reference <span class="th">อ้างอิง</span></div><div class="v mono">QTTH26110803</div></div><div class="cell"><div class="k">Requested by <span class="th">ผู้ขอ</span></div><div class="v">Sun Peng · +66 (0) 90 896 0086</div></div></div>
+      <div class="meta" style="margin:0"><div class="cell"><div class="k">Date <span class="th">วันที่</span></div><div class="v">2026-11-08</div></div><div class="cell"><div class="k">Quote needed by <span class="th">ต้องการใบเสนอราคาภายใน</span></div><div class="v alert">2026-11-10</div></div><div class="cell"><div class="k">Our reference <span class="th">อ้างอิง</span></div><div class="v mono">QTTH26110803</div></div><div class="cell"><div class="k">Requested by <span class="th">ผู้ขอ</span></div><div class="v">Sun Peng<br>+66 (0) 90 896 0086</div></div></div>
     </div>
   </div>
   <table>
@@ -103,26 +104,26 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
   </table>
   <div class="note"><b>Please quote</b> unit price excluding VAT, VAT rate, lead time, validity, payment terms and brand/origin for each line. Quote in THB unless agreed otherwise. Reply by e-mail quoting the PRTH number.
     <span class="th">กรุณาเสนอราคาต่อหน่วยไม่รวม VAT อัตรา VAT ระยะเวลาส่งมอบ ระยะเวลายืนราคา เงื่อนไขการชำระเงิน และแหล่งผลิตของแต่ละรายการ โดยอ้างอิงเลขที่ PRTH</span></div>
-  <div class="sig sig2"><div class="s first"><div class="stampbox esign">e-signature / ลายเซ็นอิเล็กทรอนิกส์</div><div class="line">Requested by <span class="th">ผู้ขอราคา</span><br>Sun Peng · 2026-11-08</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line">Approved by <span class="th">ผู้อนุมัติ</span><br>Zhu Dongsheng, Managing Director</div></div></div>
+  <div class="sig sig2"><div class="s first"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Requested by <span class="th">ผู้ขอราคา</span><br>Sun Peng · 2026-11-08</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Approved by <span class="th">ผู้อนุมัติ</span><br>Zhu Dongsheng, Managing Director</div></div></div>
   <div class="ftr"><span><b>DCiT</b> SCM-PRQ V1.0</span><span>Tax ID 0205568072149</span><span>Head Office 00000</span><span class="pg">1 / 1</span></div>
 </section>
 
 <!-- ═══════════════════ 2. POTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.1 · 样稿</div>
+  <div class="tag">MOCKUP v0.2 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
-    <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180 · Tax ID 0205568072149 (Head Office 00000)<br>+66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com · www.ducheng-industrial.com</div>
+    <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180<br>Tax ID 0205568072149 (Head Office 00000) · +66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
     <div class="docbox"><div class="code">PURCHASE ORDER</div><div class="th">ใบสั่งซื้อ</div><div class="zh">采购订单</div><div class="no">POTH No. <b>POTH26110801</b></div></div>
   </div>
   <div class="party">
-    <div class="box"><div class="ttl">Supplier <span class="th">ผู้ขาย</span></div><b>FA Parts Bangkok Co., Ltd.</b><br>88/12 Bangna-Trad Rd., Bangna, Bangkok 10260<br>Tax ID 0105566123456 · Head Office 00000<br>Attn: Khun Nok · 02-xxx-xxxx</div>
+    <div class="box"><div class="ttl">Supplier <span class="th">ผู้ขาย</span></div><b>FA Parts Bangkok Co., Ltd.</b><br>88/12 Bangna-Trad Rd., Bangna, Bangkok 10260<br>Tax ID 0105566123456<br>Head Office 00000<br>Attn: Khun Nok<br>02-xxx-xxxx</div>
     <div class="box"><div class="ttl">Order details <span class="th">รายละเอียดคำสั่งซื้อ</span></div>
-      <div class="meta" style="margin:0"><div class="cell"><div class="k">Order date <span class="th">วันที่สั่งซื้อ</span></div><div class="v">2026-11-08</div></div><div class="cell"><div class="k">Supplier quote <span class="th">ใบเสนอราคาผู้ขาย</span></div><div class="v mono">FAP-2211 · 2026-11-07</div></div><div class="cell"><div class="k">Our reference <span class="th">อ้างอิง</span></div><div class="v mono">PRTH26110801 · QTTH26110803</div></div><div class="cell"><div class="k">Delivery required <span class="th">กำหนดส่ง</span></div><div class="v">2026-11-13</div></div></div>
+      <div class="meta" style="margin:0"><div class="cell"><div class="k">Order date <span class="th">วันที่สั่งซื้อ</span></div><div class="v">2026-11-08</div></div><div class="cell"><div class="k">Supplier quote <span class="th">ใบเสนอราคาผู้ขาย</span></div><div class="v mono">FAP-2211<br>2026-11-07</div></div><div class="cell"><div class="k">Our reference <span class="th">อ้างอิง</span></div><div class="v mono">PRTH26110801<br>QTTH26110803</div></div><div class="cell"><div class="k">Delivery required <span class="th">กำหนดส่ง</span></div><div class="v">2026-11-13</div></div></div>
     </div>
   </div>
   <table>
-    <thead><tr><th class="c" style="width:7mm">#</th><th style="width:30mm">Part no. <span class="th">รหัส</span></th><th>Description <span class="th">รายละเอียด</span></th><th class="n" style="width:14mm">Qty</th><th style="width:12mm">Unit</th><th class="n" style="width:26mm">Unit price <span class="th">ราคา/หน่วย</span></th><th class="n" style="width:28mm">Amount <span class="th">จำนวนเงิน</span></th></tr></thead>
+    <thead><tr><th class="c" style="width:7mm">#</th><th style="width:30mm">Part no. <span class="th">รหัส</span></th><th>Description <span class="th">รายละเอียด</span></th><th class="n" style="width:14mm">Qty <span class="th">จำนวน</span></th><th style="width:12mm">Unit <span class="th">หน่วย</span></th><th class="n" style="width:26mm">Unit price <span class="th">ราคา/หน่วย</span></th><th class="n" style="width:28mm">Amount <span class="th">จำนวนเงิน</span></th></tr></thead>
     <tbody>
       <tr><td class="c">1</td><td class="mono">QY82P</td><td>MELSEC-Q output module, transistor sink, 64 points</td><td class="n">1</td><td>pcs</td><td class="n">8,200.00</td><td class="n">8,200.00</td></tr>
       <tr><td class="c">2</td><td class="mono">Q61P</td><td>MELSEC-Q power supply module 100–240 V AC</td><td class="n">1</td><td>pcs</td><td class="n">3,450.00</td><td class="n">3,450.00</td></tr>
@@ -134,18 +135,18 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
     <div class="grand"><span>Total <span class="th">รวมทั้งสิ้น</span></span><span>THB 12,465.50</span></div>
   </div>
   <div class="meta">
-    <div class="cell"><div class="k">Deliver to <span class="th">สถานที่ส่งของ</span></div><div class="v">DCiT workshop, 437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180 · Mon–Sat 08:30–17:30</div></div>
+    <div class="cell"><div class="k">Deliver to <span class="th">สถานที่ส่งของ</span></div><div class="v">DCiT workshop, 437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180<br>Mon–Sat 08:30–17:30</div></div>
     <div class="cell"><div class="k">Payment terms <span class="th">เงื่อนไขชำระเงิน</span></div><div class="v">30 days after delivery and tax invoice</div></div>
-    <div class="cell"><div class="k">Invoice to <span class="th">ออกใบกำกับภาษีในนาม</span></div><div class="v">DUCHENG INDUSTRIAL (THAILAND) CO., LTD. · Tax ID 0205568072149 · Head Office</div></div>
+    <div class="cell"><div class="k">Invoice to <span class="th">ออกใบกำกับภาษีในนาม</span></div><div class="v">DUCHENG INDUSTRIAL (THAILAND) CO., LTD.<br>Tax ID 0205568072149<br>Head Office</div></div>
     <div class="cell"><div class="k">Conditions <span class="th">เงื่อนไข</span></div><div class="v">Quote the POTH number on delivery note and tax invoice. Goods are checked against this order on receipt; shortages or damage are reported within 3 days.</div></div>
   </div>
-  <div class="sig"><div class="s first"><div class="stampbox esign">e-signature / ลายเซ็นอิเล็กทรอนิกส์</div><div class="line">Prepared by <span class="th">ผู้จัดทำ</span><br>Sun Peng</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line">Authorised by <span class="th">ผู้มีอำนาจลงนาม</span><br>Zhu Dongsheng, Managing Director</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line">Supplier acknowledgement <span class="th">ผู้ขายรับทราบ</span><br>Name / date</div></div></div>
+  <div class="sig"><div class="s first"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Prepared by <span class="th">ผู้จัดทำ</span><br>Sun Peng</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Authorised by <span class="th">ผู้มีอำนาจลงนาม</span><br>Zhu Dongsheng, Managing Director</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Supplier acknowledgement <span class="th">ผู้ขายรับทราบ</span><br>Name / date</div></div></div>
   <div class="ftr"><span><b>DCiT</b> SCM-PO V1.0</span><span>Tax ID 0205568072149</span><span>Head Office 00000</span><span class="pg">1 / 1</span></div>
 </section>
 
 <!-- ═══════════════════ 3. IBTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.1 · 样稿</div>
+  <div class="tag">MOCKUP v0.2 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>Rayong workshop · internal document <span class="th">เอกสารภายใน</span></div>
@@ -155,12 +156,12 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
     <div class="cell"><div class="k">Received on <span class="th">วันที่รับ</span></div><div class="v">2026-11-13</div></div>
     <div class="cell"><div class="k">Purchase order <span class="th">ใบสั่งซื้อ</span></div><div class="v mono">POTH26110801</div></div>
     <div class="cell"><div class="k">Supplier <span class="th">ผู้ขาย</span></div><div class="v">FA Parts Bangkok Co., Ltd.</div></div>
-    <div class="cell"><div class="k">Supplier document <span class="th">เอกสารผู้ขาย</span></div><div class="v mono">DN FAP-DN-7731 · Tax invoice FAP-TI-0912</div></div>
-    <div class="cell"><div class="k">For service order <span class="th">สำหรับใบงาน</span></div><div class="v mono">QTTH26110803 · ATH26110012</div></div>
+    <div class="cell"><div class="k">Supplier document <span class="th">เอกสารผู้ขาย</span></div><div class="v mono">DN FAP-DN-7731<br>Tax invoice FAP-TI-0912</div></div>
+    <div class="cell"><div class="k">For service order <span class="th">สำหรับใบงาน</span></div><div class="v mono">QTTH26110803<br>ATH26110012</div></div>
     <div class="cell"><div class="k">Note <span class="th">หมายเหตุ</span></div><div class="v">Parts and materials only — equipment intake is recorded on ERTH <span class="th">เฉพาะอะไหล่และวัสดุ การรับเครื่องใช้ ERTH</span></div></div>
   </div>
   <table>
-    <thead><tr><th class="c" style="width:7mm">#</th><th style="width:30mm">SKU</th><th style="width:26mm">Vendor part no.</th><th>Description <span class="th">รายละเอียด</span></th><th class="n" style="width:14mm">Ordered</th><th class="n" style="width:14mm">Received <span class="th">รับ</span></th><th style="width:20mm">Batch <span class="th">ล็อต</span></th><th class="n" style="width:22mm">Unit cost</th><th class="c" style="width:12mm">OK</th></tr></thead>
+    <thead><tr><th class="c" style="width:7mm">#</th><th style="width:30mm">SKU <span class="th">รหัสสินค้า</span></th><th style="width:26mm">Vendor part no. <span class="th">รหัสผู้ขาย</span></th><th>Description <span class="th">รายละเอียด</span></th><th class="n" style="width:14mm">Ordered <span class="th">สั่ง</span></th><th class="n" style="width:14mm">Received <span class="th">รับ</span></th><th style="width:20mm">Batch <span class="th">ล็อต</span></th><th class="n" style="width:22mm">Unit cost <span class="th">ต้นทุน/หน่วย</span></th><th class="c" style="width:12mm">OK <span class="th">ผ่าน</span></th></tr></thead>
     <tbody>
       <tr><td class="c">1</td><td class="mono">MIT-QY82P</td><td class="mono">QY82P</td><td>MELSEC-Q output module 64 pt</td><td class="n">1</td><td class="n">1</td><td class="mono">2611A</td><td class="n">8,200.00</td><td class="c">✓</td></tr>
       <tr><td class="c">2</td><td class="mono">MIT-Q61P</td><td class="mono">Q61P</td><td>MELSEC-Q power supply</td><td class="n">1</td><td class="n alert">0</td><td></td><td class="n">3,450.00</td><td class="c alert">back-order</td></tr>
@@ -168,13 +169,13 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
   </table>
   <div class="note">Costs are the purchase-order prices in THB and update the part's last cost. The PO stays <b>PARTIAL</b> until every line is received.
     <span class="th">ต้นทุนตามราคาในใบสั่งซื้อ และปรับปรุงต้นทุนล่าสุดของชิ้นส่วน ใบสั่งซื้อจะอยู่ในสถานะรับบางส่วนจนกว่าจะรับครบทุกรายการ</span></div>
-  <div class="sig"><div class="s first"><div class="stampbox esign">e-signature / ลายเซ็นอิเล็กทรอนิกส์</div><div class="line">Received by <span class="th">ผู้รับของ</span><br>Fluke</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line">Checked by <span class="th">ผู้ตรวจ</span><br>Sun Peng</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line">Stock keeper <span class="th">ผู้ดูแลคลัง</span><br>Lao Li</div></div></div>
+  <div class="sig"><div class="s first"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Received by <span class="th">ผู้รับของ</span><br>Fluke</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Checked by <span class="th">ผู้ตรวจ</span><br>Sun Peng</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Stock keeper <span class="th">ผู้ดูแลคลัง</span><br>Lao Li</div></div></div>
   <div class="ftr"><span><b>DCiT</b> SCM-IB V1.0</span><span>Tax ID 0205568072149</span><span>Head Office 00000</span><span class="pg">1 / 1</span></div>
 </section>
 
 <!-- ═══════════════════ 4. OBTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.1 · 样稿</div>
+  <div class="tag">MOCKUP v0.2 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>Rayong workshop · internal document <span class="th">เอกสารภายใน</span></div>
@@ -182,14 +183,14 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
   </div>
   <div class="meta">
     <div class="cell"><div class="k">Issued on <span class="th">วันที่เบิก</span></div><div class="v">2026-11-13</div></div>
-    <div class="cell"><div class="k">Service order <span class="th">ใบงาน</span></div><div class="v mono">QTTH26110803 · RPTH26111301</div></div>
-    <div class="cell"><div class="k">Equipment <span class="th">เครื่อง</span></div><div class="v mono">ATH26110012 · SINAMICS S120 · S/N XAB1234567</div></div>
-    <div class="cell"><div class="k">Customer <span class="th">ลูกค้า</span></div><div class="v">Sample Tyre (Thailand) Co., Ltd. · Plant 2</div></div>
+    <div class="cell"><div class="k">Service order <span class="th">ใบงาน</span></div><div class="v mono">QTTH26110803<br>RPTH26111301</div></div>
+    <div class="cell"><div class="k">Equipment <span class="th">เครื่อง</span></div><div class="v mono">ATH26110012<br>SINAMICS S120<br>S/N XAB1234567</div></div>
+    <div class="cell"><div class="k">Customer <span class="th">ลูกค้า</span></div><div class="v">Sample Tyre (Thailand) Co., Ltd.<br>Plant 2</div></div>
     <div class="cell"><div class="k">Issued to <span class="th">เบิกให้</span></div><div class="v">Fluke (engineer)</div></div>
-    <div class="cell"><div class="k">Purpose <span class="th">วัตถุประสงค์</span></div><div class="v"><span class="check"></span>Repair / ซ่อม &nbsp; <span class="check"></span>Maintenance / บำรุงรักษา &nbsp; <span class="check"></span>Parts sale / ขายอะไหล่ · equipment return goes on DNTH</div></div>
+    <div class="cell"><div class="k">Purpose <span class="th">วัตถุประสงค์</span></div><div class="v"><span class="check"></span>Repair / ซ่อม &nbsp; <span class="check"></span>Maintenance / บำรุงรักษา &nbsp; <span class="check"></span>Parts sale / ขายอะไหล่<br>equipment return goes on DNTH</div></div>
   </div>
   <table>
-    <thead><tr><th class="c" style="width:7mm">#</th><th style="width:30mm">SKU</th><th>Description <span class="th">รายละเอียด</span></th><th class="n" style="width:14mm">Qty</th><th style="width:12mm">Unit</th><th style="width:20mm">Batch</th><th class="n" style="width:22mm">Unit cost</th><th style="width:34mm">Old part <span class="th">ชิ้นส่วนเก่า</span></th></tr></thead>
+    <thead><tr><th class="c" style="width:7mm">#</th><th style="width:30mm">SKU <span class="th">รหัสสินค้า</span></th><th>Description <span class="th">รายละเอียด</span></th><th class="n" style="width:14mm">Qty <span class="th">จำนวน</span></th><th style="width:12mm">Unit <span class="th">หน่วย</span></th><th style="width:20mm">Batch <span class="th">ล็อต</span></th><th class="n" style="width:22mm">Unit cost <span class="th">ต้นทุน/หน่วย</span></th><th style="width:34mm">Old part <span class="th">ชิ้นส่วนเก่า</span></th></tr></thead>
     <tbody>
       <tr><td class="c">1</td><td class="mono">MIT-QY82P</td><td>MELSEC-Q output module 64 pt</td><td class="n">1</td><td>pcs</td><td class="mono">2611A</td><td class="n">8,200.00</td><td>Return to customer</td></tr>
       <tr><td class="c">2</td><td class="mono">SIE-FAN-6SL3362</td><td>Cooling fan 24 V DC, S120 power module</td><td class="n">1</td><td>pcs</td><td class="mono">2609C</td><td class="n">4,200.00</td><td>Scrap at DCiT</td></tr>
@@ -197,22 +198,22 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
   </table>
   <div class="note">Issued parts are charged to the service order at the cost shown and appear on the repair report as replaced parts; old parts marked "return to customer" must be on the delivery note.
     <span class="th">ชิ้นส่วนที่เบิกจะคิดต้นทุนเข้าใบงานและปรากฏในรายงานซ่อมเป็นชิ้นส่วนที่เปลี่ยน ชิ้นส่วนเก่าที่ระบุคืนลูกค้าต้องอยู่ในใบส่งของ</span></div>
-  <div class="sig"><div class="s first"><div class="stampbox esign">e-signature / ลายเซ็นอิเล็กทรอนิกส์</div><div class="line">Issued by <span class="th">ผู้จ่ายของ</span><br>Lao Li</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line">Received by <span class="th">ผู้รับของ</span><br>Fluke</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line">Approved by <span class="th">ผู้อนุมัติ</span><br>Sun Peng</div></div></div>
+  <div class="sig"><div class="s first"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Issued by <span class="th">ผู้จ่ายของ</span><br>Lao Li</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Received by <span class="th">ผู้รับของ</span><br>Fluke</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Approved by <span class="th">ผู้อนุมัติ</span><br>Sun Peng</div></div></div>
   <div class="ftr"><span><b>DCiT</b> SCM-OB V1.0</span><span>Tax ID 0205568072149</span><span>Head Office 00000</span><span class="pg">1 / 1</span></div>
 </section>
 
 <!-- ═══════════════════ 5. TITH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.1 · 样稿</div>
+  <div class="tag">MOCKUP v0.2 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
-    <div class="co"><b>บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด (สำนักงานใหญ่)</b><br>DUCHENG INDUSTRIAL (THAILAND) CO., LTD. (Head Office)<br><span class="th">437/3 หมู่ที่ 8 ตำบลพนานิคม อำเภอนิคมพัฒนา จังหวัดระยอง 21180</span><br><span class="th">เลขประจำตัวผู้เสียภาษี</span> 0205568072149 · <span class="th">โทร</span> +66 (0) 88 660 6999</div>
-    <div class="docbox"><div class="code">ใบกำกับภาษี</div><div class="th" style="font-size:9.5pt">TAX INVOICE <span class="zh">· 税务发票</span></div><div class="no"><span class="stamp th">ต้นฉบับ ORIGINAL</span></div><div class="no"><span class="th">เล่มที่</span> 001 &nbsp; <span class="th">เลขที่</span> <b>TITH26111501</b></div></div>
+    <div class="co"><b>บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด (สำนักงานใหญ่)</b><br>DUCHENG INDUSTRIAL (THAILAND) CO., LTD. (Head Office)<br><span class="th">437/3 หมู่ที่ 8 ตำบลพนานิคม อำเภอนิคมพัฒนา จังหวัดระยอง 21180</span><br><span class="th">เลขประจำตัวผู้เสียภาษี</span> 0205568072149<br><span class="th">โทร</span> +66 (0) 88 660 6999</div>
+    <div class="docbox"><div class="code">ใบกำกับภาษี</div><div class="th" style="font-size:9.5pt">TAX INVOICE <span class="zh">· 税务发票</span></div><div class="no"><span class="stamp th">ต้นฉบับ ORIGINAL</span> <span style="font-size:7.5pt;color:#667">/ สำเนา COPY on the second print</span></div><div class="no"><span class="th">เล่มที่</span> 001 &nbsp; <span class="th">เลขที่</span> <b>TITH26111501</b></div></div>
   </div>
   <div class="party">
-    <div class="box"><div class="ttl"><span class="th">ผู้ซื้อ</span> Customer</div><b>บริษัท แซมเปิล ไทร์ (ประเทศไทย) จำกัด</b><br>Sample Tyre (Thailand) Co., Ltd.<br><span class="th">99 หมู่ 3 นิคมอุตสาหกรรมอมตะซิตี้ ต.มาบยางพร อ.ปลวกแดง จ.ระยอง 21140</span><br><span class="th">เลขประจำตัวผู้เสียภาษี</span> 0215560001234 · <span class="th">สาขาที่</span> 00002 (Plant 2)</div>
+    <div class="box"><div class="ttl"><span class="th">ผู้ซื้อ</span> Customer</div><b>บริษัท แซมเปิล ไทร์ (ประเทศไทย) จำกัด</b><br>Sample Tyre (Thailand) Co., Ltd.<br><span class="th">99 หมู่ 3 นิคมอุตสาหกรรมอมตะซิตี้ ต.มาบยางพร อ.ปลวกแดง จ.ระยอง 21140</span><br><span class="th">เลขประจำตัวผู้เสียภาษี</span> 0215560001234<br><span class="th">สาขาที่</span> 00002 (Plant 2)</div>
     <div class="box"><div class="ttl"><span class="th">รายละเอียด</span> Details</div>
-      <div class="meta" style="margin:0"><div class="cell"><div class="k"><span class="th">วันที่</span> Date</div><div class="v">2026-11-15</div></div><div class="cell"><div class="k"><span class="th">อ้างอิง</span> Reference</div><div class="v mono">QTTH26110803 · PO XCGDD2611050012</div></div><div class="cell"><div class="k"><span class="th">เงื่อนไขการชำระเงิน</span> Terms</div><div class="v">30 <span class="th">วัน</span> · due 2026-12-15</div></div><div class="cell"><div class="k"><span class="th">ใบส่งของ</span> Delivery note</div><div class="v mono">DNTH26111401</div></div></div>
+      <div class="meta" style="margin:0"><div class="cell"><div class="k"><span class="th">วันที่</span> Date</div><div class="v">2026-11-15</div></div><div class="cell"><div class="k"><span class="th">อ้างอิง</span> Reference</div><div class="v mono">QTTH26110803<br>PO XCGDD2611050012</div></div><div class="cell"><div class="k"><span class="th">เงื่อนไขการชำระเงิน</span> Terms</div><div class="v">30 <span class="th">วัน</span><br>due 2026-12-15</div></div><div class="cell"><div class="k"><span class="th">ใบส่งของ</span> Delivery note</div><div class="v mono">DNTH26111401</div></div></div>
     </div>
   </div>
   <table>
@@ -227,28 +228,28 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
     <div><span><span class="th">ภาษีมูลค่าเพิ่ม 7%</span> VAT</span><span>2,100.00</span></div>
     <div class="grand"><span><span class="th" style="color:#fff">จำนวนเงินรวมทั้งสิ้น</span> Total</span><span>THB 32,100.00</span></div>
   </div>
-  <div class="words"><span class="th">(สามหมื่นสองพันหนึ่งร้อยบาทถ้วน)</span> · Thirty-two thousand one hundred baht only</div>
-  <div class="bank"><div><b><span class="th">ชำระเงินโดยโอนเข้าบัญชี</span> Pay by transfer to</b><br>BANK OF CHINA (THAI) PCL, Rayong Branch · THB 100000301445119<br>Account name: DUCHENG INDUSTRIAL (THAILAND)CO., LTD. · SWIFT BKCHTHBKXXX</div><div><b><span class="th">หมายเหตุ</span> Notes</b><br><span class="th">ภาษีหัก ณ ที่จ่าย (ถ้ามี) ให้หักจากยอดก่อน VAT และส่งหนังสือรับรองมาที่บริษัท</span><br>Withholding tax, if any, is deducted from the amount before VAT; please send the certificate.</div></div>
-  <div class="sig"><div class="s first"><div class="stampbox esign">e-signature / ลายเซ็นอิเล็กทรอนิกส์</div><div class="line"><span class="th">ผู้รับสินค้า/บริการ</span> Received by<br>&nbsp;</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line"><span class="th">ผู้ออกใบกำกับภาษี</span> Issued by<br>&nbsp;</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line"><span class="th">ผู้มีอำนาจลงนาม</span> Authorised signature<br>Zhu Dongsheng</div></div></div>
+  <div class="words"><span class="th">(สามหมื่นสองพันหนึ่งร้อยบาทถ้วน)</span><br>Thirty-two thousand one hundred baht only</div>
+  <div class="bank"><div><b><span class="th">ชำระเงินโดยโอนเข้าบัญชี</span> Pay by transfer to</b><br>BANK OF CHINA (THAI) PCL, Rayong Branch<br>THB 100000301445119<br>Account name: DUCHENG INDUSTRIAL (THAILAND)CO., LTD.<br>SWIFT BKCHTHBKXXX</div><div><b><span class="th">หมายเหตุ</span> Notes</b><br><span class="th">ภาษีหัก ณ ที่จ่าย (ถ้ามี) ให้หักจากยอดก่อน VAT และส่งหนังสือรับรองมาที่บริษัท</span><br>Withholding tax, if any, is deducted from the amount before VAT; please send the certificate.</div></div>
+  <div class="sig"><div class="s first"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line"><span class="th">ผู้รับสินค้า/บริการ</span> Received by<br>&nbsp;</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line"><span class="th">ผู้ออกใบกำกับภาษี</span> Issued by<br>&nbsp;</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line"><span class="th">ผู้มีอำนาจลงนาม</span> Authorised signature<br>Zhu Dongsheng</div></div></div>
   <div class="ftr"><span><b>DCiT</b> FIN-TI V1.0</span><span>Tax ID 0205568072149</span><span>Head Office 00000</span><span><span class="th">จดทะเบียน VAT</span> 2026-03-09</span><span class="pg">1 / 1</span></div>
 </section>
 
 <!-- ═══════════════════ 6. IVTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.1 · 样稿</div>
+  <div class="tag">MOCKUP v0.2 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
-    <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180 · Tax ID 0205568072149 (Head Office 00000)<br>+66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
+    <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180<br>Tax ID 0205568072149 (Head Office 00000) · +66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
     <div class="docbox"><div class="code">INVOICE</div><div class="th">ใบแจ้งหนี้</div><div class="zh">请款单</div><div class="no">IVTH No. <b>IVTH26111501</b></div></div>
   </div>
   <div class="party">
-    <div class="box"><div class="ttl">Bill to <span class="th">เรียกเก็บจาก</span></div><b>Sample Tyre (Thailand) Co., Ltd.</b> (Plant 2, branch 00002)<br>99 Moo 3, Amata City, Map Yang Phon, Pluak Daeng, Rayong 21140<br>Tax ID 0215560001234 · Attn: Accounts Payable</div>
+    <div class="box"><div class="ttl">Bill to <span class="th">เรียกเก็บจาก</span></div><b>Sample Tyre (Thailand) Co., Ltd.</b> (Plant 2, branch 00002)<br>99 Moo 3, Amata City, Map Yang Phon, Pluak Daeng, Rayong 21140<br>Tax ID 0215560001234<br>Attn: Accounts Payable</div>
     <div class="box"><div class="ttl">Invoice details <span class="th">รายละเอียด</span></div>
-      <div class="meta" style="margin:0"><div class="cell"><div class="k">Invoice date <span class="th">วันที่</span></div><div class="v">2026-11-15</div></div><div class="cell"><div class="k">Due date <span class="th">ครบกำหนด</span></div><div class="v alert">2026-12-15</div></div><div class="cell"><div class="k">Tax invoice <span class="th">ใบกำกับภาษี</span></div><div class="v mono">TITH26111501</div></div><div class="cell"><div class="k">Reference <span class="th">อ้างอิง</span></div><div class="v mono">QTTH26110803 · PO XCGDD2611050012</div></div></div>
+      <div class="meta" style="margin:0"><div class="cell"><div class="k">Invoice date <span class="th">วันที่</span></div><div class="v">2026-11-15</div></div><div class="cell"><div class="k">Due date <span class="th">ครบกำหนด</span></div><div class="v alert">2026-12-15</div></div><div class="cell"><div class="k">Tax invoice <span class="th">ใบกำกับภาษี</span></div><div class="v mono">TITH26111501</div></div><div class="cell"><div class="k">Reference <span class="th">อ้างอิง</span></div><div class="v mono">QTTH26110803<br>PO XCGDD2611050012</div></div></div>
     </div>
   </div>
   <table>
-    <thead><tr><th class="c" style="width:7mm">#</th><th>Description <span class="th">รายการ</span></th><th class="n" style="width:14mm">Qty</th><th class="n" style="width:26mm">Unit price</th><th class="n" style="width:28mm">Amount <span class="th">จำนวนเงิน</span></th></tr></thead>
+    <thead><tr><th class="c" style="width:7mm">#</th><th>Description <span class="th">รายการ</span></th><th class="n" style="width:14mm">Qty <span class="th">จำนวน</span></th><th class="n" style="width:26mm">Unit price <span class="th">ราคา/หน่วย</span></th><th class="n" style="width:28mm">Amount <span class="th">จำนวนเงิน</span></th></tr></thead>
     <tbody>
       <tr><td class="c">1</td><td>Repair of SINAMICS S120 drive ATH26110012 — output module and cooling fan replaced</td><td class="n">1</td><td class="n">24,000.00</td><td class="n">24,000.00</td></tr>
       <tr><td class="c">2</td><td>Labour and load test</td><td class="n">4</td><td class="n">1,500.00</td><td class="n">6,000.00</td></tr>
@@ -262,24 +263,24 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
     <div><span>Less: withholding tax 3% on 30,000.00 <span class="th">หัก ภาษี ณ ที่จ่าย</span></span><span>(900.00)</span></div>
     <div class="grand"><span>Amount payable <span class="th">ยอดที่ต้องชำระ</span></span><span>THB 31,200.00</span></div>
   </div>
-  <div class="bank"><div><b>Bank transfer <span class="th">โอนเงิน</span></b><br>BANK OF CHINA (THAI) PCL, Rayong Branch (052-0003)<br>THB 100000301445119 · USD 100000301445131 · RMB 100000301445120 · EUR 100000301445142<br>Account name: DUCHENG INDUSTRIAL (THAILAND)CO., LTD. · SWIFT BKCHTHBKXXX</div><div><b>Please <span class="th">กรุณา</span></b><br>quote <b>IVTH26111501</b> on the transfer; e-mail the payment slip and the withholding tax certificate (50 ทวิ) to dongsheng.zhu@ducheng-industrial.com. A receipt (RCTH) is issued for every payment received.</div></div>
+  <div class="bank"><div><b>Bank transfer <span class="th">โอนเงิน</span></b><br>BANK OF CHINA (THAI) PCL, Rayong Branch (052-0003)<br>THB 100000301445119<br>USD 100000301445131<br>RMB 100000301445120<br>EUR 100000301445142<br>Account name: DUCHENG INDUSTRIAL (THAILAND)CO., LTD.<br>SWIFT BKCHTHBKXXX</div><div><b>Please <span class="th">กรุณา</span></b><br>quote <b>IVTH26111501</b> on the transfer; e-mail the payment slip and the withholding tax certificate (50 ทวิ) to dongsheng.zhu@ducheng-industrial.com. A receipt (RCTH) is issued for every payment received.</div></div>
   <div class="note"><span class="th">ใบแจ้งหนี้นี้ไม่ใช่ใบกำกับภาษี ใบกำกับภาษีคือ TITH26111501 ที่แนบมาด้วย</span> This invoice is not a tax invoice; the tax invoice is TITH26111501, attached.</div>
-  <div class="sig sig2"><div class="s first"><div class="stampbox esign">e-signature / ลายเซ็นอิเล็กทรอนิกส์</div><div class="line">Prepared by <span class="th">ผู้จัดทำ</span><br>Accounts, DCiT</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line">Authorised by <span class="th">ผู้มีอำนาจลงนาม</span><br>Zhu Dongsheng, Managing Director</div></div></div>
+  <div class="sig sig2"><div class="s first"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Prepared by <span class="th">ผู้จัดทำ</span><br>Accounts, DCiT</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Authorised by <span class="th">ผู้มีอำนาจลงนาม</span><br>Zhu Dongsheng, Managing Director</div></div></div>
   <div class="ftr"><span><b>DCiT</b> FIN-IV V1.0</span><span>Tax ID 0205568072149</span><span>Head Office 00000</span><span class="pg">1 / 1</span></div>
 </section>
 
 <!-- ═══════════════════ 7. RCTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.1 · 样稿</div>
+  <div class="tag">MOCKUP v0.2 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
     <div class="co"><b>บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด (สำนักงานใหญ่)</b><br>DUCHENG INDUSTRIAL (THAILAND) CO., LTD. (Head Office)<br><span class="th">437/3 หมู่ที่ 8 ตำบลพนานิคม อำเภอนิคมพัฒนา จังหวัดระยอง 21180</span><br><span class="th">เลขประจำตัวผู้เสียภาษี</span> 0205568072149</div>
-    <div class="docbox"><div class="code">ใบเสร็จรับเงิน</div><div class="th" style="font-size:9.5pt">RECEIPT <span class="zh">· 收据</span></div><div class="no"><span class="stamp th">ต้นฉบับ ORIGINAL</span></div><div class="no">RCTH No. <b>RCTH26121201</b></div></div>
+    <div class="docbox"><div class="code">ใบเสร็จรับเงิน</div><div class="th" style="font-size:9.5pt">RECEIPT <span class="zh">· 收据</span></div><div class="no"><span class="stamp th">ต้นฉบับ ORIGINAL</span> <span style="font-size:7.5pt;color:#667">/ สำเนา COPY on the second print</span></div><div class="no">RCTH No. <b>RCTH26121201</b></div></div>
   </div>
   <div class="party">
-    <div class="box"><div class="ttl"><span class="th">ได้รับเงินจาก</span> Received from</div><b>บริษัท แซมเปิล ไทร์ (ประเทศไทย) จำกัด</b><br>Sample Tyre (Thailand) Co., Ltd. · Plant 2 (00002)<br><span class="th">เลขประจำตัวผู้เสียภาษี</span> 0215560001234</div>
+    <div class="box"><div class="ttl"><span class="th">ได้รับเงินจาก</span> Received from</div><b>บริษัท แซมเปิล ไทร์ (ประเทศไทย) จำกัด</b><br>Sample Tyre (Thailand) Co., Ltd.<br>Plant 2 (00002)<br><span class="th">เลขประจำตัวผู้เสียภาษี</span> 0215560001234</div>
     <div class="box"><div class="ttl"><span class="th">รายละเอียดการรับเงิน</span> Payment details</div>
-      <div class="meta" style="margin:0"><div class="cell"><div class="k"><span class="th">วันที่รับเงิน</span> Received on</div><div class="v">2026-12-12</div></div><div class="cell"><div class="k"><span class="th">วิธีชำระ</span> Method</div><div class="v">Bank transfer · KBANK ref 2612120918XY</div></div><div class="cell"><div class="k"><span class="th">ชำระตามใบกำกับภาษี</span> Against tax invoice</div><div class="v mono">TITH26111501</div></div><div class="cell"><div class="k"><span class="th">ใบแจ้งหนี้</span> Invoice</div><div class="v mono">IVTH26111501</div></div></div>
+      <div class="meta" style="margin:0"><div class="cell"><div class="k"><span class="th">วันที่รับเงิน</span> Received on</div><div class="v">2026-12-12</div></div><div class="cell"><div class="k"><span class="th">วิธีชำระ</span> Method</div><div class="v">Bank transfer<br>KBANK ref 2612120918XY</div></div><div class="cell"><div class="k"><span class="th">ชำระตามใบกำกับภาษี</span> Against tax invoice</div><div class="v mono">TITH26111501</div></div><div class="cell"><div class="k"><span class="th">ใบแจ้งหนี้</span> Invoice</div><div class="v mono">IVTH26111501</div></div></div>
     </div>
   </div>
   <table>
@@ -292,32 +293,32 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
       <tr><td><span class="th">คงค้างหลังรับชำระ</span> · Outstanding after this payment</td><td class="n">0.00</td></tr>
     </tbody>
   </table>
-  <div class="words"><span class="th">(สามหมื่นหนึ่งพันสองร้อยบาทถ้วน)</span> · Thirty-one thousand two hundred baht only — cash received</div>
+  <div class="words"><span class="th">(สามหมื่นหนึ่งพันสองร้อยบาทถ้วน)</span><br>Thirty-one thousand two hundred baht only — cash received</div>
   <div class="note"><span class="th">ใบเสร็จรับเงินนี้จะสมบูรณ์เมื่อบริษัทได้รับเงินเรียบร้อยแล้ว ไม่ใช่ใบกำกับภาษี และไม่มีการคำนวณ VAT ซ้ำ</span> This receipt is valid once the funds are cleared. It is not a tax invoice and does not recompute VAT.</div>
-  <div class="sig sig2"><div class="s first"><div class="stampbox esign">e-signature / ลายเซ็นอิเล็กทรอนิกส์</div><div class="line"><span class="th">ผู้รับเงิน</span> Received by<br>Accounts, DCiT</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line"><span class="th">ผู้มีอำนาจลงนาม</span> Authorised signature<br>Zhu Dongsheng</div></div></div>
+  <div class="sig sig2"><div class="s first"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line"><span class="th">ผู้รับเงิน</span> Received by<br>Accounts, DCiT</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line"><span class="th">ผู้มีอำนาจลงนาม</span> Authorised signature<br>Zhu Dongsheng</div></div></div>
   <div class="ftr"><span><b>DCiT</b> FIN-RC V1.0</span><span>Tax ID 0205568072149</span><span>Head Office 00000</span><span class="pg">1 / 1</span></div>
 </section>
 
 <!-- ═══════════════════ 8. BLTH ═══════════════════ -->
 <section class="page">
-  <div class="tag">MOCKUP v0.1 · 样稿</div>
+  <div class="tag">MOCKUP v0.2 · 样稿</div>
   <div class="hdr">
     <img src="../brand/DCiT_Logo_Primary.png" alt="DCiT">
-    <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180 · Tax ID 0205568072149 (Head Office 00000)<br>+66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
+    <div class="co"><b>DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</b><br><span class="th">บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด</span><br>437/3 Moo 8, Phana Nikhom, Nikhom Phatthana, Rayong 21180<br>Tax ID 0205568072149 (Head Office 00000) · +66 (0) 88 660 6999 · dongsheng.zhu@ducheng-industrial.com</div>
     <div class="docbox"><div class="code">STATEMENT OF ACCOUNT</div><div class="th">ใบแจ้งยอดบัญชี</div><div class="zh">月度账单</div><div class="no">BLTH No. <b>BLTH26113001</b></div></div>
   </div>
   <div class="party">
-    <div class="box"><div class="ttl">Customer <span class="th">ลูกค้า</span></div><b>Sample Tyre (Thailand) Co., Ltd.</b> · CTH2611003<br>99 Moo 3, Amata City, Pluak Daeng, Rayong 21140 · Tax ID 0215560001234<br>Attn: Accounts Payable · ap@sampletyre.example</div>
+    <div class="box"><div class="ttl">Customer <span class="th">ลูกค้า</span></div><b>Sample Tyre (Thailand) Co., Ltd.</b><br>CTH2611003<br>99 Moo 3, Amata City, Pluak Daeng, Rayong 21140<br>Tax ID 0215560001234<br>Attn: Accounts Payable<br>ap@sampletyre.example</div>
     <div class="box"><div class="ttl">Statement details <span class="th">รายละเอียด</span></div>
       <div class="meta" style="margin:0"><div class="cell"><div class="k">Period <span class="th">งวด</span></div><div class="v">2026-11-01 → 2026-11-30</div></div><div class="cell"><div class="k">Statement date <span class="th">วันที่</span></div><div class="v">2026-11-30</div></div><div class="cell"><div class="k">Credit terms <span class="th">เครดิต</span></div><div class="v">30 days</div></div><div class="cell"><div class="k">Currency</div><div class="v">THB</div></div></div>
     </div>
   </div>
   <table>
-    <thead><tr><th style="width:26mm">IVTH</th><th style="width:26mm">TITH</th><th style="width:19mm">Date</th><th style="width:19mm">Due <span class="th">ครบกำหนด</span></th><th>Reference <span class="th">อ้างอิง</span></th><th class="n" style="width:24mm">Amount</th><th class="n" style="width:22mm">Paid / WHT</th><th class="n" style="width:24mm">Outstanding</th></tr></thead>
+    <thead><tr><th style="width:26mm">IVTH <span class="th">ใบแจ้งหนี้</span></th><th style="width:26mm">TITH <span class="th">ใบกำกับภาษี</span></th><th style="width:19mm">Date <span class="th">วันที่</span></th><th style="width:19mm">Due <span class="th">ครบกำหนด</span></th><th>Reference <span class="th">อ้างอิง</span></th><th class="n" style="width:24mm">Amount <span class="th">จำนวนเงิน</span></th><th class="n" style="width:22mm">Paid / WHT <span class="th">ชำระ/หัก ณ ที่จ่าย</span></th><th class="n" style="width:24mm">Outstanding <span class="th">คงค้าง</span></th></tr></thead>
     <tbody>
-      <tr><td class="mono">IVTH26110301</td><td class="mono">TITH26110301</td><td>2026-11-03</td><td>2026-12-03</td><td>QTTH26102901 · PO XCGDD2610140001</td><td class="n">18,190.00</td><td class="n">18,190.00</td><td class="n">0.00</td></tr>
-      <tr><td class="mono">IVTH26111501</td><td class="mono">TITH26111501</td><td>2026-11-15</td><td>2026-12-15</td><td>QTTH26110803 · PO XCGDD2611050012</td><td class="n">32,100.00</td><td class="n">0.00</td><td class="n">32,100.00</td></tr>
-      <tr><td class="mono">IVTH26112801</td><td class="mono">TITH26112801</td><td>2026-11-28</td><td>2026-12-28</td><td>QTTH26112201 · PM contract Q4</td><td class="n">9,630.00</td><td class="n">0.00</td><td class="n">9,630.00</td></tr>
+      <tr><td class="mono">IVTH26110301</td><td class="mono">TITH26110301</td><td>2026-11-03</td><td>2026-12-03</td><td>QTTH26102901<br>PO XCGDD2610140001</td><td class="n">18,190.00</td><td class="n">18,190.00</td><td class="n">0.00</td></tr>
+      <tr><td class="mono">IVTH26111501</td><td class="mono">TITH26111501</td><td>2026-11-15</td><td>2026-12-15</td><td>QTTH26110803<br>PO XCGDD2611050012</td><td class="n">32,100.00</td><td class="n">0.00</td><td class="n">32,100.00</td></tr>
+      <tr><td class="mono">IVTH26112801</td><td class="mono">TITH26112801</td><td>2026-11-28</td><td>2026-12-28</td><td>QTTH26112201<br>PM contract Q4</td><td class="n">9,630.00</td><td class="n">0.00</td><td class="n">9,630.00</td></tr>
       <tr><td class="mono">IVTH26101801</td><td class="mono">TITH26101801</td><td>2026-10-18</td><td>2026-11-17</td><td>QTTH26101201 (brought forward)</td><td class="n">5,350.00</td><td class="n">0.00</td><td class="n alert">5,350.00</td></tr>
     </tbody>
   </table>
@@ -329,7 +330,7 @@ td.mono{font-family:ui-monospace,Menlo,monospace;font-size:9pt}
   <div class="aging"><div>Current<b>41,730.00</b></div><div class="over">1–30 days<b>5,350.00</b></div><div>31–60 days<b>0.00</b></div><div>61–90 days<b>0.00</b></div><div>&gt; 90 days<b>0.00</b></div></div>
   <div class="note">Please settle overdue items first and quote the IVTH numbers on your transfer. Tax invoices and receipts for the items above have been issued and are available on the customer portal.
     <span class="th">กรุณาชำระรายการที่เกินกำหนดก่อน และระบุเลขที่ IVTH ในการโอนเงิน ใบกำกับภาษีและใบเสร็จของทุกรายการดูได้ในพอร์ทัลลูกค้า</span></div>
-  <div class="sig sig2"><div class="s first"><div class="stampbox esign">e-signature / ลายเซ็นอิเล็กทรอนิกส์</div><div class="line">Prepared by <span class="th">ผู้จัดทำ</span><br>Accounts, DCiT</div></div><div class="s"><div class="stampbox">stamp / ตราประทับ</div><div class="line">Authorised by <span class="th">ผู้มีอำนาจลงนาม</span><br>Zhu Dongsheng, Managing Director</div></div></div>
+  <div class="sig sig2"><div class="s first"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Prepared by <span class="th">ผู้จัดทำ</span><br>Accounts, DCiT</div></div><div class="s"><div class="stampbox">signature or e-signature + stamp / ลงนาม·ลายเซ็นอิเล็กทรอนิกส์·ตราประทับ</div><div class="line">Authorised by <span class="th">ผู้มีอำนาจลงนาม</span><br>Zhu Dongsheng, Managing Director</div></div></div>
   <div class="ftr"><span><b>DCiT</b> FIN-BL V1.0</span><span>Tax ID 0205568072149</span><span>Head Office 00000</span><span class="pg">1 / 1</span></div>
 </section>
 
