@@ -378,7 +378,7 @@
     "reading": "正在识别…",
     "filledN": "已填入 {n} 项（淡蓝底）— 请核对后保存",
     "nothingFound": "没有识别出可填的内容，文件已作为附件保存",
-    "noModel": "AI 未配置，图片/PDF 暂不能识别；文件已作为附件保存",
+    "noModel": "AI 识别未配置（无 API key），只按文本规则做了基础识别；图片/PDF 内容未读取，文件已作为附件保存",
     "rejectedDoc": "这份文件不是 DBD 公司注册证明 / ภ.พ.20 / 开票信息（识别为：{kind}），未填入",
     "pasteHint": "请直接按 Ctrl+V（Mac：⌘V）粘贴",
     "forbidden": "无权限打开此页面",
@@ -1232,7 +1232,9 @@
     "age90": "61–90 天",
     "ageOver": "> 90 天",
     "statementNote": "账龄按出单日计算；已收金额含客户预扣税。月结客户才有账单，账单只列出单时未付且未进过其他账单的 IVTH。",
-    "err_INVOICE_CANCELLED": "IVTH {detail} 已随税票作废取消，不能登记收款"
+    "err_INVOICE_CANCELLED": "IVTH {detail} 已随税票作废取消，不能登记收款",
+    "dbdBlocked": "DBD 网站拒绝自动查询（防爬虫），请在 DBD 网站查到后手工填写",
+    "dbdOpenSite": "打开 DBD 网页"
   },
   "role": {
     "MD": "董事总经理 MD",

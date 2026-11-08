@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorCode } from "@/lib/errors";
 import { requireSession } from "@/server/api-auth";
 import { readNameplate } from "@/server/ai";
 
@@ -12,6 +13,6 @@ export async function POST(req: Request) {
     const b64 = Buffer.from(await photo.arrayBuffer()).toString("base64");
     return NextResponse.json(await readNameplate(b64, photo.type === "image/png" ? "image/png" : "image/jpeg"));
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
   }
 }

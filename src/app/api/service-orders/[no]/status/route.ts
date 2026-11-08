@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorCode } from "@/lib/errors";
 import { requireSession } from "@/server/api-auth";
 import { advanceServiceOrder } from "@/server/slm";
 
@@ -10,6 +11,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ no: string }> 
     const body = await req.json();
     return NextResponse.json(await advanceServiceOrder(no, body.to, body.actorEmployeeCode, body.note));
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
   }
 }

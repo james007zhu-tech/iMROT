@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorCode } from "@/lib/errors";
 import { requireSession } from "@/server/api-auth";
 import { appendAssetEvent } from "@/server/alm";
 
@@ -10,6 +11,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     const ev = await appendAssetEvent({ assetCode: code, ...(await req.json()) });
     return NextResponse.json(ev, { status: 201 });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
   }
 }

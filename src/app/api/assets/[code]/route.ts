@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorCode } from "@/lib/errors";
 import { requireSession } from "@/server/api-auth";
 import { getAssetPage, transferAsset } from "@/server/alm";
 
@@ -19,6 +20,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ code: string 
     const ev = await transferAsset({ assetCode: code, ...body });
     return NextResponse.json(ev);
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
   }
 }

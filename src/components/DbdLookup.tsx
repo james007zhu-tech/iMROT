@@ -10,7 +10,7 @@ const MAP: Record<string, string> = { nameTh: "nameLocal", nameEn: "name", addre
 
 export function DbdLookup({ formId }: { formId: string }) {
   const t = useTranslations("ui");
-  const [state, setState] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  const [state, setState] = useState<{ tone: "ok" | "warn"; text: string; openUrl?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const last = useRef("");
 
@@ -23,7 +23,8 @@ export function DbdLookup({ formId }: { formId: string }) {
     try {
       const r = await fetch(`/api/dbd/${id}`);
       const j = await r.json();
-      if (!r.ok) { setState({ tone: "warn", text: t(j.error === "NOT_FOUND" ? "dbdNotFound" : j.error === "INVALID_TAX_ID" ? "taxIdInvalid" : "dbdFailed") }); return; }
+      if (j.error === "DBD_BLOCKED") { setState({ tone: "warn", text: t("dbdBlocked"), openUrl: j.openUrl }); return; }
+      if (!r.ok) { setState({ tone: "warn", text: t(j.error === "NOT_FOUND" ? "dbdNotFound" : j.error === "INVALID_TAX_ID" ? "taxIdInvalid" : "dbdFailed"), openUrl: j.openUrl }); return; }
       const values: Record<string, string> = {};
       for (const [src, name] of Object.entries(MAP)) {
         let v = j[src];
@@ -57,7 +58,7 @@ export function DbdLookup({ formId }: { formId: string }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <button type="button" onClick={run} disabled={busy} className="inline-flex min-h-10 items-center rounded-lg bg-blue px-4 text-sm font-semibold text-white">{busy ? t("reading") : t("dbdLookup")}</button>
-      {state && <span className={state.tone === "ok" ? "rounded-full border border-navy/35 bg-blue/8 px-2.5 py-0.5 text-xs font-semibold" : "rounded border border-alert bg-alert/10 px-2 py-0.5 text-xs text-alert-ink"}>{state.tone === "ok" ? "✓ " : "⚠ "}{state.text}</span>}
+      {state && <span className={state.tone === "ok" ? "rounded-full border border-navy/35 bg-blue/8 px-2.5 py-0.5 text-xs font-semibold" : "rounded border border-alert bg-alert/10 px-2 py-0.5 text-xs text-alert-ink"}>{state.tone === "ok" ? "✓ " : "⚠ "}{state.text}{state.openUrl && <> <a href={state.openUrl} target="_blank" rel="noreferrer" className="underline">{t("dbdOpenSite")}</a></>}</span>}
       {["dbdStatus", "dbdFetchedAt", "dbdData", "dbdValues"].map((n) => <input key={n} type="hidden" name={n} form={formId} />)}
     </div>
   );

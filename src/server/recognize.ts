@@ -71,5 +71,6 @@ export async function recognizeDocuments(kind: RecognizeKind, files: RecognizeFi
 
   const r = recognizeText(kind, docText);
   const rejected = !!spec.accept && docText.length > 0 && !r.docKind;
-  return { fields: rejected ? {} : r.fields, uncertain: [], docKind: r.docKind, rejected, usedModel: false, notes: visual.length && !docText ? "no-model" : undefined };
+  // Without a model (no ANTHROPIC_API_KEY) only the text rules ran: say so, so nobody trusts a half-read document.
+  return { fields: rejected ? {} : r.fields, uncertain: [], docKind: r.docKind, rejected, usedModel: false, notes: process.env.ANTHROPIC_API_KEY ? undefined : "no-model" };
 }
