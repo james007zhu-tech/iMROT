@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isClosedStatus, isThaiTaxId, parseDbd } from "./dbd";
+import { isClosedStatus, isThaiTaxId, parseDbd, parseDbdResponse } from "./dbd";
 
 describe("DBD lookup parsing", () => {
   it("validates Thai tax ID checksum", () => {
@@ -14,5 +14,16 @@ describe("DBD lookup parsing", () => {
     expect(r.addressTh).toContain("ถนนสุขุมวิท");
     expect(isClosedStatus(r.status)).toBe(false);
     expect(isClosedStatus("เลิกกิจการ")).toBe(true);
+  });
+  it("reads the DBD answer shape and treats 1004 as not found", () => {
+    const ok = parseDbdResponse({ status: { code: "1000", description: "Success" }, data: [{ "cd:OrganizationJuristicPerson": {
+      "cd:OrganizationJuristicID": "0105536000000", "cd:OrganizationJuristicNameTH": "บริษัท ทดสอบ จำกัด", "cd:OrganizationJuristicNameEN": "TEST CO., LTD.",
+      "cd:OrganizationJuristicStatus": "ยังดำเนินกิจการอยู่", "cd:OrganizationJuristicRegisterDate": "19930115", "cd:OrganizationJuristicRegisterCapital": 5000000,
+      "cd:OrganizationJuristicAddress": { "cr:AddressType": { "cd:AddressNo": "99/9", "cd:Moo": "4", "cd:Road": "สุขุมวิท", "cd:CitySubDivision": { "cr:CitySubDivisionTextTH": "มาบตาพุด" }, "cd:City": { "cr:CityTextTH": "เมืองระยอง" }, "cd:CountrySubDivision": { "cr:CountrySubDivisionTextTH": "ระยอง" } } } } }] });
+    expect(ok?.nameTh).toBe("บริษัท ทดสอบ จำกัด");
+    expect(ok?.foundedAt).toBe("1993-01-15");
+    expect(ok?.addressTh).toBe("99/9 หมู่ 4 ถนนสุขุมวิท มาบตาพุด เมืองระยอง ระยอง");
+    expect(isClosedStatus(ok?.status)).toBe(false);
+    expect(parseDbdResponse({ status: { code: "1004", description: "No data available" }, data: [] })).toBeNull();
   });
 });

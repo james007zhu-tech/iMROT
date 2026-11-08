@@ -2,11 +2,12 @@ import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { saveLegalEntity } from "@/server/opd";
+import { refreshBocRates } from "@/server/fx";
 import { guarded } from "@/lib/action-result";
 import { entityLabel } from "@/lib/entity";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
-import { Card, Field, Grid, PageHeader, Table, btnPrimary, inputCls } from "@/components/ui";
+import { Card, Field, Grid, PageHeader, Table, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 type Entity = Awaited<ReturnType<typeof prisma.legalEntity.findMany>>[number];
@@ -22,6 +23,14 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
     prisma.docSequence.findMany({ orderBy: [{ prefix: "asc" }, { period: "desc" }], take: 100, include: { entity: true } }),
   ]);
   const md = me.role === "MD"; // legal entities: MD only (decision 2026-11-03)
+  async function fetchRates() {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      if (!["MD", "ADMIN", "MANAGER"].includes(me.role)) throw new Error("FORBIDDEN");
+      try { const r = await refreshBocRates(); return `${r.rateDate} · ${r.count}`; } catch (e) { throw new Error(`FX_FETCH_FAILED:${(e as Error).message}`); }
+    }, "/admin");
+  }
   async function saveEntity(f: FormData) {
     "use server";
     await guarded(async () => {
@@ -82,6 +91,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
         </section>
       )}
       <Card title={t("bocRates")}>
+        <form action={fetchRates} className="flex flex-wrap items-center gap-3"><button className={btnGhost}>{u("fxFetchNow")}</button><span className="text-xs text-navy/70">{u("fxAutoNote")}</span></form>
         <Table head={[t("date"), t("currency"), t("rate"), t("published")]}>
           {rates.map((r) => <tr key={r.id}><td>{r.rateDate.toISOString().slice(0, 10)}</td><td className="font-mono">{r.currency}</td><td className="font-mono">{Number(r.rateToCny).toFixed(6)}</td><td>{r.publishedAt?.toISOString().slice(0, 16).replace("T", " ") ?? ""}</td></tr>)}
           {rates.length === 0 && <tr><td colSpan={4} className="text-alert-ink">{t("noRates")}</td></tr>}

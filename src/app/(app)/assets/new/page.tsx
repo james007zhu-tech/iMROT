@@ -8,6 +8,7 @@ import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { FormMemory } from "@/components/FormMemory";
 import { ModelPicker } from "@/components/ModelPicker";
+import { SerialInput } from "@/components/SerialInput";
 import { Alert, Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -78,7 +79,7 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
             <Field label={t("origin")} required><select name="origin" className={inputCls}><option value="TAKEOVER">{t("TAKEOVER")}</option><option value="NEW_INSTALL">{t("NEW_INSTALL")}</option></select></Field>
             <Field label={u("initialStatus")} required><select name="initialStatus" className={inputCls}><option value="IN_SERVICE">{ts("IN_SERVICE")}</option><option value="ONBOARDED">{ts("ONBOARDED")}</option><option value="SPARE">{ts("SPARE")}</option></select></Field>
             <ModelPicker models={models.map((m) => ({ brand: m.series.brand.name, series: m.series.name, code: m.code }))} inputCls={inputCls} labels={{ brand: u("brand"), series: u("series"), model: u("modelCodeLabel"), unknown: u("modelNotInLibrary") }} />
-            <Field label={u("serialLabel")} required><input name="serialNumber" required className={inputCls} /></Field>
+            <Field label={u("serialLabel")} required><SerialInput inputCls={inputCls} text={u("serialExists", { serial: "{serial}", code: "{code}", where: "{where}" })} /></Field>
             <Field label={t("customer")} required><select name="customerId" required defaultValue={customerId ?? ""} className={inputCls}><option value="">—</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
             <Field label={u("plantWorkshop")}><select name="plantId" className={inputCls}><option value="">—</option>{customers.flatMap((c) => c.plants.map((p) => <option key={p.id} value={p.id}>{c.name} · {p.code} {p.name}</option>))}</select></Field>
             <Field label={u("locationPosition")} required><input name="location" required className={inputCls} /></Field>

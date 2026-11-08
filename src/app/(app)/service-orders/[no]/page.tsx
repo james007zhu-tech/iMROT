@@ -11,6 +11,8 @@ import { OrderStatusBadge } from "@/components/StatusBadge";
 import { AssetTriple, Card, FaultText, Field, Grid, PageHeader, Table, Value, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { ORDER_TRANSITIONS, type OrderStatus } from "@/lib/lifecycle";
 import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps";
+import { businessClosureOn } from "@/lib/closure";
+import { pdfAvailable } from "@/server/office";
 import { MIN_MARGIN_PCT } from "@/lib/margin";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
@@ -36,7 +38,11 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     deliveriesSigned: order.deliveries.filter((d) => d.status === "SIGNED").length, deliveriesOpen: order.deliveries.filter((d) => d.status !== "SIGNED").length,
     invoicesUnpaid: order.invoices.filter((i) => !i.paidAt).length, hasAcceptance: !!order.acceptance,
   };
-  const { primary, also } = nextSteps(shape);
+  // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
+  const money = (k: StepKey) => k === "invoice" || k === "payment";
+  const steps = nextSteps(shape);
+  const primary = businessClosureOn() || !steps.primary || !money(steps.primary) ? steps.primary : undefined;
+  const also = businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k));
   const stepLabel = (s: StepKey) => u(`step_${s}`);
   const transitions = ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CANCELLED" || s === "CLOSED");
 
@@ -91,7 +97,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     <div className="space-y-4">
       <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={<span className="font-mono">{order.no}</span>} badge={<OrderStatusBadge status={order.status} />}
         actions={<>
-          {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u("exportPdf")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
+          {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
           {primary && primary !== "assign" && primary !== "contractDirect" && <Link href={stepHref(order.no, primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
       <OrderProgress status={order.status as OrderStatus} />
@@ -157,7 +163,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={stepHref(order.no, s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
           </Card>}
           {transitions.length > 0 && <Card title={t("status")}>
-            <form action={move} className="flex flex-wrap gap-2">{transitions.map((s) => <button key={s} name="to" value={s} className={`min-h-10 rounded-lg border px-3 text-sm font-semibold ${s === "CANCELLED" ? "border-alert text-alert-ink" : "border-navy/45"}`}>{ts(s)}</button>)}</form>
+            <form action={move} className="flex flex-wrap gap-2">{transitions.map((s) => <button key={s} name="to" value={s} className={`min-h-10 rounded-lg border px-3 text-sm font-semibold ${s === "CANCELLED" ? "border-alert text-alert-ink" : "border-navy/45"}`}>{u(s === "CANCELLED" ? "actionCancelOrder" : "actionCloseOrder")}</button>)}</form>
           </Card>}
           <Card title={u("timeline")}>
             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs text-navy/85">

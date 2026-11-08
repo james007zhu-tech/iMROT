@@ -4,6 +4,7 @@
  * Every output carries the record numbers it was built from, so a person can check before saving.
  */
 import { prisma } from "@/lib/db";
+import { offlineAssist } from "./ai-offline";
 
 type Msg = { role: "user"; content: unknown };
 
@@ -151,7 +152,7 @@ const SYSTEM = (ctx: AssistContext) => `You are the DCiT OS assistant inside an 
 /** Tool-use loop against the Anthropic Messages API. Returns the final text and any UI actions parsed from it. */
 export async function assist(messages: { role: "user" | "assistant"; content: string }[], ctx: AssistContext): Promise<{ text: string; actions: AssistAction[]; toolsUsed: string[] }> {
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return { text: "ANTHROPIC_API_KEY is not configured on the server.", actions: [], toolsUsed: [] };
+  if (!key) return offlineAssist(messages, ctx); // keyword fallback: look-ups by record number, history, dictated new asset
   // Portal contacts get only the four customer-filtered read tools; similar_cases and metric read across all customers.
   if (!ctx.employeeCode && !ctx.customerId) throw new Error("assistant needs a staff or customer scope");
   const allowed = ctx.employeeCode ? TOOLS : TOOLS.filter((t) => PORTAL_TOOLS.has(t.name));

@@ -358,7 +358,15 @@
     "photo": "拍铭牌",
     "noVoice": "此浏览器不支持语音输入",
     "buildDashboard": "描述你要的看板…",
-    "editDashboard": "说说要改什么…"
+    "editDashboard": "说说要改什么…",
+    "offlineMode": "离线模式（AI 未配置）：可按单号或序列号查询",
+    "offlineHelp": "输入单号，如 ATH26110002 或 QTTH26110504 查看记录和历史；或在新增设备页说「新建设备 变频器 序列号 … 位置 …」",
+    "offlineHistory": "最近记录：",
+    "offlineDocs": "单据：",
+    "offlineNotFound": "没有找到 {code}",
+    "offlineCounts": "设备 {assets} 台 · 服务单 {orders} 张",
+    "offlineFilled": "已填入，请核对后保存：{fields}",
+    "offlineOpenForm": "已打开新增设备页，请在该页再说一遍以便填入：{fields}"
   },
   "ui": {
     "chooseFile": "选择文件",
@@ -958,7 +966,19 @@
     "err_RECEIPT_OVER": "第 {detail} 行入库数量超过订购量",
     "err_PO_LINE_NO_SKU": "第 {detail} 行没有料号",
     "err_PO_LINE_NOT_FOUND": "找不到第 {detail} 行",
-    "err_SUPPLIER_EXISTS": "税号 {detail} 的供应商已存在"
+    "err_SUPPLIER_EXISTS": "税号 {detail} 的供应商已存在",
+    "fxMissing": "还没有 {ccy} → CNY 汇率：报价可以保存，但不会有 CNY 折算。系统正在重新抓取中国银行汇率",
+    "fxGoAdmin": "查看汇率",
+    "fxLine": "1 {ccy} = {rate} CNY（中国银行 {date}）",
+    "fxTotal": "合计约 CNY {amount}",
+    "fxStale": "汇率已 {days} 天未更新",
+    "fxFetchNow": "立即抓取中国银行汇率",
+    "fxAutoNote": "平时每天自动抓取；汇率超过一天未更新时，打开报价页也会自动重抓",
+    "err_FX_FETCH_FAILED": "中国银行汇率抓取失败（{detail}），系统会自动再试",
+    "err_FORBIDDEN": "没有权限执行此操作",
+    "actionCancelOrder": "取消服务单",
+    "actionCloseOrder": "关闭服务单",
+    "exportWord": "导出 Word"
   },
   "role": {
     "MD": "董事总经理 MD",

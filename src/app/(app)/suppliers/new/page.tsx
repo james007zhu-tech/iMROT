@@ -25,7 +25,7 @@ export default async function NewSupplier({ searchParams }: { searchParams: Prom
       if (id) { await prisma.supplier.update({ where: { id }, data }); return { ok: data.name, to: backTo }; }
       const me = await currentEmployee();
       const r = await createSupplier({ ...data, actorCode: me.code });
-      return { ok: r.code, to: backTo };
+      return { ok: r.code ?? r.name, to: backTo };
     }, `/suppliers/new${id ? `?id=${id}` : ""}`);
   }
   return (
