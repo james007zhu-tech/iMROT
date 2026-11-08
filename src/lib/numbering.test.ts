@@ -12,9 +12,9 @@ describe("numbering", () => {
   });
 
   it("formats document numbers with daily period, 2 digits by default", () => {
-    expect(formatNumber("QT", "TH", d, 1)).toBe("QTTH26110201");
+    expect(formatNumber("QT", "TH", d, 1)).toBe("QTTH261102001"); // QT has a 3-digit daily serial since 2026-11-08
     expect(formatNumber("RP", "TH", d, 12)).toBe("RPTH26110212");
-    expect(formatNumber("QT", "TH", new Date(2026, 9, 31), 1)).toBe("QTTH26103101");
+    expect(formatNumber("QT", "TH", new Date(2026, 9, 31), 1)).toBe("QTTH261031001");
   });
 
   it("uses 3 digits for stock movements", () => {
@@ -23,7 +23,7 @@ describe("numbering", () => {
   });
 
   it("refuses overflow and never silently wraps", () => {
-    expect(() => formatNumber("QT", "TH", d, 100)).toThrow();
+    expect(() => formatNumber("IN", "TH", d, 100)).toThrow();
     expect(() => formatNumber("OB", "TH", d, 1000)).toThrow();
     expect(() => formatNumber("A", "TH", d, 10000)).toThrow();
   });
@@ -41,8 +41,9 @@ describe("numbering", () => {
 
   it("parses numbers back", () => {
     expect(parseNumber("ATH26100001")).toEqual({ prefix: "A", country: "TH", period: "2610", serial: 1, tier: "master" });
-    expect(parseNumber("QTTH26110201")).toEqual({ prefix: "QT", country: "TH", period: "261102", serial: 1, tier: "document" });
+    expect(parseNumber("QTTH261102001")).toEqual({ prefix: "QT", country: "TH", period: "261102", serial: 1, tier: "document" });
     expect(parseNumber("OBTH261102150")?.serial).toBe(150);
+    expect(parseNumber("QTTH26110801")?.serial).toBe(1); // 2-digit QTTH issued before 2026-11-08 still parses
     expect(parseNumber("OBTH26110215")).toBeNull(); // wrong width for OB
     expect(parseNumber("XCGDD2610140001")).toBeNull(); // customer's own number: stored verbatim, never parsed as ours
   });

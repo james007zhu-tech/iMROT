@@ -227,7 +227,7 @@ await step("lists-page-by-20", async () => {
   await expectText(" / "); // "1–20 / n" pager line
 });
 await step("search", async () => { await page.goto(`${BASE}/search?q=${assetCode}`); await expectText(assetCode); });
-let prNo, poNo, engCode;
+let prNo, poNo, engCode, blNo;
 await step("supplier-new", async () => {
   await page.goto(`${BASE}/suppliers/new`); await page.fill("[name=nameEn]", `FA Parts ${stamp}`); await page.fill("[name=paymentTerms]", "30 days"); await page.fill("[name=leadTimeDays]", "5");
   await save(); await page.waitForURL(/\/suppliers\?/); await expectText(`FA Parts ${stamp}`);
@@ -281,7 +281,14 @@ await step("non-md-sees-only-own-file", async () => {
   await p2.fill("[name=wechatId]", "eng_wx"); await p2.click("button:has-text('Save contact details')"); await p2.waitForTimeout(900); await p2.waitForLoadState("networkidle"); if ((await p2.inputValue("[name=wechatId]")) !== "eng_wx") throw new Error("own contact change not saved");
   await p2.goto(`${BASE}/people/ETH2611001`); b = await p2.locator("body").innerText(); if (!/permission|Forbidden|403|无权|ไม่มีสิทธิ์/i.test(b)) throw new Error("engineer can open the MD's file"); await c2.close();
 });
-await step("finance-and-blth", async () => { await page.goto(`${BASE}/finance`); await expectText("IVTH"); await page.goto(`${BASE}/customers/${customerCode}`); await page.click("button:has-text('BLTH')"); await page.waitForTimeout(800); await page.waitForLoadState("networkidle"); const b = await page.locator("body").innerText(); if (!/BLTH2611|nothing to bill/.test(b)) throw new Error("BLTH neither issued nor correctly refused"); });
+await step("finance-and-blth", async () => { await page.goto(`${BASE}/finance`); await expectText("IVTH"); await page.goto(`${BASE}/customers/${customerCode}`); await page.click("button:has-text('BLTH')"); await page.waitForTimeout(800); await page.waitForLoadState("networkidle"); const b = await page.locator("body").innerText(); if (!/BLTH2611|nothing to bill/.test(b)) throw new Error("BLTH neither issued nor correctly refused"); blNo = (b.match(/BLTH\d{10}/) || [])[0]; });
+await step("blth-detail-and-ti-void-ui", async () => {
+  if (blNo) { await page.goto(`${BASE}/customers/${customerCode}`); await page.click(`a[href='/statements/${blNo}']`); await page.waitForURL(/\/statements\/BLTH/); await expectText("Statement lines"); await expectText("Ageing"); }
+  else { const any = await page.request.get(`${BASE}/statements/BLTH00000000`); if (any.status() !== 404) throw new Error(`unknown statement should 404, got ${any.status()}`); console.log("      (no BLTH issued for this customer — detail page checked for 404 only)"); }
+  await page.goto(`${BASE}/service-orders/${orderNo}/invoice`); await expectText("Tax invoices issued"); await expectText("valid"); await expectText("already has the valid tax invoice");
+  await page.fill("input[name=reason]", "test void"); await page.click("button:has-text('Request void')"); await page.waitForTimeout(900); await page.waitForLoadState("networkidle");
+  await expectText("already has payments"); // paid TITH cannot be voided — the rule shows as a flash error
+});
 await step("sign-out", async () => { await page.click("text=Sign out"); await page.waitForURL(/\/login/); });
 
 // ── portal, phone-sized ──

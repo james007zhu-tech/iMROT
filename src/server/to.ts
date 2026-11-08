@@ -8,6 +8,7 @@ import { allocateNumber } from "@/lib/numbering-db";
 import { expectedReceipt, round2, totals } from "@/lib/money";
 import type { Prisma } from "@prisma/client";
 import { assertBusinessClosure } from "@/lib/closure";
+import { audit } from "@/server/audit";
 
 async function bocRate(currency: string, onOrBefore: Date): Promise<number> {
   if (currency === "CNY") return 1;
@@ -31,8 +32,10 @@ export const TaxInvoiceInput = z.object({
 export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   assertBusinessClosure("TI");
   const d = TaxInvoiceInput.parse(input);
-  const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, customer: true, lines: true, assets: true } });
-  if (order.status !== "ACCEPTED") throw new Error(`${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
+  const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, customer: true, lines: true, assets: true, taxInvoices: true } });
+  // ACCEPTED for the first tax invoice; INVOICED is fine only when every earlier tax invoice of the order was voided (re-issue after a void).
+  const reissue = order.status === "INVOICED" && order.taxInvoices.length > 0 && order.taxInvoices.every((t) => t.voidedAt);
+  if (order.status !== "ACCEPTED" && !reissue) throw new Error(order.status === "INVOICED" ? `TI_EXISTS:${order.taxInvoices.find((t) => !t.voidedAt)?.no ?? ""}` : `${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const issuedAt = d.issuedAt ?? new Date();
   const currency = order.entity.localCurrency;
@@ -109,6 +112,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
   assertBusinessClosure("PAYMENT");
   const d = PaymentInput.parse(input);
   const iv = await prisma.invoice.findUniqueOrThrow({ where: { no: d.invoiceNo }, include: { serviceOrder: { include: { assets: true } } } });
+  if (iv.cancelledAt) throw new Error(`INVOICE_CANCELLED:${iv.no}`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const outstanding = expectedReceipt(Number(iv.amountDue), Number(iv.paidAmount ?? 0) + Number(iv.whtAmount ?? 0), 0);
   const settled = round2(d.paidAmount + d.whtAmount) >= outstanding;
@@ -140,7 +144,7 @@ export async function issueMonthlyStatement(customerCode: string, period: string
   const customer = await prisma.customer.findUniqueOrThrow({ where: { code: customerCode } });
   if (!customer.monthlyStatement) throw new Error(`${customerCode} is not a monthly-statement customer`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  const invoices = await prisma.invoice.findMany({ where: { serviceOrder: { customerId: customer.id }, paidAt: null, statementId: null } });
+  const invoices = await prisma.invoice.findMany({ where: { serviceOrder: { customerId: customer.id }, paidAt: null, statementId: null, cancelledAt: null } });
   if (!invoices.length) throw new Error("nothing to bill");
   const currency = invoices[0].currency;
   const total = round2(invoices.reduce((s, i) => s + Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0), 0));
@@ -149,5 +153,45 @@ export async function issueMonthlyStatement(customerCode: string, period: string
     const bl = await tx.monthlyStatement.create({ data: { no, customerId: customer.id, period, issuedAt: new Date(), currency, total, invoices: { connect: invoices.map((i) => ({ id: i.id })) } } });
     await tx.document.create({ data: { no, type: "BL", entityId: customer.entityId, countryCode: no.slice(2, 4), customerId: customer.id, createdById: actor.id } });
     return bl;
+  });
+}
+
+// ── TITH void (decision 2026-11-08: anyone may request, only the MD decides) ──────────────────────────────────
+
+/** Ask to void a tax invoice. Refused when a payment was already recorded against it (then a credit note is the way, not a void). */
+export async function requestTaxInvoiceVoid(input: { taxInvoiceNo: string; actorCode: string; reason: string }) {
+  const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no: input.taxInvoiceNo }, include: { invoices: { include: { receipts: true } }, serviceOrder: true } });
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (ti.voidedAt) throw new Error(`TI_ALREADY_VOID:${ti.no}`);
+  if (ti.voidStatus === "REQUESTED") throw new Error(`TI_VOID_PENDING:${ti.no}`);
+  if (ti.invoices.some((iv) => iv.receipts.length > 0 || Number(iv.paidAmount ?? 0) > 0)) throw new Error(`TI_HAS_PAYMENTS:${ti.no}`);
+  if (!input.reason.trim()) throw new Error("VOID_REASON_REQUIRED");
+  const upd = await prisma.taxInvoice.update({ where: { id: ti.id }, data: { voidStatus: "REQUESTED", voidRequestedAt: new Date(), voidRequestedById: actor.id, voidRequestReason: input.reason.trim(), voidDecidedAt: null, voidDecidedById: null, voidDecisionNote: null } });
+  await audit(actor.id, "TI_VOID_REQUEST", ti.no, { reason: input.reason.trim(), order: ti.serviceOrder.no });
+  return upd;
+}
+
+/**
+ * MD decision. APPROVED voids the tax invoice (number kept, never reused), cancels its unpaid IVTH so nothing is
+ * receivable against it, and lets the order take a new TITH + IVTH. REJECTED leaves everything as it was.
+ */
+export async function decideTaxInvoiceVoid(input: { taxInvoiceNo: string; actorCode: string; decision: "APPROVED" | "REJECTED"; note?: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no: input.taxInvoiceNo }, include: { invoices: { include: { receipts: true } }, serviceOrder: { include: { assets: true } } } });
+  if (ti.voidStatus !== "REQUESTED") throw new Error(`TI_VOID_NOT_REQUESTED:${ti.no}`);
+  if (input.decision === "APPROVED" && ti.invoices.some((iv) => iv.receipts.length > 0 || Number(iv.paidAmount ?? 0) > 0)) throw new Error(`TI_HAS_PAYMENTS:${ti.no}`);
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    const upd = await tx.taxInvoice.update({ where: { id: ti.id }, data: {
+      voidStatus: input.decision, voidDecidedAt: now, voidDecidedById: actor.id, voidDecisionNote: input.note,
+      ...(input.decision === "APPROVED" ? { voidedAt: now, voidReason: ti.voidRequestReason ?? input.note ?? "void" } : {}),
+    } });
+    if (input.decision === "APPROVED") {
+      await tx.invoice.updateMany({ where: { taxInvoiceId: ti.id, cancelledAt: null }, data: { cancelledAt: now, cancelReason: `TITH ${ti.no} voided` } });
+      for (const a of ti.serviceOrder.assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "INVOICED", actorId: actor.id, serviceOrderId: ti.serviceOrderId, sourceDocNo: ti.no, occurredAt: now, summary: `VOID ${ti.no}: ${ti.voidRequestReason ?? ""}`, payload: { void: true, reason: ti.voidRequestReason, invoicesCancelled: ti.invoices.map((i) => i.no) } as Prisma.InputJsonValue } });
+    }
+    await audit(actor.id, input.decision === "APPROVED" ? "TI_VOID_APPROVE" : "TI_VOID_REJECT", ti.no, { note: input.note, invoices: ti.invoices.map((i) => i.no) }, tx);
+    return upd;
   });
 }

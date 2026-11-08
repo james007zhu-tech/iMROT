@@ -1024,28 +1024,44 @@ model PurchaseOrder {
 
 /// TITH — Thai tax invoice: local currency, Thai description, VAT as a separate line.
 model TaxInvoice {
-  id             String       @id @default(cuid())
-  no             String       @unique /// TITH26110201
-  serviceOrderId String
-  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
-  issuedAt       DateTime
-  currency       String /// THB in Thailand, by law
-  lines          Json /// [{descriptionLocal, descriptionEn, qty, unitPrice, amount}]
-  subtotal       Decimal      @db.Decimal(18, 2)
-  vatRate        Decimal      @db.Decimal(5, 4)
-  vatAmount      Decimal      @db.Decimal(18, 2)
-  total          Decimal      @db.Decimal(18, 2)
-  fxRateToCny    Decimal      @db.Decimal(18, 8)
-  totalCny       Decimal      @db.Decimal(18, 2)
-  buyerTaxId     String?
-  buyerBranch    String?
-  voidedAt       DateTime? /// voided numbers are kept, never reused
-  voidReason     String?
+  id                String       @id @default(cuid())
+  no                String       @unique /// TITH26110201
+  serviceOrderId    String
+  serviceOrder      ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  issuedAt          DateTime
+  currency          String /// THB in Thailand, by law
+  lines             Json /// [{descriptionLocal, descriptionEn, qty, unitPrice, amount}]
+  subtotal          Decimal      @db.Decimal(18, 2)
+  vatRate           Decimal      @db.Decimal(5, 4)
+  vatAmount         Decimal      @db.Decimal(18, 2)
+  total             Decimal      @db.Decimal(18, 2)
+  fxRateToCny       Decimal      @db.Decimal(18, 8)
+  totalCny          Decimal      @db.Decimal(18, 2)
+  buyerTaxId        String?
+  buyerBranch       String?
+  voidedAt          DateTime? /// voided numbers are kept, never reused
+  voidReason        String?
+  // Void needs the MD (decision 2026-11-08): anyone may request, only the MD approves or rejects.
+  voidStatus        VoidStatus   @default(NONE)
+  voidRequestedAt   DateTime?
+  voidRequestedById String?
+  voidRequestReason String?
+  voidDecidedById   String?
+  voidDecidedAt     DateTime?
+  voidDecisionNote  String?
 
   invoices Invoice[]
 }
 
+enum VoidStatus {
+  NONE
+  REQUESTED
+  APPROVED
+  REJECTED
+}
+
 /// IVTH — the Invoice the customer pays against; also serves as the payment record (no separate receipt).
+/// cancelledAt: set when its tax invoice was voided before any payment — the number stays, the receivable is gone.
 model Invoice {
   id             String            @id @default(cuid())
   no             String            @unique /// IVTH26110201
@@ -1057,6 +1073,8 @@ model Invoice {
   dueAt          DateTime?
   currency       String
   amountDue      Decimal           @db.Decimal(18, 2)
+  cancelledAt    DateTime?
+  cancelReason   String?
   paidAmount     Decimal?          @db.Decimal(18, 2)
   whtAmount      Decimal?          @db.Decimal(18, 2) /// tax withheld by the customer
   whtCertRef     String? /// customer's withholding certificate reference

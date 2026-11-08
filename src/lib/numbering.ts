@@ -7,7 +7,7 @@
  *     C = customer CTH2610 + 3 digits  → CTH2610001
  *     E = employee ETH2610 + 3 digits  → ETH2610001
  *   Business documents (high frequency):  <2 letters><country><YYMMDD><serial>, serial resets daily
- *     QT IN RP PM ER TI IV BL PF DN CN DB TF RT SC PV TR PR PO → 2-digit serial  → QTTH26110201
+ *     IN RP PM ER TI IV BL PF DN CN DB TF RT SC PV TR PR PO → 2-digit serial  → INTH26110201; QT → 3-digit (QTTH261102001); IB OB → 3-digit
  *     IB OB (stock movements)                                  → 3-digit serial  → OBTH261102001
  *
  * The country code is never chosen by the user: it is the country of the employee who creates the record
@@ -24,7 +24,7 @@ export const MASTER_PREFIXES = {
 } as const;
 
 export const DOC_PREFIXES = {
-  QT: { name: "quotation / service order", digits: 2 },
+  QT: { name: "quotation / service order", digits: 3 }, // 3 digits since 2026-11-08 (朱总): 99 a day was reachable in testing
   PR: { name: "purchase inquiry", digits: 2 },
   PO: { name: "purchase order", digits: 2 },
   IN: { name: "inspection", digits: 2 },
@@ -112,7 +112,8 @@ export function parseNumber(no: string): ParsedNumber | null {
   const doc = /^([A-Z]{2})(TH|VN|CN)(\d{6})(\d{2,3})$/.exec(no);
   if (doc && isDocPrefix(doc[1])) {
     const prefix = doc[1];
-    if (doc[4].length !== DOC_PREFIXES[prefix].digits) return null;
+    // QT moved from 2 to 3 digits on 2026-11-08: numbers issued before then stay valid.
+    if (doc[4].length !== DOC_PREFIXES[prefix].digits && !(prefix === "QT" && doc[4].length === 2)) return null;
     return { prefix, country: doc[2] as CountryCode, period: doc[3], serial: Number(doc[4]), tier: "document" };
   }
   return null;
