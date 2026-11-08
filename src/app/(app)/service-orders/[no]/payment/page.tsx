@@ -29,13 +29,13 @@ export default async function Payment({ params, searchParams }: { params: Promis
   return (
     <StepPage order={order} title={u("step_payment")} error={error} kind={businessClosureOn() ? "payment" : undefined} uploadTitle={u("upPaymentTitle")} uploadHint={u("upPaymentHint")} saveLabel={businessClosureOn() ? t("save") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
       <Card title={u("invoiceIv")}>
-        <Table head={["IVTH", u("dueDate"), u("receivable"), t("paid"), t("wht"), u("outstanding")]}>
-          {order.invoices.map((i) => <tr key={i.id}><td className="font-mono">{i.no}</td><td>{i.dueAt?.toISOString().slice(0, 10) ?? ""}</td><td>{i.currency} {Number(i.amountDue).toFixed(2)}</td><td>{Number(i.paidAmount ?? 0).toFixed(2)}</td><td>{Number(i.whtAmount ?? 0).toFixed(2)}</td><td className={outstanding(i) > 0.004 ? "font-semibold text-alert-ink" : ""}>{outstanding(i).toFixed(2)}</td></tr>)}
+        <Table head={["IVTH", u("dueDate"), u("receivable"), t("paid"), t("wht"), u("outstanding"), "PDF"]}>
+          {order.invoices.map((i) => <tr key={i.id}><td className="font-mono">{i.no}</td><td>{i.dueAt?.toISOString().slice(0, 10) ?? ""}</td><td>{i.currency} {Number(i.amountDue).toFixed(2)}</td><td>{Number(i.paidAmount ?? 0).toFixed(2)}</td><td>{Number(i.whtAmount ?? 0).toFixed(2)}</td><td className={outstanding(i) > 0.004 ? "font-semibold text-alert-ink" : ""}>{outstanding(i).toFixed(2)}</td><td className="space-x-2 text-xs"><a className="text-blue hover:underline" href={`/api/documents/${i.no}/render?format=pdf`}>IVTH</a>{i.taxInvoice && <a className="text-blue hover:underline" href={`/api/documents/${i.taxInvoice.no}/render?format=pdf`}>TITH</a>}</td></tr>)}
         </Table>
       </Card>
       {receipts.length > 0 && <Card title={u("receiptsRc")}>
-        <Table head={["RCTH", "IVTH", u("paidOn"), t("cashReceived"), t("whtWithheld"), u("settled"), t("bankRef")]}>
-          {receipts.map((r) => <tr key={r.id}><td className="font-mono">{r.no}</td><td className="font-mono">{r.invoice.no}</td><td>{r.receivedAt.toISOString().slice(0, 10)}</td><td>{r.currency} {Number(r.cashAmount).toFixed(2)}</td><td>{Number(r.whtAmount).toFixed(2)}</td><td>{Number(r.settledAmount).toFixed(2)}</td><td>{r.bankRef ?? ""}</td></tr>)}
+        <Table head={["RCTH", "IVTH", u("paidOn"), t("cashReceived"), t("whtWithheld"), u("settled"), t("bankRef"), "PDF"]}>
+          {receipts.map((r) => <tr key={r.id}><td className="font-mono">{r.no}</td><td className="font-mono">{r.invoice.no}</td><td>{r.receivedAt.toISOString().slice(0, 10)}</td><td>{r.currency} {Number(r.cashAmount).toFixed(2)}</td><td>{Number(r.whtAmount).toFixed(2)}</td><td>{Number(r.settledAmount).toFixed(2)}</td><td>{r.bankRef ?? ""}</td><td className="text-xs"><a className="text-blue hover:underline" href={`/api/documents/${r.no}/render?format=pdf`}>RCTH</a></td></tr>)}
         </Table>
       </Card>}
       <form id="f" action={save}>

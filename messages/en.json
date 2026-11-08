@@ -1123,7 +1123,14 @@
     "empFilesNote": "CVs, contracts and document copies uploaded through the box above appear here and stay with the file.",
     "err_MD_SELF_DEMOTE": "The MD cannot remove their own MD role",
     "err_MANAGER_UNKNOWN": "Manager {detail} not found",
-    "err_WRONG_PASSWORD": "Wrong password"
+    "err_WRONG_PASSWORD": "Wrong password",
+    "rpt20": "Tax invoice TITH (original + copy)",
+    "rpt21": "Invoice IVTH",
+    "rpt22": "Receipt RCTH (original + copy)",
+    "rpt23": "Statement BLTH",
+    "statementsBl": "Statements BLTH",
+    "period": "Period",
+    "invoicesOnStatement": "Invoices"
   },
   "role": {
     "MD": "Managing Director",

@@ -168,6 +168,11 @@ await step("delivery-issued-and-signed", async () => {
 await step("acceptance", async () => { await go("accept"); await page.selectOption("[name=contactId]", { index: 1 }); await page.locator("[name=confirmLock]").check(); await save(); await noFlashError(); await expectText("Service completion"); });
 await step("invoice", async () => { await go("invoice"); await save(); await noFlashError(); await expectText("TITH2611"); await expectText("IVTH2611"); });
 await step("payment", async () => { await go("payment"); await page.fill("[name=paidAmount]", "13000"); await page.fill("[name=whtAmount]", "375"); await save(); await noFlashError(); });
+await step("finance-pdfs", async () => {
+  await go("payment");
+  const links = await page.locator("a[href*='/api/documents/']").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+  for (const k of ["IVTH", "TITH", "RCTH"]) { const l = links.find((h) => h.includes(`/${k}`)); if (!l) throw new Error(`no ${k} PDF link on the payment page`); const r = await ctx.request.get(`${BASE}${l}`); if (r.status() !== 200) throw new Error(`${l} → ${r.status()}`); }
+});
 await step("archive-case", async () => { await go("archive"); await page.fill("[name=lesson]", "check fan before capacitors"); await page.locator("[name=toFaultCode]").check(); await save(); await noFlashError(); });
 await step("report-pdfs", async () => {
   for (const url of [`/api/documents/${orderNo}/render?template=04&format=pdf`, `/api/documents/${dnNo}/render?format=pdf`, `/api/documents/${orderNo}/render?template=13&format=pdf`]) {

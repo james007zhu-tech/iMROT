@@ -17,12 +17,29 @@ function toXml(v: string | number | null | undefined): string {
   return String(v).split(/\r?\n/).map(esc).join("</w:t><w:br/><w:t xml:space=\"preserve\">");
 }
 
+/**
+ * Repeating rows: a table row whose placeholders start with `L_` (line fields, e.g. [[L_DESC]] [[L_QTY]]) is a
+ * template row. It is copied once per line — the longest array among its `L_` keys decides the count — and each
+ * copy's placeholders are bound to that line's index; with no lines the row disappears. Rows without `L_` keys are
+ * untouched, so the older fixed-row templates (APPROVED_CRITERION × 4) keep their behaviour.
+ */
+export function expandRows(xml: string, values: FieldValues): string {
+  return xml.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g, (row) => {
+    const keys = [...new Set([...row.matchAll(/\[\[(L_[A-Z0-9_]+)\]\]/g)].map((m) => m[1]))];
+    if (!keys.length) return row;
+    const n = Math.max(0, ...keys.map((k) => { const v = values[k]; return Array.isArray(v) ? v.length : v == null ? 0 : 1; }));
+    return Array.from({ length: n }, (_, i) => row.replace(/\[\[(L_[A-Z0-9_]+)\]\]/g, (_, k: string) => `[[${k}@${i}]]`)).join("");
+  });
+}
+
 export function fillXml(xml: string, values: FieldValues): { xml: string; unfilled: string[] } {
   const counters = new Map<string, number>();
   const unfilled = new Set<string>();
-  const out = xml.replace(/\[\[([A-Z0-9_]+)\]\]/g, (_, key: string) => {
+  for (const m of xml.matchAll(/\[\[(L_[A-Z0-9_]+)\]\]/g)) if (values[m[1]] === undefined) unfilled.add(m[1]); // rows without lines vanish, but the missing keys are still reported
+  const out = expandRows(xml, values).replace(/\[\[([A-Z0-9_]+)(?:@(\d+))?\]\]/g, (_, key: string, idx?: string) => {
     const v = values[key];
     if (v === undefined) { unfilled.add(key); return ""; }
+    if (idx !== undefined) return toXml(Array.isArray(v) ? v[Number(idx)] : v);
     if (Array.isArray(v)) {
       const i = counters.get(key) ?? 0;
       counters.set(key, i + 1);

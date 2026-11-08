@@ -159,7 +159,7 @@ export async function getServiceOrder(no: string) {
       acceptance: true,
       documents: { include: { createdBy: { select: { name: true } } }, orderBy: { issuedAt: "asc" } },
       taxInvoices: true,
-      invoices: true,
+      invoices: { include: { taxInvoice: { select: { no: true } } } },
       deliveries: true,
       inquiries: { select: { no: true, status: true, lines: true } },
       purchaseOrders: { select: { no: true, status: true, currency: true, total: true } },
