@@ -86,7 +86,7 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
         <form id="q" action={addQuote}>
           <Card title={u("addSupplierQuote")}>
             <Grid>
-              <Field label={u("supplier")} required><select name="supplierId" required className={inputCls}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
+              <Field label={u("supplier")} required><select name="supplierId" required className={inputCls}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.code} · {s.name}</option>)}</select></Field>
               <Field label={u("quoteNo")}><input name="quoteNo" className={`${inputCls} font-mono`} /></Field>
               <Field label={u("quoteDate")}><input name="quoteDate" type="date" className={inputCls} /></Field>
               <Field label={u("validUntil")}><input name="validUntil" type="date" className={inputCls} /></Field>

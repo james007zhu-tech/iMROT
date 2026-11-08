@@ -20,10 +20,15 @@ export const SupplierInput = z.object({
   contactName: z.string().optional(), phone: z.string().optional(), email: z.string().optional(), address: z.string().optional(),
   currency: z.string().default("THB"), paymentTerms: z.string().optional(), leadTimeDays: z.number().int().optional(),
 });
-export async function createSupplier(input: z.input<typeof SupplierInput>) {
-  const d = SupplierInput.parse(input);
+export async function createSupplier(input: z.input<typeof SupplierInput> & { actorCode: string }) {
+  const { actorCode, ...rest } = input;
+  const d = SupplierInput.parse(rest);
   if (d.taxId && (await prisma.supplier.findUnique({ where: { taxId: d.taxId } }))) throw new Error(`SUPPLIER_EXISTS:${d.taxId}`);
-  return prisma.supplier.create({ data: { ...d, taxId: d.taxId || undefined } });
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
+  return prisma.$transaction(async (tx) => {
+    const code = await allocateNumber(tx, { prefix: "S", createdByEmployeeCode: actor.code, entityId: actor.entityId });
+    return tx.supplier.create({ data: { ...d, code, entityId: actor.entityId, taxId: d.taxId || undefined } });
+  });
 }
 
 // ───────────── PRTH ─────────────

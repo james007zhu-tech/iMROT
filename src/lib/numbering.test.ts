@@ -47,3 +47,10 @@ describe("numbering", () => {
     expect(parseNumber("XCGDD2610140001")).toBeNull(); // customer's own number: stored verbatim, never parsed as ours
   });
 });
+
+describe("supplier numbers (STH, 2026-11-08)", () => {
+  it("parses STH like a customer number", () => {
+    expect(parseNumber("STH2611001")).toEqual({ prefix: "S", country: "TH", period: "2611", serial: 1, tier: "master" });
+    expect(parseNumber("STH26110001")).toBeNull(); // suppliers have 3 digits, not 4
+  });
+});
