@@ -736,7 +736,7 @@
     "docType_BL": "Monthly statement",
     "docType_OB": "Stock out",
     "docType_IB": "Stock in",
-    "rpt04": "Repair proposal",
+    "rpt04": "Service proposal",
     "rpt06": "Order confirmation",
     "rpt07": "Equipment receiving",
     "rpt08": "Diagnostic report",

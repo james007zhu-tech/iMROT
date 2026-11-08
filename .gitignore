@@ -7,3 +7,4 @@ uploads/
 e2e-shots/
 .dev-ops/
 tsconfig.tsbuildinfo
+__pycache__/
