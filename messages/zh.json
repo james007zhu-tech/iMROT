@@ -756,7 +756,7 @@
     "newPart": "新建料号",
     "newMovement": "新增出入库",
     "searchParts": "搜索 料号 / 名称",
-    "onHand": "库存",
+    "onHand": "在库 {n}",
     "backToParts": "返回备件列表",
     "part": "料号",
     "vendorPartNo": "厂家料号",
@@ -1176,7 +1176,16 @@
     "rpt24": "采购询价单 PRTH",
     "rpt25": "采购订单 POTH",
     "rpt26": "入库单 IBTH",
-    "rpt27": "出库单 OBTH"
+    "rpt27": "出库单 OBTH",
+    "needsTitle": "所需物料与人工",
+    "internalOnly": "内部字段，不印在报告",
+    "needsHint": "检测时判断维修需要的部件和工时。保存检测单时系统核对库存：缺的部件自动生成采购询价单 PRTH，并带入报价页。",
+    "needPart": "物料",
+    "needLabour": "人工",
+    "stockCheck": "库存核对",
+    "short": "缺 {n}",
+    "checkedOnSave": "保存时核对",
+    "quoteFromInth": "报价行已按检测单的所需物料与人工预填（成本取部件最近采购价），请填写单价后保存。"
   },
   "role": {
     "MD": "董事总经理 MD",

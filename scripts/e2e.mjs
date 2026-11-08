@@ -124,10 +124,14 @@ await step("inspect", async () => {
   await go("inspect");
   await page.fill("[name=conditions]", "38°C dusty, isolated and locked out"); await page.fill("[name=findings]", "DC bus capacitors degraded; fan seized"); await page.fill("[name=probableCause]", "cooling failure"); await page.fill("[name=recommendation]", "replace fan, load test");
   await page.fill("[name=c_supply]", "380V ±10%"); await page.fill("[name=r_supply]", "372V");
-  await save(); await page.waitForURL(new RegExp(`/service-orders/${orderNo}\\?`)); await noFlashError(); await expectText("INTH");
+  // parts and labour the repair needs (internal rows): the fan is not in the catalogue → short → a PRTH is raised on save
+  await page.fill("[name=ns0]", `ABB-FAN-${stamp}`); await page.fill("[name=nd0]", "Cooling fan"); await page.fill("[name=nq0]", "1");
+  await page.selectOption("[name=nk1]", "LABOUR"); await page.fill("[name=nd1]", "Labour"); await page.fill("[name=nq1]", "4"); await page.fill("[name=nu1]", "h");
+  await save(); await page.waitForURL(new RegExp(`/service-orders/${orderNo}\\?`)); await noFlashError(); await expectText("INTH"); await expectText("PRTH");
 });
 await step("quote", async () => {
   await go("quote");
+  if ((await page.inputValue("[name=s0]")) !== `ABB-FAN-${stamp}` || (await page.inputValue("[name=q1]")) !== "4") throw new Error("quote not pre-filled from the INTH needs");
   await page.fill("[name=d0]", "Cooling fan"); await page.fill("[name=l0]", "พัดลม"); await page.fill("[name=q0]", "1"); await page.fill("[name=p0]", "6500"); await page.fill("[name=s0]", `ABB-FAN-${stamp}`);
   await page.fill("[name=d1]", "Labour"); await page.fill("[name=l1]", "ค่าแรง"); await page.fill("[name=q1]", "4"); await page.fill("[name=u1]", "h"); await page.fill("[name=p1]", "1500");
   await save(); await noFlashError(); await expectText("13375.00");

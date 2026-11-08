@@ -59,17 +59,41 @@ export async function createInquiry(input: z.input<typeof InquiryInput>) {
 }
 
 /** Lines a service order still needs to buy: quoted parts whose stock on hand is short. */
+/**
+ * Parts the order is short of, from the quote lines when they exist, otherwise from the INTH needs (flow step 3:
+ * the inspection lists what the repair needs, the system checks stock, the short part goes to purchasing).
+ */
 export async function inquiryLinesFromOrder(no: string): Promise<InquiryLine[]> {
-  const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { lines: { include: { part: true }, orderBy: { lineNo: "asc" } } } });
+  const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { lines: { include: { part: true }, orderBy: { lineNo: "asc" } }, inspections: { where: { draft: false }, orderBy: { no: "desc" } } } });
+  const wanted: { sku: string; vendorPartNo?: string; description: string; qty: number; unit: string; assetCode?: string }[] = [];
+  if (o.lines.some((l) => l.part)) {
+    for (const l of o.lines) if (l.part) wanted.push({ sku: l.part.sku, vendorPartNo: l.part.vendorPartNo, description: l.description, qty: Number(l.qty), unit: l.unit, assetCode: l.assetCode ?? undefined });
+  } else {
+    for (const insp of o.inspections) {
+      const needs = (insp.needs as { kind: string; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit?: string }[] | null) ?? [];
+      const asset = await prisma.asset.findUnique({ where: { id: insp.assetId }, select: { code: true } });
+      for (const n of needs) if (n.kind === "PART" && n.partSku) wanted.push({ sku: n.partSku, vendorPartNo: n.vendorPartNo, description: n.description, qty: Number(n.qty), unit: n.unit ?? "pcs", assetCode: asset?.code });
+    }
+  }
   const out: InquiryLine[] = [];
-  for (const l of o.lines) {
-    if (!l.part) continue;
-    const moves = await prisma.stockMovement.findMany({ where: { partId: l.part.id }, select: { direction: true, qty: true } });
+  for (const w of wanted) {
+    const part = await prisma.part.findUnique({ where: { sku: w.sku } });
+    const moves = part ? await prisma.stockMovement.findMany({ where: { partId: part.id }, select: { direction: true, qty: true } }) : [];
     const onHand = moves.reduce((s, m) => s + (m.direction === "IN" ? 1 : -1) * Number(m.qty), 0);
-    const short = Number(l.qty) - onHand;
-    if (short > 0) out.push({ lineNo: out.length + 1, partSku: l.part.sku, vendorPartNo: l.part.vendorPartNo, description: l.description, qty: short, unit: l.unit, assetCode: l.assetCode ?? undefined });
+    const short = w.qty - onHand;
+    if (short > 0) out.push({ lineNo: out.length + 1, partSku: w.sku, vendorPartNo: w.vendorPartNo ?? part?.vendorPartNo, description: w.description, qty: short, unit: w.unit, assetCode: w.assetCode });
   }
   return out;
+}
+
+/** Flow step 3: after an INTH is saved for real, raise one PRTH for the short parts — unless the order already has an open inquiry. Returns the PRTH number or null. */
+export async function autoInquiryForOrder(no: string, actorCode: string): Promise<string | null> {
+  const open = await prisma.purchaseInquiry.findFirst({ where: { serviceOrder: { no }, status: { in: ["OPEN", "COMPARED"] } } });
+  if (open) return null;
+  const lines = await inquiryLinesFromOrder(no);
+  if (!lines.length) return null;
+  const inq = await createInquiry({ actorCode, serviceOrderNo: no, lines, note: "auto: short parts from the inspection" });
+  return inq.no;
 }
 
 // ───────────── supplier quotes & comparison ─────────────

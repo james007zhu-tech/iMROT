@@ -21,7 +21,17 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [parts, rate] = await Promise.all([prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500 }), latestRate(order.currency)]);
   refreshIfStale(rate?.ageDays); // a missing or day-old BoC rate is fetched again in the background
-  const lines = order.lines;
+  // No quote yet → start from what the inspections said the repair needs (parts with their last cost, labour in hours).
+  type Row = { assetCode?: string | null; partId?: string | null; partSku?: string; description: string; descriptionLocal?: string | null; qty: number | { toString(): string }; unit: string; unitPrice?: number | { toString(): string }; unitCost?: number | { toString(): string } | null; costRef?: number | { toString(): string } | null; fromInth?: boolean };
+  let lines: Row[] = order.lines;
+  if (!lines.length) {
+    const insps = await prisma.inspection.findMany({ where: { serviceOrderId: order.id, draft: false }, orderBy: { no: "asc" }, include: { asset: { select: { code: true } } } });
+    for (const insp of insps) for (const n of ((insp.needs as { kind: string; partSku?: string; description: string; descriptionLocal?: string; qty: number; unit?: string }[] | null) ?? [])) {
+      const part = n.partSku ? parts.find((p) => p.sku === n.partSku) : undefined;
+      lines.push({ assetCode: insp.asset.code, partSku: n.partSku, description: n.description, descriptionLocal: n.descriptionLocal, qty: n.qty, unit: n.unit ?? (n.kind === "LABOUR" ? "h" : "pcs"), unitCost: part?.lastCost ?? null, fromInth: true });
+    }
+  }
+  const fromInth = lines.some((l) => l.fromInth);
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
@@ -38,18 +48,19 @@ export default async function Quote({ params, searchParams }: { params: Promise<
     <StepPage order={order} title={u("step_quote")} error={error} kind="quote" uploadTitle={u("upQuoteTitle")} uploadHint={u("upQuoteHint")} lineFields={{ description: "d", qty: "q", unit: "u", unitPrice: "c" }} saveLabel={u("saveQuote")}>
       <form id="f" action={save}>
         <Card title={u("quoteLines")}>
+          {fromInth && <Alert>{u("quoteFromInth")}</Alert>}
           {order.marginPct != null && Number(order.marginPct) < MIN_MARGIN_PCT && <Alert>{u("marginBelowFloor", { pct: (Number(order.marginPct) * 100).toFixed(1), floor: MIN_MARGIN_PCT * 100 })}</Alert>}
           <div className="hidden grid-cols-[120px_150px_2fr_2fr_70px_60px_100px_100px] gap-2 text-xs text-navy/70 md:grid"><span>{t("asset")}</span><span>{u("partSku")}</span><span>{u("descEn")}</span><span>{u("descTh")}</span><span>{t("qty")}</span><span>{u("uom")}</span><span>{t("price")}</span><span>{u("unitCost")}</span></div>
           <RevealRows initial={Math.max(lines.length, 2)} addLabel={u("addLine")}>
             {Array.from({ length: ROWS }, (_, i) => { const l = lines[i]; return (
               <div key={i} className="grid grid-cols-2 gap-2 md:grid-cols-[120px_150px_2fr_2fr_70px_60px_100px_100px]">
                 <select name={`a${i}`} defaultValue={l?.assetCode ?? order.assets[0]?.asset.code} className={inputCls}><option value="">—</option>{order.assets.map((x) => <option key={x.assetId} value={x.asset.code}>{x.asset.code}</option>)}</select>
-                <input name={`s${i}`} list="parts" defaultValue={parts.find((p) => p.id === l?.partId)?.sku ?? ""} className={inputCls} />
+                <input name={`s${i}`} list="parts" defaultValue={l?.partSku ?? parts.find((p) => p.id === l?.partId)?.sku ?? ""} className={inputCls} />
                 <input name={`d${i}`} defaultValue={l?.description ?? ""} className={inputCls} />
                 <input name={`l${i}`} defaultValue={l?.descriptionLocal ?? ""} className={inputCls} placeholder="ภาษาไทย" />
                 <input name={`q${i}`} type="number" step="0.001" defaultValue={l ? Number(l.qty) : ""} className={inputCls} />
                 <input name={`u${i}`} defaultValue={l?.unit ?? "pcs"} className={inputCls} />
-                <input name={`p${i}`} type="number" step="0.01" defaultValue={l ? Number(l.unitPrice) : ""} className={inputCls} />
+                <input name={`p${i}`} type="number" step="0.01" defaultValue={l?.unitPrice != null ? Number(l.unitPrice) : ""} className={inputCls} />
                 <input name={`c${i}`} type="number" step="0.01" defaultValue={l?.unitCost != null ? Number(l.unitCost) : l?.costRef != null ? Number(l.costRef) : ""} placeholder={u("costPh")} className={inputCls} />
               </div>); })}
           </RevealRows>
