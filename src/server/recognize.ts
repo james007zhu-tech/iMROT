@@ -34,6 +34,7 @@ export async function pdfText(bytes: Buffer): Promise<string> {
 /** What each accepted docKind means, for the model's first decision. */
 const DOC_KIND_HINTS: Record<string, string> = {
   DBD: "DBD = หนังสือรับรอง company certificate from the Department of Business Development", PP20: "PP20 = ภ.พ.20 VAT registration", BILLING: "BILLING = the customer's own billing/invoice-to details",
+  INQUIRY: "INQUIRY = the customer's request for quotation / inquiry (RFQ form, e-mail, LINE or chat message asking for a price or a repair)", PO: "PO = the customer's purchase order or work order", MESSAGE: "MESSAGE = a fault report or other message without a request for price",
   CV: "CV = résumé / curriculum vitae", PASSPORT: "PASSPORT = passport data page", ID_CARD: "ID_CARD = Thai national ID card", VISA: "VISA = visa sticker or stamp with permitted-to-stay date", WORK_PERMIT: "WORK_PERMIT = Thai work permit booklet or digital permit", CONTRACT: "CONTRACT = labour / employment contract", DEGREE: "DEGREE = diploma or transcript", CERTIFICATE: "CERTIFICATE = professional licence or training certificate",
 };
 

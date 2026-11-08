@@ -1156,6 +1156,7 @@ model DeliveryNote {
   signedBy       String?
   signedAt       DateTime?
   signatureUrl   String?
+  attachments    Json? /// archived with the DN: our signed copy (DELIVERY) and, when the customer insists on their own form, their delivery note (CUSTOMER_DN, optional)
   remark         String?
   createdAt      DateTime       @default(now())
 }

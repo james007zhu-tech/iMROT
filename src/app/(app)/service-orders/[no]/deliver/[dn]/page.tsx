@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { signDelivery } from "@/server/delivery";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
+import { saveUpload } from "@/lib/uploads";
 import { maskName } from "@/lib/mask";
 import { Card, Field, Grid, Table, Tag, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, str } from "../../_shell";
@@ -24,7 +25,9 @@ export default async function DeliveryNote({ params, searchParams }: { params: P
     "use server";
     await guarded(async () => {
       const me = await currentEmployee();
-      await signDelivery({ no: dn, actorCode: me.code, signedBy: String(f.get("signedBy")), signedAt: str(f, "signedAt") ? new Date(str(f, "signedAt")!) : undefined, remark: str(f, "remark"), attachments: atts(f) });
+      const customerDn: { name: string; url: string; kind: string }[] = [];
+      for (const x of f.getAll("customerDnFiles")) if (x instanceof File && x.size > 0) customerDn.push({ ...(await saveUpload(x, "customer-dn")), name: x.name, kind: "CUSTOMER_DN" });
+      await signDelivery({ no: dn, actorCode: me.code, signedBy: String(f.get("signedBy")), signedAt: str(f, "signedAt") ? new Date(str(f, "signedAt")!) : undefined, remark: str(f, "remark"), attachments: [...atts(f), ...customerDn] });
       return { ok: dn, to: `/service-orders/${no}` };
     }, `/service-orders/${no}/deliver/${dn}`);
   }
@@ -40,13 +43,16 @@ export default async function DeliveryNote({ params, searchParams }: { params: P
         </Table>
         {note.overrideReason && <p className="text-xs text-alert-ink">MD: {note.overrideReason}</p>}
       </Card>
-      {signed ? <Card title={u("customerSignature")}><p className="text-sm">{maskName(note.signedBy)} · {note.signedAt ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(note.signedAt) : ""}{note.remark ? ` · ${note.remark}` : ""}</p></Card> : (
+      {signed ? <Card title={u("customerSignature")}><p className="text-sm">{maskName(note.signedBy)} · {note.signedAt ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(note.signedAt) : ""}{note.remark ? ` · ${note.remark}` : ""}</p>
+        {Array.isArray(note.attachments) && (note.attachments as { name: string; url: string; kind?: string }[]).length > 0 && <div className="mt-2 flex flex-wrap gap-2 text-xs">{(note.attachments as { name: string; url: string; kind?: string }[]).map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.kind === "CUSTOMER_DN" ? `${u("kind_CUSTOMER_DN")} · ` : ""}{a.name}</a>)}</div>}
+      </Card> : (
         <form id="f" action={sign}>
           <Card title={u("customerSignature")}>
             <Grid>
               <Field label={u("signedByName")} required><input name="signedBy" required className={inputCls} /></Field>
               <Field label={u("signedAt")} required><input name="signedAt" type="datetime-local" defaultValue={now} className={inputCls} /></Field>
               <Field label={u("remark")}><input name="remark" className={inputCls} /></Field>
+              <Field label={u("customerDnFiles")} className="md:col-span-3"><input name="customerDnFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /><p className="mt-1 text-xs text-navy/60">{u("customerDnHint")}</p></Field>
             </Grid>
           </Card>
         </form>

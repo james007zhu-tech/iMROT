@@ -185,6 +185,10 @@ await step("finance-pdfs", async () => {
   const links = await page.locator("a[href*='/api/documents/']").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
   for (const k of ["IVTH", "TITH", "RCTH"]) { const l = links.find((h) => h.includes(`/${k}`)); if (!l) throw new Error(`no ${k} PDF link on the payment page`); const r = await ctx.request.get(`${BASE}${l}`); if (r.status() !== 200) throw new Error(`${l} → ${r.status()}`); }
 });
+await step("project-complete", async () => {
+  await page.goto(`${BASE}/service-orders/${orderNo}`); await expectText("Fully paid"); // settled but not closed by itself
+  await page.click("button:has-text('Project complete')"); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("Closed");
+});
 await step("archive-case", async () => { await go("archive"); await page.fill("[name=lesson]", "check fan before capacitors"); await page.locator("[name=toFaultCode]").check(); await save(); await noFlashError(); });
 await step("report-pdfs", async () => {
   for (const url of [`/api/documents/${orderNo}/render?template=04&format=pdf`, `/api/documents/${dnNo}/render?format=pdf`, `/api/documents/${orderNo}/render?template=13&format=pdf`]) {
