@@ -744,7 +744,7 @@ model StockMovement {
 /// Suppliers — master data numbered like customers: STH + YYMM + 3-digit serial (decided 2026-11-08).
 model Supplier {
   id           String   @id @default(cuid())
-  code         String   @unique /// STH2611001
+  code         String?  @unique /// STH2611001 — optional only so databases with suppliers from before 2026-11-08 can upgrade; db:seed numbers them, new ones always get one
   entityId     String?
   name         String
   nameLocal    String?

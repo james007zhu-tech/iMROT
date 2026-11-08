@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentContact } from "@/server/auth";
+import { pdfAvailable } from "@/server/office";
 import { OrderProgress } from "@/components/OrderProgress";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { AssetTriple, FaultText } from "@/components/ui";
@@ -22,7 +23,7 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
     include: { assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } }, lines: { orderBy: { lineNo: "asc" } }, documents: { where: { voidedAt: null, type: { in: ["QT", "IN", "RP", "PM", "ER", "DN"] } }, orderBy: { issuedAt: "asc" } }, acceptance: true, repairJobs: true },
   });
   if (!order) notFound();
-  const [t, u, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getLocale()]);
+  const [t, u, locale, pdf] = await Promise.all([getTranslations("common"), getTranslations("ui"), getLocale(), pdfAvailable()]);
   const day = (d: Date) => new Intl.DateTimeFormat(locale, { month: "2-digit", day: "2-digit" }).format(d);
   const input = "w-full rounded-md border px-3 py-3 text-base";
 
@@ -97,7 +98,7 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
               <tr key={`${d.no}${r.key}`} className="border-b border-hair">
                 <td className="py-2 pr-2 align-top text-navy/70">{day(d.issuedAt)}</td>
                 <td className="py-2"><span className="font-mono">{d.no}</span><span className="block text-xs text-navy/75">{u(r.key)}</span></td>
-                <td className="py-2 text-right"><a className="text-blue underline" href={`/api/documents/${d.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>PDF</a></td>
+                <td className="py-2 text-right"><a className="text-blue underline" href={`/api/documents/${d.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{pdf ? "PDF" : "Word"}</a></td>
               </tr>
             ))}
             {pendingAcceptance && <tr className="text-navy/50"><td className="py-2 pr-2">{u("pending")}</td><td className="py-2">{u("rpt12")} / {u("rpt13")}</td><td className="py-2 text-right">—</td></tr>}

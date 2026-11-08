@@ -6,6 +6,7 @@
 import { PrismaClient } from "@prisma/client";
 import master from "../docs/brand/company_master.json";
 import { hashPassword } from "../src/lib/password";
+import { allocateNumber } from "../src/lib/numbering-db";
 
 const prisma = new PrismaClient();
 
@@ -78,6 +79,12 @@ async function main() {
     update: {},
     create: { seriesId: s120.id, code: "6SL3120-2TE41-0AA1" },
   });
+
+  // Suppliers created before STH numbering (2026-11-08) get their number here; new ones are numbered when created.
+  const numberer = await prisma.employee.findFirst({ where: { role: { in: ["MD", "ADMIN"] } }, orderBy: { createdAt: "asc" } });
+  if (numberer) for (const s of await prisma.supplier.findMany({ where: { code: null }, orderBy: { createdAt: "asc" } })) {
+    await prisma.$transaction(async (tx) => tx.supplier.update({ where: { id: s.id }, data: { code: await allocateNumber(tx, { prefix: "S", createdByEmployeeCode: numberer.code, entityId: s.entityId ?? numberer.entityId, date: s.createdAt }) } }));
+  }
 
   console.log("seeded: LegalEntity TH, ETH2611001 (password: SEED_ADMIN_PASSWORD or dcit2026), SIE / S120 / 6SL3120-2TE41-0AA1");
 }

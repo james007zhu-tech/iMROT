@@ -1,8 +1,11 @@
 {
   "name": "dcit-os",
-  "version": "0.22.0",
+  "version": "0.22.1",
+  "engines": {
+    "node": ">=22.18"
+  },
   "private": true,
-  "description": "DCiT OS \u2014 iMROT 'i': equipment-centred service operations system (ALM/CRM/SLM/SCM/FIN/T&O/OPD/Admin)",
+  "description": "DCiT OS — iMROT 'i': equipment-centred service operations system (ALM/CRM/SLM/SCM/FIN/T&O/OPD/Admin)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

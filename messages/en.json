@@ -358,7 +358,15 @@
     "photo": "Nameplate photo",
     "noVoice": "This browser has no speech input",
     "buildDashboard": "Describe the dashboard you want…",
-    "editDashboard": "Say what to change…"
+    "editDashboard": "Say what to change…",
+    "offlineMode": "Offline mode (AI not configured): look-ups by record number or serial",
+    "offlineHelp": "Type a number such as ATH26110002 or QTTH26110504 to see the record and its history, or on the new-asset page say \"new asset VFD serial … location …\"",
+    "offlineHistory": "Recent history:",
+    "offlineDocs": "Documents:",
+    "offlineNotFound": "{code} not found",
+    "offlineCounts": "{assets} assets · {orders} service orders",
+    "offlineFilled": "Filled in — check before saving: {fields}",
+    "offlineOpenForm": "Opened the new-asset page; say it again there to fill it in: {fields}"
   },
   "ui": {
     "chooseFile": "Choose file",
@@ -958,7 +966,19 @@
     "err_RECEIPT_OVER": "Line {detail}: receiving more than ordered",
     "err_PO_LINE_NO_SKU": "Line {detail} has no part SKU",
     "err_PO_LINE_NOT_FOUND": "Line {detail} not found",
-    "err_SUPPLIER_EXISTS": "A supplier with tax ID {detail} already exists"
+    "err_SUPPLIER_EXISTS": "A supplier with tax ID {detail} already exists",
+    "fxMissing": "No {ccy} → CNY rate yet: the quote can be saved but has no CNY amount. The system is fetching Bank of China rates again",
+    "fxGoAdmin": "See rates",
+    "fxLine": "1 {ccy} = {rate} CNY (Bank of China {date})",
+    "fxTotal": "total ≈ CNY {amount}",
+    "fxStale": "rate not updated for {days} days",
+    "fxFetchNow": "Fetch Bank of China rates now",
+    "fxAutoNote": "Fetched automatically every day, and again whenever the newest rate is over a day old",
+    "err_FX_FETCH_FAILED": "Could not fetch Bank of China rates ({detail}); the system will retry automatically",
+    "err_FORBIDDEN": "You are not allowed to do this",
+    "actionCancelOrder": "Cancel service order",
+    "actionCloseOrder": "Close service order",
+    "exportWord": "Export Word"
   },
   "role": {
     "MD": "Managing Director",

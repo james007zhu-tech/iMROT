@@ -4,6 +4,7 @@
  */
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { sofficePath } from "./office";
 import { promisify } from "node:util";
 import path from "node:path";
 import { prisma } from "@/lib/db";
@@ -133,7 +134,9 @@ export async function renderDocument(no: string, template?: string): Promise<{ d
   await writeFile(docxPath, docx);
   let pdfPath: string | undefined;
   try {
-    await exec("soffice", ["--headless", "--convert-to", "pdf", "--outdir", OUT, docxPath], { timeout: 120000 });
+    const soffice = await sofficePath();
+    if (!soffice) throw new Error("no LibreOffice");
+    await exec(soffice, ["--headless", "--convert-to", "pdf", "--outdir", OUT, docxPath], { timeout: 120000 });
     pdfPath = path.join(OUT, `${no}${template ? `-${template}` : ""}.pdf`);
     if (!template) await prisma.document.update({ where: { no }, data: { pdfUrl: `/api/documents/${no}/pdf`, templateCode: tpl } });
   } catch {

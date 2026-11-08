@@ -142,4 +142,15 @@ docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetc
   - 送货单草稿页面不能打印/签收，打开会回到送货单表单；现场陪同人必须是该客户的联系人。
   - 系统管理 VAT 显示 7%（原 7.000000000000001%）；步骤页和系统管理页的报错也显示栏位中文名。
   - 验证：tsc、vitest 46、smoke（PostgreSQL，含草稿清空栏位、事件起始状态）、smoke:mem、build、Playwright 44 步（含「出错后保存草稿仍是草稿」）全过。
+- 0.22.1（2026-11-08：11-05 试运行剩下的问题 + 网页图标）：
+  - 网页图标（选定方案 C）：logo 里的「i」和蓝色方点放在深蓝圆角方块上；16 / 32 px 按整像素绘制，不再把横版 logo 压成方块。favicon.ico（16/32/48）、icon-16/32/192/512、apple-touch-icon；矢量源在 `docs/brand/favicon*.svg`。
+  - AI 助手没配 key 时不再只回一句英文：离线模式按单号查记录和最近历史（ATH / QTTH / INTH … / CTH），按序列号或位置搜设备，口述「新建设备 变频器 序列号 … 位置 …」直接填表（`src/server/ai-offline.ts`）。
+  - 汇率：中国银行抓取每次 25 秒超时、最多三次；报价页显示「1 THB = … CNY（中国银行 日期）· 合计约 CNY …」，缺汇率时橙色提示；汇率超过一天没更新，打开报价页会在后台自动重抓；系统管理页有「立即抓取中国银行汇率」。
+  - DBD 查询按 DBD 实际返回格式读取（`status.code` 1000 / 1004、`cd:OrganizationJuristic…` 字段），1004 = 查无此公司；单次 12 秒，结果缓存一天（DBD 有防火墙，频繁查询会被拦）；DBD 不提供电话。
+  - 服务单「已取消」按钮改为「取消服务单 / 关闭服务单」；收款开票关闭（BUSINESS_CLOSURE 未开）时，回款页不再显示上传框，财务/税务页不显示「从已验收服务单开票」，服务单不提示「下一步：开票」。
+  - 本机没有 LibreOffice 时，报告按钮显示「导出 Word」，不再写 PDF 却下载 Word；macOS 上装在 /Applications 的 LibreOffice 也能找到。
+  - 新增设备：序列号输入时就提示重复（保存时仍会拦）。
+  - 需要 Node ≥ 22.18（package.json engines，.nvmrc = 24），Node 22.11/22.12 会全站报错。
+  - 供应商编号 STH：已有供应商的库升级时 `db push` 会失败（新加的必填唯一字段），改为可空 + `db:seed` 自动补号；Mac mini 开发容器遇到只是「新增唯一约束」的提示时会自动重试。
+  - 验证：tsc、vitest 60、smoke（PostgreSQL）、smoke:mem、build、Playwright 49 步（含输入时重复序列号提示、离线助手查单和口述填表、图标）全过。中国银行和 DBD 的真实抓取在本环境连不上，未实测。
 

@@ -87,8 +87,20 @@ await step("asset-vfd-with-relation", async () => {
 });
 await step("asset-duplicate-serial-warns", async () => {
   await page.goto(`${BASE}/assets/new`);
-  await page.fill("[name=modelCode]", "6SL3120-2TE41-0AA1"); await page.fill("[name=serialNumber]", `SN-E2E-${stamp}`); await selectByText(page, "[name=customerId]", `E2E Tyre ${stamp}`); await page.fill("[name=location]", "x"); await page.selectOption("[name=responsibleEmployeeId]", { index: 1 });
+  await page.fill("[name=modelCode]", "6SL3120-2TE41-0AA1"); await page.fill("[name=serialNumber]", `SN-E2E-${stamp}`);
+  await expectText(`already exists as ${assetCode}`); // warned while typing, before saving
+  await selectByText(page, "[name=customerId]", `E2E Tyre ${stamp}`); await page.fill("[name=location]", "x"); await page.selectOption("[name=responsibleEmployeeId]", { index: 1 });
   await save(); await expectText(`already exists as ${assetCode}`);
+});
+await step("assistant-offline-lookup", async () => {
+  // No ANTHROPIC_API_KEY in the test server: the assistant must still answer look-ups by record number.
+  const r = await ctx.request.post(`${BASE}/api/ai/assist`, { data: { messages: [{ role: "user", content: `${assetCode} history?` }], path: "/assets" } });
+  const j = await r.json(); if (!String(j.text).includes(assetCode) || !/Offline mode/.test(j.text)) throw new Error(`assistant offline: ${JSON.stringify(j).slice(0, 200)}`);
+  const f = await ctx.request.post(`${BASE}/api/ai/assist`, { data: { messages: [{ role: "user", content: "new asset VFD serial X-1 location Line 3" }], path: "/assets/new", fields: ["type", "serialNumber", "location"] } });
+  const fj = await f.json(); if (fj.actions?.[0]?.fields?.serialNumber !== "X-1") throw new Error(`assistant dictation: ${JSON.stringify(fj).slice(0, 200)}`);
+});
+await step("favicon-served", async () => {
+  for (const u of ["/favicon.ico", "/icon-32.png", "/apple-touch-icon.png"]) { const r = await ctx.request.get(`${BASE}${u}`); if (r.status() !== 200) throw new Error(`${u} → ${r.status()}`); }
 });
 
 let orderNo;

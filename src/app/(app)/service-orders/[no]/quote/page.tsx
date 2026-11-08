@@ -1,5 +1,7 @@
 import { getTranslations } from "next-intl/server";
+import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { latestRate, refreshIfStale } from "@/server/fx";
 import { catchUpOrder } from "@/server/slm";
 import { setQuoteLines } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
@@ -17,7 +19,8 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   const [{ no }, { error }] = await Promise.all([params, searchParams]);
   const order = await loadOrder(no);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
-  const parts = await prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500 });
+  const [parts, rate] = await Promise.all([prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500 }), latestRate(order.currency)]);
+  refreshIfStale(rate?.ageDays); // a missing or day-old BoC rate is fetched again in the background
   const lines = order.lines;
   async function save(f: FormData) {
     "use server";
@@ -52,6 +55,15 @@ export default async function Quote({ params, searchParams }: { params: Promise<
           </RevealRows>
           <datalist id="parts">{parts.map((p) => <option key={p.id} value={p.sku}>{p.name}</option>)}</datalist>
           <p className="text-xs text-navy/70">{u("quoteVatNote")} {u("marginRuleNote", { floor: MIN_MARGIN_PCT * 100 })}</p>
+          {!rate ? (
+            <Alert>{u("fxMissing", { ccy: order.currency })} <Link href="/admin" className="underline">{u("fxGoAdmin")}</Link></Alert>
+          ) : order.currency !== "CNY" && (
+            <p className={`text-xs ${rate.ageDays > 3 ? "font-semibold text-alert-ink" : "text-navy/70"}`}>
+              {u("fxLine", { ccy: order.currency, rate: rate.rateToCny.toFixed(6), date: rate.rateDate.toISOString().slice(0, 10) })}
+              {order.totalCny != null && ` · ${u("fxTotal", { amount: Number(order.totalCny).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })}`}
+              {rate.ageDays > 3 && ` · ${u("fxStale", { days: rate.ageDays })}`}
+            </p>
+          )}
         </Card>
       </form>
     </StepPage>

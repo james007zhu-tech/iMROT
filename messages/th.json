@@ -358,7 +358,15 @@
     "photo": "ถ่ายป้ายชื่อ",
     "noVoice": "เบราว์เซอร์นี้ไม่รองรับการพูด",
     "buildDashboard": "อธิบายแดชบอร์ดที่ต้องการ…",
-    "editDashboard": "บอกสิ่งที่ต้องการเปลี่ยน…"
+    "editDashboard": "บอกสิ่งที่ต้องการเปลี่ยน…",
+    "offlineMode": "โหมดออฟไลน์ (ยังไม่ได้ตั้งค่า AI): ค้นหาด้วยเลขที่เอกสารหรือหมายเลขเครื่องได้",
+    "offlineHelp": "พิมพ์เลขที่ เช่น ATH26110002 หรือ QTTH26110504 เพื่อดูประวัติ หรือพูดว่า \"เพิ่มอุปกรณ์ อินเวอร์เตอร์ ซีเรียล … ตำแหน่ง …\" ในหน้าเพิ่มอุปกรณ์",
+    "offlineHistory": "ประวัติล่าสุด:",
+    "offlineDocs": "เอกสาร:",
+    "offlineNotFound": "ไม่พบ {code}",
+    "offlineCounts": "อุปกรณ์ {assets} · งานบริการ {orders}",
+    "offlineFilled": "กรอกให้แล้ว กรุณาตรวจก่อนบันทึก: {fields}",
+    "offlineOpenForm": "เปิดหน้าเพิ่มอุปกรณ์แล้ว พูดอีกครั้งเพื่อกรอก: {fields}"
   },
   "ui": {
     "chooseFile": "เลือกไฟล์",
@@ -958,7 +966,19 @@
     "err_RECEIPT_OVER": "รายการ {detail} รับเกินจำนวนที่สั่ง",
     "err_PO_LINE_NO_SKU": "รายการ {detail} ยังไม่มีรหัสชิ้นส่วน",
     "err_PO_LINE_NOT_FOUND": "ไม่พบรายการ {detail}",
-    "err_SUPPLIER_EXISTS": "มีผู้ขายเลขผู้เสียภาษี {detail} อยู่แล้ว"
+    "err_SUPPLIER_EXISTS": "มีผู้ขายเลขผู้เสียภาษี {detail} อยู่แล้ว",
+    "fxMissing": "ยังไม่มีอัตราแลกเปลี่ยน {ccy} → CNY: บันทึกใบเสนอราคาได้ แต่จะไม่แสดงยอดเทียบ CNY ระบบกำลังดึงอัตราจาก Bank of China อีกครั้ง",
+    "fxGoAdmin": "ดูอัตราแลกเปลี่ยน",
+    "fxLine": "1 {ccy} = {rate} CNY (Bank of China {date})",
+    "fxTotal": "รวม ≈ CNY {amount}",
+    "fxStale": "อัตรานี้ไม่ได้อัปเดตมา {days} วัน",
+    "fxFetchNow": "ดึงอัตรา Bank of China ตอนนี้",
+    "fxAutoNote": "ปกติระบบดึงเองทุกวัน และดึงใหม่อัตโนมัติเมื่ออัตราเก่ากว่า 1 วัน",
+    "err_FX_FETCH_FAILED": "ดึงอัตรา Bank of China ไม่สำเร็จ ({detail}) ระบบจะลองใหม่อัตโนมัติ",
+    "err_FORBIDDEN": "ไม่มีสิทธิ์ทำรายการนี้",
+    "actionCancelOrder": "ยกเลิกงานบริการ",
+    "actionCloseOrder": "ปิดงานบริการ",
+    "exportWord": "ส่งออก Word"
   },
   "role": {
     "MD": "กรรมการผู้จัดการ (MD)",

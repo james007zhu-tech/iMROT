@@ -113,10 +113,25 @@ export function toFxRate(row: BocRow, rateDate: Date) {
   };
 }
 
-export async function fetchBocRates(fetchImpl: typeof fetch = fetch): Promise<BocRow[]> {
-  const res = await fetchImpl("https://www.boc.cn/sourcedb/whpj/", { headers: { "user-agent": "DCiT-OS/0.1" } });
-  if (!res.ok) throw new Error(`BoC fetch failed: ${res.status}`);
-  return parseBocHtml(await res.text());
+/**
+ * The BoC site is slow from Thailand and sometimes times out (trial 2026-11-05: ETIMEDOUT, no rates at all).
+ * Each attempt gets 25 s; three attempts with a short pause; the error names the last cause.
+ */
+export async function fetchBocRates(fetchImpl: typeof fetch = fetch, attempts = 3, pauseMs = 3000): Promise<BocRow[]> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetchImpl("https://www.boc.cn/sourcedb/whpj/", { headers: { "user-agent": "Mozilla/5.0 (DCiT-OS)", accept: "text/html" }, signal: AbortSignal.timeout(25000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const rows = parseBocHtml(await res.text());
+      if (rows.length) return rows;
+      throw new Error("no rate table in the page");
+    } catch (e) {
+      last = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, pauseMs));
+    }
+  }
+  throw new Error(`BoC fetch failed after ${attempts} attempts: ${(last as Error)?.message ?? last}`);
 }
 
 /** Convert an amount to CNY with a given per-unit rate; rounds to 2 dp (accounting). */

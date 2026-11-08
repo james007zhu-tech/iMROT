@@ -22,7 +22,17 @@ setup() {
   log "prisma generate"
   npx prisma generate >>"$OPS/log" 2>&1 || log "prisma generate FAILED"
   log "prisma db push"
-  npx prisma db push --skip-generate >>"$OPS/log" 2>&1 || log "prisma db push FAILED"
+  local out rc
+  out=$(npx prisma db push --skip-generate 2>&1); rc=$?
+  echo "$out" >>"$OPS/log"
+  # Prisma refuses to add a unique constraint to a table that already has rows unless --accept-data-loss is given.
+  # A new unique constraint cannot lose data (it fails if duplicates exist), so retry only when that is the sole warning.
+  if [ $rc -ne 0 ] && echo "$out" | grep -q "A unique constraint covering" && ! echo "$out" | grep -qiE "drop|be lost|delete|cast|required column"; then
+    log "prisma db push: only new unique constraints flagged, retrying with --accept-data-loss"
+    npx prisma db push --skip-generate --accept-data-loss >>"$OPS/log" 2>&1 || log "prisma db push FAILED"
+  elif [ $rc -ne 0 ]; then
+    log "prisma db push FAILED"
+  fi
 }
 
 start_app() {

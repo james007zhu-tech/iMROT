@@ -27,7 +27,7 @@ export default async function Payment({ params, searchParams }: { params: Promis
     }, `/service-orders/${no}/payment`);
   }
   return (
-    <StepPage order={order} title={u("step_payment")} error={error} kind="payment" uploadTitle={u("upPaymentTitle")} uploadHint={u("upPaymentHint")} saveLabel={businessClosureOn() ? t("save") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
+    <StepPage order={order} title={u("step_payment")} error={error} kind={businessClosureOn() ? "payment" : undefined} uploadTitle={u("upPaymentTitle")} uploadHint={u("upPaymentHint")} saveLabel={businessClosureOn() ? t("save") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
       <Card title={u("invoiceIv")}>
         <Table head={["IVTH", u("dueDate"), u("receivable"), t("paid"), t("wht"), u("outstanding")]}>
           {order.invoices.map((i) => <tr key={i.id}><td className="font-mono">{i.no}</td><td>{i.dueAt?.toISOString().slice(0, 10) ?? ""}</td><td>{i.currency} {Number(i.amountDue).toFixed(2)}</td><td>{Number(i.paidAmount ?? 0).toFixed(2)}</td><td>{Number(i.whtAmount ?? 0).toFixed(2)}</td><td className={outstanding(i) > 0.004 ? "font-semibold text-alert-ink" : ""}>{outstanding(i).toFixed(2)}</td></tr>)}
