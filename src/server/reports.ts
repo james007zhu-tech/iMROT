@@ -21,6 +21,7 @@ const TEMPLATE_FILES: Record<string, string> = {
   "08": "08_Diagnostic_Report.docx", "09": "09_Repair_Report.docx", "10": "10_Field_Service_Report.docx",
   "11": "11_Preventive_Maintenance_Record.docx", "12": "12_Service_Completion.docx", "13": "13_Customer_Acceptance.docx", "19": "19_Delivery_Note.docx",
   "20": "20_Tax_Invoice.docx", "21": "21_Invoice.docx", "22": "22_Receipt.docx", "23": "23_Statement.docx",
+  "24": "24_Purchase_Inquiry.docx", "25": "25_Purchase_Order.docx", "26": "26_Goods_Receipt.docx", "27": "27_Stock_Issue.docx",
 };
 
 /** Withholding tax shown on invoices as the customer's expected deduction on services — PLACEHOLDER rate (decision 2026-11-08: rate is a placeholder). */
@@ -43,6 +44,7 @@ const tiLines = (lines: TiLine[]) => ({
   L_NO: lines.map((_, i) => i + 1), L_DESC: lines.map((l) => [l.descriptionLocal, l.descriptionEn ?? l.description].filter((x, i, a) => x && a.indexOf(x) === i).join("\n")),
   L_QTY: lines.map((l) => String(Number(l.qty))), L_UNIT: lines.map((l) => l.unit ?? ""), L_PRICE: lines.map((l) => money(l.unitPrice)), L_AMOUNT: lines.map((l) => money(l.amount)),
 });
+const DISPOSITION: Record<string, string> = { SCRAP: "Scrap at DCiT\nทิ้งที่ DCiT", RETURN_TO_CUSTOMER: "Return to customer\nคืนลูกค้า", KEEP_FOR_ANALYSIS: "Keep for analysis\nเก็บวิเคราะห์" };
 const branchLabel = (code?: string | null, plant?: { name: string } | null) => [code, plant?.name ? `(${plant.name})` : ""].filter(Boolean).join(" ");
 
 const d = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
@@ -182,6 +184,44 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
         INVOICED_PERIOD: money(bl.invoices.filter((iv) => iv.issuedAt >= start && iv.issuedAt <= addDays(end, 1)).reduce((s, iv) => s + Number(iv.amountDue), 0)), RECEIVED_PERIOD: money(received.reduce((s, r) => s + Number(r.settledAmount), 0)), TOTAL_OUTSTANDING: money(bl.invoices.reduce((s, iv) => s + outstanding(iv), 0)),
         AGE_CURRENT: bucket((n) => n <= 0), AGE_30: bucket((n) => n > 0 && n <= 30), AGE_60: bucket((n) => n > 30 && n <= 60), AGE_90: bucket((n) => n > 60 && n <= 90), AGE_OVER: bucket((n) => n > 90),
         PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: e.signatoryName ?? "" } };
+    }
+    case "PR": {
+      const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no }, include: { requestedBy: true, quotes: { include: { supplier: true } } } });
+      const lines = inq.lines as { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; assetCode?: string }[];
+      const sup = inq.quotes.find((q) => q.selected)?.supplier ?? inq.quotes[0]?.supplier; // addressed to the chosen supplier when one exists, otherwise generic
+      return { template: "24", values: { ...common, ISSUE_DATE: d(inq.createdAt), NEEDED_BY: d(inq.neededBy) || "—", REFERENCE: [o?.no, o?.customerRef ? `PO ${o.customerRef}` : ""].filter(Boolean).join("\n") || "—",
+        SUPPLIER_NAME: sup?.name ?? "", SUPPLIER_ATTN: sup?.contactName ? `Attn: ${sup.contactName}` : "", SUPPLIER_EMAIL: sup?.email ?? "", SUPPLIER_PHONE: sup?.phone ?? "",
+        REQUESTED_BY: inq.requestedBy.name, REQUESTER_PHONE: inq.requestedBy.phone ?? "", NOTE: inq.note ?? "", APPROVED_BY: doc.entity.signatoryName ?? "",
+        L_NO: lines.map((l, i) => l.lineNo ?? i + 1), L_PART: lines.map((l) => l.vendorPartNo ?? l.partSku ?? "—"), L_DESC: lines.map((l) => l.description), L_QTY: lines.map((l) => String(Number(l.qty))), L_UNIT: lines.map((l) => l.unit ?? "pcs"), L_REMARK: lines.map((l) => l.assetCode ? `for ${l.assetCode}` : "") } };
+    }
+    case "PO": {
+      const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no }, include: { supplier: true, inquiry: { include: { quotes: { where: { selected: true } } } }, createdBy: true } });
+      const lines = po.lines as { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; unitPrice: number; amount: number }[];
+      const q = po.inquiry?.quotes[0]; const e = doc.entity;
+      return { template: "25", values: { ...common, ISSUE_DATE: d(po.orderedAt), EXPECTED_AT: d(po.expectedAt) || "—", REFERENCE: [po.inquiry?.no, o?.no].filter(Boolean).join("\n") || "—",
+        SUPPLIER_NAME: po.supplier.name, SUPPLIER_ADDRESS: po.supplier.address ?? "", SUPPLIER_TAX_ID: po.supplier.taxId ?? "—", SUPPLIER_BRANCH: po.supplier.branchCode ? (po.supplier.branchCode === "00000" ? "Head Office 00000" : `Branch ${po.supplier.branchCode}`) : "", SUPPLIER_ATTN: po.supplier.contactName ? `Attn: ${po.supplier.contactName}${po.supplier.phone ? `\n${po.supplier.phone}` : ""}` : (po.supplier.phone ?? ""),
+        SUPPLIER_QUOTE: [q?.quoteNo, d(q?.quoteDate)].filter(Boolean).join("\n") || "—",
+        L_NO: lines.map((l, i) => l.lineNo ?? i + 1), L_PART: lines.map((l) => l.vendorPartNo ?? l.partSku ?? "—"), L_DESC: lines.map((l) => l.description), L_QTY: lines.map((l) => String(Number(l.qty))), L_UNIT: lines.map((l) => l.unit ?? "pcs"), L_PRICE: lines.map((l) => money(l.unitPrice)), L_AMOUNT: lines.map((l) => money(l.amount)),
+        SUBTOTAL: money(po.subtotal), VAT_LABEL: pctLabel(po.vatRate), VAT_AMOUNT: money(po.vatAmount), CURRENCY: po.currency, TOTAL: money(po.total),
+        DELIVER_TO: `DCiT workshop\n${e.addressEn ?? ""}`, PAYMENT_TERMS: po.paymentTerms ?? po.supplier.paymentTerms ?? "30 days after delivery and tax invoice", INVOICE_TO: `${e.nameEn}\nTax ID ${e.taxId ?? ""}\n${e.branchCode === "00000" || !e.branchCode ? "Head Office" : `Branch ${e.branchCode}`}`,
+        PREPARED_BY: po.createdBy.name, AUTHORISED_BY: e.signatoryName ?? "" } };
+    }
+    case "IB":
+    case "OB": {
+      const mv = await prisma.stockMovement.findMany({ where: { no }, orderBy: { lineNo: "asc" }, include: { part: true, purchaseOrder: { include: { supplier: true } }, asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } });
+      if (!mv.length) throw new Error(`no stock lines for ${no}`);
+      const first = mv[0];
+      const base = { ...common, ISSUE_DATE: d(first.movedAt), REFERENCE: [o?.no, ...new Set(mv.map((m) => m.asset?.code).filter(Boolean))].filter(Boolean).join("\n") || "—",
+        L_NO: mv.map((m) => m.lineNo), L_SKU: mv.map((m) => m.part.sku), L_DESC: mv.map((m) => m.part.name), L_QTY: mv.map((m) => String(Number(m.qty))), L_UNIT: mv.map((m) => m.part.unit), L_BATCH: mv.map((m) => m.batch ?? ""), L_COST: mv.map((m) => (m.unitCost != null ? money(m.unitCost) : "")) };
+      if (doc.type === "IB") {
+        const po = first.purchaseOrder;
+        return { template: "26", values: { ...base, SUPPLIER_NAME: po?.supplier.name ?? "—", SUPPLIER_DOC: [...new Set(mv.map((m) => m.supplierRef).filter(Boolean))].join("\n"), PO_NO: po?.no ?? "—", WAREHOUSE: first.warehouse,
+          L_VENDOR_PART: mv.map((m) => m.part.vendorPartNo), RECEIVED_BY: first.byName ?? doc.createdBy.name, CHECKED_BY: "", STOCK_KEEPER: "" } };
+      }
+      const a = first.asset;
+      return { template: "27", values: { ...base, ISSUED_TO: first.byName ?? doc.createdBy.name, PURPOSE: o ? (o.kind === "MAINTENANCE" ? "Maintenance  บำรุงรักษา" : "Repair  ซ่อม") : "Parts sale  ขายอะไหล่",
+        EQUIPMENT: a ? [a.code, a.model ? `${a.model.series.brand.name} ${a.model.code}` : a.type, `S/N ${a.serialNumber}`].join("\n") : "—", CUSTOMER_NAME: [o?.customer.name, o?.plant?.name].filter(Boolean).join("\n") || "—",
+        L_OLD_PART: mv.map((m) => (m.oldPartDisposition ? DISPOSITION[m.oldPartDisposition] ?? m.oldPartDisposition : "")), ISSUED_BY: doc.createdBy.name, RECEIVED_BY: first.byName ?? "", APPROVED_BY: "" } };
     }
     default:
       throw new Error(`no Word template for document type ${doc.type}`);

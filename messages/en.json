@@ -1172,7 +1172,11 @@
     "pmg_OTHER_2": "Fixings and terminals｜tight",
     "pmg_OTHER_3": "Running temperature｜within range",
     "pmg_OTHER_4": "Alarm history｜no repeating alarms",
-    "err_NO_ENTITY_FOR_COUNTRY": "There is no legal entity for country {detail} yet; the MD must add it under System before numbers can be issued"
+    "err_NO_ENTITY_FOR_COUNTRY": "There is no legal entity for country {detail} yet; the MD must add it under System before numbers can be issued",
+    "rpt24": "Request for quotation PRTH",
+    "rpt25": "Purchase order POTH",
+    "rpt26": "Goods receipt IBTH",
+    "rpt27": "Stock issue OBTH"
   },
   "role": {
     "MD": "Managing Director",

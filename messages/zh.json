@@ -1172,7 +1172,11 @@
     "pmg_OTHER_2": "紧固件与端子｜紧固",
     "pmg_OTHER_3": "运行温度｜在范围内",
     "pmg_OTHER_4": "报警记录｜无重复报警",
-    "err_NO_ENTITY_FOR_COUNTRY": "还没有国家 {detail} 的法人，请 MD 先在系统管理中新增，才能编号"
+    "err_NO_ENTITY_FOR_COUNTRY": "还没有国家 {detail} 的法人，请 MD 先在系统管理中新增，才能编号",
+    "rpt24": "采购询价单 PRTH",
+    "rpt25": "采购订单 POTH",
+    "rpt26": "入库单 IBTH",
+    "rpt27": "出库单 OBTH"
   },
   "role": {
     "MD": "董事总经理 MD",

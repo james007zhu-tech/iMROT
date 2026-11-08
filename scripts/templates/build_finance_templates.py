@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build the four finance Word templates from the approved print mockups (docs/mockups/print-templates-v0.3.html):
+Build the finance and purchasing Word templates from the approved print mockups (docs/mockups/print-templates-v0.3.html):
   20_Tax_Invoice.docx   TITH  — original + copy (two pages, same placeholders)
   21_Invoice.docx       IVTH
   22_Receipt.docx       RCTH  — original + copy
@@ -377,6 +377,80 @@ def build_statement():
     set_footer(doc, "FIN-BL")
     doc.save(TPL / "23_Statement.docx")
 
+# ── 24 Request for quotation (PRTH) ──────────────────────────────────────────────────────────────────────────
+
+def build_inquiry():
+    doc = Document(BASE); clear_body(doc)
+    title_block(doc, "ใบขอราคา", "REQUEST FOR QUOTATION", "采购询价单", "PRTH No.", "[[DOC_NO]]")
+    rule(doc)
+    two_blocks(doc, ("To supplier", "ถึงผู้ขาย"), ["[[SUPPLIER_NAME]]", "[[SUPPLIER_ATTN]]", "[[SUPPLIER_EMAIL]]", "[[SUPPLIER_PHONE]]"],
+               [(["Date", "วันที่"], "[[ISSUE_DATE]]"), (["Quote needed by", "ต้องการใบเสนอราคาภายใน"], "[[NEEDED_BY]]"), (["Our reference", "อ้างอิง"], "[[REFERENCE]]"), (["Requested by", "ผู้ขอ"], ["[[REQUESTED_BY]]", "[[REQUESTER_PHONE]]"])])
+    para(doc, after=3)
+    lines_table(doc, [("#", "ลำดับ"), ("Part no.", "รหัสชิ้นส่วน"), ("Description", "รายละเอียด"), ("Qty", "จำนวน"), ("Unit", "หน่วย"), ("Remarks", "หมายเหตุ")], [500, 1800, 4066, 800, 800, 1900],
+                ["[[L_NO]]", "[[L_PART]]", "[[L_DESC]]", "[[L_QTY]]", "[[L_UNIT]]", "[[L_REMARK]]"], [C, None, None, R, C, None])
+    para(doc, after=3)
+    lines(doc, ["Please quote: unit price excluding VAT, VAT rate, lead time, validity, payment terms and brand/origin for each line. Quote in THB unless agreed otherwise. Reply by e-mail quoting the PRTH number.",
+                "กรุณาเสนอราคาต่อหน่วยไม่รวม VAT อัตรา VAT ระยะเวลาส่งมอบ ระยะเวลายืนราคา เงื่อนไขการชำระเงิน และแหล่งผลิตของแต่ละรายการ โดยอ้างอิงเลขที่ PRTH", "[[NOTE]]"], 8, GREY, after=0)
+    signature_block(doc, [("Requested by", "ผู้ขอราคา", "[[REQUESTED_BY]]"), ("Approved by", "ผู้อนุมัติ", "[[APPROVED_BY]]")])
+    set_footer(doc, "SCM-PR")
+    doc.save(TPL / "24_Purchase_Inquiry.docx")
+
+# ── 25 Purchase order (POTH) ─────────────────────────────────────────────────────────────────────────────────
+
+def build_purchase_order():
+    doc = Document(BASE); clear_body(doc)
+    title_block(doc, "ใบสั่งซื้อ", "PURCHASE ORDER", "采购订单", "POTH No.", "[[DOC_NO]]")
+    rule(doc)
+    two_blocks(doc, ("Supplier", "ผู้ขาย"), ["[[SUPPLIER_NAME]]", "[[SUPPLIER_ADDRESS]]", "Tax ID  [[SUPPLIER_TAX_ID]]", "[[SUPPLIER_BRANCH]]", "[[SUPPLIER_ATTN]]"],
+               [(["Order date", "วันที่สั่งซื้อ"], "[[ISSUE_DATE]]"), (["Supplier quote", "ใบเสนอราคาผู้ขาย"], "[[SUPPLIER_QUOTE]]"), (["Our reference", "อ้างอิง"], "[[REFERENCE]]"), (["Delivery required", "กำหนดส่ง"], "[[EXPECTED_AT]]")])
+    para(doc, after=3)
+    lines_table(doc, [("#", "ลำดับ"), ("Part no.", "รหัส"), ("Description", "รายละเอียด"), ("Qty", "จำนวน"), ("Unit", "หน่วย"), ("Unit price", "ราคา/หน่วย"), ("Amount", "จำนวนเงิน")], [500, 1600, 3766, 700, 700, 1300, 1300],
+                ["[[L_NO]]", "[[L_PART]]", "[[L_DESC]]", "[[L_QTY]]", "[[L_UNIT]]", "[[L_PRICE]]", "[[L_AMOUNT]]"], [C, None, None, R, C, R, R])
+    para(doc, after=3)
+    totals_block(doc, [(["Subtotal", "รวมก่อน VAT"], "[[SUBTOTAL]]", False), (["VAT [[VAT_LABEL]]", "ภาษีมูลค่าเพิ่ม"], "[[VAT_AMOUNT]]", False), (["Total", "รวมทั้งสิ้น"], "[[CURRENCY]] [[TOTAL]]", True)],
+                 left_lines=[[("Deliver to  สถานที่ส่งของ", 8, True, NAVY), ("[[DELIVER_TO]]", 8, False, None)],
+                             [("Payment terms  เงื่อนไขชำระเงิน", 8, True, NAVY), ("[[PAYMENT_TERMS]]", 8, False, None)],
+                             [("Invoice to  ออกใบกำกับภาษีในนาม", 8, True, NAVY), ("[[INVOICE_TO]]", 8, False, None)],
+                             [("Conditions  เงื่อนไข", 8, True, NAVY), ("Quote the POTH number on delivery note and tax invoice. Goods are checked against this order on receipt; shortages or damage are reported within 3 days.", 7.5, False, GREY), ("ระบุเลขที่ POTH ในใบส่งของและใบกำกับภาษี สินค้าจะถูกตรวจรับตามใบสั่งซื้อนี้ หากขาดหรือเสียหายจะแจ้งภายใน 3 วัน", 7.5, False, GREY)]])
+    signature_block(doc, [("Prepared by", "ผู้จัดทำ", "[[PREPARED_BY]]"), ("Authorised by", "ผู้มีอำนาจลงนาม", "[[AUTHORISED_BY]]"), ("Supplier acknowledgement", "ผู้ขายรับทราบ", "Name / date")])
+    set_footer(doc, "SCM-PO")
+    doc.save(TPL / "25_Purchase_Order.docx")
+
+# ── 26 Goods receipt (IBTH) · 27 Stock issue (OBTH) — internal, parts and materials only ────────────────────
+
+def build_goods_receipt():
+    doc = Document(BASE); clear_body(doc)
+    title_block(doc, "ใบรับเข้าคลัง", "GOODS RECEIPT", "入库单", "IBTH No.", "[[DOC_NO]]", extra=["Rayong workshop  internal document  เอกสารภายใน"])
+    rule(doc)
+    two_blocks(doc, ("Supplier", "ผู้ขาย"), ["[[SUPPLIER_NAME]]", "[[SUPPLIER_DOC]]"],
+               [(["Received on", "วันที่รับ"], "[[ISSUE_DATE]]"), (["Purchase order", "ใบสั่งซื้อ"], "[[PO_NO]]"), (["For service order", "สำหรับใบงาน"], "[[REFERENCE]]"), (["Warehouse", "คลัง"], "[[WAREHOUSE]]")])
+    para(doc, after=3)
+    lines_table(doc, [("#", "ลำดับ"), ("SKU", "รหัสสินค้า"), ("Vendor part no.", "รหัสผู้ขาย"), ("Description", "รายละเอียด"), ("Received", "รับ"), ("Unit", "หน่วย"), ("Batch", "ล็อต"), ("Unit cost", "ต้นทุน/หน่วย")], [500, 1500, 1300, 2816, 950, 700, 900, 1200],
+                ["[[L_NO]]", "[[L_SKU]]", "[[L_VENDOR_PART]]", "[[L_DESC]]", "[[L_QTY]]", "[[L_UNIT]]", "[[L_BATCH]]", "[[L_COST]]"], [C, None, None, None, R, C, None, R], size=8)
+    para(doc, after=3)
+    lines(doc, ["Parts and materials only — equipment intake is recorded on ERTH. Costs are the purchase-order prices and update the part's last cost; the PO stays PARTIAL until every line is received.",
+                "เฉพาะอะไหล่และวัสดุ การรับเครื่องใช้ ERTH ต้นทุนตามราคาในใบสั่งซื้อและปรับปรุงต้นทุนล่าสุดของชิ้นส่วน ใบสั่งซื้อจะอยู่ในสถานะรับบางส่วนจนกว่าจะรับครบทุกรายการ"], 7.5, GREY, after=0)
+    signature_block(doc, [("Received by", "ผู้รับของ", "[[RECEIVED_BY]]"), ("Checked by", "ผู้ตรวจ", "[[CHECKED_BY]]"), ("Stock keeper", "ผู้ดูแลคลัง", "[[STOCK_KEEPER]]")])
+    set_footer(doc, "SCM-IB")
+    doc.save(TPL / "26_Goods_Receipt.docx")
+
+def build_stock_issue():
+    doc = Document(BASE); clear_body(doc)
+    title_block(doc, "ใบเบิกของ", "STOCK ISSUE", "出库单", "OBTH No.", "[[DOC_NO]]", extra=["Rayong workshop  internal document  เอกสารภายใน"])
+    rule(doc)
+    two_blocks(doc, ("Issued to", "เบิกให้"), ["[[ISSUED_TO]]", "[[PURPOSE]]"],
+               [(["Issued on", "วันที่เบิก"], "[[ISSUE_DATE]]"), (["Service order", "ใบงาน"], "[[REFERENCE]]"), (["Equipment", "เครื่อง"], "[[EQUIPMENT]]"), (["Customer", "ลูกค้า"], "[[CUSTOMER_NAME]]")])
+    para(doc, after=3)
+    lines_table(doc, [("#", "ลำดับ"), ("SKU", "รหัสสินค้า"), ("Description", "รายละเอียด"), ("Qty", "จำนวน"), ("Unit", "หน่วย"), ("Batch", "ล็อต"), ("Unit cost", "ต้นทุน/หน่วย"), ("Old part", "ชิ้นส่วนเก่า")], [500, 1600, 3066, 700, 700, 900, 1100, 1300],
+                ["[[L_NO]]", "[[L_SKU]]", "[[L_DESC]]", "[[L_QTY]]", "[[L_UNIT]]", "[[L_BATCH]]", "[[L_COST]]", "[[L_OLD_PART]]"], [C, None, None, R, C, None, R, None], size=8)
+    para(doc, after=3)
+    lines(doc, ["Issued parts are charged to the service order at the cost shown and appear on the repair report as replaced parts; old parts marked \"return to customer\" must be on the delivery note. Equipment return goes on DNTH.",
+                "ชิ้นส่วนที่เบิกจะคิดต้นทุนเข้าใบงานและปรากฏในรายงานซ่อมเป็นชิ้นส่วนที่เปลี่ยน ชิ้นส่วนเก่าที่ระบุคืนลูกค้าต้องอยู่ในใบส่งของ การส่งคืนเครื่องใช้ DNTH"], 7.5, GREY, after=0)
+    signature_block(doc, [("Issued by", "ผู้จ่ายของ", "[[ISSUED_BY]]"), ("Received by", "ผู้รับของ", "[[RECEIVED_BY]]"), ("Approved by", "ผู้อนุมัติ", "[[APPROVED_BY]]")])
+    set_footer(doc, "SCM-OB")
+    doc.save(TPL / "27_Stock_Issue.docx")
+
 if __name__ == "__main__":
     build_tax_invoice(); build_invoice(); build_receipt(); build_statement()
-    print("built 20–23")
+    build_inquiry(); build_purchase_order(); build_goods_receipt(); build_stock_issue()
+    print("built 20–27")

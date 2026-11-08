@@ -240,6 +240,7 @@ await step("purchase-order-and-receipt", async () => {
   const r = page.locator("form#r"); await r.locator("[name=supplierRef]").fill(`INV-${stamp}`); await r.locator("[name=r0]").fill("2");
   await r.locator("button").last().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("Received"); await expectText("IBTH");
   await page.goto(`${BASE}/purchasing/orders`); await expectText(poNo); await page.goto(`${BASE}/purchasing/inquiries`); await expectText(prNo); await expectText("Ordered");
+  for (const no of [prNo, poNo]) { const r = await ctx.request.get(`${BASE}/api/documents/${no}/render?format=pdf`); if (r.status() !== 200) throw new Error(`${no} PDF → ${r.status()}`); }
 });
 await step("dashboard-build", async () => { await page.goto(`${BASE}/dashboard`); await page.fill("input[placeholder*=\"Describe\"]", "本月维修看板：工单、收入、工程师"); await page.click("form button:has-text('AI')"); await page.waitForURL(/\/dashboard\/[a-z0-9]+/, { timeout: 15000 }); });
 await step("employee-create-md-only", async () => {
