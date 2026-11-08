@@ -43,6 +43,12 @@ async function main() {
     return tx.customer.create({ data: { code, entityId: entity.id, name: "Smoke Rubber (Thailand)", taxId: "0105555555555", branchCode: "00000", paymentTermDays: 30 } });
   });
   assert(parseNumber(customer.code)?.prefix === "C", `customer number ${customer.code}`);
+  // A country without its own legal entity has no counter: refuse instead of borrowing one (it would collide later).
+  if (!(await prisma.legalEntity.findUnique({ where: { countryCode: "VN" } }))) {
+    let refused = false;
+    try { await prisma.$transaction((tx) => allocateNumber(tx, { prefix: "E", createdByEmployeeCode: admin.code, entityId: entity.id, country: "VN" })); } catch (e) { refused = (e as Error).message === "NO_ENTITY_FOR_COUNTRY:VN"; }
+    assert(refused, "no VN entity → numbering for VN refused");
+  }
   const plant = await prisma.plant.create({ data: { customerId: customer.id, code: "P2", name: "Plant 2" } });
   await prisma.contact.create({ data: { customerId: customer.id, plantId: plant.id, name: "Khun Somchai" } });
   const model = await prisma.model.findFirstOrThrow({ include: { series: true } });

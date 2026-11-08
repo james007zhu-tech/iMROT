@@ -68,5 +68,7 @@ export async function offlineAssist(messages: { role: "user" | "assistant"; cont
       for (const h of hits) lines.push(`${h.code} · S/N ${h.serialNumber}${h.location ? ` · ${h.location}` : ""}`);
     }
   }
-  return { text: [u("offlineMode"), ...(lines.length ? lines : [u("offlineHelp")])].join("\n"), actions: [], toolsUsed: used };
+  const { personNames } = await import("./ai");
+  const { maskNamesInText } = await import("@/lib/mask");
+  return { text: maskNamesInText([u("offlineMode"), ...(lines.length ? lines : [u("offlineHelp")])].join("\n"), await personNames()), actions: [], toolsUsed: used };
 }

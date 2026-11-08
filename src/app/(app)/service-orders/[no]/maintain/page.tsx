@@ -6,6 +6,7 @@ import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { RevealRows } from "@/components/RevealRows";
 import { openJob } from "@/lib/drafts";
+import { genericChecklist } from "@/lib/pm-generic";
 import { maskName } from "@/lib/mask";
 import { Card, Field, Grid, Table, Tag, Value, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, num, str } from "../_shell";
@@ -64,9 +65,12 @@ export default async function Maintain({ params, searchParams }: { params: Promi
   const saved = (draft?.checklist as { item: string; criterion?: string; measured?: string; verdict?: string; photo?: string }[] | null) ?? [];
   // Standard items stay listed even if the draft has nothing measured for them yet; extra items from the draft follow.
   const fromSaved = (x: (typeof saved)[number]) => ({ item: x.item, criterion: x.criterion ?? "", measured: x.measured ?? "", verdict: x.verdict ?? "", photo: x.photo ?? "" });
+  // No standards for this model yet: start from the general checklist for the asset type, so the PMTH is never blank.
+  const generic = standards.length ? [] : genericChecklist(asset?.type ?? "OTHER").map((k) => { const [item, criterion = ""] = u(k).split("｜"); return { item, criterion }; });
+  const base = standards.length ? standards.map((s) => ({ item: s.item, criterion: s.criterion ?? "" })) : generic;
   const rows = [
-    ...standards.map((s) => { const x = saved.find((y) => y.item === s.item); return x ? fromSaved(x) : { item: s.item, criterion: s.criterion ?? "", measured: "", verdict: "", photo: "" }; }),
-    ...saved.filter((x) => !standards.some((s) => s.item === x.item)).map(fromSaved),
+    ...base.map((s) => { const x = saved.find((y) => y.item === s.item); return x ? fromSaved(x) : { item: s.item, criterion: s.criterion, measured: "", verdict: "", photo: "" }; }),
+    ...saved.filter((x) => !base.some((s) => s.item === x.item)).map(fromSaved),
   ];
   const outs = [...new Map(order.stockMovements.filter((m) => m.direction === "OUT").map((m) => [m.id, `${m.part.sku} ${m.part.name ?? ""} ×${Number(m.qty)}`])).values()].join("; ");
   return (
@@ -87,7 +91,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
           </Grid>
         </Card>
         <Card title={u("pmChecklist")}>
-          {rows.length === 0 && <p className="text-xs text-navy/70">{u("noStandards")}</p>}
+          {!standards.length && <p className="text-xs text-alert-ink">{u("genericChecklistNote")}</p>}
           <Table head={["#", u("item"), u("standardCriterion"), u("measured"), u("verdict"), u("photo")]}>
             {Array.from({ length: Math.max(rows.length, 1) }, (_, i) => (
               <tr key={i}><td>{i + 1}</td><td><input name={`i${i}`} defaultValue={rows[i]?.item ?? ""} className={inputCls} /></td><td><input name={`c${i}`} defaultValue={rows[i]?.criterion ?? ""} className={inputCls} /></td><td><input name={`m${i}`} defaultValue={rows[i]?.measured ?? ""} className={inputCls} /></td>

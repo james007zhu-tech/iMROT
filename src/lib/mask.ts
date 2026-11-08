@@ -38,3 +38,9 @@ export function maskNamesIn<V extends Record<string, unknown>>(values: V, names:
   const fix = (v: unknown) => (typeof v === "string" ? sorted.reduce((s, n) => s.split(n).join(maskName(n)), v) : v);
   return Object.fromEntries(Object.entries(values).map(([k, v]) => [k, Array.isArray(v) ? v.map(fix) : fix(v)])) as V;
 }
+
+/** Same as maskNamesIn, for one block of text (assistant tool results and answers). */
+export function maskNamesInText(text: string, names: string[]): string {
+  if (!names.length) return text;
+  return [...names].sort((a, b) => b.length - a.length).reduce((s, n) => s.split(n).join(maskName(n)), text);
+}

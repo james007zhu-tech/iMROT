@@ -3,21 +3,28 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { OrderStatusBadge } from "@/components/StatusBadge";
 import { ORDER_STATUSES } from "@/lib/lifecycle";
-import { FaultText, PageHeader, Table, btnGhost, inputCls, filterCls } from "@/components/ui";
+import type { Prisma } from "@prisma/client";
+import { FaultText, PAGE_SIZE, PageHeader, Pager, Table, btnGhost, inputCls, filterCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string }> }) {
-  const { status, q } = await searchParams;
+export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; page?: string }> }) {
+  const { status, q, page } = await searchParams;
+  const p = Math.max(1, Number(page) || 1);
   const [t, u, ts, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getLocale()]);
-  const orders = await prisma.serviceOrder.findMany({
-    where: {
-      status: ORDER_STATUSES.includes(status as never) ? (status as never) : undefined,
-      OR: q ? [{ no: { contains: q, mode: "insensitive" } }, { customerRef: { contains: q, mode: "insensitive" } }, { customer: { name: { contains: q, mode: "insensitive" } } }, { assets: { some: { asset: { code: { contains: q, mode: "insensitive" } } } } }] : undefined,
-    },
-    include: { customer: { select: { name: true } }, assignee: { select: { name: true } }, assets: { include: { asset: { select: { code: true } } } } },
-    orderBy: { reportedAt: "desc" }, take: 200,
-  });
+  const where = {
+    status: ORDER_STATUSES.includes(status as never) ? (status as never) : undefined,
+    OR: q ? [{ no: { contains: q, mode: "insensitive" } }, { customerRef: { contains: q, mode: "insensitive" } }, { customer: { name: { contains: q, mode: "insensitive" } } }, { assets: { some: { asset: { code: { contains: q, mode: "insensitive" } } } } }] : undefined,
+  } satisfies Prisma.ServiceOrderWhereInput;
+  const [orders, total] = await Promise.all([
+    prisma.serviceOrder.findMany({
+      where,
+      include: { customer: { select: { name: true } }, assignee: { select: { name: true } }, assets: { include: { asset: { select: { code: true } } } } },
+      orderBy: { reportedAt: "desc" }, skip: (p - 1) * PAGE_SIZE, take: PAGE_SIZE,
+    }),
+    prisma.serviceOrder.count({ where }),
+  ]);
+  const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}), page: String(n) })}`;
   const fmt = new Intl.DateTimeFormat(locale, { year: "2-digit", month: "2-digit", day: "2-digit" });
   return (
     <div className="space-y-4">
@@ -44,6 +51,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           ))}
           {orders.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-navy/60">{t("none")}</td></tr>}
         </Table>
+        <Pager page={p} total={total} href={qs} prev={u("prevPage")} next={u("nextPage")} />
       </div>
     </div>
   );

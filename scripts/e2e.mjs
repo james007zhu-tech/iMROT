@@ -112,6 +112,14 @@ await step("report-issue-and-assign", async () => {
   await expectText("PO-E2E-001"); await expectText("Inspection INTH");
 });
 const go = async (s) => { await page.goto(`${BASE}/service-orders/${orderNo}/${s}`); await expectText(orderNo); };
+await step("inspect-draft-and-gaps", async () => {
+  // Save a half-filled INTH as a draft: same number comes back, nothing is registered, missing items are listed.
+  await go("inspect");
+  await page.fill("[name=conditions]", "38°C dusty"); await page.fill("[name=findings]", "fan seized");
+  await page.locator("button[name=draft][value='1']").click(); await page.waitForLoadState("networkidle"); await noFlashError();
+  await expectText("Draft"); await expectText("Still missing:"); await expectText("isolation / lock-out confirmation");
+  if ((await page.inputValue("[name=findings]")) !== "fan seized") throw new Error("draft findings not restored");
+});
 await step("inspect", async () => {
   await go("inspect");
   await page.fill("[name=conditions]", "38°C dusty, isolated and locked out"); await page.fill("[name=findings]", "DC bus capacitors degraded; fan seized"); await page.fill("[name=probableCause]", "cooling failure"); await page.fill("[name=recommendation]", "replace fan, load test");
@@ -201,9 +209,14 @@ await step("label", async () => { await page.goto(`${BASE}/assets/${assetCode}/l
 await step("parts-and-stock", async () => {
   await page.goto(`${BASE}/parts/movement?direction=IN`);
   await page.fill("[name=s0]", `ABB-FAN-${stamp}`); await page.fill("[name=q0]", "5"); await page.fill("[name=c0]", "4200"); await page.fill("[name=s1]", `NOPE-${stamp}`); await page.fill("[name=q1]", "1");
+  await page.locator("[data-sku-name=s1]", { hasText: "Unknown SKU" }).waitFor(); // flagged while typing, before saving
   await save(); await expectText(`NOPE-${stamp}`);
   await page.fill("[name=s1]", "SIE-6SL3352-1AE32-1AA1"); await page.fill("[name=q1]", "2"); await save(); await page.waitForURL(/\/parts\?/);
   const ok = decodeURIComponent(page.url()); if (!/IBTH\d{9} · 2/.test(ok)) throw new Error(`expected one IBTH with 2 lines, got ${ok}`);
+});
+await step("lists-page-by-20", async () => {
+  await page.goto(`${BASE}/service-orders`); const rows = await page.locator("table tbody tr").count(); if (rows > 20) throw new Error(`service order list shows ${rows} rows`);
+  await expectText(" / "); // "1–20 / n" pager line
 });
 await step("search", async () => { await page.goto(`${BASE}/search?q=${assetCode}`); await expectText(assetCode); });
 let prNo, poNo, engCode;

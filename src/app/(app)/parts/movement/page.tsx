@@ -9,6 +9,7 @@ import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { FormMemory } from "@/components/FormMemory";
 import { RevealRows } from "@/components/RevealRows";
+import { SkuNames } from "@/components/SkuNames";
 import { Alert, Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -60,9 +61,10 @@ export default async function Movement({ searchParams }: { searchParams: Promise
         <Card title={u("lines")}>
           <div className="hidden grid-cols-[2fr_80px_1fr_1fr_1.4fr] gap-2 text-xs text-navy/70 md:grid"><span>{t("sku")}</span><span>{t("qty")}</span><span>{u("batch")}</span><span>{u("unitCostThb")}</span><span>{u("oldPartOut")}</span></div>
           <RevealRows initial={2} addLabel={u("addLine")}>
-            {Array.from({ length: ROWS }, (_, i) => <div key={i} className="grid grid-cols-2 gap-2 md:grid-cols-[2fr_80px_1fr_1fr_1.4fr]"><input name={`s${i}`} list="skus" className={`${inputCls} font-mono`} /><input name={`q${i}`} type="number" step="1" className={inputCls} /><input name={`b${i}`} className={inputCls} /><input name={`c${i}`} type="number" step="0.01" className={inputCls} /><select name={`o${i}`} className={inputCls}><option value="">—</option><option value="SCRAP">{u("dispScrap")}</option><option value="RETURN_TO_CUSTOMER">{u("dispReturn")}</option><option value="KEEP_FOR_ANALYSIS">{u("dispKeep")}</option></select></div>)}
+            {Array.from({ length: ROWS }, (_, i) => <div key={i} className="grid grid-cols-2 gap-2 md:grid-cols-[2fr_80px_1fr_1fr_1.4fr]"><span><input name={`s${i}`} list="skus" data-sku className={`${inputCls} font-mono`} /><span data-sku-name={`s${i}`} /></span><input name={`q${i}`} type="number" step="1" className={inputCls} /><input name={`b${i}`} className={inputCls} /><input name={`c${i}`} type="number" step="0.01" className={inputCls} /><select name={`o${i}`} className={inputCls}><option value="">—</option><option value="SCRAP">{u("dispScrap")}</option><option value="RETURN_TO_CUSTOMER">{u("dispReturn")}</option><option value="KEEP_FOR_ANALYSIS">{u("dispKeep")}</option></select></div>)}
           </RevealRows>
           <datalist id="skus">{parts.map((p) => <option key={p.id} value={p.sku}>{p.name}</option>)}</datalist>
+          <SkuNames names={Object.fromEntries(parts.map((p) => [p.sku, p.name ?? ""]))} unknown={u("skuUnknown")} />
           <Link href="/parts/new?back=/parts/movement" className="text-sm text-blue underline">＋ {u("newPart")}</Link>
         </Card>
       </form>
