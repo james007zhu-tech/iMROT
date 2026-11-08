@@ -21,8 +21,8 @@ export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<
 export const CONFIDENCE_FLOOR = 0.8;
 
 /** Fields that must appear verbatim in the document (no paraphrase, no guessing). */
-export const VERBATIM_FIELDS = new Set(["serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo"]);
-const DATE_FIELDS = new Set(["signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate"]);
+export const VERBATIM_FIELDS = new Set(["serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo", "passportNo", "idCardNo", "workPermitNo"]);
+const DATE_FIELDS = new Set(["signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
 const NUMBER_FIELDS = new Set(["ratedPowerKw", "ratedVoltageV", "ratedCurrentA", "laborHours", "runHours", "paidAmount", "whtAmount", "qty", "unitPrice", "amount", "total", "vatRate", "vatAmount", "subtotal"]);
 const ENUM_FIELDS: Record<string, string[]> = { productionImpact: ["STOPPED", "DEGRADED", "NONE"], status: ["ACCEPTED", "CONDITIONAL", "REJECTED"], currency: ["THB", "USD", "CNY", "EUR", "JPY"] };
 
@@ -42,7 +42,20 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
   acceptance: { attachKind: "ACCEPTANCE", fields: { customerSignatory: "who signed", punchList: "open items written on the form", status: "ACCEPTED, CONDITIONAL or REJECTED" } },
   payment: { attachKind: "PAYMENT", fields: { paidAt: "payment date YYYY-MM-DD (the date the money arrived)", paidAmount: "amount received, number only", whtAmount: "withholding tax deducted, number only", whtCertRef: "withholding certificate number", bankRef: "bank transfer reference / slip number" } },
   stock: { attachKind: "STOCK", fields: { vendorPartNo: "vendor part number", qty: "quantity", batch: "batch / lot" } },
-  employee: { attachKind: "ID_DOC", fields: { name: "full name", nameLocal: "name in Thai or Chinese", phone: "phone", email: "email" } },
+  /** CV, passport / ID card, visa, work permit, labour contract, degree: header fields + work-history lines (rule ④). */
+  employee: {
+    attachKind: "ID_DOC",
+    accept: ["CV", "PASSPORT", "ID_CARD", "VISA", "WORK_PERMIT", "CONTRACT", "DEGREE", "CERTIFICATE"],
+    fields: {
+      name: "full name in Latin letters as on the passport or CV", nameLocal: "name in Thai or Chinese characters if written", nationality: "nationality", birthDate: "date of birth YYYY-MM-DD", gender: "M or F if stated",
+      phone: "mobile phone with country code", phone2: "second mobile if any", email: "work email", personalEmail: "personal email", lineId: "LINE ID", wechatId: "WeChat ID", address: "current address in Thailand",
+      emergencyName: "emergency contact name", emergencyRelation: "relation of the emergency contact", emergencyPhone: "emergency contact phone",
+      position: "current or applied-for job title", education: "highest degree and field, one line",
+      passportNo: "passport number verbatim", passportExpiresAt: "passport expiry YYYY-MM-DD", idCardNo: "Thai ID card number verbatim (13 digits)", visaExpiresAt: "visa permitted-to-stay date YYYY-MM-DD", workPermitNo: "work permit number verbatim", workPermitExpiresAt: "work permit expiry YYYY-MM-DD",
+      joinedAt: "start date on the labour contract YYYY-MM-DD", contractEndsAt: "contract end date YYYY-MM-DD if fixed-term",
+    },
+    lines: { fromYm: "start of the job, YYYY-MM", toYm: "end of the job, YYYY-MM (empty if current)", company: "employer name", title: "job title", summary: "main duties and skills in one line" },
+  },
   entity: { attachKind: "COMPANY_DOC", fields: { nameEn: "company name in English", nameLocal: "company name in the local language", taxId: "tax ID", branchCode: "branch code", addressEn: "registered address in English", addressLocal: "registered address in the local language", phone: "phone", email: "email", signatoryName: "authorised signatory" } },
   /** A supplier's quotation pasted into our own quote: header + priced lines (costs for the margin). */
   quote: {

@@ -23,8 +23,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Link href="/assets" className="text-lg font-bold tracking-wide text-navy">{c("appName")}</Link>
           <div className="md:mt-2 md:-ml-2"><LanguageSwitcher tone="light" /></div>
         </div>
-        {/* OPD (employees) is MD-only (decision 2026-11-03): others do not see the menu at all. */}
-        <NavLinks items={NAV.filter((n) => n.key !== "opd" || me.role === "MD").map((n) => ({ key: n.key, href: n.href, label: t(n.key) }))} />
+        {/* OPD: the MD sees the employee list; everyone else sees only their own file (decision 2026-11-08). */}
+        <NavLinks items={NAV.map((n) => ({ key: n.key, href: n.key === "opd" && me.role !== "MD" ? `/people/${me.code}` : n.href, label: n.key === "opd" && me.role !== "MD" ? t("opdSelf") : t(n.key) }))} />
       </aside>
       <div className="flex-1">
         <header className="flex items-center gap-3 border-b border-line bg-white px-4 py-2">

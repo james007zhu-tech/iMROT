@@ -31,6 +31,12 @@ export async function pdfText(bytes: Buffer): Promise<string> {
   finally { await unlink(p).catch(() => {}); }
 }
 
+/** What each accepted docKind means, for the model's first decision. */
+const DOC_KIND_HINTS: Record<string, string> = {
+  DBD: "DBD = หนังสือรับรอง company certificate from the Department of Business Development", PP20: "PP20 = ภ.พ.20 VAT registration", BILLING: "BILLING = the customer's own billing/invoice-to details",
+  CV: "CV = résumé / curriculum vitae", PASSPORT: "PASSPORT = passport data page", ID_CARD: "ID_CARD = Thai national ID card", VISA: "VISA = visa sticker or stamp with permitted-to-stay date", WORK_PERMIT: "WORK_PERMIT = Thai work permit booklet or digital permit", CONTRACT: "CONTRACT = labour / employment contract", DEGREE: "DEGREE = diploma or transcript", CERTIFICATE: "CERTIFICATE = professional licence or training certificate",
+};
+
 export async function recognizeDocuments(kind: RecognizeKind, files: RecognizeFile[], text?: string): Promise<RecognizeResult> {
   const spec = RECOGNIZE[kind];
   const textFiles = files.filter((f) => f.mediaType.startsWith("text/") || /\.(txt|csv|eml)$/i.test(f.name)).map((f) => f.bytes.toString("utf8"));
@@ -46,7 +52,7 @@ export async function recognizeDocuments(kind: RecognizeKind, files: RecognizeFi
     if (plain) content.push({ type: "text", text: plain.slice(0, 20000) });
     content.push({ type: "text", text: "Extract the fields." });
     const accept = spec.accept
-      ? `First decide docKind, one of ${spec.accept.join(", ")} or OTHER (DBD = หนังสือรับรอง company certificate from the Department of Business Development; PP20 = ภ.พ.20 VAT registration; BILLING = the customer's own billing/invoice-to details). If OTHER, return empty fields.`
+      ? `First decide docKind, one of ${spec.accept.join(", ")} or OTHER (${spec.accept.map((k) => DOC_KIND_HINTS[k]).filter(Boolean).join("; ")}). If OTHER, return empty fields.`
       : "docKind: a short label for what the document is.";
     const linesSpec = spec.lines ? `, "lines": [{${Object.entries(spec.lines).map(([k, d]) => `"${k}": ${JSON.stringify(d)}`).join(", ")}}] (one object per printed line item, in order; omit the key when the document has no line items)` : "";
     const out = await complete(
