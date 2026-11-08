@@ -756,7 +756,7 @@
     "newPart": "New part",
     "newMovement": "New stock movement",
     "searchParts": "Search part no. / name",
-    "onHand": "On hand",
+    "onHand": "on hand {n}",
     "backToParts": "Back to parts",
     "part": "Part",
     "vendorPartNo": "Vendor part no.",
@@ -1176,7 +1176,16 @@
     "rpt24": "Request for quotation PRTH",
     "rpt25": "Purchase order POTH",
     "rpt26": "Goods receipt IBTH",
-    "rpt27": "Stock issue OBTH"
+    "rpt27": "Stock issue OBTH",
+    "needsTitle": "Parts and labour needed",
+    "internalOnly": "internal, not on the report",
+    "needsHint": "What the repair will need, as judged at inspection. On save the system checks stock: short parts raise a PRTH automatically and are carried into the quote.",
+    "needPart": "Part",
+    "needLabour": "Labour",
+    "stockCheck": "Stock check",
+    "short": "short {n}",
+    "checkedOnSave": "checked on save",
+    "quoteFromInth": "Quote lines pre-filled from the inspection's parts and labour (cost = part's last purchase price). Enter unit prices and save."
   },
   "role": {
     "MD": "Managing Director",

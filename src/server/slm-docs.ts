@@ -13,6 +13,9 @@ import { assertNotLocked, progressOrder } from "@/server/slm";
 import type { AssetStatus, Prisma } from "@prisma/client";
 
 const TestRow = z.object({ test: z.string(), criterion: z.string().optional(), result: z.string().optional(), recordId: z.string().optional(), pass: z.boolean().optional() });
+/** What the repair will need, as the engineer sees it at inspection (internal, not on the report). */
+export const NeedRow = z.object({ kind: z.enum(["PART", "LABOUR"]), partSku: z.string().optional(), vendorPartNo: z.string().optional(), description: z.string().min(1), descriptionLocal: z.string().optional(), qty: z.number().positive(), unit: z.string().default("pcs") });
+export type InspectionNeed = z.infer<typeof NeedRow> & { onHand?: number; short?: number };
 
 // ───────────── INTH ─────────────
 
@@ -33,8 +36,24 @@ export const InspectionInput = z.object({
   attachments: z.array(z.object({ name: z.string(), url: z.string() })).optional(),
   location: z.enum(["SITE", "WORKSHOP"]).optional(),
   attachmentRefs: z.string().optional(),
+  needs: z.array(NeedRow).optional(),
   draft: z.boolean().default(false),
 });
+
+/** Stock check for the needs: parts in the catalogue get onHand and short; labour and free-text parts are left as typed. */
+export async function checkNeedsStock(needs: z.infer<typeof NeedRow>[]): Promise<InspectionNeed[]> {
+  const out: InspectionNeed[] = [];
+  for (const n of needs) {
+    if (n.kind !== "PART" || !n.partSku) { out.push(n); continue; }
+    const part = await prisma.part.findUnique({ where: { sku: n.partSku } });
+    if (!part) { out.push({ ...n, onHand: 0, short: n.qty }); continue; }
+    const rows = await prisma.stockMovement.groupBy({ by: ["direction"], where: { partId: part.id }, _sum: { qty: true } });
+    const sum = (dir: "IN" | "OUT") => Number(rows.find((r) => r.direction === dir)?._sum.qty ?? 0);
+    const onHand = sum("IN") - sum("OUT");
+    out.push({ ...n, vendorPartNo: n.vendorPartNo ?? part.vendorPartNo, onHand, short: Math.max(0, n.qty - onHand) });
+  }
+  return out;
+}
 
 export async function createInspection(input: z.input<typeof InspectionInput>) {
   const d = InspectionInput.parse(input);
@@ -45,6 +64,7 @@ export async function createInspection(input: z.input<typeof InspectionInput>) {
   ]);
   // A saved draft of this order and asset is continued (same INTH number); its blanks replace what was there.
   const open = await prisma.inspection.findFirst({ where: { serviceOrderId: order.id, assetId: asset.id, draft: true }, orderBy: { no: "desc" } });
+  const needs = d.needs ? (d.draft ? d.needs : await checkNeedsStock(d.needs)) : undefined;
   return prisma.$transaction(async (tx) => {
     const v = <T,>(x: T | undefined) => (open ? (x ?? null) : x);
     const data = {
@@ -54,6 +74,7 @@ export async function createInspection(input: z.input<typeof InspectionInput>) {
       openIssues: v(d.openIssues), conclusion: v(d.conclusion),
       attachments: (d.attachments?.length ? [...((open?.attachments as unknown[] | null) ?? []), ...d.attachments] : open?.attachments ?? undefined) as Prisma.InputJsonValue | undefined,
       location: v(d.location), attachmentRefs: v(d.attachmentRefs), draft: d.draft,
+      needs: (open ? needs ?? [] : needs) as Prisma.InputJsonValue | undefined,
     };
     const no = open?.no ?? (await allocateNumber(tx, { prefix: "IN", createdByEmployeeCode: eng.code, entityId: order.entityId }));
     const insp = open
@@ -66,7 +87,7 @@ export async function createInspection(input: z.input<typeof InspectionInput>) {
       data: {
         assetId: asset.id, type: "INSPECTED", actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no,
         summary: `${d.probableCause ?? d.findings ?? ""}`,
-        payload: { findings: d.findings, probableCause: d.probableCause, recommendation: d.recommendation, tests: d.tests } as Prisma.InputJsonValue,
+        payload: { findings: d.findings, probableCause: d.probableCause, recommendation: d.recommendation, tests: d.tests, needs } as Prisma.InputJsonValue,
       },
     });
     return insp;

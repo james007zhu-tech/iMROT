@@ -769,6 +769,7 @@ model Inspection {
   attachments    Json?
   location       RepairLocation? /// where it was inspected: SITE or WORKSHOP
   attachmentRefs String? /// photo / record IDs referred to in the evidence table (P1–P3, M1 …)
+  needs          Json? /// internal only, never printed (rule 21): [{kind PART|LABOUR, partSku?, vendorPartNo?, description, descriptionLocal?, qty, unit, onHand?, short?}] — saved for real → stock checked, short parts raise a PRTH (flow step 3)
   draft          Boolean         @default(false) /// "save draft": number reserved, but no document, event or status change until saved for real
 }
 

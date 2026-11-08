@@ -42,3 +42,4 @@ Branches: `feat/<module>-<topic>` → PR to `main`. Keep PRs under ~400 lines; o
 
 ## Style
 TypeScript strict, server components by default, `"use client"` only for interaction. Tailwind v4 with DCiT tokens (`bg-navy`, `bg-blue`). Mobile first for the portal. Short files, plain names, comments say *why*.
+22. **INTH needs (flow step 3, 2026-11-08):** the inspection form carries "parts and labour needed" rows (`Inspection.needs`, internal — never on the 08 report). Saving for real runs the stock check (`checkNeedsStock`) and `autoInquiryForOrder` raises one PRTH for the short parts unless the order already has an OPEN/COMPARED inquiry; the quote page pre-fills its lines from the needs (part cost = last purchase price). `inquiryLinesFromOrder` prefers quote lines and falls back to INTH needs.

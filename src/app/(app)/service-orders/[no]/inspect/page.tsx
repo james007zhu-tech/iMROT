@@ -1,7 +1,9 @@
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { catchUpOrder } from "@/server/slm";
-import { createInspection } from "@/server/slm-docs";
+import { createInspection, type InspectionNeed } from "@/server/slm-docs";
+import { autoInquiryForOrder } from "@/server/purchasing";
+import { RevealRows } from "@/components/RevealRows";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { inspectionGaps } from "@/lib/inspection-gaps";
@@ -10,6 +12,8 @@ import { StepPage, atts, loadOrder, str } from "../_shell";
 
 export const dynamic = "force-dynamic";
 const TESTS = ["visual", "supply", "faultLog", "functional", "extra1", "extra2"] as const;
+const NEED_ROWS = 8;
+const num = (f: FormData, k: string) => { const v = str(f, k); return v === undefined ? undefined : Number(v); };
 
 /** 检测单 INTH — wireframe 6 (report: diagnostic report). */
 export default async function Inspect({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ error?: string; ok?: string }> }) {
@@ -20,6 +24,14 @@ export default async function Inspect({ params, searchParams }: { params: Promis
     prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.inspection.findFirst({ where: { serviceOrderId: order.id, draft: true }, orderBy: { no: "desc" }, include: { asset: { select: { code: true } }, engineer: { select: { code: true } } } }),
   ]);
+  // Parts for the picker: the asset models' BOM first, then the rest of the catalogue (capped) — the engineer may also type a SKU that is not in it yet.
+  const modelIds = [...new Set(order.assets.map((l) => l.asset.modelId).filter((x): x is string => !!x))];
+  const [bom, catalogue] = await Promise.all([
+    prisma.modelPart.findMany({ where: { modelId: { in: modelIds } }, include: { part: true } }),
+    prisma.part.findMany({ orderBy: { sku: "asc" }, take: 400 }),
+  ]);
+  const partOptions = [...bom.map((b) => b.part), ...catalogue.filter((p) => !bom.some((b) => b.partId === p.id))];
+  const dNeeds = (draft?.needs as InspectionNeed[] | null) ?? [];
   const dTests = (draft?.tests as { test: string; criterion?: string; result?: string; recordId?: string; pass?: boolean }[] | null) ?? [];
   // Rows: what the draft measured first, then the standard test names it does not have yet.
   const standard = TESTS.slice(0, 4).map((k) => u(`test_${k}`));
@@ -33,11 +45,14 @@ export default async function Inspect({ params, searchParams }: { params: Promis
       const me = await currentEmployee();
       const tests = TESTS.map((k) => ({ test: str(f, `t_${k}`) ?? "", criterion: str(f, `c_${k}`), result: str(f, `r_${k}`), recordId: str(f, `id_${k}`), pass: f.get(`p_${k}`) ? f.get(`p_${k}`) === "yes" : undefined })).filter((x) => x.test && (x.criterion || x.result));
       const asDraft = f.get("draft") === "1"; // only the "save draft" button posts draft=1
+      const needs = Array.from({ length: NEED_ROWS }, (_, i) => ({ kind: (str(f, `nk${i}`) ?? "PART") as "PART" | "LABOUR", partSku: str(f, `ns${i}`), description: str(f, `nd${i}`) ?? "", descriptionLocal: str(f, `nl${i}`), qty: num(f, `nq${i}`) ?? 0, unit: str(f, `nu${i}`) ?? "pcs" }))
+        .map((n) => ({ ...n, description: n.description || n.partSku || "" })).filter((n) => n.description && n.qty > 0);
       const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
-      const i = await createInspection({ serviceOrderNo: no, assetCode: String(f.get("assetCode")), engineerCode: str(f, "engineerCode") ?? me.code, inspectedAt: str(f, "inspectedAt") ? new Date(str(f, "inspectedAt")!) : undefined, symptoms: str(f, "symptoms"), conditions: str(f, "conditions"), findings: str(f, "findings"), probableCause: str(f, "probableCause"), recommendation: str(f, "recommendation"), instruments: str(f, "instruments"), openIssues: str(f, "openIssues"), conclusion: str(f, "conclusion"), tests, attachments: atts(f), location: (str(f, "location") as "SITE" | undefined), attachmentRefs: str(f, "attachmentRefs"), draft: asDraft });
+      const i = await createInspection({ serviceOrderNo: no, assetCode: String(f.get("assetCode")), engineerCode: str(f, "engineerCode") ?? me.code, inspectedAt: str(f, "inspectedAt") ? new Date(str(f, "inspectedAt")!) : undefined, symptoms: str(f, "symptoms"), conditions: str(f, "conditions"), findings: str(f, "findings"), probableCause: str(f, "probableCause"), recommendation: str(f, "recommendation"), instruments: str(f, "instruments"), openIssues: str(f, "openIssues"), conclusion: str(f, "conclusion"), tests, attachments: atts(f), location: (str(f, "location") as "SITE" | undefined), attachmentRefs: str(f, "attachmentRefs"), needs, draft: asDraft });
       if (asDraft) return { ok: i.no, to: `/service-orders/${no}/inspect` };
       if (cur.status === "RECEIVED" || cur.status === "ASSIGNED") await catchUpOrder(no, "DIAGNOSING", me.code, str(f, "engineerCode") ?? me.code);
-      return { ok: i.no, to: `/service-orders/${no}` };
+      const pr = needs.some((n) => n.kind === "PART") ? await autoInquiryForOrder(no, str(f, "engineerCode") ?? me.code) : null; // flow step 3: short parts → PRTH
+      return { ok: pr ? `${i.no} → PRTH ${pr}` : i.no, to: `/service-orders/${no}` };
     }, `/service-orders/${no}/inspect`);
   }
   return (
@@ -74,6 +89,23 @@ export default async function Inspect({ params, searchParams }: { params: Promis
             <Field label={u("openIssues")}><input name="openIssues" defaultValue={draft?.openIssues ?? ""} className={inputCls} /></Field>
           </Grid>
           <Field label={u("conclusionLimits")}><input name="conclusion" defaultValue={draft?.conclusion ?? ""} className={inputCls} /></Field>
+        </Card>
+        <Card title={<>{u("needsTitle")} <Tag>{u("internalOnly")}</Tag></>}>
+          <p className="text-xs text-navy/70">{u("needsHint")}</p>
+          <datalist id="parts">{partOptions.map((p) => <option key={p.id} value={p.sku}>{p.vendorPartNo} · {p.name}</option>)}</datalist>
+          <div className="hidden grid-cols-[90px_170px_2fr_2fr_70px_70px_110px] gap-2 text-xs text-navy/70 md:grid"><span>{t("type")}</span><span>{u("partSku")}</span><span>{u("descEn")}</span><span>{u("descTh")}</span><span>{t("qty")}</span><span>{u("uom")}</span><span>{u("stockCheck")}</span></div>
+          <RevealRows initial={Math.max(dNeeds.length, 2)} addLabel={u("addLine")}>
+            {Array.from({ length: NEED_ROWS }, (_, i) => { const n = dNeeds[i]; return (
+              <div key={i} className="grid grid-cols-2 gap-2 md:grid-cols-[90px_170px_2fr_2fr_70px_70px_110px]">
+                <select name={`nk${i}`} defaultValue={n?.kind ?? "PART"} className={inputCls}><option value="PART">{u("needPart")}</option><option value="LABOUR">{u("needLabour")}</option></select>
+                <input name={`ns${i}`} list="parts" defaultValue={n?.partSku ?? ""} placeholder="SKU" className={`${inputCls} font-mono`} />
+                <input name={`nd${i}`} defaultValue={n?.description ?? ""} className={inputCls} />
+                <input name={`nl${i}`} defaultValue={n?.descriptionLocal ?? ""} className={inputCls} />
+                <input name={`nq${i}`} type="number" step="0.5" min={0} defaultValue={n?.qty ?? ""} className={inputCls} />
+                <input name={`nu${i}`} defaultValue={n?.unit ?? (n?.kind === "LABOUR" ? "h" : "pcs")} className={inputCls} />
+                <div className="self-center text-xs">{n?.short ? <Tag hot>{u("short", { n: n.short })}</Tag> : n?.onHand !== undefined ? <span className="text-navy/70">{u("onHand", { n: n.onHand })}</span> : <span className="text-navy/50">{u("checkedOnSave")}</span>}</div>
+              </div>); })}
+          </RevealRows>
         </Card>
       </form>
     </StepPage>
