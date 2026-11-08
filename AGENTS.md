@@ -19,6 +19,7 @@ Read this before changing anything. Also read README.md and the design doc linke
 14. **Services throw stable codes** (`DELIVERY_MISMATCH:…`, `SERIAL_EXISTS:…`); pages translate `err_<CODE>` from `messages/*.json`. Server actions must not close over translators (`t`, `u`) — Next cannot serialise them.
 15. **Side menu (2026-11-07):** white, icon + four-character Chinese labels; Latin text in Helvetica, Thai Sarabun, Chinese Noto Sans SC. Customer documents keep Sarabun + Noto Sans SC.
 16. **Drafts keep their number:** "save draft" on RPTH / PMTH / DNTH updates the same open document; never open a second number for the same unfinished work.
+16. **Signature and stamp blocks** sit at the foot of the page (floating table anchored to the bottom margin), never right after the body text; applies to every template that is signed (rule 2026-11-08). scripts/templates/anchor_signature_bottom.py re-applies it.
 
 ## Before a PR
 ```bash
