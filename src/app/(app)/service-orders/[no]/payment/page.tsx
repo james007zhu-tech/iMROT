@@ -16,7 +16,7 @@ export default async function Payment({ params, searchParams }: { params: Promis
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const today = new Date().toISOString().slice(0, 10);
   const outstanding = (i: (typeof order.invoices)[number]) => Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0);
-  const unpaid = order.invoices.filter((i) => outstanding(i) > 0.004);
+  const unpaid = order.invoices.filter((i) => !i.cancelledAt && outstanding(i) > 0.004);
   const receipts = await prisma.receipt.findMany({ where: { invoiceId: { in: order.invoices.map((i) => i.id) } }, orderBy: { receivedAt: "asc" }, include: { invoice: { select: { no: true } } } });
   async function save(f: FormData) {
     "use server";

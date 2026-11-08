@@ -36,7 +36,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     status: order.status, kind: order.kind, hasInspection: order.inspections.length > 0, hasQuote: order.lines.length > 0, hasJob: jobs.length > 0, jobFinished: jobs.some((j) => j.finishedAt),
     workshop: jobs.some((j) => j.location === "WORKSHOP") || order.documents.some((d) => d.type === "ER"),
     deliveriesSigned: order.deliveries.filter((d) => d.status === "SIGNED").length, deliveriesOpen: order.deliveries.filter((d) => d.status !== "SIGNED").length,
-    invoicesUnpaid: order.invoices.filter((i) => !i.paidAt).length, hasAcceptance: !!order.acceptance,
+    invoicesUnpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, hasAcceptance: !!order.acceptance,
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
   const money = (k: StepKey) => k === "invoice" || k === "payment";
@@ -46,8 +46,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const stepLabel = (s: StepKey) => u(`step_${s}`);
   const transitions = ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CANCELLED" || s === "CLOSED");
   // "项目完成" (flow step 10): the person confirms the close once the money is in; the system no longer closes by itself.
-  const outstanding = order.invoices.reduce((s, i) => s + Math.max(0, Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0)), 0);
-  const settledAwaitingClose = order.status === "INVOICED" && order.invoices.length > 0 && outstanding < 0.005;
+  const outstanding = order.invoices.filter((i) => !i.cancelledAt).reduce((s, i) => s + Math.max(0, Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0)), 0);
+  const settledAwaitingClose = order.status === "INVOICED" && order.invoices.some((i) => !i.cancelledAt) && outstanding < 0.005;
 
   async function assign(form: FormData) {
     "use server";

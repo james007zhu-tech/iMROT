@@ -105,7 +105,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
       </Card>
       {statements.length > 0 && <Card title={u("statementsBl")}>
         <Table head={["BLTH", u("period"), t("date"), u("invoicesOnStatement"), t("amount"), "PDF"]}>
-          {statements.map((b) => <tr key={b.id}><td className="font-mono">{b.no}</td><td>20{b.period.slice(0, 2)}-{b.period.slice(2, 4)}</td><td>{b.issuedAt.toISOString().slice(0, 10)}</td><td>{b._count.invoices}</td><td>{b.currency} {Number(b.total).toFixed(2)}</td><td className="text-xs"><a className="text-blue hover:underline" href={`/api/documents/${b.no}/render?format=pdf`}>BLTH</a></td></tr>)}
+          {statements.map((b) => <tr key={b.id}><td className="font-mono"><Link href={`/statements/${b.no}`} className="text-blue hover:underline">{b.no}</Link></td><td>20{b.period.slice(0, 2)}-{b.period.slice(2, 4)}</td><td>{b.issuedAt.toISOString().slice(0, 10)}</td><td>{b._count.invoices}</td><td>{b.currency} {Number(b.total).toFixed(2)}</td><td className="text-xs"><a className="text-blue hover:underline" href={`/api/documents/${b.no}/render?format=pdf`}>BLTH</a></td></tr>)}
         </Table>
       </Card>}
       {c.editedFields && <p className="text-xs text-navy/70">{u("dbdEdited", { fields: (c.editedFields as string[]).join(", ") })}</p>}
