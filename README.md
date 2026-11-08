@@ -153,4 +153,14 @@ docker compose up -d db && npm run db:push && npm run db:seed && npm run fx:fetc
   - 需要 Node ≥ 22.18（package.json engines，.nvmrc = 24），Node 22.11/22.12 会全站报错。
   - 供应商编号 STH：已有供应商的库升级时 `db push` 会失败（新加的必填唯一字段），改为可空 + `db:seed` 自动补号；Mac mini 开发容器遇到只是「新增唯一约束」的提示时会自动重试。
   - 验证：tsc、vitest 60、smoke（PostgreSQL）、smoke:mem、build、Playwright 49 步（含输入时重复序列号提示、离线助手查单和口述填表、图标）全过。中国银行和 DBD 的真实抓取在本环境连不上，未实测。
+- 0.22.2（2026-11-08：AI 真 key 联调 + 剩下的线框差距 + 编号防撞）：
+  - AI：用 DCiT 的 key 实测，默认模型 claude-sonnet-4-5 已不可用（404），改为 claude-sonnet-5-5；两处调用统一走 `callClaude()`，.env 里写着旧模型名时自动退回默认模型。实测：变频器铭牌照片、客户 PO PDF（含两行明细）、泰文 KBank 转账单（佛历 69 → 2026）都识别正确；助手按 ATH 查维修历史正确。
+  - 助手看到的客户联系人、送货签收人、验收签字人姓名一律脱敏（规则 13），它不会再把全名说出来。
+  - Mac mini 开发容器：.env 的值在建容器时就固定了，之后填的 key 进不去；现在每次重启 next dev 都重新读取 .env。
+  - 列表分页：服务单、客户、料号每页 20 条（设备列表原本就有）。
+  - 出入库单：每行输入料号后显示名称，料号库没有的当场橙色提示。
+  - 检测单 INTH：「保存草稿」（同一 INTH 号，草稿不出报告、不进时间线、不推进状态）；草稿页列出缺失项（测量值、仪器、隔离/挂牌确认、客户授权、失败项缺照片），只提醒不拦。
+  - 维护单 PMTH：型号库没有维护标准时，按设备类型（变频器 / 电机 / 控制柜 / PLC / 其他）给出通用检查项和判定准则，不再是空表。
+  - 编号：每个国家只在本国法人上计数；没有该国法人时拒绝编号（NO_ENTITY_FOR_COUNTRY），不再借用别的法人计数器——那样等该国法人建好后会从 001 重新开始，和已发出的号撞号。
+  - 验证：tsc、vitest 73、smoke（PostgreSQL）、smoke:mem、build、Playwright 53 步全过。
 

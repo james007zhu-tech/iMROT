@@ -33,6 +33,7 @@ export const InspectionInput = z.object({
   attachments: z.array(z.object({ name: z.string(), url: z.string() })).optional(),
   location: z.enum(["SITE", "WORKSHOP"]).optional(),
   attachmentRefs: z.string().optional(),
+  draft: z.boolean().default(false),
 });
 
 export async function createInspection(input: z.input<typeof InspectionInput>) {
@@ -42,17 +43,23 @@ export async function createInspection(input: z.input<typeof InspectionInput>) {
     prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }),
     prisma.employee.findUniqueOrThrow({ where: { code: d.engineerCode } }),
   ]);
+  // A saved draft of this order and asset is continued (same INTH number); its blanks replace what was there.
+  const open = await prisma.inspection.findFirst({ where: { serviceOrderId: order.id, assetId: asset.id, draft: true }, orderBy: { no: "desc" } });
   return prisma.$transaction(async (tx) => {
-    const no = await allocateNumber(tx, { prefix: "IN", createdByEmployeeCode: eng.code, entityId: order.entityId });
-    const insp = await tx.inspection.create({
-      data: {
-        no, serviceOrderId: order.id, assetId: asset.id, engineerId: eng.id, inspectedAt: d.inspectedAt,
-        symptoms: d.symptoms, conditions: d.conditions, findings: d.findings, probableCause: d.probableCause,
-        recommendation: d.recommendation, tests: d.tests as Prisma.InputJsonValue | undefined, instruments: d.instruments,
-        openIssues: d.openIssues, conclusion: d.conclusion, attachments: d.attachments as Prisma.InputJsonValue | undefined,
-        location: d.location, attachmentRefs: d.attachmentRefs,
-      },
-    });
+    const v = <T,>(x: T | undefined) => (open ? (x ?? null) : x);
+    const data = {
+      engineerId: eng.id, inspectedAt: d.inspectedAt ?? open?.inspectedAt ?? undefined,
+      symptoms: v(d.symptoms), conditions: v(d.conditions), findings: v(d.findings), probableCause: v(d.probableCause),
+      recommendation: v(d.recommendation), tests: (open ? d.tests ?? [] : d.tests) as Prisma.InputJsonValue | undefined, instruments: v(d.instruments),
+      openIssues: v(d.openIssues), conclusion: v(d.conclusion),
+      attachments: (d.attachments?.length ? [...((open?.attachments as unknown[] | null) ?? []), ...d.attachments] : open?.attachments ?? undefined) as Prisma.InputJsonValue | undefined,
+      location: v(d.location), attachmentRefs: v(d.attachmentRefs), draft: d.draft,
+    };
+    const no = open?.no ?? (await allocateNumber(tx, { prefix: "IN", createdByEmployeeCode: eng.code, entityId: order.entityId }));
+    const insp = open
+      ? await tx.inspection.update({ where: { id: open.id }, data })
+      : await tx.inspection.create({ data: { ...data, no, serviceOrderId: order.id, assetId: asset.id } });
+    if (d.draft) return insp; // nothing registered yet: no report, no timeline entry, the order does not move
     await tx.document.create({ data: { no, type: "IN", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: eng.id, templateCode: "08" } });
     await progressOrder(tx, order, "DIAGNOSING", eng.id, no);
     await tx.assetEvent.create({

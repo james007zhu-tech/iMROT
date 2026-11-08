@@ -17,7 +17,11 @@ export async function allocateNumber(
 
   // The serial runs per country in the number, not per entity booked: a TH employee opening a customer for DCiV still
   // gets a CTH number, so it must come from the TH counter or it would collide with CTH numbers already issued.
-  const owner = (await tx.legalEntity.findUnique({ where: { countryCode: country }, select: { id: true } }))?.id ?? opts.entityId;
+  // One counter per country, kept on that country's legal entity (countryCode is unique and fixed once created).
+  // Without an entity for the country there is no counter to use: borrowing another entity's would restart at 001
+  // once the country's own entity exists and hand out numbers that were already issued (review 2026-11-07).
+  const owner = (await tx.legalEntity.findUnique({ where: { countryCode: country }, select: { id: true } }))?.id;
+  if (!owner) throw new Error(`NO_ENTITY_FOR_COUNTRY:${country}`);
   const seq = await tx.docSequence.upsert({
     where: { entityId_prefix_period: { entityId: owner, prefix: opts.prefix, period } },
     create: { entityId: owner, prefix: opts.prefix, period, last: 1 },

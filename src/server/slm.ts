@@ -154,7 +154,7 @@ export async function getServiceOrder(no: string) {
       createdBy: { select: { code: true, name: true } },
       assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } },
       lines: { orderBy: { lineNo: "asc" } },
-      inspections: { include: { engineer: { select: { name: true } } } },
+      inspections: { where: { draft: false }, include: { engineer: { select: { name: true } } } },
       repairJobs: { include: { engineer: { select: { name: true } } } },
       acceptance: true,
       documents: { include: { createdBy: { select: { name: true } } }, orderBy: { issuedAt: "asc" } },

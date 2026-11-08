@@ -95,3 +95,16 @@ export function Table({ head, children }: { head: React.ReactNode[]; children: R
     </div>
   );
 }
+
+/** List footer "1–20 / 57  ‹ prev  next ›" (wireframe: every list pages by 20). `href(n)` keeps the list's filters. */
+export const PAGE_SIZE = 20;
+export function Pager({ page, total, href, prev, next, size = PAGE_SIZE }: { page: number; total: number; href: (n: number) => string; prev: string; next: string; size?: number }) {
+  return (
+    <div className="flex items-center gap-2 px-2 pt-2 text-[13px] text-navy/70">
+      <span>{total === 0 ? 0 : (page - 1) * size + 1}–{Math.min(page * size, total)} / {total}</span>
+      <span className="ml-auto" />
+      {page > 1 && <Link href={href(page - 1)} className={btnGhost}>{prev}</Link>}
+      {page * size < total && <Link href={href(page + 1)} className={btnGhost}>{next}</Link>}
+    </div>
+  );
+}
