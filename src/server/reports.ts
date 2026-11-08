@@ -61,6 +61,11 @@ const REPORT_NAME: Record<string, [string, string]> = { IN: ["Diagnostic report"
 const both = (n?: [string, string]) => (n ? `${n[0]}  ${n[1]}` : "");
 const lines_ = (...xs: (string | null | undefined | false)[]) => xs.filter((x): x is string => !!x && !!x.trim()).join("\n");
 const CHECK = (on: boolean) => (on ? "☒" : "☐");
+/** Warranty on 12 / 13: start, end from the promised days, then any terms typed at acceptance — one item per line. */
+function warrantyLines(start: Date | null | undefined, days: number | null | undefined, terms: string | null | undefined): string {
+  const until = start && days != null ? new Date(start.getTime() + days * 86_400_000) : null;
+  return lines_(start ? `From  เริ่ม  ${d(start)}` : "", until ? `Until  ถึง  ${d(until)}  (${days} days  ${days} วัน)` : "", terms);
+}
 
 /**
  * 04 service proposal · 06 order confirmation · 12 service completion · 13 customer acceptance — all under the QTTH.
@@ -90,13 +95,16 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
   const onSite = o.documents.some((x) => x.templateCode === "10");
   const docs = lines_(
     o.kind !== "PARTS_SALE" && o.kind !== "MAINTENANCE" ? both(REPORT_NAME.IN) : "",
-    both(o.kind === "MAINTENANCE" ? REPORT_NAME.PM : o.kind !== "PARTS_SALE" ? (onSite ? REPORT_NAME.FS : REPORT_NAME.RP) : undefined),
+    // 合作维修: the partner's work is never shown to the customer — our retest gates the delivery, there is no RPTH
+    both(o.kind === "MAINTENANCE" ? REPORT_NAME.PM : o.kind !== "PARTS_SALE" && o.fulfilment !== "PARTNER" ? (onSite ? REPORT_NAME.FS : REPORT_NAME.RP) : undefined),
     "Delivery note  ใบส่งของ",
     o.kind !== "PARTS_SALE" ? "Service completion confirmation  ใบยืนยันงานบริการแล้วเสร็จ" : "",
     o.kind !== "PARTS_SALE" ? "Customer acceptance record  บันทึกการตรวจรับงาน" : "",
     "Tax invoice and receipt  ใบกำกับภาษีและใบเสร็จรับเงิน",
   );
   const signHint = "Name / date  ชื่อ / วันที่";
+  // What we promise the customer (quote page, rule 26: partner work is back-to-back on the same days); runs from acceptance.
+  const promise = o.warrantyDays != null ? `${o.warrantyDays} days from acceptance\n${o.warrantyDays} วันนับจากวันตรวจรับงาน` : "—";
 
   if (want === "04" || want === "06") {
     const subtotal = o.subtotal != null ? Number(o.subtotal) : round2(o.lines.reduce((s, l) => s + Number(l.amount), 0));
@@ -115,13 +123,13 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
       return { ...party, ...equipment, ...priced, ISSUE_DATE: d(o.quoteSentAt ?? doc.issuedAt), REQUESTED_ON: d(o.reportedAt), SERVICE_KIND: KIND[o.kind] ?? o.kind, OUR_CONTACT: lines_(owner.name, owner.phone),
         SYMPTOM: lines_(o.reportedSymptom, o.reportedAlarm ? `Alarm  ${o.reportedAlarm}` : "") || "—", IMPACT: IMPACT[o.productionImpact ?? ""] ?? (o.productionImpact || "—"),
         FINDINGS: lines_(insp?.findings, insp?.probableCause ? `Probable cause: ${insp.probableCause}` : "") || "—", RECOMMENDATION: insp?.recommendation || "—",
-        PAYMENT_TERMS: terms, DELIVERABLE_DOCS: docs,
+        PAYMENT_TERMS: terms, WARRANTY: promise, DELIVERABLE_DOCS: docs,
         TO_PROCEED: `Please send your purchase order quoting ${o.no}. Work starts when the purchase order is received.\nกรุณาส่งใบสั่งซื้อโดยอ้างอิงเลขที่ ${o.no} งานจะเริ่มเมื่อได้รับใบสั่งซื้อ`,
         PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "", CUSTOMER_SIGNATORY: signHint };
     }
     const confirmed = o.events[0];
     return { ...party, ...equipment, ...priced, CONFIRMED_ON: d(confirmed?.occurredAt ?? o.quoteConfirmedAt ?? doc.issuedAt), CUSTOMER_PO: po, QUOTE_REF: lines_(o.no, d(o.quoteSentAt ?? doc.issuedAt)), PAYMENT_TERMS: terms,
-      DELIVER_TO: lines_(c.name, o.plant?.name, o.plant?.address ?? c.addressLocal ?? c.addressEn),
+      DELIVER_TO: lines_(c.name, o.plant?.name, o.plant?.address ?? c.addressLocal ?? c.addressEn), WARRANTY: promise,
       CONFIRMED_BY: confirmed?.actor?.name ?? doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "", CUSTOMER_SIGNATORY: signHint };
   }
 
@@ -131,7 +139,7 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
   const reports = o.documents.map((x) => `${x.no}  ${(x.type === "RP" && x.templateCode === "10" ? REPORT_NAME.FS : REPORT_NAME[x.type])?.[0] ?? ""}`.trim()); // English name only: one report per line in a narrow cell
   const shared = { ...party, ...equipment, CUSTOMER_PO: po, REPORTS: reports.join("\n") || "—", DELIVERY_NOTES: o.deliveries.map((x) => x.no).join("\n") || "—",
     L_DV_NO: dv.map((_, i) => i + 1), L_DV_ITEM: dv.map((x) => x.deliverable), L_DV_CRITERION: dv.map((x) => x.criterion ?? ""), L_DV_RESULT: dv.map((x) => x.result ?? ""),
-    PUNCH_LIST: acc?.punchList?.trim() || "None  ไม่มี", WARRANTY: lines_(acc?.warrantyStart ? `From  เริ่ม  ${d(acc.warrantyStart)}` : "", acc?.warrantyTerms) || "—",
+    PUNCH_LIST: acc?.punchList?.trim() || "None  ไม่มี", WARRANTY: warrantyLines(acc?.warrantyStart ?? acc?.acceptedAt, o.warrantyDays, acc?.warrantyTerms) || "—",
     CUSTOMER_SIGNATORY: acc?.customerSignatory ?? acc?.customerContact?.name ?? signHint };
   const job = o.repairJobs[0];
   if (want === "12") return { ...shared, COMPLETED_ON: d(job?.finishedAt ?? acc?.acceptedAt ?? doc.issuedAt), COMPLETED_BY: acc?.dcitSignatory ?? job?.engineer.name ?? doc.createdBy.name };

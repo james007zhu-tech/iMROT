@@ -88,7 +88,7 @@ def build_proposal():
     section(doc, "Scope and price", "ขอบเขตงานและราคา")
     priced_lines(doc, [])
     section(doc, "Terms", "เงื่อนไข")
-    together(kv_table(doc, [(["Payment terms", "เงื่อนไขการชำระเงิน"], "[[PAYMENT_TERMS]]"), (["To proceed", "การยืนยัน"], "[[TO_PROCEED]]"), (["You will receive", "เอกสารที่ท่านจะได้รับ"], "[[DELIVERABLE_DOCS]]")], (2200, 7666)))
+    together(kv_table(doc, [(["Payment terms", "เงื่อนไขการชำระเงิน"], "[[PAYMENT_TERMS]]"), (["Warranty", "การรับประกัน"], "[[WARRANTY]]"), (["To proceed", "การยืนยัน"], "[[TO_PROCEED]]"), (["You will receive", "เอกสารที่ท่านจะได้รับ"], "[[DELIVERABLE_DOCS]]")], (2200, 7666)))
     signature_block(doc, [("Prepared by", "ผู้จัดทำ", "[[PREPARED_BY]]"), ("Authorised by", "ผู้มีอำนาจลงนาม", "[[AUTHORISED_BY]]"), ("Accepted by customer", "ลูกค้าตกลงตามข้อเสนอ", "[[CUSTOMER_SIGNATORY]]")])
     footer(doc, "SAL-RSP")
     doc.save(TPL / "04_Repair_Service_Proposal.docx")
@@ -102,7 +102,7 @@ def build_order_confirmation():
     customer_blocks(doc, [(["Confirmed on", "วันที่ยืนยัน"], "[[CONFIRMED_ON]]"), (["Customer PO", "ใบสั่งซื้อลูกค้า"], "[[CUSTOMER_PO]]"), (["Our quotation", "ใบเสนอราคา"], "[[QUOTE_REF]]"), (["Payment terms", "เงื่อนไขการชำระเงิน"], "[[PAYMENT_TERMS]]")])
     equipment_table(doc)
     section(doc, "Confirmed scope and price", "ขอบเขตงานและราคาที่ยืนยัน")
-    priced_lines(doc, [("Deliver to", "สถานที่ส่งมอบ", "[[DELIVER_TO]]")])
+    priced_lines(doc, [("Deliver to", "สถานที่ส่งมอบ", "[[DELIVER_TO]]"), ("Warranty", "การรับประกัน", "[[WARRANTY]]")])
     para(doc, before=4, after=0)
     lines(doc, ["We confirm your order for the work above at the prices shown. Any change to the scope or price is agreed in writing before the work continues.",
                 "บริษัทยืนยันการรับคำสั่งซื้อสำหรับงานข้างต้นตามราคาที่ระบุ การเปลี่ยนแปลงขอบเขตงานหรือราคาจะตกลงเป็นลายลักษณ์อักษรก่อนดำเนินงานต่อ"], 7.5, GREY, after=0)
