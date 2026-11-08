@@ -1234,7 +1234,11 @@
     "statementNote": "账龄按出单日计算；已收金额含客户预扣税。月结客户才有账单，账单只列出单时未付且未进过其他账单的 IVTH。",
     "err_INVOICE_CANCELLED": "IVTH {detail} 已随税票作废取消，不能登记收款",
     "dbdBlocked": "DBD 网站拒绝自动查询（防爬虫），请在 DBD 网站查到后手工填写",
-    "dbdOpenSite": "打开 DBD 网页"
+    "dbdOpenSite": "打开 DBD 网页",
+    "vatRegisteredFrom": "VAT 登记生效日",
+    "taxInvoiceBookSize": "每本税票张数（เล่มที่）",
+    "taxInvoiceBookHint": "税票按法人连续编本：第 1–50 张为 เล่มที่ 001，以此类推；作废的税票保留其位置。改动只影响之后开出的税票。",
+    "bookNo": "เล่มที่ / 本内序号"
   },
   "role": {
     "MD": "董事总经理 MD",

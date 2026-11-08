@@ -309,6 +309,8 @@ export const EntityInput = z.object({
   signatoryName: z.string().optional(),
   localCurrency: z.string().regex(/^[A-Z]{3}$/),
   vatRate: z.number().min(0).max(1),
+  taxInvoiceBookSize: z.number().int().min(1).max(1000).optional(),
+  vatRegisteredFrom: z.preprocess((v) => (v === undefined || v === null || v === "" ? undefined : v instanceof Date ? v : new Date(String(v))), z.date().optional()),
 });
 
 export async function saveLegalEntity(input: z.input<typeof EntityInput>) {

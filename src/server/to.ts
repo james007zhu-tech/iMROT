@@ -51,9 +51,16 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
 
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "TI", createdByEmployeeCode: actor.code, entityId: order.entityId, date: issuedAt });
+    // เล่มที่ / เลขที่ในเล่ม (朱总 2026-11-08): one running sequence per legal entity, books of `taxInvoiceBookSize`; a voided
+    // tax invoice keeps its place in the book, exactly as a torn page in a paper book would.
+    const last = await tx.taxInvoice.findFirst({ where: { serviceOrder: { entityId: order.entityId }, seq: { not: null } }, orderBy: { seq: "desc" }, select: { seq: true } });
+    const seq = (last?.seq ?? 0) + 1;
+    const bookSize = Math.max(1, order.entity.taxInvoiceBookSize);
+    const bookNo = String(Math.ceil(seq / bookSize)).padStart(3, "0");
+    const bookSeq = ((seq - 1) % bookSize) + 1;
     const ti = await tx.taxInvoice.create({
       data: {
-        no, serviceOrderId: order.id, issuedAt, currency,
+        no, serviceOrderId: order.id, issuedAt, currency, seq, bookNo, bookSeq,
         lines: lines.map((l) => ({ ...l, amount: round2(l.qty * l.unitPrice) })) as Prisma.InputJsonValue,
         subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx, totalCny: round2(t.total * fx),
         buyerTaxId: d.buyerTaxId ?? order.customer.taxId, buyerBranch: d.buyerBranch ?? order.customer.branchCode,

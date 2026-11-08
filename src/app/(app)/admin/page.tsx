@@ -36,7 +36,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
     await guarded(async () => {
       const me = await currentEmployee();
       const s = (k: string) => String(f.get(k) ?? "").trim() || undefined;
-      const e = await saveLegalEntity({ actorCode: me.code, countryCode: String(f.get("countryCode") ?? "").trim().toUpperCase(), code: String(f.get("code") ?? "").trim(), nameEn: String(f.get("nameEn") ?? "").trim(), nameLocal: s("nameLocal"), taxId: s("taxId"), branchCode: s("branchCode"), addressEn: s("addressEn"), addressLocal: s("addressLocal"), phone: s("phone"), email: s("email"), website: s("website"), signatoryName: s("signatoryName"), localCurrency: String(f.get("localCurrency") || "THB").trim().toUpperCase(), vatRate: Number(f.get("vatPct") ?? 7) / 100 });
+      const e = await saveLegalEntity({ actorCode: me.code, countryCode: String(f.get("countryCode") ?? "").trim().toUpperCase(), code: String(f.get("code") ?? "").trim(), nameEn: String(f.get("nameEn") ?? "").trim(), nameLocal: s("nameLocal"), taxId: s("taxId"), branchCode: s("branchCode"), addressEn: s("addressEn"), addressLocal: s("addressLocal"), phone: s("phone"), email: s("email"), website: s("website"), signatoryName: s("signatoryName"), localCurrency: String(f.get("localCurrency") || "THB").trim().toUpperCase(), vatRate: Number(f.get("vatPct") ?? 7) / 100, taxInvoiceBookSize: f.get("taxInvoiceBookSize") ? Number(f.get("taxInvoiceBookSize")) : undefined, vatRegisteredFrom: s("vatRegisteredFrom") });
       return e.code;
     }, "/admin");
   }
@@ -54,6 +54,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
           <Field label={t("localCcy")} required><input name="localCurrency" defaultValue={e?.localCurrency ?? ""} placeholder="VND" required maxLength={3} className={`${inputCls} font-mono`} /></Field>
           <Field label={t("bookCcy")}><div className="min-h-10 rounded-md border bg-tint px-2.5 py-2 text-sm">CNY</div></Field>
           <Field label={u("vatPct")} required><input name="vatPct" type="number" step="0.01" min={0} max={100} defaultValue={e ? pct(e.vatRate) : ""} required className={inputCls} /></Field>
+          <Field label={u("vatRegisteredFrom")}><input name="vatRegisteredFrom" type="date" defaultValue={e?.vatRegisteredFrom ? e.vatRegisteredFrom.toISOString().slice(0, 10) : ""} className={inputCls} /></Field>
+          <Field label={u("taxInvoiceBookSize")}><input name="taxInvoiceBookSize" type="number" min={1} max={1000} defaultValue={e?.taxInvoiceBookSize ?? 50} className={inputCls} /><p className="mt-1 text-xs text-navy/60">{u("taxInvoiceBookHint")}</p></Field>
           <Field label={t("addressEn")} className="md:col-span-3"><input name="addressEn" defaultValue={e?.addressEn ?? ""} className={inputCls} /></Field>
           <Field label={t("addressLocal")} className="md:col-span-3"><input name="addressLocal" defaultValue={e?.addressLocal ?? ""} className={inputCls} /></Field>
           <Field label={t("phone")}><input name="phone" defaultValue={e?.phone ?? ""} className={inputCls} /></Field>
@@ -67,7 +69,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
   };
   const view = (e: Entity) => (
     <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm md:grid-cols-3">
-      {([[t("nameEn"), e.nameEn], [t("nameLocal"), e.nameLocal], [t("taxId"), e.taxId], [t("branch"), e.branchCode], [t("localCcy"), e.localCurrency], [u("vatPct"), `${pct(e.vatRate)}%`], [t("addressEn"), e.addressEn], [t("phone"), e.phone], [t("signatory"), e.signatoryName]] as [string, string | null][]).map(([k, v]) => <div key={k}><dt className="text-xs text-navy/70">{k}</dt><dd>{v || "—"}</dd></div>)}
+      {([[t("nameEn"), e.nameEn], [t("nameLocal"), e.nameLocal], [t("taxId"), e.taxId], [t("branch"), e.branchCode], [t("localCcy"), e.localCurrency], [u("vatPct"), `${pct(e.vatRate)}%`], [u("taxInvoiceBookSize"), String(e.taxInvoiceBookSize)], [t("addressEn"), e.addressEn], [t("phone"), e.phone], [t("signatory"), e.signatoryName]] as [string, string | null][]).map(([k, v]) => <div key={k}><dt className="text-xs text-navy/70">{k}</dt><dd>{v || "—"}</dd></div>)}
     </dl>
   );
   return (

@@ -48,10 +48,11 @@ export default async function Invoice({ params, searchParams }: { params: Promis
     <StepPage order={order} title={u("step_invoice")} ok={ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} saveLabel={businessClosureOn() && canIssue ? u("issueTiIv") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
       {taxInvoices.length > 0 && (
         <Card title={<>{u("taxInvoicesIssued")} <Tag>{taxInvoices.length}</Tag></>}>
-          <Table head={["TITH", u("issueDate"), t("total"), "IVTH", t("status"), u("voidReason"), ""]}>
+          <Table head={["TITH", u("bookNo"), u("issueDate"), t("total"), "IVTH", t("status"), u("voidReason"), ""]}>
             {taxInvoices.map((x) => (
               <tr key={x.id} className={x.voidedAt ? "text-navy/50 line-through" : ""}>
                 <td className="font-mono"><a className="text-blue hover:underline" href={`/api/documents/${x.no}/render?format=pdf`}>{x.no}</a></td>
+                <td className="font-mono text-xs">{x.bookNo ? `${x.bookNo} / ${x.bookSeq}` : "—"}</td>
                 <td>{x.issuedAt.toISOString().slice(0, 10)}</td><td>{x.currency} {Number(x.total).toFixed(2)}</td>
                 <td className="font-mono text-xs">{x.invoices.map((i) => <span key={i.no} className={`block ${i.cancelledAt ? "line-through" : ""}`}>{i.no}</span>)}</td>
                 <td className="no-underline">{voidTag(x)}</td>

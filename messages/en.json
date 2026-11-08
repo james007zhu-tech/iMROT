@@ -1234,7 +1234,11 @@
     "statementNote": "Ageing is counted from the statement date; paid includes the customer's withholding tax. Only credit customers have statements; a statement lists the IVTH unpaid at issue and not on an earlier statement.",
     "err_INVOICE_CANCELLED": "IVTH {detail} was cancelled with its voided tax invoice; no payment can be recorded",
     "dbdBlocked": "The DBD site refuses automatic lookups (bot protection); open it and fill in by hand",
-    "dbdOpenSite": "open DBD"
+    "dbdOpenSite": "open DBD",
+    "vatRegisteredFrom": "VAT registered from",
+    "taxInvoiceBookSize": "Tax invoices per book (เล่มที่)",
+    "taxInvoiceBookHint": "Books are numbered consecutively per entity: invoices 1–50 are book 001 and so on; a voided invoice keeps its place. Changing this affects only invoices issued afterwards.",
+    "bookNo": "Book / no. in book"
   },
   "role": {
     "MD": "Managing Director",
