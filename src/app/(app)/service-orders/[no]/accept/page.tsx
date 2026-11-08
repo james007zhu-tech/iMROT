@@ -45,7 +45,7 @@ export default async function Accept({ params, searchParams }: { params: Promise
   }
   return (
     <StepPage order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={u("saveAcceptance")}>
-      <form id="f" action={save} encType="multipart/form-data" className="space-y-4">
+      <form id="f" action={save} className="space-y-4">
         <Card title={u("acceptChecklist")}>
           <ul className="grid gap-1 text-sm md:grid-cols-2">
             {required.map((k) => <li key={k} className={missing.includes(k) ? "font-semibold text-alert-ink" : ""}>{missing.includes(k) ? "✗" : "✓"} {k} · {u(`doc_${k}`)}</li>)}

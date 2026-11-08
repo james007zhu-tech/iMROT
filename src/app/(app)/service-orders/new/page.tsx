@@ -58,7 +58,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       <Flash error={error === "ASSET_REQUIRED" ? u("assetRequired") : error} />
       <FormMemory formId="f" />
       <UploadRecognize kind="service" formId="f" title={u("upServiceTitle")} hint={u("upServiceHint")} />
-      <form id="f" action={submit} encType="multipart/form-data" className="space-y-4">
+      <form id="f" action={submit} className="space-y-4">
         <Card title={u("whichAsset")}>
           <AssetPicker formId="f" assets={pick} initial={asset ? [asset] : []} labels={{ asset: t("asset"), customer: u("customerAuto"), plant: u("plantAuto"), add: u("addAnotherAsset") }} />
           <div className="flex flex-wrap items-center gap-2">
