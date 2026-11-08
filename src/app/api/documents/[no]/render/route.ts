@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { errorCode } from "@/lib/errors";
 import { NextResponse } from "next/server";
 import { canReadDocument, sessionScope } from "@/server/api-auth";
 import { renderDocument } from "@/server/reports";
@@ -24,6 +25,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ no: string }> }
       },
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
   }
 }

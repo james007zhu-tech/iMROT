@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorCode } from "@/lib/errors";
 import { requireSession } from "@/server/api-auth";
 import { prisma } from "@/lib/db";
 import { onboardAsset } from "@/server/alm";
@@ -27,6 +28,6 @@ export async function POST(req: Request) {
     const asset = await onboardAsset(await req.json());
     return NextResponse.json(asset, { status: 201 });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
   }
 }

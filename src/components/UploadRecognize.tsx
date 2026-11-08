@@ -40,7 +40,8 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
       let n = fill(formId, j.fields as Record<string, string>, uncertain);
       if (lineFields && Array.isArray(j.lines)) n += fillLines(formId, j.lines as Record<string, string>[], lineFields);
       const checks = uncertain.size;
-      setMsg(n > 0 ? { tone: checks ? "warn" : "ok", text: checks ? t("filledNCheck", { n, c: checks }) : t("filledN", { n }) } : { tone: "warn", text: j.notes === "no-model" ? t("noModel") : t("nothingFound") });
+      const base = n > 0 ? (checks ? t("filledNCheck", { n, c: checks }) : t("filledN", { n })) : t("nothingFound");
+      setMsg(j.notes === "no-model" ? { tone: "warn", text: `${n > 0 ? `${base} — ` : ""}${t("noModel")}` } : n > 0 ? { tone: checks ? "warn" : "ok", text: base } : { tone: "warn", text: base });
     } catch (e) {
       setMsg({ tone: "warn", text: (e as Error).message });
     } finally { setBusy(false); }

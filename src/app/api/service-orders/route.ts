@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorCode } from "@/lib/errors";
 import { requireSession } from "@/server/api-auth";
 import { prisma } from "@/lib/db";
 import { createServiceOrder } from "@/server/slm";
@@ -22,6 +23,6 @@ export async function POST(req: Request) {
     const order = await createServiceOrder(await req.json());
     return NextResponse.json(order, { status: 201 });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
   }
 }

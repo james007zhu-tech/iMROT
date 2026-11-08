@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorCode } from "@/lib/errors";
 import { getLocale } from "next-intl/server";
 import { assist } from "@/server/ai";
 import { sessionScope } from "@/server/api-auth";
@@ -13,5 +14,5 @@ export async function POST(req: Request) {
     return NextResponse.json(await assist(messages, scope.kind === "staff"
       ? { employeeCode: scope.employeeCode, locale, path, fields }
       : { contactId: scope.contactId, customerId: scope.customerId, locale, path, fields }));
-  } catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 400 }); }
+  } catch (e) { return NextResponse.json({ error: errorCode(e) }, { status: 400 }); }
 }

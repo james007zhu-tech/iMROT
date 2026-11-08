@@ -7,6 +7,11 @@
 export interface DbdCompany { nameTh?: string; nameEn?: string; addressTh?: string; addressEn?: string; phone?: string; registeredCapital?: number; foundedAt?: string; status?: string; raw: unknown }
 
 const BASE = process.env.DBD_API_URL ?? "https://openapi.dbd.go.th/api/v1/juristic_person";
+/** Optional key for the registered DBD Open API; without it the endpoint sits behind Incapsula and answers 403 to servers (seen 2026-11-08). */
+const API_KEY = process.env.DBD_API_KEY;
+/** Where a person can look the company up by hand when the automatic lookup is blocked. */
+export const dbdWebUrl = (taxId: string) => `https://datawarehouse.dbd.go.th/company/profile/${taxId}`;
+export class DbdBlockedError extends Error { constructor(status: number) { super(`DBD_BLOCKED:${status}`); this.name = "DbdBlockedError"; } }
 
 export function isThaiTaxId(id: string): boolean {
   if (!/^\d{13}$/.test(id)) return false;
@@ -23,14 +28,14 @@ export async function lookupDbd(taxId: string): Promise<DbdCompany | null> {
   const hit = cache.get(taxId);
   if (hit && Date.now() - hit.at < 86400000) return hit.value;
   // One request, 12 s: the form says "fill in by hand" quickly instead of hanging (trial 2026-11-05 waited ~24 s).
-  const res = await fetch(`${BASE}/${taxId}`, { headers: { accept: "application/json", "user-agent": "DCiT-OS/1.0 (+https://www.ducheng-industrial.com)" }, signal: AbortSignal.timeout(12000) });
+  const res = await fetch(`${BASE}/${taxId}`, { headers: { accept: "application/json", "user-agent": "DCiT-OS/1.0 (+https://www.ducheng-industrial.com)", ...(API_KEY ? { apikey: API_KEY, authorization: `Bearer ${API_KEY}` } : {}) }, signal: AbortSignal.timeout(12000) });
   if (res.status === 404) return null;
-  if (res.status === 403 || res.status === 429) throw new Error(`DBD blocked the request (${res.status}); try again in a few minutes`);
+  if (res.status === 403 || res.status === 429) throw new DbdBlockedError(res.status);
   if (!res.ok) throw new Error(`DBD ${res.status}`);
   // DBD labels its JSON as text/html; an HTML body is the WAF's challenge page.
   const body = await res.text();
   let json: unknown;
-  try { json = JSON.parse(body); } catch { throw new Error("DBD answered with a web page instead of data (rate limit); try again in a few minutes"); }
+  try { json = JSON.parse(body); } catch { throw new DbdBlockedError(res.status); } // HTML body = the WAF's challenge page
   const value = parseDbdResponse(json);
   cache.set(taxId, { at: Date.now(), value });
   return value;

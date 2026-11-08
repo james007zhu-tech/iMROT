@@ -378,7 +378,7 @@
     "reading": "Reading…",
     "filledN": "Filled {n} fields (light blue) — check before saving",
     "nothingFound": "Nothing to fill was found; the file is kept as an attachment",
-    "noModel": "AI is not configured, so images/PDFs cannot be read; the file is kept as an attachment",
+    "noModel": "AI reading is not configured (no API key): only the text rules ran; images/PDF content was not read. The file is kept as an attachment.",
     "rejectedDoc": "This is not a DBD certificate / ภ.พ.20 / billing information (read as: {kind}); nothing was filled",
     "pasteHint": "Press Ctrl+V (Mac: ⌘V) to paste",
     "forbidden": "You do not have permission to open this page",
@@ -1232,7 +1232,9 @@
     "age90": "61–90 days",
     "ageOver": "> 90 days",
     "statementNote": "Ageing is counted from the statement date; paid includes the customer's withholding tax. Only credit customers have statements; a statement lists the IVTH unpaid at issue and not on an earlier statement.",
-    "err_INVOICE_CANCELLED": "IVTH {detail} was cancelled with its voided tax invoice; no payment can be recorded"
+    "err_INVOICE_CANCELLED": "IVTH {detail} was cancelled with its voided tax invoice; no payment can be recorded",
+    "dbdBlocked": "The DBD site refuses automatic lookups (bot protection); open it and fill in by hand",
+    "dbdOpenSite": "open DBD"
   },
   "role": {
     "MD": "Managing Director",
