@@ -37,8 +37,9 @@ async function main() {
   assert((await prisma.document.count({ where: { no: inq.no, type: "PR" } })) === 1, "PRTH registered in Document");
 
   console.log("2. two supplier quotes, pick the cheaper");
-  const s1 = await createSupplier({ name: "Mitsubishi Electric Factory Automation (Thailand)", taxId: `010${Date.now().toString().slice(-10)}`, currency: "THB" });
-  const s2 = await createSupplier({ name: "FA Parts Bangkok", currency: "THB" });
+  const s1 = await createSupplier({ actorCode: admin.code, name: "Mitsubishi Electric Factory Automation (Thailand)", taxId: `010${Date.now().toString().slice(-10)}`, currency: "THB" });
+  assert(parseNumber(s1.code)?.prefix === "S", `supplier code ${s1.code}`);
+  const s2 = await createSupplier({ actorCode: admin.code, name: "FA Parts Bangkok", currency: "THB" });
   await addSupplierQuote({ inquiryNo: inq.no, actorCode: admin.code, supplierId: s1.id, quoteNo: "FA26101674", currency: "THB", vatRate: 0.07, lines: [{ lineNo: 1, vendorPartNo: "QY82P", qty: 1, unitPrice: 8770 }] });
   const q2 = await addSupplierQuote({ inquiryNo: inq.no, actorCode: admin.code, supplierId: s2.id, quoteNo: "FAP-2211", currency: "THB", vatRate: 0.07, leadTimeDays: 3, lines: [{ lineNo: 1, vendorPartNo: "QY82P", qty: 1, unitPrice: 8200 }] });
   assert(Number(q2.subtotal) === 8200 && Number(q2.total) === 8774, `quote totals ${q2.subtotal} / ${q2.total}`);

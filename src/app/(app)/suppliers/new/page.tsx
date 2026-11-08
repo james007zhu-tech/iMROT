@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { createSupplier } from "@/server/purchasing";
+import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
@@ -22,13 +23,14 @@ export default async function NewSupplier({ searchParams }: { searchParams: Prom
       const v = (k: string) => String(f.get(k) ?? "").trim() || undefined;
       const data = { name: v("nameEn") ?? "", nameLocal: v("nameLocal"), taxId: v("taxId"), branchCode: v("branchCode"), contactName: v("contactName"), phone: v("phone"), email: v("email"), address: v("addressEn"), currency: v("currency") ?? "THB", paymentTerms: v("paymentTerms"), leadTimeDays: v("leadTimeDays") ? Number(v("leadTimeDays")) : undefined };
       if (id) { await prisma.supplier.update({ where: { id }, data }); return { ok: data.name, to: backTo }; }
-      const r = await createSupplier(data);
-      return { ok: r.name, to: backTo };
+      const me = await currentEmployee();
+      const r = await createSupplier({ ...data, actorCode: me.code });
+      return { ok: r.code, to: backTo };
     }, `/suppliers/new${id ? `?id=${id}` : ""}`);
   }
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: backTo, label: u("suppliers") }} title={s ? s.name : u("newSupplier")} actions={<><Link href={backTo} className={btnGhost}>{t("cancel")}</Link><button form="f" className={btnPrimary}>{t("save")}</button></>} />
+      <PageHeader back={{ href: backTo, label: u("suppliers") }} title={s ? <><span className="font-mono">{s.code}</span> · {s.name}</> : u("newSupplier")} actions={<><Link href={backTo} className={btnGhost}>{t("cancel")}</Link><button form="f" className={btnPrimary}>{t("save")}</button></>} />
       <Flash error={error} />
       <FormMemory formId="f" />
       <UploadRecognize kind="entity" formId="f" title={u("upSupplierTitle")} hint={u("upSupplierHint")} />

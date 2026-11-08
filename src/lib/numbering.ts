@@ -20,6 +20,7 @@ export const MASTER_PREFIXES = {
   A: { name: "asset", digits: 4 },
   C: { name: "customer", digits: 3 },
   E: { name: "employee", digits: 3 },
+  S: { name: "supplier", digits: 3 }, // STH2611001 — decided 2026-11-08, same tier as customers
 } as const;
 
 export const DOC_PREFIXES = {
@@ -101,7 +102,7 @@ export interface ParsedNumber {
 
 /** Parse any DCiT number back into its parts; returns null when it does not match the rules. */
 export function parseNumber(no: string): ParsedNumber | null {
-  const master = /^([ACE])(TH|VN|CN)(\d{4})(\d{3,4})$/.exec(no);
+  const master = /^([ACES])(TH|VN|CN)(\d{4})(\d{3,4})$/.exec(no);
   if (master) {
     const prefix = master[1] as MasterPrefix;
     const digits = MASTER_PREFIXES[prefix].digits;

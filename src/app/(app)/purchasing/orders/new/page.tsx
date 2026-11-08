@@ -43,7 +43,7 @@ export default async function NewPurchaseOrder({ searchParams }: { searchParams:
       <form id="f" action={save} className="space-y-4">
         <Card title={u("poHeader")}>
           <Grid>
-            <Field label={u("supplier")} required><select name="supplierId" required className={inputCls}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
+            <Field label={u("supplier")} required><select name="supplierId" required className={inputCls}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.code} · {s.name}</option>)}</select></Field>
             <Field label="QTTH"><select name="serviceOrderNo" defaultValue={order ?? ""} className={inputCls}><option value="">—</option>{orders.map((o) => <option key={o.no} value={o.no}>{o.no} · {o.customer.name}</option>)}</select></Field>
             <Field label={u("quoteNo")}><input name="supplierRef" className={`${inputCls} font-mono`} /></Field>
             <Field label={t("currency")}><select name="currency" className={inputCls}>{["THB", "USD", "CNY", "EUR", "JPY"].map((c) => <option key={c}>{c}</option>)}</select></Field>

@@ -741,9 +741,11 @@ model StockMovement {
 
 // ───────────────────────── SCM purchasing (流程图: PRTH 询价比价 → POTH 采购 → IBTH 到货) ─────────────────────────
 
-/// Suppliers are master data without a numbered code (none decided); the tax ID keeps them unique.
+/// Suppliers — master data numbered like customers: STH + YYMM + 3-digit serial (decided 2026-11-08).
 model Supplier {
   id           String   @id @default(cuid())
+  code         String   @unique /// STH2611001
+  entityId     String?
   name         String
   nameLocal    String?
   taxId        String?  @unique

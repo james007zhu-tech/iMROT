@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>ETH 员工档案 — mockup v0.1</title>
+<style>
+@font-face{font-family:Sarabun;src:url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-thai-400-normal.woff2) format("woff2"),url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-latin-400-normal.woff2) format("woff2")}
+:root{--navy:#0B2D53;--blue:#2374D5;--tint:#EEF4FB;--line:#D5DEEA;--bg:#F4F6FA;--alert:#E8740C;--alert-ink:#9A4A00}
+*{box-sizing:border-box}body{margin:0;background:#888;font-family:"Noto Sans CJK SC","Noto Sans CJK JP",Sarabun,sans-serif;font-size:13px;color:#15233a}
+.screen{width:1280px;background:var(--bg);display:grid;grid-template-columns:220px 1fr;margin:0 0 24px}
+.side{background:#fff;border-right:1px solid var(--line);padding:18px 14px;min-height:860px}
+.logo{font-weight:800;font-size:22px;color:var(--navy);letter-spacing:.5px;margin-bottom:10px}
+.lang{display:flex;gap:6px;margin-bottom:16px}.lang span{padding:3px 8px;border-radius:6px;color:#556}.lang .on{background:var(--tint);color:var(--navy);font-weight:600}
+.nav a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#2b3a52;text-decoration:none;margin-bottom:2px}
+.nav a.on{background:var(--tint);color:var(--navy);font-weight:700;box-shadow:inset 3px 0 0 var(--blue)}
+.nav i{display:inline-block;width:16px;height:16px;border:1.5px solid currentColor;border-radius:3px;opacity:.7}
+.main{padding:18px 26px}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:14px}.top h1{margin:0;font-size:22px;color:var(--navy)}
+.badge{background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px}
+.btn{margin-left:auto;background:var(--blue);color:#fff;border-radius:8px;padding:8px 14px;font-weight:600}
+.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy);margin-left:8px}
+.back{color:var(--blue);font-size:13px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.card h3{margin:0 0 10px;font-size:14px;color:var(--navy)}
+.card h3 .md{float:right;font-size:11px;color:var(--alert-ink);border:1px solid var(--alert);border-radius:6px;padding:1px 6px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px}.grid4{grid-template-columns:repeat(4,1fr)}
+.f label{display:block;font-size:11px;color:#667;margin-bottom:3px}.f .v{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#fff;min-height:32px}
+.f .v.ai{background:var(--tint);border-color:var(--blue)}.f .v.un{background:#FBEEDF;border-color:var(--alert)}
+.f .v.req::after{content:" *";color:var(--alert)}
+.up{border:1.5px dashed var(--blue);background:var(--tint);border-radius:12px;padding:12px 16px;margin-bottom:12px;display:flex;gap:14px;align-items:center}
+.up b{color:var(--navy)}.up small{color:#556;display:block}
+table{width:100%;border-collapse:collapse;font-size:12.5px}th{background:#fff;color:var(--navy);text-align:left;padding:8px;border-bottom:2px solid var(--navy);font-size:12px}td{padding:8px;border-bottom:1px solid var(--line)}
+tr:nth-child(even) td{background:#FAFCFE}.mono{font-family:ui-monospace,Menlo,monospace}.r{text-align:right}
+.tag{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11px;background:var(--tint);color:var(--navy)}.tag.hot{background:#FBEEDF;color:var(--alert-ink)}
+.tabs{display:flex;gap:4px;margin:4px 0 12px;border-bottom:1px solid var(--line)}.tabs span{padding:8px 14px;color:#556;border-bottom:2px solid transparent}.tabs .on{color:var(--navy);font-weight:700;border-color:var(--blue)}
+.note{font-size:11.5px;color:#556;margin-top:8px}
+.ann{position:absolute;background:#6B3FA0;color:#fff;font-size:11px;padding:3px 7px;border-radius:5px;max-width:260px}
+.wrap{position:relative}
+.add{color:var(--blue);font-size:12px;margin-top:6px}
+</style></head><body>
+
+<!-- ─────────── Screen 1: employee list ─────────── -->
+<div class="screen wrap">
+  <div class="side"><div class="logo">DCiT OS</div><div class="lang"><span>ไทย</span><span class="on">中文</span><span>EN</span></div>
+    <div class="nav"><a><i></i>工作看板</a><a><i></i>设备管理</a><a><i></i>客户管理</a><a><i></i>服务管理</a><a><i></i>采购仓储</a><a><i></i>财务管理</a><a><i></i>税务运营</a><a class="on"><i></i>组织人才</a><a><i></i>系统管理</a></div></div>
+  <div class="main">
+    <div class="top"><h1>员工</h1><span class="badge">6</span><span class="badge">仅 MD 可见</span><span class="btn">＋ 新增员工</span></div>
+    <div class="card" style="padding:8px 12px">
+      <table><thead><tr><th>ETH</th><th>姓名</th><th>角色</th><th>法人</th><th>入职</th><th>手机 / LINE / 微信</th><th>证件到期</th><th>最近绩效</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">ETH2611001</td><td>Zhu Dongsheng<br><small>朱东升</small></td><td>MD</td><td>DCiT</td><td>2025-08-01</td><td>+66 88 660 6999 · —</td><td><span class="tag hot">工作证 2027-01-15</span></td><td>—</td><td><span class="tag">在职</span></td></tr>
+        <tr><td class="mono">ETH2611002</td><td>Sun Peng<br><small>孙鹏</small></td><td>经理</td><td>DCiT</td><td>2025-09-15</td><td>+66 90 896 0086 · sunpeng · sp_dcit</td><td>签证 2027-03-02</td><td>Q3 2026 · 92</td><td><span class="tag">在职</span></td></tr>
+        <tr><td class="mono">ETH2611003</td><td>Fluke<br><small>ฟลุ๊ค</small></td><td>工程师</td><td>DCiT</td><td>2026-01-10</td><td>+66 8x xxx xxxx · fluke_th</td><td>—</td><td>Q3 2026 · 88</td><td><span class="tag">在职</span></td></tr>
+        <tr><td class="mono">ETH2611004</td><td>Art</td><td>工程师</td><td>DCiT</td><td>2026-02-01</td><td>+66 8x xxx xxxx · art_dcit</td><td>—</td><td>Q3 2026 · 85</td><td><span class="tag">在职</span></td></tr>
+        <tr><td class="mono">ETH2611005</td><td>Tukta</td><td>行政</td><td>DCiT</td><td>2026-03-01</td><td>+66 8x xxx xxxx · tukta.t</td><td>—</td><td>Q3 2026 · 90</td><td><span class="tag">在职</span></td></tr>
+        <tr><td class="mono">ETH2611006</td><td>Jessie</td><td>销售</td><td>DCiT</td><td>2026-06-01</td><td>+66 8x xxx xxxx · jessie.s</td><td>—</td><td><span class="tag hot">试用期评估 11-30</span></td><td><span class="tag">试用期</span></td></tr>
+      </tbody></table>
+    </div>
+    <div class="note">列表页规则：右上角"新增员工"；证件 90 天内到期、绩效评估逾期用橙色提醒。联系方式默认脱敏，点开详情后重新输入密码 5 分钟内可见（沿用客户联系人的规则）。</div>
+  </div>
+  <div class="ann" style="left:960px;top:150px">设计说明：员工列表只有 MD 可见；其他人只能看自己的档案页</div>
+</div>
+
+<!-- ─────────── Screen 2: employee file ─────────── -->
+<div class="screen wrap">
+  <div class="side"><div class="logo">DCiT OS</div><div class="lang"><span>ไทย</span><span class="on">中文</span><span>EN</span></div>
+    <div class="nav"><a><i></i>工作看板</a><a><i></i>设备管理</a><a><i></i>客户管理</a><a><i></i>服务管理</a><a><i></i>采购仓储</a><a><i></i>财务管理</a><a><i></i>税务运营</a><a class="on"><i></i>组织人才</a><a><i></i>系统管理</a></div></div>
+  <div class="main">
+    <div class="top"><span class="back">← 员工</span><h1><span class="mono">ETH2611002</span> · Sun Peng 孙鹏</h1><span class="badge">经理 · DCiT · 在职</span><span class="btn">保存</span><span class="btn ghost">重设密码</span><span class="btn ghost">停用</span></div>
+    <div class="up"><div><b>上传简历 / 身份证件 / 工作证 / 劳动合同</b><small>系统识别姓名、联系方式、工作经历、证件号和到期日并填入；原件随档案归档</small></div><span class="btn" style="margin-left:auto;background:#fff;color:var(--blue);border:1px solid var(--blue)">选择文件 / 粘贴</span></div>
+    <div class="tabs"><span class="on">基本信息</span><span>联系方式</span><span>履历与证件</span><span>薪资记录</span><span>绩效评估</span><span>系统账号</span><span>附件</span></div>
+
+    <div class="card"><h3>基本信息</h3>
+      <div class="grid grid4">
+        <div class="f"><label>员工编号</label><div class="v mono">ETH2611002</div></div>
+        <div class="f"><label>姓名（英文 / 护照）</label><div class="v ai req">Sun Peng</div></div>
+        <div class="f"><label>本地姓名（中 / 泰）</label><div class="v ai">孙鹏</div></div>
+        <div class="f"><label>国籍</label><div class="v ai">中国</div></div>
+        <div class="f"><label>出生日期</label><div class="v ai">1990-05-12</div></div>
+        <div class="f"><label>性别</label><div class="v">男</div></div>
+        <div class="f"><label>法人</label><div class="v">DCiT · 泰国</div></div>
+        <div class="f"><label>角色（系统权限）</label><div class="v">经理</div></div>
+        <div class="f"><label>岗位</label><div class="v">供应链与现场服务</div></div>
+        <div class="f"><label>直属上级</label><div class="v mono">ETH2611001 · Zhu Dongsheng</div></div>
+        <div class="f"><label>入职日期</label><div class="v">2025-09-15</div></div>
+        <div class="f"><label>试用期至 / 转正</label><div class="v">2025-12-14 · 已转正</div></div>
+        <div class="f"><label>合同类型 / 到期</label><div class="v">固定期限 · 2027-09-14</div></div>
+        <div class="f"><label>工作地点</label><div class="v">Rayong 车间 / 客户现场</div></div>
+        <div class="f"><label>状态</label><div class="v">在职</div></div>
+        <div class="f"><label>离职日期 / 原因</label><div class="v">—</div></div>
+      </div>
+    </div>
+
+    <div class="card"><h3>联系方式 <span class="tag">默认脱敏 · 重输密码后显示 5 分钟</span></h3>
+      <div class="grid grid4">
+        <div class="f"><label>手机（泰国）</label><div class="v ai req">+66 90 896 0086</div></div>
+        <div class="f"><label>手机（中国）</label><div class="v">+86 138 **** 6789</div></div>
+        <div class="f"><label>LINE ID</label><div class="v ai">sunpeng</div></div>
+        <div class="f"><label>微信</label><div class="v ai">sp_dcit</div></div>
+        <div class="f"><label>工作邮箱（登录名）</label><div class="v">sun.peng@ducheng-industrial.com</div></div>
+        <div class="f"><label>私人邮箱</label><div class="v">s***@qq.com</div></div>
+        <div class="f" style="grid-column:span 2"><label>泰国居住地址</label><div class="v">xx/x Moo x, Nikhom Phatthana, Rayong 21180</div></div>
+        <div class="f"><label>紧急联系人</label><div class="v">孙** · 父亲</div></div>
+        <div class="f"><label>紧急联系电话</label><div class="v">+86 *** **** ****</div></div>
+        <div class="f"><label>银行（发薪）</label><div class="v">KBANK · ****1234</div></div>
+        <div class="f"><label>社保号 SSO</label><div class="v">**********</div></div>
+      </div>
+    </div>
+
+    <div class="card"><h3>履历与证件</h3>
+      <table><thead><tr><th>起止</th><th>单位</th><th>职位</th><th>主要工作 / 技能</th><th>来源</th></tr></thead><tbody>
+        <tr><td>2018-07 → 2025-08</td><td>某自动化公司（宁波）</td><td>现场服务工程师</td><td>变频器、伺服现场调试与维修；西门子 S120 / 三菱 A800</td><td><span class="tag">简历识别</span></td></tr>
+        <tr><td>2015-09 → 2018-06</td><td>某电机厂</td><td>电气技术员</td><td>电机测试台、PLC 维护</td><td><span class="tag">简历识别</span></td></tr>
+      </tbody></table><div class="add">＋ 添加经历</div>
+      <table style="margin-top:10px"><thead><tr><th>证件</th><th>号码</th><th>签发 / 到期</th><th>原件</th><th>提醒</th></tr></thead><tbody>
+        <tr><td>护照</td><td class="mono">E********</td><td>2022-03-01 / 2032-02-28</td><td>passport.pdf</td><td>—</td></tr>
+        <tr><td>Non-B 签证</td><td class="mono">—</td><td>— / 2027-03-02</td><td>visa.jpg</td><td><span class="tag">到期前 90 天</span></td></tr>
+        <tr><td>工作许可证 Work Permit</td><td class="mono">WP-**-*****</td><td>2025-10-01 / 2027-01-15</td><td>workpermit.pdf</td><td><span class="tag hot">68 天后到期</span></td></tr>
+        <tr><td>90 天报到</td><td class="mono">—</td><td>— / 2026-12-20</td><td>—</td><td><span class="tag">到期前 14 天</span></td></tr>
+        <tr><td>学历 / 资格证书</td><td>电气工程 本科 · 高压电工证</td><td>—</td><td>degree.pdf</td><td>—</td></tr>
+      </tbody></table><div class="add">＋ 添加证件</div>
+    </div>
+
+    <div class="card"><h3>薪资记录 <span class="md">仅 MD · 每次查看写审计日志</span></h3>
+      <table><thead><tr><th>生效日期</th><th class="r">基本工资</th><th class="r">津贴</th><th class="r">合计 / 月</th><th>币种</th><th>调整原因</th><th>批准人</th><th>附件</th></tr></thead><tbody>
+        <tr><td>2025-09-15</td><td class="r">**,***</td><td class="r">*,***</td><td class="r">**,***</td><td>THB</td><td>入职</td><td>Zhu Dongsheng</td><td>offer.pdf</td></tr>
+        <tr><td>2025-12-15</td><td class="r">**,***</td><td class="r">*,***</td><td class="r">**,***</td><td>THB</td><td>转正调薪</td><td>Zhu Dongsheng</td><td>—</td></tr>
+        <tr><td>2026-07-01</td><td class="r">**,***</td><td class="r">*,***</td><td class="r">**,***</td><td>THB</td><td>年度调薪 · Q2 绩效</td><td>Zhu Dongsheng</td><td>memo.pdf</td></tr>
+      </tbody></table><div class="add">＋ 新增调薪记录（生效日期、金额、原因、批准人）</div>
+      <div class="note">只记录调整事件，不做工资核算；当前薪资 = 最新一条。金额在列表和导出中始终脱敏，详情页需 MD 重输密码。</div>
+    </div>
+
+    <div class="card"><h3>绩效评估 <span class="md">MD 填写 · 本人可见结论</span></h3>
+      <table><thead><tr><th>周期</th><th>类型</th><th class="r">得分</th><th>评级</th><th>评估人</th><th>日期</th><th>结论 / 改进项</th><th>表单</th></tr></thead><tbody>
+        <tr><td>2026 Q3</td><td>季度</td><td class="r">92</td><td>A</td><td>Zhu Dongsheng</td><td>2026-10-05</td><td>供应链交付准时率提升；需加强报价成本核对</td><td>Q3_自评表.xlsx</td></tr>
+        <tr><td>2026 Q2</td><td>季度</td><td class="r">88</td><td>B+</td><td>Zhu Dongsheng</td><td>2026-07-03</td><td>现场响应快；记录不及时</td><td>Q2_自评表.xlsx</td></tr>
+        <tr><td>2025-12</td><td>试用期转正</td><td class="r">—</td><td>通过</td><td>Zhu Dongsheng</td><td>2025-12-14</td><td>转正</td><td>—</td></tr>
+      </tbody></table><div class="add">＋ 新增评估（周期、类型、得分/评级、结论、改进项、附上评估表）</div>
+      <div class="note">评估表沿用总部季度自评模板，作为附件归档；系统只存周期、得分、评级、结论，便于列表和趋势。</div>
+    </div>
+
+    <div class="card"><h3>系统账号</h3>
+      <div class="grid grid4">
+        <div class="f"><label>登录邮箱</label><div class="v">sun.peng@ducheng-industrial.com</div></div>
+        <div class="f"><label>界面语言</label><div class="v">中文</div></div>
+        <div class="f"><label>权限角色</label><div class="v">经理（可见 SCM / SLM / CRM，不可见 OPD、法人）</div></div>
+        <div class="f"><label>最近登录</label><div class="v">2026-11-07 16:42</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="ann" style="left:640px;top:62px">设计说明：顶部上传框识别简历 → 填基本信息、联系方式、履历行（淡蓝 = 识别填入，橙 = 需核对）</div>
+  <div class="ann" style="left:1000px;top:148px">设计说明：页签只是导航，所有分区在一页内上下排列，保存一次提交</div>
+</div>
+</body></html>
