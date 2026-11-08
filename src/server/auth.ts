@@ -28,6 +28,7 @@ export async function signInEmployee(email: string, password: string): Promise<b
   const e = await prisma.employee.findUnique({ where: { email } });
   if (!e || !e.active || !verifyPassword(password, e.passwordHash)) return false;
   (await cookies()).set(COOKIE, sign(`${e.code}|${Date.now()}`), { httpOnly: true, sameSite: "lax", path: "/", maxAge: 7 * 86400 });
+  await prisma.employee.update({ where: { id: e.id }, data: { lastLoginAt: new Date() } }).catch(() => undefined); // shown on the ETH file
   return true;
 }
 export async function signOut() { (await cookies()).delete(COOKIE); }

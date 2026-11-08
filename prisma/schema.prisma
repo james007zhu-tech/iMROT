@@ -99,20 +99,178 @@ model Employee {
   locale       String       @default("th") /// th | zh | en — UI language, switchable any time
   active       Boolean      @default(true)
   createdAt    DateTime     @default(now())
+  lastLoginAt  DateTime?
 
-  assetsResponsible Asset[]           @relation("AssetResponsible")
+  // ── ETH employee file (2026-11-08): the MD sees and edits everything; the person sees their own file
+  //    without salary and may change their own contact details. Contacts are masked until the password is re-entered.
+  nationality       String?
+  birthDate         DateTime?
+  gender            String? /// M | F | other, as the person states it
+  position          String? /// job title as used on site, independent of the system role
+  managerId         String?
+  manager           Employee?     @relation("Manager", fields: [managerId], references: [id])
+  reports           Employee[]    @relation("Manager")
+  joinedAt          DateTime?
+  probationEndsAt   DateTime?
+  confirmedAt       DateTime? /// passed probation
+  contractType      ContractType?
+  contractEndsAt    DateTime?
+  workLocation      String?
+  leftAt            DateTime?
+  leftReason        String?
+  phone2            String? /// second mobile (home country)
+  lineId            String?
+  wechatId          String?
+  personalEmail     String?
+  address           String?
+  emergencyName     String?
+  emergencyRelation String?
+  emergencyPhone    String?
+  bankName          String? /// payroll account
+  bankAccount       String?
+  ssoNo             String? /// social security number
+  taxNo             String? /// personal tax ID
+  attachments       Json? /// archived originals: CV, contract, ID copies — [{name,url,kind}]
+
+  careers     EmployeeCareer[]
+  credentials EmployeeCredential[]
+  salaries    SalaryRecord[]       @relation("SalaryOf")
+  reviews     PerformanceReview[]  @relation("ReviewOf")
+
+  assetsResponsible Asset[]             @relation("AssetResponsible")
   events            AssetEvent[]
-  ordersAssigned    ServiceOrder[]    @relation("OrderAssignee")
-  ordersCreated     ServiceOrder[]    @relation("OrderCreator")
+  ordersAssigned    ServiceOrder[]      @relation("OrderAssignee")
+  ordersCreated     ServiceOrder[]      @relation("OrderCreator")
   inspections       Inspection[]
   repairJobs        RepairJob[]
   documents         Document[]
   dashboards        Dashboard[]
   auditLogs         AuditLog[]
   deliveries        DeliveryNote[]
-  marginApprovals   ServiceOrder[]    @relation("MarginApprover")
-  inquiries         PurchaseInquiry[] @relation("InquiryRequester")
-  purchaseOrders    PurchaseOrder[]   @relation("PoCreator")
+  marginApprovals   ServiceOrder[]      @relation("MarginApprover")
+  inquiries         PurchaseInquiry[]   @relation("InquiryRequester")
+  purchaseOrders    PurchaseOrder[]     @relation("PoCreator")
+  salariesApproved  SalaryRecord[]      @relation("SalaryApprover")
+  salariesCreated   SalaryRecord[]      @relation("SalaryCreator")
+  reviewsGiven      PerformanceReview[] @relation("Reviewer")
+}
+
+enum ContractType {
+  PROBATION
+  FIXED_TERM
+  PERMANENT
+  CONTRACTOR
+}
+
+/// Work history, from the CV (source AI) or typed (MANUAL). Periods as YYYY-MM; open end = current.
+model EmployeeCareer {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  fromYm     String
+  toYm       String?
+  company    String
+  title      String?
+  summary    String? /// main work and skills
+  source     String   @default("MANUAL") /// AI | MANUAL
+  sort       Int      @default(0)
+
+  @@index([employeeId, fromYm])
+}
+
+enum CredentialKind {
+  PASSPORT
+  ID_CARD
+  VISA
+  WORK_PERMIT
+  REPORT_90 /// 90-day report to immigration
+  CONTRACT
+  DEGREE
+  CERTIFICATE /// licences and trade certificates, e.g. high-voltage electrician
+  DRIVING_LICENCE
+  OTHER
+}
+
+/// Documents with a number and an expiry: the list page turns orange `remindDays` before `expiresAt`.
+model EmployeeCredential {
+  id         String         @id @default(cuid())
+  employeeId String
+  employee   Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  kind       CredentialKind
+  title      String? /// free title for DEGREE / CERTIFICATE / OTHER
+  number     String?
+  issuedAt   DateTime?
+  expiresAt  DateTime?
+  remindDays Int            @default(90)
+  file       Json? /// {name,url,kind}
+  note       String?
+
+  @@index([employeeId, expiresAt])
+}
+
+/// One row per salary version, effective from a date; the current salary is the latest effective row.
+/// This is the accountant's basis for payroll (decision 2026-11-08): gross structure, SSO base and rates,
+/// provident fund, personal tax deductions and the estimated monthly withholding. MD only; every view is audited.
+model SalaryRecord {
+  id              String   @id @default(cuid())
+  employeeId      String
+  employee        Employee @relation("SalaryOf", fields: [employeeId], references: [id], onDelete: Cascade)
+  effectiveFrom   DateTime
+  currency        String   @default("THB")
+  baseSalary      Decimal  @db.Decimal(14, 2)
+  allowances      Json? /// [{name, amount, taxable}] — position, housing, transport, phone, meal …
+  allowanceTotal  Decimal  @default(0) @db.Decimal(14, 2)
+  grossMonthly    Decimal  @db.Decimal(14, 2) /// baseSalary + allowanceTotal
+  ssoWageBase     Decimal? @db.Decimal(14, 2) /// wage used for social security, capped by law
+  ssoEmployeeRate Decimal? @db.Decimal(6, 4) /// e.g. 0.05
+  ssoEmployerRate Decimal? @db.Decimal(6, 4)
+  ssoEmployee     Decimal? @db.Decimal(14, 2) /// monthly employee contribution
+  ssoEmployer     Decimal? @db.Decimal(14, 2)
+  pvdEmployeeRate Decimal? @db.Decimal(6, 4) /// provident fund
+  pvdEmployerRate Decimal? @db.Decimal(6, 4)
+  taxDeductions   Json? /// personal allowances declared to the accountant: {maritalStatus, children, parents, lifeInsurance, …}
+  whtMonthly      Decimal? @db.Decimal(14, 2) /// estimated monthly withholding (ภ.ง.ด.1); accountant's figure
+  otherDeductions Json? /// [{name, amount}]
+  netEstimate     Decimal? @db.Decimal(14, 2) /// gross − ssoEmployee − pvd − wht − other; indicative only
+  reason          String /// hire, confirmation, annual review, promotion …
+  note            String?
+  approvedById    String
+  approvedBy      Employee @relation("SalaryApprover", fields: [approvedById], references: [id])
+  approvedAt      DateTime @default(now())
+  createdById     String
+  createdBy       Employee @relation("SalaryCreator", fields: [createdById], references: [id])
+  createdAt       DateTime @default(now())
+  attachments     Json? /// offer letter, salary memo
+
+  @@index([employeeId, effectiveFrom])
+}
+
+enum ReviewKind {
+  PROBATION
+  QUARTERLY
+  ANNUAL
+  SPECIAL
+}
+
+/// Performance review: the MD records period, score, grade and conclusion; the HQ self-assessment form is attached.
+model PerformanceReview {
+  id                String     @id @default(cuid())
+  employeeId        String
+  employee          Employee   @relation("ReviewOf", fields: [employeeId], references: [id], onDelete: Cascade)
+  period            String /// "2026 Q3", "2025-12 probation"
+  kind              ReviewKind
+  score             Decimal?   @db.Decimal(5, 1)
+  grade             String? /// A / B+ / PASS …
+  reviewerId        String
+  reviewer          Employee   @relation("Reviewer", fields: [reviewerId], references: [id])
+  reviewedAt        DateTime
+  conclusion        String?
+  improvements      String?
+  visibleToEmployee Boolean    @default(true)
+  attachments       Json?
+  createdAt         DateTime   @default(now())
+
+  @@index([employeeId, reviewedAt])
 }
 
 /// Who looked at or changed sensitive things: revealing contacts, creating/changing employees, overriding a delivery check.

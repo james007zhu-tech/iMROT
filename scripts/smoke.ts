@@ -196,7 +196,7 @@ async function main() {
     assert(c3.code.startsWith("CTH"), `DCiV customer by a TH employee is ${c3.code}`);
   }
   const eng = await prisma.employee.findFirst({ where: { role: { not: "MD" }, active: true } });
-  if (eng) { let denied = false; try { await createEmployee({ actorCode: eng.code, entityCode: "DCiT", name: "x", role: "ENGINEER", email: `x${Date.now()}@x.com`, password: "secret12" }); } catch (e) { denied = (e as Error).message === "MD only"; } assert(denied, "non-MD cannot create employees"); }
+  if (eng) { let denied = false; try { await createEmployee({ actorCode: eng.code, entityCode: "DCiT", name: "x", role: "ENGINEER", email: `x${Date.now()}@x.com`, password: "secret12" }); } catch (e) { denied = /MD_ONLY|MD only/.test((e as Error).message); } assert(denied, "non-MD cannot create employees"); }
 
   console.log("11. metrics catalog + AI dashboard builder (heuristic path when no API key)");
   for (const m of METRICS) { const r = await m.run(prisma, {}); assert(Array.isArray(r.labels) && r.labels.length === r.values.length, `metric ${m.id} → ${r.values.slice(0, 3).join(",")}`); }

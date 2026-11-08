@@ -201,7 +201,7 @@ await step("parts-and-stock", async () => {
   const ok = decodeURIComponent(page.url()); if (!/IBTH\d{9} · 2/.test(ok)) throw new Error(`expected one IBTH with 2 lines, got ${ok}`);
 });
 await step("search", async () => { await page.goto(`${BASE}/search?q=${assetCode}`); await expectText(assetCode); });
-let prNo, poNo;
+let prNo, poNo, engCode;
 await step("supplier-new", async () => {
   await page.goto(`${BASE}/suppliers/new`); await page.fill("[name=nameEn]", `FA Parts ${stamp}`); await page.fill("[name=paymentTerms]", "30 days"); await page.fill("[name=leadTimeDays]", "5");
   await save(); await page.waitForURL(/\/suppliers\?/); await expectText(`FA Parts ${stamp}`);
@@ -226,14 +226,33 @@ await step("purchase-order-and-receipt", async () => {
 await step("dashboard-build", async () => { await page.goto(`${BASE}/dashboard`); await page.fill("input[placeholder*=\"Describe\"]", "本月维修看板：工单、收入、工程师"); await page.click("form button:has-text('AI')"); await page.waitForURL(/\/dashboard\/[a-z0-9]+/, { timeout: 15000 }); });
 await step("employee-create-md-only", async () => {
   await page.goto(`${BASE}/people`); await page.click("a:has-text('New employee')"); await page.waitForURL(/\/people\/new/);
-  await page.fill("[name=name]", `Engineer ${stamp}`); await page.fill("[name=email]", `eng-${stamp.toLowerCase()}@ducheng-industrial.com`); await page.fill("[name=password]", "engineer1");
-  await save(); await page.waitForURL(/\/people\?/); await expectText(`Engineer ${stamp}`);
+  await page.fill("[name=name]", `Engineer ${stamp}`); await page.fill("[name=email]", `eng-${stamp.toLowerCase()}@ducheng-industrial.com`); await page.fill("[name=password]", "engineer1"); await page.selectOption("[name=locale]", "en");
+  await page.fill("[name=position]", "Field service"); await page.fill("[name=phone]", "+66 81 111 2222"); await page.fill("[name=lineId]", "eng_line");
+  await page.fill("[name=cf0]", "2020-01"); await page.fill("[name=cc0]", "Old Employer Ltd"); await page.fill("[name=workPermitNo]", `WP-${stamp}`); await page.fill("[name=workPermitExpiresAt]", new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10));
+  await save(); await page.waitForURL(/\/people\/ETH/); await noFlashError(); engCode = page.url().split("/").pop().split("?")[0];
+  if ((await page.inputValue("[name=cc0]")) !== "Old Employer Ltd") throw new Error("career row not saved"); await expectText("Work permit"); await expectText("expires in");
+  await page.goto(`${BASE}/people`); await expectText(`Engineer ${stamp}`); await expectText("+66 ** *** **22"); // contacts masked in the list
 });
-await step("non-md-cannot-see-opd", async () => {
+await step("employee-salary-and-review", async () => {
+  await page.goto(`${BASE}/people/${engCode}`); await expectText("Salary records");
+  await page.click("summary:has-text('Add salary record')");
+  await page.fill("[name=effectiveFrom]", "2026-11-01"); await page.fill("[name=baseSalary]", "25000"); await page.fill("[name=an0]", "transport"); await page.fill("[name=aa0]", "1500"); await page.fill("[name=reason]", "hire");
+  await page.click("form button:has-text('Add salary record')"); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError();
+  await expectText("**,***"); // masked until the password is re-entered
+  await page.locator("form").filter({ has: page.locator("button:has-text('Show in full')") }).locator("[name=password]").fill(PASSWORD); await page.click("button:has-text('Show in full')"); await page.waitForTimeout(900); await page.waitForLoadState("networkidle");
+  await expectText("26,500.00"); await expectText("875.00"); // gross; SSO employee 5 % of the 17,500 ceiling
+  await page.fill("[name=period]", "2026 Q4"); await page.fill("[name=score]", "90"); await page.fill("[name=grade]", "A"); await page.fill("[name=conclusion]", "good start");
+  await page.click("button:has-text('Add review')"); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("good start");
+});
+await step("non-md-sees-only-own-file", async () => {
   const c2 = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const p2 = await c2.newPage();
-  await p2.goto(`${BASE}/login`); await p2.fill("[name=email]", `eng-${stamp.toLowerCase()}@ducheng-industrial.com`); await p2.fill("[name=password]", "engineer1"); await p2.click("form button[type=submit]"); await p2.waitForURL(/\/(dashboard|assets)/);
-  const nav = await p2.locator("aside").innerText(); if (/Organisation|组织|บุคลากร|OPD/i.test(nav) && (await p2.locator("aside a[href='/people']").count()) > 0) throw new Error("OPD menu visible to an engineer");
-  await p2.goto(`${BASE}/people`); const b = await p2.locator("body").innerText(); if (b.includes("ETH2611001")) throw new Error("engineer can read the employee list"); await c2.close();
+  await p2.goto(`${BASE}/login`); await p2.fill("[name=email]", `eng-${stamp.toLowerCase()}@ducheng-industrial.com`); await p2.fill("[name=password]", "engineer1"); await p2.click("form button[type=submit]"); await p2.waitForURL(/\/(dashboard|assets)/); await p2.click("text=EN"); await p2.waitForTimeout(800);
+  if ((await p2.locator("aside a[href='/people']").count()) > 0) throw new Error("employee list link visible to an engineer");
+  await p2.goto(`${BASE}/people`); await p2.waitForURL(new RegExp(`/people/${engCode}`)); let b = await p2.locator("body").innerText();
+  if (b.includes("ETH2611001") && !b.includes(engCode)) throw new Error("engineer can read the employee list");
+  if (/Add salary record|26,500|\*\*,\*\*\*/.test(b)) throw new Error("salary visible to the person"); if (!b.includes("good start")) throw new Error("visible review conclusion missing on own file");
+  await p2.fill("[name=wechatId]", "eng_wx"); await p2.click("button:has-text('Save contact details')"); await p2.waitForTimeout(900); await p2.waitForLoadState("networkidle"); if ((await p2.inputValue("[name=wechatId]")) !== "eng_wx") throw new Error("own contact change not saved");
+  await p2.goto(`${BASE}/people/ETH2611001`); b = await p2.locator("body").innerText(); if (!/permission|Forbidden|403|无权|ไม่มีสิทธิ์/i.test(b)) throw new Error("engineer can open the MD's file"); await c2.close();
 });
 await step("finance-and-blth", async () => { await page.goto(`${BASE}/finance`); await expectText("IVTH"); await page.goto(`${BASE}/customers/${customerCode}`); await page.click("button:has-text('BLTH')"); await page.waitForTimeout(800); await page.waitForLoadState("networkidle"); const b = await page.locator("body").innerText(); if (!/BLTH2611|nothing to bill/.test(b)) throw new Error("BLTH neither issued nor correctly refused"); });
 await step("sign-out", async () => { await page.click("text=Sign out"); await page.waitForURL(/\/login/); });
