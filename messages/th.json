@@ -1452,7 +1452,7 @@
     "orderOwner": "ผู้รับผิดชอบ",
     "empLetter": "หนังสือแจ้งการปรับเงินเดือน",
     "empLetterHint": "ขั้นตอนสุดท้ายของการปรับเงินเดือน: มีผล {from} ({pct}) — สามภาษา ไทย อังกฤษ จีน ลับเฉพาะ ใส่คำขอบคุณเฉพาะบุคคลแล้วดาวน์โหลด",
-    "empLetterSalutation": "คำขึ้นต้น (ชื่อเล่นได้)",
+    "empLetterSalutation": "คำขึ้นต้น เช่น Mr. Nattawut",
     "empLetterPosition": "ตำแหน่งในหนังสือ",
     "empLetterPraiseTh": "คำขอบคุณเฉพาะบุคคล (ไทย)",
     "empLetterPraiseEn": "คำขอบคุณเฉพาะบุคคล (อังกฤษ)",
@@ -1530,7 +1530,8 @@
     "err_OT_MONTH_NOT_ENDED": "เดือน {detail} ยังไม่สิ้นสุด",
     "err_OT_LATER_MONTH_CLOSED": "เดือนถัดไปปิดแล้ว ({detail}) — เปิดเดือนหลังสุดก่อน",
     "err_ORDER_NOT_FOUND": "ไม่พบใบงาน ({detail})",
-    "err_EMPLOYEE_INACTIVE": "พนักงานพ้นสภาพแล้ว ({detail})"
+    "err_EMPLOYEE_INACTIVE": "พนักงานพ้นสภาพแล้ว ({detail})",
+    "empLetterEmployeeNo": "รหัสพนักงานในหนังสือ"
   },
   "role": {
     "MD": "กรรมการผู้จัดการ (MD)",
