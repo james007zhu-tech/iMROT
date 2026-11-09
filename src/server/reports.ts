@@ -2,6 +2,7 @@
  * Report generation: a registered document number → the DCiT Word template it belongs to → field values from the
  * event data → .docx (and .pdf when LibreOffice is installed). Nothing is typed by hand; the template layout is untouched.
  */
+import { bankLines, type BankDetails } from "@/lib/bank";
 import { readFile, writeFile, mkdir, mkdtemp, rm, copyFile } from "node:fs/promises";
 import { convertToPdf } from "./office";
 import path from "node:path";
@@ -35,14 +36,6 @@ const pctLabel = (r: unknown) => `${(Number(r) * 100).toFixed(2).replace(/\.?0+$
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const addDays = (x: Date, n: number) => new Date(x.getTime() + n * 86_400_000);
 
-type Bank = { bank?: string; branch?: string; bankCode?: string; branchCode?: string; accountName?: string; swift?: string; accounts?: Record<string, string> };
-/** One line per item (rule: no " · " joins): bank + branch, each account, account name, SWIFT. */
-function bankLines(b: Bank | null | undefined, currency?: string): string {
-  if (!b) return "";
-  const accounts = Object.entries(b.accounts ?? {});
-  const shown = currency && accounts.some(([c]) => c === currency) ? accounts.filter(([c]) => c === currency || c === "THB") : accounts;
-  return [[b.bank, b.branch ? `${b.branch}${b.bankCode ? ` (${b.bankCode}-${b.branchCode ?? ""})` : ""}` : ""].filter(Boolean).join(", "), ...shown.map(([c, a]) => `${c} ${a}`), b.accountName ? `Account name: ${b.accountName}` : "", b.swift ? `SWIFT ${b.swift}` : ""].filter(Boolean).join("\n");
-}
 type TiLine = { descriptionLocal?: string; descriptionEn?: string; description?: string; qty: number | string; unit?: string; unitPrice: number | string; amount: number | string };
 const tiLines = (lines: TiLine[]) => ({
   L_NO: lines.map((_, i) => i + 1), L_DESC: lines.map((l) => [l.descriptionLocal, l.descriptionEn ?? l.description].filter((x, i, a) => x && a.indexOf(x) === i).join("\n")),
@@ -272,7 +265,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
         CUSTOMER_NAME_TH: c.nameLocal ?? c.name, CUSTOMER_NAME_EN: c.nameLocal ? c.name : "", CUSTOMER_ADDRESS: c.billingAddress ?? c.addressLocal ?? c.addressEn ?? "", CUSTOMER_TAX_ID: ti.buyerTaxId ?? c.taxId ?? "", CUSTOMER_BRANCH: branchLabel(ti.buyerBranch ?? c.branchCode, o!.plant),
         REFERENCE: [o!.no, o!.customerRef ? `PO ${o!.customerRef}` : ""].filter(Boolean).join("\n"), PAYMENT_TERMS: `${c.paymentTermDays} วัน\ndue ${d(addDays(ti.issuedAt, c.paymentTermDays))}`, DELIVERY_NOTE: dns.map((x) => x.no).join("\n") || "—",
         ...tiLines(ti.lines as TiLine[]), SUBTOTAL: money(ti.subtotal), VAT_LABEL: pctLabel(ti.vatRate), VAT_AMOUNT: money(ti.vatAmount), CURRENCY: ti.currency, TOTAL: money(ti.total),
-        TOTAL_WORDS_TH: thaiAmount(Number(ti.total), ti.currency), TOTAL_WORDS_EN: englishAmount(Number(ti.total), ti.currency), BANK_LINES: bankLines(e.bankDetails as Bank | null, ti.currency), NOTES: ti.voidedAt ? `ยกเลิก / VOID ${d(ti.voidedAt)} ${ti.voidReason ?? ""}` : "",
+        TOTAL_WORDS_TH: thaiAmount(Number(ti.total), ti.currency), TOTAL_WORDS_EN: englishAmount(Number(ti.total), ti.currency), BANK_LINES: bankLines(e.bankDetails as BankDetails | null, ti.currency), NOTES: ti.voidedAt ? `ยกเลิก / VOID ${d(ti.voidedAt)} ${ti.voidReason ?? ""}` : "",
         RECEIVED_BY: "", ISSUED_BY: doc.createdBy.name, AUTHORISED_BY: e.signatoryName ?? "", VAT_REG_DATE: d(e.vatRegisteredFrom) } };
     }
     case "IV": {
@@ -290,7 +283,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
         BILL_TO: c.name, BILL_BRANCH: [o!.plant?.name, c.branchCode ? `branch ${c.branchCode}` : ""].filter(Boolean).join(", "), BILL_ADDRESS: c.billingAddress ?? c.addressEn ?? c.addressLocal ?? "", CUSTOMER_TAX_ID: c.taxId ?? "", ATTN: "Accounts Payable",
         L_NO: lf.L_NO, L_DESC: lines.map((l) => l.descriptionEn ?? l.description ?? l.descriptionLocal ?? ""), L_QTY: lf.L_QTY, L_PRICE: lf.L_PRICE, L_AMOUNT: lf.L_AMOUNT,
         SUBTOTAL: money(subtotal), VAT_LABEL: pctLabel(vatRate), VAT_AMOUNT: money(vat), INVOICE_TOTAL: money(total), SETTLED_TO_DATE: money(settled), WHT_LABEL: wht ? `${pctLabel(WHT_SERVICE_RATE)} on ${money(subtotal)}` : "", WHT_AMOUNT: wht ? `(${money(wht)})` : money(0), CURRENCY: iv.currency, AMOUNT_PAYABLE: money(round2(total - settled - wht)),
-        BANK_LINES: bankLines(e.bankDetails as Bank | null, iv.currency), ACCOUNTS_EMAIL: e.email ?? "", TAX_INVOICE_NOTE_TH: iv.taxInvoice ? `ใบแจ้งหนี้นี้ไม่ใช่ใบกำกับภาษี ใบกำกับภาษีคือ ${iv.taxInvoice.no} ที่แนบมาด้วย` : "", TAX_INVOICE_NOTE_EN: iv.taxInvoice ? `This invoice is not a tax invoice; the tax invoice is ${iv.taxInvoice.no}, attached.` : "",
+        BANK_LINES: bankLines(e.bankDetails as BankDetails | null, iv.currency), ACCOUNTS_EMAIL: e.email ?? "", TAX_INVOICE_NOTE_TH: iv.taxInvoice ? `ใบแจ้งหนี้นี้ไม่ใช่ใบกำกับภาษี ใบกำกับภาษีคือ ${iv.taxInvoice.no} ที่แนบมาด้วย` : "", TAX_INVOICE_NOTE_EN: iv.taxInvoice ? `This invoice is not a tax invoice; the tax invoice is ${iv.taxInvoice.no}, attached.` : "",
         PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: e.signatoryName ?? "" } };
     }
     case "RC": {
