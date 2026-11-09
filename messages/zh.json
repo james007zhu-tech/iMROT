@@ -1444,7 +1444,12 @@
     "docType_SC": "服务合同",
     "docType_PV": "付款凭证",
     "docType_TR": "培训",
-    "docType_RC": "收据"
+    "docType_RC": "收据",
+    "inquiryContact": "询价联系人",
+    "inquiryFiles": "客户询价单 / PO 附件",
+    "upTradeTitle": "上传客户的询价单 / 采购订单 / LINE 截图，或粘贴文字",
+    "upTradeHint": "原件随业务单保存；物料行在下面填写",
+    "orderOwner": "负责人"
   },
   "role": {
     "MD": "董事总经理 MD",

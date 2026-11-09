@@ -1444,7 +1444,12 @@
     "docType_SC": "Service contract",
     "docType_PV": "Payment voucher",
     "docType_TR": "Training",
-    "docType_RC": "Receipt"
+    "docType_RC": "Receipt",
+    "inquiryContact": "Inquiry contact",
+    "inquiryFiles": "Customer's inquiry / PO files",
+    "upTradeTitle": "Upload the customer's inquiry, PO or LINE screenshot, or paste the text",
+    "upTradeHint": "The original is kept with the order; fill in the item lines below",
+    "orderOwner": "Owner"
   },
   "role": {
     "MD": "Managing Director",

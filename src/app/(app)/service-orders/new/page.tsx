@@ -82,17 +82,17 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           kinds={MODE_KINDS.MAINTENANCE.map((k) => ({ value: k, label: t(k) }))}
           labels={{ kind: u("maintenanceKind"), reason: u("partnerReason"), reasonPh: u("partnerReasonPh"), soon: u("modeComingSoon") }} />
       </Card>
-      <UploadRecognize kind="service" formId="f" title={u("upServiceTitle")} hint={u("upServiceHint")} />
+      <UploadRecognize kind="service" formId="f" title={u(trade ? "upTradeTitle" : "upServiceTitle")} hint={u(trade ? "upTradeHint" : "upServiceHint")} />
       <form id="f" action={submit} className="space-y-4">
 {trade ? (<>
         <Card title={u("customerAndInquiry")}>
           <Grid>
             <Field label={t("customer")} required><select name="customerId" required defaultValue={customers.find((c) => c.code === customer)?.id ?? ""} className={inputCls}><option value="">—</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select></Field>
-            <Field label={u("reportedBy")}><select name="reportedById" className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)} · {c.customer.name}</option>)}</select></Field>
+            <Field label={u("inquiryContact")}><select name="reportedById" className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)} · {c.customer.name}</option>)}</select></Field>
             <Field label={u("customerInquiryRef")}><input name="customerRef" className={`${inputCls} font-mono`} /></Field>
             <Field label={u("inquiryDate")}><input name="reportedAt" type="datetime-local" defaultValue={now} className={inputCls} /></Field>
           </Grid>
-          <Field label={u("poAttachments")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>
+          <Field label={u("inquiryFiles")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>
         </Card>
         <Card title={u("itemLines")}>
           <datalist id="trade-parts">{parts.map((p) => <option key={p.id} value={p.sku}>{p.name} · {u("onHand", { n: onHand.get(p.id) ?? 0 })}</option>)}</datalist>
@@ -132,7 +132,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           <Field label={u("poAttachments")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>
         </Card>
         </>)}
-        <Card title={u("dispatch")}>
+        <Card title={u(trade ? "orderOwner" : "dispatch")}>
           <Grid>
             <Field label={t("assignee")}><select name="assigneeCode" className={inputCls}><option value="">—</option>{engineers.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select></Field>
             {!trade && <Field label={u("plannedVisit")}><input name="plannedAt" type="datetime-local" className={inputCls} /></Field>}
