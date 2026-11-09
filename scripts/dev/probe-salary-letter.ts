@@ -19,11 +19,11 @@ async function main() {
   await refused(() => salaryLetterFields(first.id), /NO_PREVIOUS_SALARY/, "a first salary has no notice");
   const raise = await addSalaryRecord(md.code, e.code, { effectiveFrom: "2026-11-01", baseSalary: 17000, reason: "review" });
   await refused(() => saveLetterDetails(e.code, raise.id, { salutation: "x" }), /MD_ONLY/, "only the MD edits the letter");
-  await saveLetterDetails(md.code, raise.id, { salutation: "Chai", praiseZh: "现场工作做得扎实。", praiseEn: "Solid site work.", praiseTh: "งานหน้างานแน่นมาก" });
+  await saveLetterDetails(md.code, raise.id, { salutation: "Mr. Chai", employeeNo: "ETH26999", praiseZh: "现场工作做得扎实。", praiseEn: "Solid site work.", praiseTh: "งานหน้างานแน่นมาก" });
   const f = await salaryLetterFields(raise.id);
   assert(f.OLD_BASE === "15,000.00" && f.NEW_BASE === "17,000.00" && f.INCREASE === "2,000.00" && f.INCREASE_PCT === "+13.3%", "15,000 → 17,000, +2,000, +13.3%");
   assert(f.EFFECTIVE_TH === "1 พฤศจิกายน 2569" && f.PAYDAY_EN === "4 December 2026" && f.PAYDAY_ZH === "2026年12月4日", "Thai BE date; first paid 4 Dec (5 Dec is a holiday)");
-  assert(f.SALUTATION === "Chai" && f.TO_NAME.includes("สมชาย ทดสอบ") && f.POSITION === "Technician" && f.LETTER_NO === `${e.code}-SAL-202611`, `greeting, names, position, ref ${f.LETTER_NO}`);
+  assert(f.SALUTATION_EN === "Mr. Chai" && f.SALUTATION_TH === "คุณ Chai" && f.SALUTATION_ZH === "Chai 先生" && f.TO_NAME.includes("สมชาย ทดสอบ") && f.POSITION === "Technician" && f.EMP_CODE === "ETH26999" && f.LETTER_NO === "ETH26999-SAL-202611", `greeting in three languages, HR employee no., ref ${f.LETTER_NO}`);
   await refused(() => renderSalaryLetter(e.code, raise.id), /MD_ONLY/, "only the MD renders it");
   const r = await renderSalaryLetter(md.code, raise.id);
   const xml = readZip(await readFile(r.docxPath)).find((x) => x.name === "word/document.xml")!.data.toString("utf8");

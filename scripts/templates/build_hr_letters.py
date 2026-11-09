@@ -15,7 +15,7 @@ RED = "B00020"
 R = WD_ALIGN_PARAGRAPH.RIGHT
 
 TH = [
-    "เรียน คุณ [[SALUTATION]]",
+    "เรียน [[SALUTATION_TH]]",
     "ขอขอบคุณสำหรับความทุ่มเทและความตั้งใจในการทำงานตลอดช่วงที่ผ่านมา [[PRAISE_TH]]",
     "คู่มือพนักงานของเรากำหนดไว้ว่า เงินเดือนประจำจะปรับตามขนาดของผลงานที่สร้างอย่างต่อเนื่อง ขอบเขตความรับผิดชอบ และความเร็วในการเติบโตของแต่ละคน เราวัดกันที่ผลงาน ไม่ใช่เพียงความเหนื่อยยาก การปรับเงินเดือนครั้งนี้จึงเป็นการยืนยันว่าบริษัทเห็นผลงานและการเติบโตของคุณ",
     "ตั้งแต่วันที่ [[EFFECTIVE_TH]] เป็นต้นไป เงินเดือนพื้นฐานของคุณปรับจากเดือนละ [[OLD_BASE]] บาท เป็น [[NEW_BASE]] บาท เพิ่มขึ้น [[INCREASE]] บาท ([[INCREASE_PCT]]) เงินเดือนใหม่จะจ่ายครั้งแรกพร้อมเงินเดือนประจำเดือน[[FIRST_MONTH_TH]] และโอนเข้าบัญชีภายในวันที่ [[PAYDAY_TH]] เงื่อนไขการจ้างงานอื่นคงเดิมทั้งหมด เงินสมทบประกันสังคมและการหักตามกฎหมายอื่นคำนวณจากเงินเดือนใหม่ตามที่กฎหมายกำหนด",
@@ -23,7 +23,7 @@ TH = [
     "หนังสือฉบับนี้เป็นความลับอย่างยิ่ง เพราะเป็นข้อมูลค่าตอบแทนส่วนบุคคลและข้อมูลลับของบริษัท โปรดเก็บรักษาไว้ และไม่นำไปพูดคุยหรือเผยแพร่ต่อผู้อื่น หากมีข้อสงสัยโปรดคุยกับผมโดยตรง ขอบคุณอีกครั้งครับ",
 ]
 EN = [
-    "Dear [[SALUTATION]],",
+    "Dear [[SALUTATION_EN]],",
     "Thank you for your hard work and commitment. [[PRAISE_EN]]",
     "Our Employee Handbook says that fixed pay is adjusted according to the size of a person's lasting contribution, the scope of their responsibility and the pace of their growth — we count results, not effort alone. This adjustment says that we see your results and your growth.",
     "With effect from [[EFFECTIVE_EN]], your base salary increases from THB [[OLD_BASE]] to THB [[NEW_BASE]] a month, an increase of THB [[INCREASE]] ([[INCREASE_PCT]]). It is first paid with the [[FIRST_MONTH_EN]] salary, credited on or before [[PAYDAY_EN]]. All other terms of your employment stay the same; social security and other statutory deductions follow the new salary as the law requires.",
@@ -31,7 +31,7 @@ EN = [
     "This letter is strictly confidential: it holds your personal pay information and confidential company information. Please keep it safe and do not discuss or share it with others. If you have any question, talk to me directly. Thank you again.",
 ]
 ZH = [
-    "[[SALUTATION]]，你好：",
+    "[[SALUTATION_ZH]]，你好：",
     "感谢你一直以来的投入和付出。[[PRAISE_ZH]]",
     "员工手册写明：固定薪资根据长期贡献的大小、责任范围和个人成长速度进行调整；我们只论功劳，不论苦劳。这次调薪，就是公司对你实际贡献和成长的肯定。",
     "自[[EFFECTIVE_ZH]]起，你的基本工资由每月 [[OLD_BASE]] 泰铢调整为 [[NEW_BASE]] 泰铢，增加 [[INCREASE]] 泰铢（[[INCREASE_PCT]]）。新工资首次随[[FIRST_MONTH_ZH]]工资发放，于[[PAYDAY_ZH]]或之前到账。其他雇佣条款不变；社会保险等法定扣缴按新工资依法计算。",

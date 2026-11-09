@@ -34,7 +34,8 @@ export const fmtMonth = {
 export const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export interface LetterDetails {
-  salutation?: string; /// how the letter greets the person — a nickname is fine ("Fluke")
+  salutation?: string; /// how the letter greets the person — "Mr. Nattawut", or a nickname ("Fluke")
+  employeeNo?: string; /// the employee number printed on the letter when it differs from the ETH code (e.g. the HR number "ETH26002")
   position?: string; /// job title on the letter (defaults to the employee file)
   praiseTh?: string; praiseEn?: string; praiseZh?: string; /// the personal thanks — what this person did
 }
@@ -44,4 +45,18 @@ export function salaryChange(oldBase: number | undefined, newBase: number) {
   if (oldBase === undefined || oldBase <= 0) return undefined;
   const diff = Math.round((newBase - oldBase) * 100) / 100;
   return { oldBase, newBase, diff, pct: `${diff >= 0 ? "+" : ""}${((diff / oldBase) * 100).toFixed(1)}%` };
+}
+
+/**
+ * One greeting, three languages: "Mr. Nattawut" → Dear Mr. Nattawut · เรียน คุณ Nattawut · Nattawut 先生.
+ * Thai uses คุณ for everyone (no English title); Chinese puts 先生 / 女士 after the name; without a title the text is used as given.
+ */
+export function salutationFor(s: string): { en: string; th: string; zh: string } {
+  const t = s.trim().replace(/\s+/g, " ");
+  const m = /^(mr|mrs|ms|miss|dr)\.?\s+(.+)$/i.exec(t);
+  if (!m) return { en: t, th: `คุณ ${t}`, zh: t };
+  const title = m[1].toLowerCase(), given = m[2];
+  const en = `${title === "miss" ? "Miss" : title[0].toUpperCase() + title.slice(1)}.`.replace("Miss.", "Miss") + ` ${given}`;
+  const zh = title === "mr" ? `${given} 先生` : title === "dr" ? `${given} 博士` : `${given} 女士`;
+  return { en, th: `คุณ ${given}`, zh };
 }

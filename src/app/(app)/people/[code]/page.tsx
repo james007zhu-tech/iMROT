@@ -179,6 +179,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
                     <Grid cols={2}>
                       <Field label={t("empLetterSalutation")}><input name="salutation" defaultValue={l.salutation ?? e.name.split(" ")[0]} className={inputCls} /></Field>
                       <Field label={t("empLetterPosition")}><input name="position" defaultValue={l.position ?? e.position ?? ""} className={inputCls} /></Field>
+                      <Field label={t("empLetterEmployeeNo")}><input name="employeeNo" defaultValue={l.employeeNo ?? ""} placeholder={e.code} className={`${inputCls} font-mono`} /></Field>
                     </Grid>
                     <Field label={t("empLetterPraiseTh")}><textarea name="praiseTh" rows={2} defaultValue={l.praiseTh ?? ""} className={inputCls} /></Field>
                     <Field label={t("empLetterPraiseEn")}><textarea name="praiseEn" rows={2} defaultValue={l.praiseEn ?? ""} className={inputCls} /></Field>
