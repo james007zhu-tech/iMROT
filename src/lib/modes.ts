@@ -17,11 +17,15 @@ export const MODE_KINDS: Record<Mode, Kind[]> = {
   AUTOMATION_PROJECT: ["REPAIR"], DOMESTIC_TRADE: ["PARTS_SALE"], INTERNATIONAL_TRADE: ["PARTS_SALE"],
 };
 
-/** Modes that can be opened today. International trade opened 2026-11-09 (flow 国际贸易-流程图-v1); automation projects wait for theirs. */
-export const OPEN_MODES: readonly Mode[] = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE", "DOMESTIC_TRADE", "INTERNATIONAL_TRADE"];
+/** Every mode is open since 2026-11-09 (flows 国际贸易-流程图-v1 and 自动化项目-流程图-v1). */
+export const OPEN_MODES: readonly Mode[] = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE", "AUTOMATION_PROJECT", "DOMESTIC_TRADE", "INTERNATIONAL_TRADE"];
 
 /** Trade orders carry SKUs only — no ATH (decided 2026-11-09; the one exception to "every record carries an asset"). */
-export const modeNeedsAsset = (m: Mode): boolean => m !== "DOMESTIC_TRADE" && m !== "INTERNATIONAL_TRADE";
+/** An automation project starts without one too: what it delivers may be registered as an ATH after SAT (open point, 朱总). */
+export const modeNeedsAsset = (m: Mode): boolean => m !== "DOMESTIC_TRADE" && m !== "INTERNATIONAL_TRADE" && m !== "AUTOMATION_PROJECT";
+export const isProjectMode = (m: string | null | undefined): boolean => m === "AUTOMATION_PROJECT";
+/** Orders without a machine (trade, projects): a quote the customer turns down is simply cancelled — no 客户拒绝报价 step. */
+export const quoteJustCancels = (m: string | null | undefined): boolean => isTradeMode(m) || isProjectMode(m);
 export const isPartnerMode = (m: string | null | undefined): boolean => m === "PARTNER_REPAIR";
 export const isTradeMode = (m: string | null | undefined): boolean => m === "DOMESTIC_TRADE" || m === "INTERNATIONAL_TRADE";
 

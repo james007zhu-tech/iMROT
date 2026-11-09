@@ -3,6 +3,7 @@
  * event data → .docx (and .pdf when LibreOffice is installed). Nothing is typed by hand; the template layout is untouched.
  */
 import { bankLines, type BankDetails } from "@/lib/bank";
+import { PHASE_NAME, paymentScheduleLines, type ProjectInfo } from "@/lib/project";
 import { EXPORT_VAT_RATE, incotermLine, shipTotals, transportDoc, type Shipping, type TradeTerms } from "@/lib/export";
 import { readFile, writeFile, mkdir, mkdtemp, rm, copyFile } from "node:fs/promises";
 import { convertToPdf } from "./office";
@@ -108,16 +109,20 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
     deliveries: { where: { status: { not: "DRAFT" } }, orderBy: { deliverOn: "asc" }, select: { no: true } },
     events: { where: { type: "ORDER_CONFIRMED" }, orderBy: { occurredAt: "asc" }, take: 1, include: { actor: true } },
     repairJobs: { where: { finishedAt: { not: null } }, orderBy: { finishedAt: "desc" }, take: 1, include: { engineer: true } },
+    milestones: { orderBy: { seq: "asc" } },
   } });
   const c = o.customer;
   const party = partyFields(c, o.plant, o.reportedBy);
   const equipment = equipmentRows(o.assets.map((x) => x.asset), o.plant?.name);
   const po = o.customerRef ?? "—";
   const tt = o.tradeTerms as TradeTerms | null; // 国际贸易: the terms fixed on the order
-  const terms = tt ? lines_(tt.paymentTerms, tt.paymentDays ? `${tt.paymentDays} days from invoice` : "") : `${c.paymentTermDays} days from invoice\n${c.paymentTermDays} วันนับจากวันที่ใบแจ้งหนี้`;
+  // 自动化项目: instalments by milestone, each invoiced when the milestone is done (src/lib/project.ts)
+  const pj = o.mode === "AUTOMATION_PROJECT" ? (o.project as unknown as ProjectInfo | null) : null;
+  const schedule = pj ? paymentScheduleLines(o.milestones.map((m) => ({ seq: m.seq, phase: m.phase, payPct: m.payPct == null ? null : Number(m.payPct), doneAt: m.doneAt })), PHASE_NAME) : "";
+  const terms = tt ? lines_(tt.paymentTerms, tt.paymentDays ? `${tt.paymentDays} days from invoice` : "") : pj ? lines_(schedule, `Each instalment due ${c.paymentTermDays} days from its invoice`, `ชำระภายใน ${c.paymentTermDays} วันนับจากวันที่ใบแจ้งหนี้แต่ละงวด`) : `${c.paymentTermDays} days from invoice\n${c.paymentTermDays} วันนับจากวันที่ใบแจ้งหนี้`;
   const onSite = o.documents.some((x) => x.templateCode === "10");
   const trade = want === "30" || want === "31";
-  const docs = tt ? lines_("Commercial invoice  ใบกำกับสินค้า", "Packing list  รายการบรรจุหีบห่อ", "Receipt  ใบเสร็จรับเงิน") : trade ? lines_("Delivery note  ใบส่งของ", "Tax invoice and receipt  ใบกำกับภาษีและใบเสร็จรับเงิน") : lines_(
+  const docs = pj ? lines_("Project solution and drawings  แบบและเอกสารโครงการ", "Factory and site test records  บันทึกการทดสอบ", "Delivery note  ใบส่งของ", "Customer acceptance record  บันทึกการตรวจรับงาน", "Tax invoice and receipt per instalment  ใบกำกับภาษีและใบเสร็จรับเงินตามงวด") : tt ? lines_("Commercial invoice  ใบกำกับสินค้า", "Packing list  รายการบรรจุหีบห่อ", "Receipt  ใบเสร็จรับเงิน") : trade ? lines_("Delivery note  ใบส่งของ", "Tax invoice and receipt  ใบกำกับภาษีและใบเสร็จรับเงิน") : lines_(
     o.kind !== "PARTS_SALE" && o.kind !== "MAINTENANCE" ? both(REPORT_NAME.IN) : "",
     // 合作维修: the partner's work is never shown to the customer — our retest gates the delivery, there is no RPTH
     both(o.kind === "MAINTENANCE" ? REPORT_NAME.PM : o.kind !== "PARTS_SALE" && o.mode !== "PARTNER_REPAIR" ? (onSite ? REPORT_NAME.FS : REPORT_NAME.RP) : undefined),
@@ -144,7 +149,7 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
     if (want === "30") {
       const owner = o.assignee ?? doc.createdBy;
       return { ...party, ...priced, ISSUE_DATE: d(o.quoteSentAt ?? doc.issuedAt), CUSTOMER_REF: o.customerRef ?? "—", OUR_CONTACT: lines_(owner.name, owner.phone), PAYMENT_TERMS: terms, DELIVERABLE_DOCS: docs,
-        DELIVERY_TERMS: tt ? lines_(incotermLine(tt), [tt.destPort, tt.destCountry].filter(Boolean).join(", ")) : lines_(`Delivered to ${o.plant?.name ?? c.name}`, `ส่งถึง ${o.plant?.name ?? c.nameLocal ?? c.name}`),
+        DELIVERY_TERMS: pj ? lines_(pj.name, `Delivered, installed and commissioned at ${o.plant?.name ?? c.name}${pj.dueDate ? `, by ${pj.dueDate}` : ""}`, `ส่งมอบ ติดตั้ง และทดสอบเดินเครื่อง ณ ${o.plant?.name ?? c.nameLocal ?? c.name}`) : tt ? lines_(incotermLine(tt), [tt.destPort, tt.destCountry].filter(Boolean).join(", ")) : lines_(`Delivered to ${o.plant?.name ?? c.name}`, `ส่งถึง ${o.plant?.name ?? c.nameLocal ?? c.name}`),
         TO_PROCEED: `Please send your purchase order quoting ${o.no}.\nกรุณาส่งใบสั่งซื้อโดยอ้างอิงเลขที่ ${o.no}`,
         PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "", CUSTOMER_SIGNATORY: signHint };
     }
