@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=1280"><title>业务模式 — mockup v0.1</title>
+<style>
+@font-face{font-family:Sarabun;src:url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-thai-400-normal.woff2) format("woff2")}
+:root{--navy:#0B2D53;--blue:#2374D5;--tint:#EEF4FB;--line:#D5DEEA;--bg:#F4F6FA;--alert:#E8740C;--alert-ink:#9A4A00;--purple:#6B3FA0}
+*{box-sizing:border-box}body{margin:0;background:#888;font-family:Helvetica,Arial,"Noto Sans SC","Noto Sans CJK SC",Sarabun,sans-serif;font-size:13px;color:#15233a}
+.screen{width:1280px;background:var(--bg);display:grid;grid-template-columns:220px 1fr;margin:0 0 24px;position:relative}
+.side{background:#fff;border-right:1px solid var(--line);padding:18px 14px;min-height:760px}
+.logo{font-weight:800;font-size:22px;color:var(--navy);letter-spacing:.5px;margin-bottom:10px}
+.lang{display:flex;gap:6px;margin-bottom:16px}.lang span{padding:3px 8px;border-radius:6px;color:#556}.lang .on{background:var(--tint);color:var(--navy);font-weight:600}
+.nav a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#2b3a52;margin-bottom:2px}
+.nav a.on{background:var(--tint);color:var(--navy);font-weight:700;box-shadow:inset 3px 0 0 var(--blue)}
+.nav i{display:inline-block;width:16px;height:16px;border:1.5px solid currentColor;border-radius:3px;opacity:.7}
+.main{padding:18px 26px}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:14px}.top h1{margin:0;font-size:22px;color:var(--navy)}
+.badge{background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px}
+.btn{background:var(--blue);color:#fff;border-radius:8px;padding:8px 14px;font-weight:600;display:inline-block}
+.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+.right{margin-left:auto;display:flex;gap:8px}
+.back{color:var(--blue);font-size:13px;margin-bottom:6px;display:block}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.card h3{margin:0 0 10px;font-size:14px;color:var(--navy)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px}
+.f label{display:block;font-size:11px;color:#667;margin-bottom:3px}.f .v{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#fff;min-height:32px}
+.f .v.req::after{content:" *";color:var(--alert)}.f .v.fault{color:#B3261E;font-weight:600}.f .v.ro{background:var(--tint)}
+.up{border:1.5px dashed var(--blue);background:var(--tint);border-radius:12px;padding:12px 16px;margin-bottom:12px}
+.up b{color:var(--navy)}.up small{color:#556;display:block}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.mode{background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;position:relative}
+.mode.on{border-color:var(--blue);box-shadow:0 0 0 3px #2374D522}
+.mode .n{font-size:16px;font-weight:700;color:var(--navy)}.mode .e{font-size:11px;color:#667;margin-top:1px}
+.mode p{margin:8px 0 8px;color:#2b3a52;font-size:12.5px;min-height:34px}
+.mode .meta{display:flex;gap:6px;flex-wrap:wrap}
+.tag{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11px;background:var(--tint);color:var(--navy)}
+.tag.hot{background:#FBEEDF;color:var(--alert-ink)}.tag.mute{background:#F1F2F4;color:#556}
+.mode .tick{position:absolute;right:12px;top:12px;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line)}
+.mode.on .tick{background:var(--blue);border-color:var(--blue);box-shadow:inset 0 0 0 3px #fff}
+.sub{display:flex;gap:8px;margin-top:4px}.sub span{border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:#fff}.sub .on{border-color:var(--blue);background:var(--tint);color:var(--navy);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:var(--navy);color:#fff;text-align:left;padding:7px 8px;font-size:11.5px;vertical-align:top}
+th small{display:block;font-weight:400;opacity:.8}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:nth-child(even) td{background:#FAFCFE}
+td ol{margin:0;padding-left:16px}td ol li{margin:1px 0}
+.mono{font-family:ui-monospace,Menlo,monospace}.r{text-align:right}
+.ann{position:absolute;background:var(--purple);color:#fff;font-size:11px;line-height:1.45;padding:4px 8px;border-radius:5px;max-width:270px;z-index:2}
+.dialog{position:absolute;left:470px;top:170px;width:560px;background:#fff;border-radius:14px;box-shadow:0 20px 60px #0004;padding:18px 20px;border:1px solid var(--line)}
+.dialog h3{margin:0 0 8px;color:var(--navy);font-size:16px}
+.dim{position:absolute;inset:0;background:#0B2D5330}
+.chk{margin:4px 0}.chk b{color:var(--navy)}
+.legend{font-size:11.5px;color:#556;margin-top:8px}
+</style></head><body>
+
+<!-- ─────────── Screen 1: 新建业务单 — first choose the business mode ─────────── -->
+<div class="screen">
+  <div class="side"><div class="logo">DCiT OS</div><div class="lang"><span>ไทย</span><span class="on">中文</span><span>EN</span></div>
+    <div class="nav"><a><i></i>工作看板</a><a><i></i>设备管理</a><a><i></i>客户管理</a><a class="on"><i></i>服务管理</a><a><i></i>采购仓储</a><a><i></i>财务管理</a><a><i></i>税务运营</a><a><i></i>组织人才</a><a><i></i>系统管理</a></div></div>
+  <div class="main">
+    <span class="back">← 业务单</span>
+    <div class="top"><h1>新建业务单</h1><div class="right"><span class="btn ghost">取消</span><span class="btn ghost">保存并派工</span><span class="btn">保存</span></div></div>
+    <div class="card">
+      <h3>1  业务模式</h3>
+      <div class="modes">
+        <div class="mode on"><span class="tick"></span><div class="n">维修</div><div class="e">Repair · ซ่อม</div><p>设备故障，我们检测、报价、自己修复并交付。</p><div class="meta"><span class="tag">最低毛利 50%</span><span class="tag">挂设备 ATH</span></div></div>
+        <div class="mode"><span class="tick"></span><div class="n">合作维修</div><div class="e">Partner repair · ซ่อมโดยพันธมิตร</div><p>我们检测，由合作伙伴修复，我们复测后交付；合作伙伴不接触客户。</p><div class="meta"><span class="tag">最低毛利 33%</span><span class="tag">挂设备 ATH</span></div></div>
+        <div class="mode"><span class="tick"></span><div class="n">维保</div><div class="e">Maintenance · บำรุงรักษา</div><p>维护保养、系统性检修、合同维保。</p><div class="meta"><span class="tag">最低毛利 50%</span><span class="tag">挂设备 ATH，可多台</span></div></div>
+        <div class="mode"><span class="tick"></span><div class="n">自动化项目</div><div class="e">Automation project · โครงการระบบอัตโนมัติ</div><p>方案、采购、装配编程、调试交付。</p><div class="meta"><span class="tag">最低毛利 20%</span><span class="tag hot">交付物是否建 ATH 待定</span></div></div>
+        <div class="mode"><span class="tick"></span><div class="n">国内贸易</div><div class="e">Domestic trade · การค้าในประเทศ</div><p>泰国境内销售产品和备件。</p><div class="meta"><span class="tag">最低毛利 20%</span><span class="tag mute">只记物料号，不建 ATH</span></div></div>
+        <div class="mode"><span class="tick"></span><div class="n">国际贸易</div><div class="e">International trade · การค้าระหว่างประเทศ</div><p>进出口，外币报价，按贸易术语交货。</p><div class="meta"><span class="tag">最低毛利 10%</span><span class="tag mute">只记物料号，不建 ATH</span></div></div>
+      </div>
+    </div>
+    <div class="up"><b>上传询价单、PO、照片或铭牌，AI 识别后填入下面的表单</b><small>识别结果按所选模式填写：维修类填设备和故障，贸易类填物料行</small></div>
+    <div class="card">
+      <h3>2  哪台设备</h3>
+      <div class="grid"><div class="f"><label>设备 ATH</label><div class="v req mono">ATH26110092</div></div><div class="f"><label>客户（自动）</label><div class="v ro">Siam Tyre Co., Ltd.</div></div><div class="f"><label>工厂（自动）</label><div class="v ro">Rayong Plant 2</div></div></div>
+    </div>
+    <div class="card">
+      <h3>3  故障与客户要求</h3>
+      <div class="grid"><div class="f"><label>报警代码</label><div class="v fault">F30005</div></div><div class="f"><label>生产影响</label><div class="v req">停线</div></div><div class="f"><label>客户单号（照抄）</label><div class="v mono">RFQ-2611-0042</div></div></div>
+      <div class="f" style="margin-top:10px"><label>故障现象</label><div class="v req fault">启动即过流跳闸</div></div>
+    </div>
+    <div class="legend">保存后，业务单页标题旁固定显示模式标签（如「维修」），不能再改。进度条、表单组合、报价毛利门槛都由模式决定。</div>
+  </div>
+  <div class="ann" style="left:1010px;top:96px">设计说明：新建第一步先选模式，选中后下面只出现这个模式需要的字段；不再有"是否自修/转外修"开关</div>
+  <div class="ann" style="left:1010px;top:470px">设计说明：维修、合作维修、维保三种模式下面是"设备 + 故障/要求"；贸易和项目的表单见下一屏</div>
+</div>
+
+<!-- ─────────── Screen 2: the form below the cards changes with the mode ─────────── -->
+<div class="screen">
+  <div class="side"><div class="logo">DCiT OS</div><div class="lang"><span>ไทย</span><span class="on">中文</span><span>EN</span></div>
+    <div class="nav"><a><i></i>工作看板</a><a><i></i>设备管理</a><a><i></i>客户管理</a><a class="on"><i></i>服务管理</a><a><i></i>采购仓储</a><a><i></i>财务管理</a><a><i></i>税务运营</a><a><i></i>组织人才</a><a><i></i>系统管理</a></div></div>
+  <div class="main">
+    <div class="top"><h1>新建业务单 · 选中「国际贸易」时</h1></div>
+    <div class="card">
+      <h3>2  客户与询价</h3>
+      <div class="grid"><div class="f"><label>客户</label><div class="v req">PT Sinar Elektrik (Indonesia)</div></div><div class="f"><label>联系人</label><div class="v">Mr. B*** · Purchasing</div></div><div class="f"><label>客户询价单号（照抄）</label><div class="v mono">SE-RFQ-1107</div></div></div>
+    </div>
+    <div class="card">
+      <h3>3  贸易条件 <span class="tag">仅国际贸易</span></h3>
+      <div class="grid"><div class="f"><label>报价币种</label><div class="v req">USD</div></div><div class="f"><label>贸易术语 Incoterms</label><div class="v req">FOB Laem Chabang</div></div><div class="f"><label>目的国 / 目的港</label><div class="v req">Indonesia · Jakarta</div></div></div>
+    </div>
+    <div class="card">
+      <h3>4  物料行</h3>
+      <table><thead><tr><th>#<small>ลำดับ</small></th><th>物料号 SKU<small>รหัสสินค้า</small></th><th>描述<small>รายการ</small></th><th>数量<small>จำนวน</small></th><th>库存<small>คงคลัง</small></th><th>要求交期<small>กำหนดส่ง</small></th></tr></thead>
+      <tbody><tr><td>1</td><td class="mono">6SL3210-1PE23-8UL0</td><td>SINAMICS G120 PM240-2 18.5 kW</td><td class="r">4</td><td><span class="tag">2</span></td><td>2026-12-05</td></tr>
+      <tr><td>2</td><td class="mono">6SL3244-0BB13-1PA1</td><td>CU240E-2 PN</td><td class="r">4</td><td><span class="tag hot">0 · 缺货</span></td><td>2026-12-05</td></tr></tbody></table>
+      <div class="legend">缺货行保存后自动生成供应商询价单 PRTH；国内贸易没有第 3 张卡片，币种固定 THB、VAT 7%</div>
+    </div>
+    <div class="card">
+      <h3>选中「自动化项目」时，第 2–4 张卡片换成</h3>
+      <div class="grid"><div class="f"><label>项目名称</label><div class="v req">Line 3 extruder drive upgrade</div></div><div class="f"><label>现场 / 工厂</label><div class="v req">Rayong Plant 2</div></div><div class="f"><label>要求完成日期</label><div class="v">2027-02-28</div></div></div>
+      <div class="f" style="margin-top:10px"><label>客户需求与范围</label><div class="v req">替换 3 台 DC 驱动为 AC 变频，含柜体、编程、调试和培训</div></div>
+      <div class="legend">项目的方案、BOM、里程碑在下一步「方案与报价」里填写；流程图另出</div>
+    </div>
+  </div>
+  <div class="ann" style="left:1010px;top:150px">设计说明：贸易单只有客户和物料行，没有设备 ATH、故障现象、检测单</div>
+</div>
+
+<!-- ─────────── Screen 3: 维修单 → 转合作维修 (close and reopen) ─────────── -->
+<div class="screen">
+  <div class="side"><div class="logo">DCiT OS</div><div class="lang"><span>ไทย</span><span class="on">中文</span><span>EN</span></div>
+    <div class="nav"><a><i></i>工作看板</a><a><i></i>设备管理</a><a><i></i>客户管理</a><a class="on"><i></i>服务管理</a><a><i></i>采购仓储</a><a><i></i>财务管理</a><a><i></i>税务运营</a><a><i></i>组织人才</a><a><i></i>系统管理</a></div></div>
+  <div class="main">
+    <span class="back">← 业务单</span>
+    <div class="top"><h1 class="mono">QTTH261109003</h1><span class="badge">维修</span><span class="badge">检测中</span><div class="right"><span class="btn ghost">转合作维修</span><span class="btn">报价</span></div></div>
+    <div class="card" style="height:420px"><h3>进度</h3><div class="legend">（业务单页其余内容不变）</div></div>
+  </div>
+  <div class="dim"></div>
+  <div class="dialog">
+    <h3>转合作维修</h3>
+    <p style="margin:0 0 10px;color:#2b3a52">本单 QTTH261109003（维修）将关闭，新开一张合作维修单。两张单互相关联，本单不能再继续。</p>
+    <div style="font-weight:600;color:var(--navy);margin-bottom:4px">带到新单</div>
+    <div class="chk">☑ <b>设备</b> ATH26110092 · SIEMENS SINAMICS S120</div>
+    <div class="chk">☑ <b>检测单</b> INTH26110903（检测报告）</div>
+    <div class="chk">☑ <b>客户文件</b> 询价单 1 份 · PO 0 份</div>
+    <div class="chk">☑ <b>联系人与客户单号</b> RFQ-2611-0042</div>
+    <div class="f" style="margin-top:10px"><label>转外修原因</label><div class="v req">IGBT 模块需返厂级维修，我方无测试台</div></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><span class="btn ghost">取消</span><span class="btn">关闭本单并新开合作维修单</span></div>
+  </div>
+  <div class="ann" style="left:1040px;top:120px">设计说明：只在「维修」单、未报价、未锁定时出现；已发出报价的要先撤回报价。原单状态变为"已关闭 · 转合作维修 → 新单号"</div>
+</div>
+
+<!-- ─────────── Screen 4: what each mode decides ─────────── -->
+<div class="screen" style="grid-template-columns:1fr">
+  <div class="main">
+    <div class="top"><h1>六种业务模式各自决定什么</h1><span class="badge">草案 v0.1 · 待朱总确认</span></div>
+    <div class="card" style="padding:8px 10px">
+    <table>
+      <thead><tr><th style="width:96px">模式<small>Mode</small></th><th style="width:150px">子类型 / 设备<small>Sub-type / asset</small></th><th style="width:240px">询报价流程<small>Inquiry and quote</small></th><th>表单组合（按顺序）<small>Documents in order</small></th><th style="width:70px">最低毛利<small>Margin floor</small></th><th style="width:210px">给客户的文件<small>Customer documents</small></th></tr></thead>
+      <tbody>
+        <tr><td><b>维修</b><br><small>REPAIR</small></td><td>无子类型<br>必须挂 ATH</td><td>INTH 检测 → 判库存 → 缺料自动 PRTH → 比价 → QTTH</td>
+          <td><ol><li>IBTH 整机入库</li><li>INTH 检测</li><li>PRTH → POTH → IBTH 物料（缺料时）</li><li>QTTH 报价 → 客户 PO</li><li>OBTH 领料（可多批）</li><li>RPTH 维修</li><li>OBTH 整机出库 → DNTH + IVTH</li><li>验收（锁成本、价格、PR/PO）</li><li>TITH → 回款 RCTH → 项目完成</li></ol></td>
+          <td class="r"><b>50%</b></td><td>报价建议书、订单确认、检测报告、维修报告、送货单、服务完成确认、客户验收单、请款单、税务发票、收据</td></tr>
+        <tr><td><b>合作维修</b><br><small>PARTNER_REPAIR</small></td><td>无子类型<br>必须挂 ATH<br>可由维修单转入</td><td>我方 INTH → PRTH 发多家合作伙伴（无客户信息）→ 比价 → QTTH</td>
+          <td><ol><li>IBTH 整机入库</li><li>INTH 检测</li><li>PRTH 多家 → 比价</li><li>QTTH 报价 → 客户 PO</li><li>POTH（保修背靠背）</li><li>外送 OBTH → 进度（内部）→ 外协返回 IBTH</li><li>我方复测 → DNTH + IVTH</li><li>验收 → TITH → 回款 → 项目完成</li><li>供应商侧：合作伙伴发票 → 应付（泰国月结 15 天，其他单结；服务扣 3% WHT）→ 评分</li></ol></td>
+          <td class="r"><b>33%</b></td><td>同维修，但没有维修报告；任何客户文件都不出现合作伙伴</td></tr>
+        <tr><td><b>维保</b><br><small>MAINTENANCE</small></td><td>维护保养 / 系统性检修 / 合同维保<br>必须挂 ATH，可多台</td><td>维护保养、检修：现场评估 → QTTH<br>合同维保：按合同执行，不再报价</td>
+          <td><ol><li>（合同维保：引用合同号）</li><li>QTTH 报价 → 客户 PO</li><li>备件：PRTH → POTH → IBTH</li><li>OBTH 领料</li><li>PMTH 维保记录 / 现场服务报告</li><li>验收 → TITH → 回款 → 项目完成</li></ol></td>
+          <td class="r"><b>50%</b></td><td>年度维保方案、报价建议书、维保记录、现场服务报告、客户验收单、请款单、税务发票、收据</td></tr>
+        <tr><td><b>自动化项目</b><br><small>AUTOMATION_PROJECT</small></td><td>无子类型<br><span class="tag hot">交付的控制柜 / 系统是否建 ATH 待定</span></td><td>需求 / 询价文件 → 方案与 BOM → PRTH 元器件 → 比价 → QTTH 项目报价（含里程碑）</td>
+          <td><ol><li>QTTH 项目报价 → 客户 PO</li><li>POTH → IBTH 元器件</li><li>设计、装配、编程 → 出厂测试</li><li>OBTH + DNTH → 现场安装调试</li><li>验收 → 按里程碑 IVTH / TITH → 回款</li></ol><span class="tag hot">流程细节另出流程图</span></td>
+          <td class="r"><b>20%</b></td><td>项目方案、报价建议书、订单确认、测试记录、送货单、客户验收单、请款单、税务发票、收据</td></tr>
+        <tr><td><b>国内贸易</b><br><small>DOMESTIC_TRADE</small></td><td>无子类型<br>只记物料号 SKU，不建 ATH</td><td>客户询价（上传识别）→ 物料行 → 有库存直接报价，缺货 PRTH → 比价 → QTTH</td>
+          <td><ol><li>QTTH 报价 → 客户 PO</li><li>POTH → IBTH（缺货时）</li><li>OBTH 出库 → DNTH + IVTH</li><li>客户签收送货单（代替验收，锁成本价格）</li><li>TITH → 回款 → 项目完成</li></ol></td>
+          <td class="r"><b>20%</b></td><td>报价单、订单确认、送货单、请款单、税务发票、收据</td></tr>
+        <tr><td><b>国际贸易</b><br><small>INTERNATIONAL_TRADE</small></td><td>无子类型<br>只记物料号 SKU，不建 ATH</td><td>同国内贸易，另填币种、贸易术语、目的国 / 港</td>
+          <td><ol><li>QTTH 外币报价 → 客户 PO</li><li>POTH → IBTH</li><li>OBTH 出库 → 商业发票 + 装箱单 <span class="tag hot">新模板</span></li><li>报关出运 → 外币回款 → 项目完成</li></ol><span class="tag hot">出口零税率、进口增值税的处理由会计确认</span></td>
+          <td class="r"><b>10%</b></td><td>报价单（外币）、商业发票、装箱单、收据</td></tr>
+      </tbody>
+    </table>
+    <div class="legend">所有模式的主单号都是 QTTH；业务单列表加"模式"列和筛选；毛利门槛放在系统管理里，MD 可改，低于门槛报价要 MD 审批。</div>
+    </div>
+  </div>
+</div>
+</body></html>
