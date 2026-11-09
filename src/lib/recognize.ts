@@ -21,7 +21,7 @@ export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<
 export const CONFIDENCE_FLOOR = 0.8;
 
 /** Fields that must appear verbatim in the document (no paraphrase, no guessing). */
-export const VERBATIM_FIELDS = new Set(["serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo", "passportNo", "idCardNo", "workPermitNo"]);
+export const VERBATIM_FIELDS = new Set(["serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo", "passportNo", "idCardNo", "workPermitNo", "swift", "acc_THB", "acc_USD", "acc_CNY", "acc_EUR"]);
 const DATE_FIELDS = new Set(["toldAt", "signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
 const NUMBER_FIELDS = new Set(["ratedPowerKw", "ratedVoltageV", "ratedCurrentA", "laborHours", "runHours", "paidAmount", "whtAmount", "qty", "unitPrice", "amount", "total", "vatRate", "vatAmount", "subtotal"]);
 const ENUM_FIELDS: Record<string, string[]> = { productionImpact: ["STOPPED", "DEGRADED", "NONE"], status: ["ACCEPTED", "CONDITIONAL", "REJECTED"], currency: ["THB", "USD", "CNY", "EUR", "JPY"] };
@@ -60,7 +60,7 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
     },
     lines: { fromYm: "start of the job, YYYY-MM", toYm: "end of the job, YYYY-MM (empty if current)", company: "employer name", title: "job title", summary: "main duties and skills in one line" },
   },
-  entity: { attachKind: "COMPANY_DOC", fields: { nameEn: "company name in English", nameLocal: "company name in the local language", taxId: "tax ID", branchCode: "branch code", addressEn: "registered address in English", addressLocal: "registered address in the local language", phone: "phone", email: "email", signatoryName: "authorised signatory" } },
+  entity: { attachKind: "COMPANY_DOC", fields: { nameEn: "company name in English", nameLocal: "company name in the local language", taxId: "tax ID", branchCode: "branch code", addressEn: "registered address in English", addressLocal: "registered address in the local language", phone: "phone", email: "email", signatoryName: "authorised signatory", bank: "receiving bank name, e.g. BANK OF CHINA (THAI) PCL", bankBranch: "bank branch", bankCode: "bank code", bankBranchCode: "bank branch code", accountName: "bank account name", swift: "SWIFT / BIC code", acc_THB: "THB account number exactly as printed", acc_USD: "USD account number exactly as printed", acc_CNY: "CNY / RMB account number exactly as printed", acc_EUR: "EUR account number exactly as printed" } },
   /** A supplier's quotation pasted into our own quote: header + priced lines (costs for the margin). */
   quote: {
     attachKind: "QUOTE",
