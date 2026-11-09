@@ -21,3 +21,12 @@ describe("salary notice wording", () => {
     expect(salaryChange(undefined, 17000)).toBeUndefined();
   });
 });
+
+describe("greeting in three languages", () => {
+  it("splits the title from the name", async () => {
+    const { salutationFor } = await import("./salary-letter");
+    expect(salutationFor("Mr. Nattawut")).toEqual({ en: "Mr. Nattawut", th: "คุณ Nattawut", zh: "Nattawut 先生" });
+    expect(salutationFor("ms somsri")).toEqual({ en: "Ms. somsri", th: "คุณ somsri", zh: "somsri 女士" });
+    expect(salutationFor("Fluke")).toEqual({ en: "Fluke", th: "คุณ Fluke", zh: "Fluke" });
+  });
+});

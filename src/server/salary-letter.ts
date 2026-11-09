@@ -9,7 +9,7 @@ import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
 import { fillDocx } from "@/lib/docx/fill";
 import { convertToPdf } from "@/server/office";
-import { fmtDate, fmtMonth, money, payday, salaryChange, type LetterDetails } from "@/lib/salary-letter";
+import { fmtDate, fmtMonth, money, payday, salaryChange, salutationFor, type LetterDetails } from "@/lib/salary-letter";
 import type { Prisma } from "@prisma/client";
 
 const TEMPLATES = path.join(process.cwd(), "templates", "word");
@@ -46,12 +46,14 @@ export async function salaryLetterFields(recordId: string) {
   const e = rec.employee, l = (rec.letter as LetterDetails | null) ?? {};
   const eff = rec.effectiveFrom, pay = payday(eff), today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
   const monthOf = new Date(Date.UTC(eff.getUTCFullYear(), eff.getUTCMonth(), 1));
-  const salutation = l.salutation || e.name.split(/\s+/)[0];
+  const sal = salutationFor(l.salutation || e.name.split(/\s+/)[0]);
+  const empNo = l.employeeNo || e.code;
+  const addressee = l.salutation && /^(mr|mrs|ms|miss|dr)\b/i.test(l.salutation.trim()) ? sal.en : e.name; // "Mr. Nattawut" on the To line when a title was given
   return {
-    LETTER_NO: `${e.code}-SAL-${eff.toISOString().slice(0, 7).replace("-", "")}`,
+    LETTER_NO: `${empNo}-SAL-${eff.toISOString().slice(0, 7).replace("-", "")}`,
     ISSUE_DATE: fmtDate.en(today),
-    EMP_NAME: e.name, TO_NAME: [e.name, e.nameLocal].filter(Boolean).join("\n"), POSITION: l.position || e.position || "", EMP_CODE: e.code,
-    SALUTATION: salutation,
+    EMP_NAME: addressee, TO_NAME: [addressee, e.nameLocal].filter(Boolean).join("\n"), POSITION: l.position || e.position || "", EMP_CODE: empNo,
+    SALUTATION_EN: sal.en, SALUTATION_TH: sal.th, SALUTATION_ZH: sal.zh,
     OLD_BASE: money(ch.oldBase), NEW_BASE: money(ch.newBase), INCREASE: money(ch.diff), INCREASE_PCT: ch.pct,
     EFFECTIVE_EN: fmtDate.en(eff), EFFECTIVE_TH: fmtDate.th(eff), EFFECTIVE_ZH: fmtDate.zh(eff),
     FIRST_MONTH_EN: fmtMonth.en(monthOf), FIRST_MONTH_TH: fmtMonth.th(monthOf), FIRST_MONTH_ZH: fmtMonth.zh(monthOf),
@@ -66,11 +68,12 @@ export async function renderSalaryLetter(actorCode: string, recordId: string) {
   const values = await salaryLetterFields(recordId);
   const { docx, unfilled } = fillDocx(await readFile(path.join(TEMPLATES, SALARY_LETTER_TEMPLATE)), values);
   await mkdir(path.join(OUT, "renders"), { recursive: true });
-  const dir = await mkdtemp(path.join(OUT, "renders", `salary-${values.EMP_CODE}-`));
+  const dir = await mkdtemp(path.join(OUT, "renders", "salary-"));
   const fileBase = `${values.LETTER_NO}_Salary_Adjustment_Notice`;
   const docxPath = path.join(dir, `${fileBase}.docx`);
   await writeFile(docxPath, docx);
   const pdfPath = await convertToPdf(docxPath, dir);
-  await audit(actor.id, "SALARY_LETTER", values.EMP_CODE, { recordId, letterNo: values.LETTER_NO });
+  const who = await prisma.salaryRecord.findUniqueOrThrow({ where: { id: recordId }, select: { employee: { select: { code: true } } } });
+  await audit(actor.id, "SALARY_LETTER", who.employee.code, { recordId, letterNo: values.LETTER_NO }); // the ETH code, not the number printed on the letter
   return { docxPath, pdfPath, unfilled, fileBase, cleanup: () => rm(dir, { recursive: true, force: true }).catch(() => {}) };
 }

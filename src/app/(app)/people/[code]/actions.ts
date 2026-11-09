@@ -58,6 +58,6 @@ export async function review(code: string, f: FormData) {
 export async function letter(code: string, recordId: string, f: FormData) {
   await guarded(async () => {
     const me = await currentEmployee();
-    await saveLetterDetails(me.code, recordId, { salutation: str(f, "salutation"), position: str(f, "position"), praiseTh: str(f, "praiseTh"), praiseEn: str(f, "praiseEn"), praiseZh: str(f, "praiseZh") });
+    await saveLetterDetails(me.code, recordId, { salutation: str(f, "salutation"), employeeNo: str(f, "employeeNo"), position: str(f, "position"), praiseTh: str(f, "praiseTh"), praiseEn: str(f, "praiseEn"), praiseZh: str(f, "praiseZh") });
   }, `${back(code)}#letter`);
 }
