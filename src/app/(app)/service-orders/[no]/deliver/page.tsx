@@ -117,7 +117,7 @@ async function LinkedDocs({ order }: { order: Order }) {
     if (!docs.length) continue;
     rows.push({
       key: type, label: u(label), date: shortDate(docs[0].issuedAt), purpose: u(purpose),
-      nos: <span className="flex flex-col gap-0.5">{docs.map((d) => <span key={d.no}><span className="font-mono">{d.no}</span>{reportsFor(d, hasAcc, hasQuote).length > 0 && <> · <span className="space-x-2">{reportsFor(d, hasAcc, hasQuote).filter((r) => type !== "QT" || r.template === "04" || r.template === "06").map((r) => pdf(d.no, r))}</span></>}</span>)}</span>,
+      nos: <span className="flex flex-col gap-0.5">{docs.map((d) => <span key={d.no}><span className="font-mono">{d.no}</span>{reportsFor(d, hasAcc, hasQuote).length > 0 && <> · <span className="space-x-2">{reportsFor(d, hasAcc, hasQuote).filter((r) => type !== "QT" || ["04", "06", "30", "31"].includes(r.template ?? "")).map((r) => pdf(d.no, r))}</span></>}</span>)}</span>,
     });
   }
   const outs = [...new Map(order.stockMovements.filter((m) => m.direction === "OUT").map((m) => [m.no, m])).values()];

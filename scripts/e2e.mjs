@@ -310,6 +310,20 @@ await step("partner-payable-and-rating", async () => {
   await page.goto(`${BASE}/suppliers/${partnerCode}`); await expectText("Ratings"); await expectText(`RR-INV-${stamp}`);
   await page.goto(`${BASE}/service-orders/${pOrderNo}`); await expectText("Partner repair"); await expectText("Sent to partner");
 });
+// ── 国内贸易 (business modes 2026-11-09): customer + SKU lines, no ATH; shortages raise a PRTH; the quote starts from the lines ──
+await step("trade-order-from-inquiry", async () => {
+  await page.goto(`${BASE}/service-orders/new?customer=${customerCode}`);
+  await page.locator("input[name=mode][value=DOMESTIC_TRADE]").click(); await page.waitForURL(/mode=DOMESTIC_TRADE/); await page.waitForLoadState("networkidle");
+  if (await page.locator("[name=assetCodes]").count()) throw new Error("the trade form still asks for an asset");
+  await page.fill("[name=customerRef]", `RFQ-TR-${stamp}`); await page.fill("[name=ld0]", `Brake resistor 100 ohm ${stamp}`); await page.fill("[name=lq0]", "4");
+  await save(); await page.waitForURL(/\/service-orders\/QTTH/); await noFlashError();
+  const tNo = page.url().split("/service-orders/")[1].split(/[/?]/)[0];
+  await expectText("Domestic trade"); await expectText("Customer and inquiry"); await expectText("Supplier inquiry"); await expectText(`Brake resistor 100 ohm ${stamp}`); await expectText("PRTH");
+  await page.goto(`${BASE}/service-orders/${tNo}/quote`); if ((await page.inputValue("[name=d0]")) !== `Brake resistor 100 ohm ${stamp}`) throw new Error("quote not prefilled from the inquiry lines");
+  const r = await ctx.request.get(`${BASE}/api/documents/${tNo}/render?format=pdf&template=30`); if (r.status() !== 200) throw new Error(`quotation PDF → ${r.status()}`);
+  if (!/_(Quotation|ใบเสนอราคา|报价单)\.pdf/.test(decodeURIComponent(r.headers()["content-disposition"] ?? ""))) throw new Error(`quotation download name: ${r.headers()["content-disposition"]}`);
+});
+
 await step("dashboard-build", async () => { await page.goto(`${BASE}/dashboard`); await page.fill("input[placeholder*=\"Describe\"]", "本月维修看板：工单、收入、工程师"); await page.click("form button:has-text('AI')"); await page.waitForURL(/\/dashboard\/[a-z0-9]+/, { timeout: 15000 }); });
 await step("employee-create-md-only", async () => {
   await page.goto(`${BASE}/people`); await page.click("a:has-text('New employee')"); await page.waitForURL(/\/people\/new/);

@@ -14,7 +14,7 @@ import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps
 import { businessClosureOn } from "@/lib/closure";
 import { pdfAvailable } from "@/server/office";
 import { marginFloor } from "@/server/modes";
-import { reopenBlocker } from "@/lib/modes";
+import { isTradeMode, reopenBlocker } from "@/lib/modes";
 import { reopenAsPartnerAction } from "./actions";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
@@ -41,6 +41,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     deliveriesSigned: order.deliveries.filter((d) => d.status === "SIGNED").length, deliveriesOpen: order.deliveries.filter((d) => d.status !== "SIGNED").length,
     invoicesUnpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, hasAcceptance: !!order.acceptance,
     partner: order.mode === "PARTNER_REPAIR",
+    trade: isTradeMode(order.mode), stockOuts: order.stockMovements.filter((m) => m.direction === "OUT").length,
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
   const money = (k: StepKey) => k === "invoice" || k === "payment";
@@ -133,7 +134,16 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <Card title={u("assetAndReport")}>
+          {isTradeMode(order.mode) ? <Card title={u("customerAndInquiry")}>
+            <Grid>
+              <Field label={t("customer")}><Value>{order.customer.name}</Value></Field>
+              <Field label={u("customerInquiryRef")}><Value className="font-mono">{order.customerRef ?? "—"}</Value></Field>
+            </Grid>
+            <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy")]}>
+              {((order.requestLines as { sku?: string; description: string; qty: number; unit: string; neededBy?: string }[] | null) ?? []).map((l, i) => <tr key={i}><td>{i + 1}</td><td className="font-mono">{l.sku ?? "—"}</td><td>{l.description}</td><td className="text-right">{l.qty}</td><td>{l.unit}</td><td>{l.neededBy ?? ""}</td></tr>)}
+            </Table>
+            {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.name}</a>)}</div>}
+          </Card> : <Card title={u("assetAndReport")}>
             <Grid>
               <Field label={t("asset")}><div className="space-y-2 rounded-md border bg-white px-2.5 py-2 text-sm">{order.assets.map((l) => <AssetTriple key={l.assetId} asset={l.asset} />)}</div></Field>
               <Field label={u("customerPlantLocation")}><Value>{order.customer.name}{order.plant ? ` · ${order.plant.code}` : ""}{order.assets[0]?.asset.location ? ` · ${order.assets[0].asset.location}` : ""}</Value></Field>
@@ -141,7 +151,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             </Grid>
             <Field label={t("symptom")}><Value><FaultText>{order.reportedSymptom ?? "—"}{order.reportedAlarm ? ` · ${order.reportedAlarm}` : ""}</FaultText>{order.productionImpact ? <span className="ml-2 text-navy/80">· {["STOPPED", "DEGRADED", "NONE"].includes(order.productionImpact) ? u(`impact${order.productionImpact[0]}${order.productionImpact.slice(1).toLowerCase()}`) : order.productionImpact}</span> : null}</Value></Field>
             {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {["INQUIRY", "PO", "MESSAGE", "PAYMENT", "CUSTOMER_DN"].includes(a.kind) ? `${u(`kind_${a.kind}`)} · ` : ""}{a.name}</a>)}</div>}
-          </Card>
+          </Card>}
 
           <Card title={u("documentsDone")}>
             <Table head={[u("document"), t("type"), u("time"), u("executor"), u("summary"), u("reports")]}>

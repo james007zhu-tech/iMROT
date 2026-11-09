@@ -50,10 +50,12 @@ def equipment_table(doc):
     lines_table(doc, [("Asset no.", "รหัสเครื่อง"), ("Brand and model", "ยี่ห้อและรุ่น"), ("Serial no.", "หมายเลขเครื่อง"), ("Location", "ตำแหน่งติดตั้ง")], [1500, 4066, 2100, 2200],
                 ["[[L_EQ_ASSET]]", "[[L_EQ_MODEL]]", "[[L_EQ_SERIAL]]", "[[L_EQ_LOCATION]]"], [None, None, None, None])
 
-def priced_lines(doc, left_blocks):
-    """Priced lines, then totals at the right with the amount in words and the given label/value blocks at the left."""
-    lines_table(doc, [("#", "ลำดับ"), ("Description", "รายการ"), ("Asset", "เครื่อง"), ("Qty", "จำนวน"), ("Unit", "หน่วย"), ("Unit price", "ราคา/หน่วย"), ("Amount", "จำนวนเงิน")],
-                [600, 3666, 1450, 650, 700, 1300, 1500], ["[[L_NO]]", "[[L_DESC]]", "[[L_ASSET]]", "[[L_QTY]]", "[[L_UNIT]]", "[[L_PRICE]]", "[[L_AMOUNT]]"], [C, None, None, R, C, R, R])
+def priced_lines(doc, left_blocks, ref=(("Asset", "เครื่อง"), "[[L_ASSET]]", 1450)):
+    """Priced lines, then totals at the right with the amount in words and the given label/value blocks at the left.
+    ref = the third column: the machine for service work, the SKU for trade."""
+    (head, ph, w) = ref
+    lines_table(doc, [("#", "ลำดับ"), ("Description", "รายการ"), head, ("Qty", "จำนวน"), ("Unit", "หน่วย"), ("Unit price", "ราคา/หน่วย"), ("Amount", "จำนวนเงิน")],
+                [600, 5116 - w, w, 650, 700, 1300, 1500], ["[[L_NO]]", "[[L_DESC]]", ph, "[[L_QTY]]", "[[L_UNIT]]", "[[L_PRICE]]", "[[L_AMOUNT]]"], [C, None, None, R, C, R, R])
     para(doc, after=3)
     totals_block(doc, [(["Subtotal", "รวมก่อน VAT"], "[[SUBTOTAL]]", False), (["VAT [[VAT_LABEL]]", "ภาษีมูลค่าเพิ่ม"], "[[VAT_AMOUNT]]", False), (["Total", "รวมทั้งสิ้น"], "[[CURRENCY]] [[TOTAL]]", True)],
                  left_lines=[[("([[TOTAL_WORDS_TH]])", 9, True, NAVY), ("[[TOTAL_WORDS_EN]]", 8, False, GREY)]] + [[(f"{en}  {th}", 8, True, NAVY), (value, 8, False, None)] for en, th, value in left_blocks])
@@ -147,6 +149,38 @@ def build_acceptance():
     footer(doc, "OPS-ACC")
     doc.save(TPL / "13_Customer_Acceptance.docx")
 
+# ── 30 / 31 Trade quotation and order confirmation (贸易, 2026-11-09: SKUs only, no machine) ────────────────
+
+SKU_COL = (("SKU", "รหัสสินค้า"), "[[L_SKU]]", 2000)
+
+def build_trade_quotation():
+    doc = Document(BASE); clear_body(doc)
+    title_block(doc, "ใบเสนอราคา", "QUOTATION", "报价单", "เลขที่  No.", "[[DOC_NO]]")
+    rule(doc)
+    customer_blocks(doc, [(["Date", "วันที่"], "[[ISSUE_DATE]]"), (["Your reference", "อ้างอิงลูกค้า"], "[[CUSTOMER_REF]]"), (["Our contact", "ผู้ติดต่อ"], "[[OUR_CONTACT]]")])
+    section(doc, "Items and price", "รายการและราคา")
+    priced_lines(doc, [], SKU_COL)
+    section(doc, "Terms", "เงื่อนไข")
+    together(kv_table(doc, [(["Payment terms", "เงื่อนไขการชำระเงิน"], "[[PAYMENT_TERMS]]"), (["To proceed", "การยืนยัน"], "[[TO_PROCEED]]"), (["You will receive", "เอกสารที่ท่านจะได้รับ"], "[[DELIVERABLE_DOCS]]")], (2200, 7666)))
+    signature_block(doc, [("Prepared by", "ผู้จัดทำ", "[[PREPARED_BY]]"), ("Authorised by", "ผู้มีอำนาจลงนาม", "[[AUTHORISED_BY]]"), ("Accepted by customer", "ลูกค้าตกลงตามข้อเสนอ", "[[CUSTOMER_SIGNATORY]]")])
+    footer(doc, "SAL-QT")
+    doc.save(TPL / "30_Sales_Quotation.docx")
+
+def build_trade_order_confirmation():
+    doc = Document(BASE); clear_body(doc)
+    title_block(doc, "ใบยืนยันคำสั่งซื้อ", "ORDER CONFIRMATION", "订单确认", "เลขที่  No.", "[[DOC_NO]]")
+    rule(doc)
+    customer_blocks(doc, [(["Confirmed on", "วันที่ยืนยัน"], "[[CONFIRMED_ON]]"), (["Customer PO", "ใบสั่งซื้อลูกค้า"], "[[CUSTOMER_PO]]"), (["Our quotation", "ใบเสนอราคา"], "[[QUOTE_REF]]"), (["Payment terms", "เงื่อนไขการชำระเงิน"], "[[PAYMENT_TERMS]]")])
+    section(doc, "Confirmed items and price", "รายการและราคาที่ยืนยัน")
+    priced_lines(doc, [("Deliver to", "สถานที่ส่งมอบ", "[[DELIVER_TO]]")], SKU_COL)
+    para(doc, before=4, after=0)
+    lines(doc, ["We confirm your order for the items above at the prices shown. Any change to the items or prices is agreed in writing before delivery.",
+                "บริษัทยืนยันการรับคำสั่งซื้อสำหรับรายการข้างต้นตามราคาที่ระบุ การเปลี่ยนแปลงรายการหรือราคาจะตกลงเป็นลายลักษณ์อักษรก่อนส่งมอบ"], 7.5, GREY, after=0)
+    signature_block(doc, [("Confirmed by", "ผู้ยืนยันคำสั่งซื้อ", "[[CONFIRMED_BY]]"), ("Authorised by", "ผู้มีอำนาจลงนาม", "[[AUTHORISED_BY]]"), ("Customer acknowledgement", "ลูกค้ารับทราบ", "[[CUSTOMER_SIGNATORY]]")])
+    footer(doc, "SAL-SOC")
+    doc.save(TPL / "31_Sales_Order_Confirmation.docx")
+
 if __name__ == "__main__":
     build_proposal(); build_order_confirmation(); build_completion(); build_acceptance()
-    print("built 04, 06, 12, 13")
+    build_trade_quotation(); build_trade_order_confirmation()
+    print("built 04, 06, 12, 13, 30, 31")

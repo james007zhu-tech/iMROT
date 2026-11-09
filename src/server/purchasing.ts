@@ -70,6 +70,9 @@ export async function inquiryLinesFromOrder(no: string): Promise<InquiryLine[]> 
   const wanted: { sku: string; vendorPartNo?: string; description: string; qty: number; unit: string; assetCode?: string }[] = [];
   if (o.lines.some((l) => l.part)) {
     for (const l of o.lines) if (l.part) wanted.push({ sku: l.part.sku, vendorPartNo: l.part.vendorPartNo, description: l.description, qty: Number(l.qty), unit: l.unit, assetCode: l.assetCode ?? undefined });
+  } else if (o.inspections.length === 0 && Array.isArray(o.requestLines)) {
+    // 贸易: the customer's inquiry lines; an item we have never stocked (no SKU match) is short in full
+    for (const r of o.requestLines as { sku?: string; description: string; qty: number; unit: string }[]) wanted.push({ sku: r.sku ?? "", description: r.description, qty: Number(r.qty), unit: r.unit });
   } else {
     for (const insp of o.inspections) {
       const needs = (insp.needs as { kind: string; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit?: string }[] | null) ?? [];
@@ -79,11 +82,11 @@ export async function inquiryLinesFromOrder(no: string): Promise<InquiryLine[]> 
   }
   const out: InquiryLine[] = [];
   for (const w of wanted) {
-    const part = await prisma.part.findUnique({ where: { sku: w.sku } });
+    const part = w.sku ? await prisma.part.findUnique({ where: { sku: w.sku } }) : null;
     const moves = part ? await prisma.stockMovement.findMany({ where: { partId: part.id }, select: { direction: true, qty: true } }) : [];
     const onHand = moves.reduce((s, m) => s + (m.direction === "IN" ? 1 : -1) * Number(m.qty), 0);
     const short = w.qty - onHand;
-    if (short > 0) out.push({ lineNo: out.length + 1, partSku: w.sku, vendorPartNo: w.vendorPartNo ?? part?.vendorPartNo, description: w.description, qty: short, unit: w.unit, assetCode: w.assetCode });
+    if (short > 0) out.push({ lineNo: out.length + 1, partSku: w.sku || undefined, vendorPartNo: w.vendorPartNo ?? part?.vendorPartNo, description: w.description, qty: short, unit: w.unit, assetCode: w.assetCode });
   }
   return out;
 }
@@ -94,7 +97,7 @@ export async function autoInquiryForOrder(no: string, actorCode: string): Promis
   if (open) return null;
   const lines = await inquiryLinesFromOrder(no);
   if (!lines.length) return null;
-  const inq = await createInquiry({ actorCode, serviceOrderNo: no, lines, note: "auto: short parts from the inspection" });
+  const inq = await createInquiry({ actorCode, serviceOrderNo: no, lines, note: "auto: short items from the inspection or the customer's inquiry" });
   return inq.no;
 }
 

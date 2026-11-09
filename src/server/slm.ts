@@ -8,8 +8,8 @@ import { keepCustomerRef } from "@/lib/numbering";
 import type { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { canTransitionOrder } from "@/lib/lifecycle";
 import { quoteMayGoOut } from "@/lib/margin";
-import { raisePurchaseOrdersForOrder } from "@/server/purchasing";
-import { MODES, OPEN_MODES, kindFor, modeFromKind, modeNeedsAsset } from "@/lib/modes";
+import { autoInquiryForOrder, raisePurchaseOrdersForOrder } from "@/server/purchasing";
+import { MODES, OPEN_MODES, TRADE_QUOTE_TEMPLATE, isTradeMode, kindFor, modeFromKind, modeNeedsAsset, requestLinesFrom } from "@/lib/modes";
 
 /** Shortest path through the status chain, e.g. RECEIVED → ASSIGNED → DIAGNOSING. */
 const CHAIN: ServiceOrderStatus[] = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED", "INVOICED", "CLOSED"];
@@ -64,6 +64,8 @@ export const CreateServiceOrderInput = z.object({
   /** sub-type inside the mode — only 维保 has a choice (MAINTENANCE / OVERHAUL / CONTRACT) */
   kind: z.enum(["REPAIR", "MAINTENANCE", "OVERHAUL", "CONTRACT", "PARTS_SALE"]).optional(),
   partnerReason: z.string().optional(),
+  /** 贸易: the customer's inquiry lines (no ATH) */
+  requestLines: z.array(z.object({ sku: z.string().optional(), description: z.string().optional(), qty: z.coerce.number().optional(), unit: z.string().optional(), neededBy: z.string().optional() })).optional(),
   reportedSymptom: z.string().optional(),
   reportedAlarm: z.string().optional(),
   productionImpact: z.string().optional(),
@@ -80,12 +82,16 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
   const mode = data.mode ?? modeFromKind(data.kind ?? "REPAIR");
   if (!OPEN_MODES.includes(mode)) throw new Error(`MODE_NOT_OPEN:${mode}`);
   if (modeNeedsAsset(mode) && data.assetCodes.length === 0) throw new Error("ASSET_REQUIRED");
+  const trade = isTradeMode(mode);
+  const requestLines = trade ? requestLinesFrom(data.requestLines ?? []) : [];
+  if (trade && !requestLines.length) throw new Error("ITEM_LINES_REQUIRED");
+  if (trade && data.assetCodes.length) throw new Error("TRADE_HAS_NO_ASSET"); // decided 2026-11-09: SKUs only
   const kind = kindFor(mode, data.kind);
   const creator = await prisma.employee.findUniqueOrThrow({ where: { code: data.createdByEmployeeCode } });
   const assets = await prisma.asset.findMany({ where: { code: { in: data.assetCodes } } });
   if (assets.length !== data.assetCodes.length) throw new Error("unknown asset code in request");
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "QT", createdByEmployeeCode: creator.code, entityId: creator.entityId });
     const order = await tx.serviceOrder.create({
       data: {
@@ -106,10 +112,11 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
         currency: data.currency,
         reportedAt: data.reportedAt,
         attachments: data.attachments as Prisma.InputJsonValue | undefined,
+        requestLines: trade ? (requestLines as Prisma.InputJsonValue) : undefined,
         assets: { create: assets.map((a, i) => ({ assetId: a.id, isPrimary: i === 0 })) },
       },
     });
-    await tx.document.create({ data: { no, type: "QT", entityId: creator.entityId, countryCode: no.slice(2, 4), customerId: data.customerId, serviceOrderId: order.id, createdById: creator.id } });
+    await tx.document.create({ data: { no, type: "QT", entityId: creator.entityId, countryCode: no.slice(2, 4), customerId: data.customerId, serviceOrderId: order.id, createdById: creator.id, templateCode: trade ? TRADE_QUOTE_TEMPLATE : undefined } });
     for (const a of assets) {
       await tx.assetEvent.create({
         data: {
@@ -127,6 +134,9 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
     }
     return order;
   });
+  // 贸易: what is not on the shelf goes out for supplier quotes at once (same rule as INTH needs, flow step 3)
+  if (trade) await autoInquiryForOrder(created.no, creator.code).catch((e) => console.error(`auto PRTH for ${created.no}:`, e));
+  return created;
 }
 
 export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, actorEmployeeCode: string, note?: string, assigneeCode?: string) {

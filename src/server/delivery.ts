@@ -9,7 +9,8 @@ import { prisma } from "@/lib/db";
 import { partnerDeliveryBlockers } from "@/server/srm";
 import { allocateNumber } from "@/lib/numbering-db";
 import { audit } from "@/server/audit";
-import { poLinesFromQuote, type PoLine } from "@/server/slm";
+import { poLinesFromQuote, progressOrder, type PoLine } from "@/server/slm";
+import { isTradeMode } from "@/lib/modes";
 
 export type DeliveryLine = { key: string; kind: "PO" | "RETURN"; poLineNo?: number; description: string; assetCode?: string; partSku?: string; expected: number; deliveredBefore: number; source?: string; isService?: boolean };
 
@@ -99,11 +100,25 @@ export async function signDelivery(input: { no: string; actorCode: string; signe
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const codes = new Set((dn.lines as { assetCode?: string; delivered: number }[]).filter((l) => l.delivered > 0 && l.assetCode).map((l) => l.assetCode!));
   const assets = await prisma.asset.findMany({ where: { code: { in: [...codes] } } });
-  return prisma.$transaction(async (tx) => {
+  const signed = await prisma.$transaction(async (tx) => {
     const signed = await tx.deliveryNote.update({ where: { id: dn.id }, data: { status: "SIGNED", signedBy: input.signedBy, signedAt: input.signedAt ?? new Date(), remark: input.remark ?? dn.remark, signatureUrl: input.attachments?.find((a) => a.kind !== "CUSTOMER_DN")?.url ?? input.attachments?.[0]?.url, attachments: input.attachments?.length ? ([...((dn.attachments as unknown[] | null) ?? []), ...input.attachments] as Prisma.InputJsonValue) : undefined } });
     for (const a of assets.length ? assets : []) {
       await tx.assetEvent.create({ data: { assetId: a.id, type: "DELIVERED", actorId: actor.id, actorName: input.signedBy, serviceOrderId: dn.serviceOrderId, sourceDocNo: dn.no, occurredAt: input.signedAt, summary: dn.no, payload: { signedBy: input.signedBy, remark: input.remark } as Prisma.InputJsonValue, attachments: (input.attachments ?? []) as Prisma.InputJsonValue } });
     }
     return signed;
   });
+  // 贸易 (2026-11-09): the customer's signature on the last DNTH is the acceptance — the order is accepted and locked
+  // (cost, price, purchasing) once every PO line is delivered and no delivery note is still waiting for a signature.
+  const order = dn.serviceOrder;
+  if (isTradeMode(order.mode) && !order.lockedAt && (order.status === "IN_PROGRESS" || order.status === "ACCEPTANCE_PENDING")) {
+    const { lines } = await deliveryPlan(order.no);
+    const open = await prisma.deliveryNote.count({ where: { serviceOrderId: order.id, status: { notIn: ["SIGNED", "DRAFT"] } } });
+    if (!open && lines.every((l) => l.kind !== "PO" || l.isService || l.deliveredBefore >= l.expected)) {
+      await prisma.$transaction(async (tx) => {
+        await progressOrder(tx, order, "ACCEPTED", actor.id, dn.no);
+        await tx.serviceOrder.update({ where: { id: order.id }, data: { lockedAt: input.signedAt ?? new Date(), lockedById: actor.id } });
+      });
+    }
+  }
+  return signed;
 }

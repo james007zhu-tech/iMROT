@@ -24,6 +24,13 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   // No quote yet → start from what the inspections said the repair needs (parts with their last cost, labour in hours).
   type Row = { assetCode?: string | null; partId?: string | null; partSku?: string; description: string; descriptionLocal?: string | null; qty: number | { toString(): string }; unit: string; unitPrice?: number | { toString(): string }; unitCost?: number | { toString(): string } | null; costRef?: number | { toString(): string } | null; fromInth?: boolean };
   let lines: Row[] = order.lines;
+  if (!lines.length && Array.isArray(order.requestLines)) {
+    // 贸易: the customer's inquiry lines, cost = the part's last purchase price (a PRTH comparison updates it later)
+    for (const r of order.requestLines as { sku?: string; description: string; qty: number; unit: string }[]) {
+      const part = r.sku ? parts.find((p) => p.sku === r.sku) : undefined;
+      lines.push({ partSku: r.sku, description: r.description || part?.name || "", descriptionLocal: part?.nameLocal, qty: r.qty, unit: r.unit, unitCost: part?.lastCost ?? null });
+    }
+  }
   if (!lines.length) {
     const insps = await prisma.inspection.findMany({ where: { serviceOrderId: order.id, draft: false }, orderBy: { no: "asc" }, include: { asset: { select: { code: true } } } });
     for (const insp of insps) for (const n of ((insp.needs as { kind: string; partSku?: string; description: string; descriptionLocal?: string; qty: number; unit?: string }[] | null) ?? [])) {

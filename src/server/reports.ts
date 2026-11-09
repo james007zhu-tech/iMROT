@@ -20,6 +20,7 @@ const TEMPLATE_FILES: Record<string, string> = {
   "11": "11_Preventive_Maintenance_Record.docx", "12": "12_Service_Completion.docx", "13": "13_Customer_Acceptance.docx", "19": "19_Delivery_Note.docx",
   "20": "20_Tax_Invoice.docx", "21": "21_Invoice.docx", "22": "22_Receipt.docx", "23": "23_Statement.docx",
   "24": "24_Purchase_Inquiry.docx", "25": "25_Purchase_Order.docx", "26": "26_Goods_Receipt.docx", "27": "27_Stock_Issue.docx",
+  "30": "30_Sales_Quotation.docx", "31": "31_Sales_Order_Confirmation.docx",
   "28": "28_Subcontract_Dispatch.docx", "29": "29_Subcontract_Return.docx",
 };
 
@@ -75,7 +76,7 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
   const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: doc.serviceOrderId! }, include: {
     customer: true, plant: true, reportedBy: true, assignee: true,
     assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } },
-    lines: { orderBy: { lineNo: "asc" } }, acceptance: { include: { customerContact: true } },
+    lines: { orderBy: { lineNo: "asc" }, include: { part: { select: { sku: true } } } }, acceptance: { include: { customerContact: true } },
     documents: { where: { voidedAt: null, type: { in: ["IN", "RP", "PM"] } }, orderBy: { issuedAt: "asc" }, select: { no: true, type: true, templateCode: true } },
     deliveries: { where: { status: { not: "DRAFT" } }, orderBy: { deliverOn: "asc" }, select: { no: true } },
     events: { where: { type: "ORDER_CONFIRMED" }, orderBy: { occurredAt: "asc" }, take: 1, include: { actor: true } },
@@ -93,7 +94,8 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
   const po = o.customerRef ?? "—";
   const terms = `${c.paymentTermDays} days from invoice\n${c.paymentTermDays} วันนับจากวันที่ใบแจ้งหนี้`;
   const onSite = o.documents.some((x) => x.templateCode === "10");
-  const docs = lines_(
+  const trade = want === "30" || want === "31";
+  const docs = trade ? lines_("Delivery note  ใบส่งของ", "Tax invoice and receipt  ใบกำกับภาษีและใบเสร็จรับเงิน") : lines_(
     o.kind !== "PARTS_SALE" && o.kind !== "MAINTENANCE" ? both(REPORT_NAME.IN) : "",
     // 合作维修: the partner's work is never shown to the customer — our retest gates the delivery, there is no RPTH
     both(o.kind === "MAINTENANCE" ? REPORT_NAME.PM : o.kind !== "PARTS_SALE" && o.mode !== "PARTNER_REPAIR" ? (onSite ? REPORT_NAME.FS : REPORT_NAME.RP) : undefined),
@@ -106,17 +108,23 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
   // What we promise the customer (quote page, rule 26: partner work is back-to-back on the same days); runs from acceptance.
   const promise = o.warrantyDays != null ? `${o.warrantyDays} days from acceptance\n${o.warrantyDays} วันนับจากวันตรวจรับงาน` : "—";
 
-  if (want === "04" || want === "06") {
+  if (want === "04" || want === "06" || trade) {
     const subtotal = o.subtotal != null ? Number(o.subtotal) : round2(o.lines.reduce((s, l) => s + Number(l.amount), 0));
     const vatRate = Number(doc.entity.vatRate);
     const vat = o.vatAmount != null ? Number(o.vatAmount) : round2(subtotal * vatRate);
     const total = o.total != null ? Number(o.total) : round2(subtotal + vat);
     const priced = {
       L_NO: o.lines.map((l) => l.lineNo), L_DESC: o.lines.map((l) => lines_(l.descriptionLocal && l.descriptionLocal !== l.description ? l.descriptionLocal : "", l.description)),
-      L_ASSET: o.lines.map((l) => l.assetCode ?? ""), L_QTY: o.lines.map((l) => String(Number(l.qty))), L_UNIT: o.lines.map((l) => l.unit), L_PRICE: o.lines.map((l) => money(l.unitPrice)), L_AMOUNT: o.lines.map((l) => money(l.amount)),
+      L_ASSET: o.lines.map((l) => l.assetCode ?? ""), L_SKU: o.lines.map((l) => l.part?.sku ?? ""), L_QTY: o.lines.map((l) => String(Number(l.qty))), L_UNIT: o.lines.map((l) => l.unit), L_PRICE: o.lines.map((l) => money(l.unitPrice)), L_AMOUNT: o.lines.map((l) => money(l.amount)),
       SUBTOTAL: money(subtotal), VAT_LABEL: pctLabel(vatRate), VAT_AMOUNT: money(vat), CURRENCY: o.currency, TOTAL: money(total),
       TOTAL_WORDS_TH: thaiAmount(total, o.currency), TOTAL_WORDS_EN: englishAmount(total, o.currency),
     };
+    if (want === "30") {
+      const owner = o.assignee ?? doc.createdBy;
+      return { ...party, ...priced, ISSUE_DATE: d(o.quoteSentAt ?? doc.issuedAt), CUSTOMER_REF: o.customerRef ?? "—", OUR_CONTACT: lines_(owner.name, owner.phone), PAYMENT_TERMS: terms, DELIVERABLE_DOCS: docs,
+        TO_PROCEED: `Please send your purchase order quoting ${o.no}.\nกรุณาส่งใบสั่งซื้อโดยอ้างอิงเลขที่ ${o.no}`,
+        PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "", CUSTOMER_SIGNATORY: signHint };
+    }
     if (want === "04") {
       const insp = await prisma.inspection.findFirst({ where: { serviceOrderId: o.id, draft: false }, orderBy: { inspectedAt: "desc" } });
       const owner = o.assignee ?? doc.createdBy;
@@ -200,7 +208,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
     }
     case "QT": {
       const want = templateHint ?? doc.templateCode ?? "13";
-      return { template: want === "04" || want === "06" || want === "12" ? want : "13", values: { DOC_NO: no, ISSUE_DATE: common.ISSUE_DATE, ...(await serviceFields(doc, want)) } };
+      return { template: ["04", "06", "12", "30", "31"].includes(want) ? want : "13", values: { DOC_NO: no, ISSUE_DATE: common.ISSUE_DATE, ...(await serviceFields(doc, want)) } };
     }
     case "DN": {
       const dn = await prisma.deliveryNote.findUniqueOrThrow({ where: { no }, include: { driver: true } });

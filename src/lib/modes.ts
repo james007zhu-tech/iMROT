@@ -18,11 +18,24 @@ export const MODE_KINDS: Record<Mode, Kind[]> = {
 };
 
 /** Modes that can be opened today. Automation projects and international trade wait for their flow (decision doc 2026-11-09). */
-export const OPEN_MODES: readonly Mode[] = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE"];
+export const OPEN_MODES: readonly Mode[] = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE", "DOMESTIC_TRADE"];
 
 /** Trade orders carry SKUs only — no ATH (decided 2026-11-09; the one exception to "every record carries an asset"). */
 export const modeNeedsAsset = (m: Mode): boolean => m !== "DOMESTIC_TRADE" && m !== "INTERNATIONAL_TRADE";
 export const isPartnerMode = (m: string | null | undefined): boolean => m === "PARTNER_REPAIR";
+export const isTradeMode = (m: string | null | undefined): boolean => m === "DOMESTIC_TRADE" || m === "INTERNATIONAL_TRADE";
+
+/** A trade order's QTTH renders as a quotation (30) and order confirmation (31) — no equipment, no findings. */
+export const TRADE_QUOTE_TEMPLATE = "30";
+
+/** One line of a customer's trade inquiry, as typed on the new-order page. */
+export type RequestLine = { sku?: string; description: string; qty: number; unit: string; neededBy?: string };
+export function requestLinesFrom(rows: { sku?: string; description?: string; qty?: number; unit?: string; neededBy?: string }[]): RequestLine[] {
+  return rows
+    .map((r) => ({ sku: r.sku?.trim() || undefined, description: (r.description ?? "").trim(), qty: Number(r.qty) || 0, unit: r.unit?.trim() || "pcs", neededBy: r.neededBy || undefined }))
+    .filter((r) => r.qty > 0 && (r.description || r.sku))
+    .map((r) => ({ ...r, description: r.description || r.sku! }));
+}
 
 /** The sub-type an order gets: the asked one when the mode allows it, else the mode's default. */
 export function kindFor(mode: Mode, asked?: string | null): Kind {

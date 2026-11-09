@@ -13,12 +13,21 @@ export function ModeCards({ form, cards, initial, kinds, labels, inputCls }: {
   labels: { kind: string; reason: string; reasonPh: string; soon: string }; inputCls: string;
 }) {
   const [mode, setMode] = useState(initial);
+  // Machine modes and trade modes ask for different fields (asset + fault vs customer + SKU lines): the server renders those,
+  // so switching between the two families reloads with ?mode=; inside a family only the small extra fields change.
+  const trade = (m: string) => m.endsWith("_TRADE");
+  const pick = (m: string) => {
+    if (trade(m) === trade(initial)) return setMode(m);
+    const q = new URLSearchParams(window.location.search);
+    q.set("mode", m); q.delete("error"); if (trade(m)) q.delete("asset");
+    window.location.search = q.toString();
+  };
   return (
     <div className="space-y-3">
       <div className="grid gap-3 md:grid-cols-3">
         {cards.map((c) => (
           <label key={c.mode} className={`relative flex flex-col rounded-xl border-[1.5px] bg-white px-3.5 py-3 ${c.open ? "cursor-pointer" : "cursor-not-allowed opacity-60"} ${mode === c.mode ? "border-blue ring-3 ring-blue/15" : "border-navy/15"}`}>
-            <input type="radio" form={form} name="mode" value={c.mode} checked={mode === c.mode} disabled={!c.open} onChange={() => setMode(c.mode)} className="absolute right-3 top-3 size-4 accent-blue" />
+            <input type="radio" form={form} name="mode" value={c.mode} checked={mode === c.mode} disabled={!c.open} onChange={() => pick(c.mode)} className="absolute right-3 top-3 size-4 accent-blue" />
             <span className="pr-6 text-base font-bold text-navy">{c.name}</span>
             <span className="text-[11px] text-navy/60">{c.sub}</span>
             <span className="my-2 min-h-9 text-[13px] text-navy/90">{c.desc}</span>
