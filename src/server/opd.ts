@@ -5,13 +5,14 @@
  * The ETH/EVN/ECN number follows the legal entity chosen, so the MD can create the first staff of a new country.
  */
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import type { CountryCode } from "@/lib/numbering";
 import { daysUntil, salarySummary, type Allowance, type Deduction } from "@/lib/payroll";
 import { audit } from "@/server/audit";
+import { cleanBankDetails } from "@/lib/bank";
 
 export const STAFF_ROLES = ["MD", "SALES", "ENGINEER", "WAREHOUSE", "FINANCE", "MANAGER"] as const;
 export const CONTRACT_TYPES = ["PROBATION", "FIXED_TERM", "PERMANENT", "CONTRACTOR"] as const;
@@ -311,15 +312,19 @@ export const EntityInput = z.object({
   vatRate: z.number().min(0).max(1),
   taxInvoiceBookSize: z.number().int().min(1).max(1000).optional(),
   vatRegisteredFrom: z.preprocess((v) => (v === undefined || v === null || v === "" ? undefined : v instanceof Date ? v : new Date(String(v))), z.date().optional()),
+  /// 收款银行 (2026-11-09). Absent = leave as is; all fields empty = clear.
+  bankDetails: z.object({ bank: z.string().optional(), branch: z.string().optional(), bankCode: z.string().optional(), branchCode: z.string().optional(), accountName: z.string().optional(), swift: z.string().optional(), accounts: z.record(z.string()).optional() }).optional(),
 });
 
 export async function saveLegalEntity(input: z.input<typeof EntityInput>) {
-  const { actorCode, countryCode, ...data } = EntityInput.parse(input);
+  const { actorCode, countryCode, bankDetails, ...rest } = EntityInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
   assertMd(actor.role);
+  const bank = bankDetails === undefined ? undefined : cleanBankDetails(bankDetails);
+  const data = { ...rest, ...(bank === undefined ? {} : { bankDetails: bank ? (bank as Prisma.InputJsonValue) : Prisma.JsonNull }) };
   const clash = await prisma.legalEntity.findFirst({ where: { code: data.code, NOT: { countryCode } } });
   if (clash) throw new Error(`ENTITY_CODE_TAKEN:${data.code}:${clash.countryCode}`);
   const saved = await prisma.legalEntity.upsert({ where: { countryCode }, update: data, create: { countryCode, ...data, bookCurrency: "CNY" } });
-  await audit(actor.id, "ENTITY_SAVE", saved.code, { countryCode, ...data });
+  await audit(actor.id, "ENTITY_SAVE", saved.code, { countryCode, ...rest, ...(bank === undefined ? {} : { bankDetails: bank }) });
   return saved;
 }
