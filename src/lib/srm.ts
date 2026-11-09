@@ -1,26 +1,17 @@
 /**
  * 合作维修 (partner repair) rules, decided by the MD on 2026-11-08. Pure functions; src/server/srm.ts applies them.
  *  - the partner never meets the customer: we carry the machine both ways, partner-facing documents hold no customer data
- *  - margin floor 33 % for partner work (50 % in-house); below it the MD approves
+ *  - margin floor 33 % for partner work (50 % in-house); below it the MD approves — now per business mode, src/lib/modes.ts
  *  - warranty back-to-back: the days we promise the customer are the days on the partner's POTH
  *  - payment: Thai partners monthly, 15 days after month end; everyone else per order
  *  - progress milestones are internal only
  */
-import { MIN_MARGIN_PCT } from "./margin";
-
-export const PARTNER_MIN_MARGIN_PCT = 0.33;
 /** Hire-of-work / service paid by a juristic person to a Thai juristic person: 3 % (goods are not withheld). */
 export const WHT_SERVICE_RATE_TH = 0.03;
 export const MONTHLY_PAYMENT_DAYS = 15;
 
 /** Default partner terms (decided 2026-11-08): Thai partners monthly, 15 days after month end; everyone else per order. */
 export const defaultPaymentMode = (countryCode: string): "MONTHLY" | "PER_ORDER" => (countryCode.toUpperCase() === "TH" ? "MONTHLY" : "PER_ORDER");
-
-export type FulfilmentKind = "IN_HOUSE" | "PARTNER";
-
-export function marginFloorFor(fulfilment: FulfilmentKind | null | undefined): number {
-  return fulfilment === "PARTNER" ? PARTNER_MIN_MARGIN_PCT : MIN_MARGIN_PCT;
-}
 
 /** MONTHLY: last day of the invoice month + days (月结 15 天); PER_ORDER: due on the invoice date. Dates in UTC days. */
 export function payableDueDate(invoiceDate: Date, mode: "MONTHLY" | "PER_ORDER", days?: number | null): Date {

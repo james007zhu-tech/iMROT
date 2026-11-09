@@ -8,7 +8,7 @@ import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { RevealRows } from "@/components/RevealRows";
 import { Alert, Card, Field, inputCls } from "@/components/ui";
-import { marginFloorFor } from "@/lib/srm";
+import { marginFloor } from "@/server/modes";
 import { StepPage, loadOrder, num, str } from "../_shell";
 
 export const dynamic = "force-dynamic";
@@ -31,8 +31,8 @@ export default async function Quote({ params, searchParams }: { params: Promise<
       lines.push({ assetCode: insp.asset.code, partSku: n.partSku, description: n.description, descriptionLocal: n.descriptionLocal, qty: n.qty, unit: n.unit ?? (n.kind === "LABOUR" ? "h" : "pcs"), unitCost: part?.lastCost ?? null, fromInth: true });
     }
   }
-  const partner = order.fulfilment === "PARTNER";
-  const floor = marginFloorFor(order.fulfilment);
+  const partner = order.mode === "PARTNER_REPAIR";
+  const floor = await marginFloor(order.mode);
   const partnerCosts = partner ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
   if (partner && !lines.length) {
     // 合作维修: one repair line per machine, its cost = the selected partner quote

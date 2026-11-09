@@ -3,7 +3,7 @@
 #
 # Starts `next dev` and then watches .dev-ops/ for trigger files, so the app can be operated
 # by writing files into the repo (no terminal on the host needed):
-#   .dev-ops/restart   -> npm install, prisma generate, prisma db push, restart next dev
+#   .dev-ops/restart   -> npm install, prisma generate, prisma db push, backfill, restart next dev
 #   .dev-ops/seed      -> prisma/seed.ts
 #   .dev-ops/trial     -> prisma/trial.ts (prints the trial passwords to .dev-ops/trial.out)
 #   .dev-ops/fx        -> fetch Bank of China rates
@@ -33,6 +33,8 @@ setup() {
   elif [ $rc -ne 0 ]; then
     log "prisma db push FAILED"
   fi
+  log "backfill"
+  npx tsx scripts/dev/backfill.ts >>"$OPS/log" 2>&1 || log "backfill FAILED"
 }
 
 start_app() {

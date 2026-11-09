@@ -11,7 +11,7 @@ import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
 import { createInspection, setQuoteLines, receiveEquipment, missingForAcceptance, recordAcceptance } from "../../src/server/slm-docs";
 import { addSupplierQuote, createPurchaseOrder, createSupplier, receivePurchaseOrder, selectSupplierQuote } from "../../src/server/purchasing";
-import { addMilestone, createSubcontractInquiry, dispatchToPartner, paySupplierInvoice, rateSupplier, recommendPartners, recordRetest, registerSupplierInvoice, returnFromPartner, revisePurchaseOrder, routeInHouse, routeToPartner, savePartnerProfile } from "../../src/server/srm";
+import { addMilestone, createSubcontractInquiry, dispatchToPartner, paySupplierInvoice, rateSupplier, recommendPartners, recordRetest, registerSupplierInvoice, returnFromPartner, reopenAsPartner, revisePurchaseOrder, savePartnerProfile } from "../../src/server/srm";
 import { deliveryPlan, issueDelivery, signDelivery } from "../../src/server/delivery";
 import { buildFields, renderDocument } from "../../src/server/reports";
 import { readFile } from "node:fs/promises";
@@ -41,14 +41,23 @@ async function main() {
   const thP = await prisma.supplier.findUniqueOrThrow({ where: { id: th.id } }), cnP = await prisma.supplier.findUniqueOrThrow({ where: { id: cn.id } });
   assert(thP.paymentMode === "MONTHLY" && thP.paymentDays === 15 && cnP.paymentMode === "PER_ORDER" && thP.capabilities.includes("MOTOR"), "TH partner monthly 15 days, CN per order; capabilities upper-cased");
 
-  console.log("1. order, intake, INTH, route to partner");
-  const o = await createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, assetCodes: [motor.code], kind: "REPAIR", reportedSymptom: "motor overheats", customerRef: `SECRETPO${stamp}` });
-  await receiveEquipment({ serviceOrderNo: o.no, assetCode: motor.code, actorCode: eng.code, accessories: "Fan cover × 1\nTerminal box × 1", condition: "dusty" });
-  await createInspection({ serviceOrderNo: o.no, assetCode: motor.code, engineerCode: eng.code, symptoms: "overheats at full load", findings: "winding insulation 0.3 MΩ", probableCause: "stator winding" });
-  await refused(() => createSubcontractInquiry({ no: o.no, actorCode: eng.code }), /NOT_PARTNER_ORDER/, "no partner PRTH before routing");
-  await refused(() => routeToPartner({ no: o.no, actorCode: eng.code, reason: " " }), /PARTNER_REASON_REQUIRED/, "routing needs a reason");
-  await routeToPartner({ no: o.no, actorCode: eng.code, reason: "motor rewinding is not our trade" });
-  assert((await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } })).fulfilment === "PARTNER", "order is PARTNER");
+  console.log("1. repair order, intake, INTH, close and reopen as 合作维修 (business modes 2026-11-09)");
+  const r = await createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, assetCodes: [motor.code], mode: "REPAIR", reportedSymptom: "motor overheats", customerRef: `SECRETPO${stamp}`, attachments: [{ name: "rfq.pdf", url: "/uploads/x/rfq.pdf", kind: "INQUIRY" }] });
+  const er = await receiveEquipment({ serviceOrderNo: r.no, assetCode: motor.code, actorCode: eng.code, accessories: "Fan cover × 1\nTerminal box × 1", condition: "dusty" });
+  await createInspection({ serviceOrderNo: r.no, assetCode: motor.code, engineerCode: eng.code, symptoms: "overheats at full load", findings: "winding insulation 0.3 MΩ", probableCause: "stator winding" });
+  await refused(() => createSubcontractInquiry({ no: r.no, actorCode: eng.code }), /NOT_PARTNER_ORDER/, "no partner PRTH on a repair order");
+  await refused(() => reopenAsPartner({ no: r.no, actorCode: eng.code, reason: " " }), /PARTNER_REASON_REQUIRED/, "reopening needs a reason");
+  const o = await reopenAsPartner({ no: r.no, actorCode: eng.code, reason: "motor rewinding is not our trade" });
+  const [rOld, oNew] = await Promise.all([prisma.serviceOrder.findUniqueOrThrow({ where: { no: r.no }, include: { inspections: true, documents: true } }), prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no }, include: { inspections: true, documents: true, assets: true } })]);
+  assert(rOld.status === "CANCELLED" && rOld.mode === "REPAIR" && oNew.mode === "PARTNER_REPAIR" && oNew.transferredFromId === rOld.id, `${r.no} closed, ${o.no} is 合作维修 reopened from it`);
+  assert(rOld.inspections.length === 0 && oNew.inspections.length === 1 && oNew.documents.some((d) => d.type === "ER") && oNew.documents.some((d) => d.type === "IN"), "INTH and ERTH moved to the new order");
+  assert(oNew.customerRef === `SECRETPO${stamp}` && oNew.assets.length === 1 && JSON.stringify(oNew.attachments).includes("rfq.pdf") && oNew.partnerReason === "motor rewinding is not our trade", "asset, customer ref, files and reason carried over");
+  assert(!!er, "intake recorded");
+  await refused(() => reopenAsPartner({ no: r.no, actorCode: eng.code, reason: "again" }), /ALREADY_TRANSFERRED|TRANSFER_TOO_LATE/, "a closed order cannot be reopened twice");
+  const direct = await createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, assetCodes: [motor.code], mode: "PARTNER_REPAIR", partnerReason: "CNC work", reportedSymptom: "shaft worn" });
+  assert(direct.mode === "PARTNER_REPAIR" && direct.partnerReason === "CNC work", "合作维修 can also be picked when the order is created");
+  await refused(() => createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, assetCodes: [], mode: "REPAIR", reportedSymptom: "x" }), /ASSET_REQUIRED/, "repair needs an asset");
+  await prisma.serviceOrder.update({ where: { id: direct.id }, data: { status: "CANCELLED" } }); // keep the motor's open orders to the one under test
   const rec = await recommendPartners(o.no);
   assert(rec.some((r) => r.id === th.id && r.match === 1) && rec.some((r) => r.id === cn.id), "both MOTOR partners recommended");
 
@@ -82,7 +91,7 @@ async function main() {
   const poF = await buildFields(po.no);
   noCustomer(poF.values, [customer.name, `SECRETPO${stamp}`, o.no], `POTH ${po.no}`);
   assert(/Warranty/.test(String((poF.values.L_DESC as string[])[0])) && /DCiT only/.test(String(poF.values.DELIVER_TO)), "POTH prints scope + warranty and 'return to DCiT only'");
-  await refused(() => routeInHouse({ no: o.no, actorCode: md.code }), /PARTNER_PO_EXISTS/, "cannot go back in-house once a partner POTH exists");
+  await refused(() => reopenAsPartner({ no: o.no, actorCode: md.code, reason: "x" }), /NOT_REPAIR_ORDER/, "a 合作维修 order has no mode switch");
 
   console.log("5. 外送 OBTH, milestones, revision");
   const out1 = await dispatchToPartner({ poNo: po.no, actorCode: eng.code, assetCode: motor.code, accessories: "Fan cover × 1\nTerminal box × 1", condition: "winding burnt smell", carriedBy: "Art" });

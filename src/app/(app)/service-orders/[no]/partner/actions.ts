@@ -2,7 +2,7 @@
 /** Server actions of the 合作维修 page. Own module so only the order number is bound (rule: actions never close over translators or helpers). */
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
-import { addMilestone, createSubcontractInquiry, dispatchToPartner, rateSupplier, recordRetest, registerSupplierInvoice, returnFromPartner, revisePurchaseOrder, routeInHouse, routeToPartner } from "@/server/srm";
+import { addMilestone, createSubcontractInquiry, dispatchToPartner, rateSupplier, recordRetest, registerSupplierInvoice, returnFromPartner, revisePurchaseOrder } from "@/server/srm";
 
 const str = (f: FormData, k: string) => { const v = String(f.get(k) ?? "").trim(); return v || undefined; };
 const num = (f: FormData, k: string) => { const v = str(f, k); return v === undefined ? undefined : Number(v); };
@@ -10,12 +10,6 @@ const date = (f: FormData, k: string) => { const v = str(f, k); return v ? new D
 const atts = (f: FormData): { name: string; url: string; kind?: string }[] => { try { return JSON.parse(String(f.get("attachments") || "[]")); } catch { return []; } };
 const back = (no: string) => `/service-orders/${no}/partner`;
 
-export async function routeToPartnerAction(no: string, f: FormData) {
-  await guarded(async () => { const me = await currentEmployee(); await routeToPartner({ no, actorCode: me.code, reason: String(f.get("reason") ?? "") }); return { ok: no, to: back(no) }; }, `/service-orders/${no}`);
-}
-export async function routeInHouseAction(no: string) {
-  await guarded(async () => { const me = await currentEmployee(); await routeInHouse({ no, actorCode: me.code }); return { ok: no, to: `/service-orders/${no}` }; }, back(no));
-}
 export async function inquiryAction(no: string, f: FormData) {
   await guarded(async () => {
     const me = await currentEmployee();

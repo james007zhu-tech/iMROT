@@ -106,6 +106,10 @@ await step("favicon-served", async () => {
 let orderNo;
 await step("report-issue-and-assign", async () => {
   await page.goto(`${BASE}/service-orders/new?asset=${assetCode}`);
+  // business modes (2026-11-09): six cards, repair preselected, floors shown, modes not open yet disabled
+  await expectText("Margin floor 50%"); await expectText("Margin floor 33%"); await expectText("Coming in the next release");
+  if (!(await page.locator("input[name=mode][value=REPAIR]").isChecked())) throw new Error("repair should be preselected");
+  if (!(await page.locator("input[name=mode][value=INTERNATIONAL_TRADE]").isDisabled())) throw new Error("international trade is not open yet");
   await page.fill("[name=reportedSymptom]", "F0001 overcurrent on start"); await page.fill("[name=reportedAlarm]", "F0001"); await page.fill("[name=customerRef]", "PO-E2E-001");
   await page.selectOption("[name=assigneeCode]", { index: 1 });
   await page.locator("button[name=assign]").click(); await page.waitForURL(/\/service-orders\/QTTH/); orderNo = page.url().split("/").pop().split("?")[0];
@@ -202,7 +206,7 @@ await step("order-detail-final", async () => { await page.goto(`${BASE}/service-
 let pmNo;
 await step("contract-maintenance-pmth", async () => {
   await page.goto(`${BASE}/service-orders/new?asset=${assetCode}`);
-  await page.selectOption("[name=kind]", "CONTRACT"); await page.fill("[name=reportedSymptom]", "quarterly preventive maintenance"); await page.selectOption("[name=productionImpact]", "NONE"); await page.selectOption("[name=assigneeCode]", { index: 1 });
+  await page.locator("input[name=mode][value=MAINTENANCE]").check(); await page.selectOption("[name=kind]", "CONTRACT"); await page.fill("[name=reportedSymptom]", "quarterly preventive maintenance"); await page.selectOption("[name=productionImpact]", "NONE"); await page.selectOption("[name=assigneeCode]", { index: 1 });
   await page.locator("button[name=assign]").click(); await page.waitForURL(/\/service-orders\/QTTH/); pmNo = page.url().split("/").pop().split("?")[0];
   await expectText("Maintenance PMTH");
   await page.goto(`${BASE}/service-orders/${pmNo}/maintain`);
@@ -264,8 +268,15 @@ await step("partner-route-from-inth", async () => {
   await page.selectOption("[name=assigneeCode]", { index: 1 }); await page.locator("button[name=assign]").click(); await page.waitForURL(/\/service-orders\/QTTH/); pOrderNo = page.url().split("/").pop().split("?")[0];
   await page.goto(`${BASE}/service-orders/${pOrderNo}/inspect`); await page.fill("[name=conditions]", "isolated and locked out"); await page.fill("[name=findings]", "winding insulation 0.3 MOhm"); await page.fill("[name=probableCause]", "stator winding"); await page.fill("[name=recommendation]", "rewind");
   await save(); await page.waitForURL(new RegExp(`/service-orders/${pOrderNo}\\?`)); await noFlashError();
+  // 转合作维修 (2026-11-09): the repair order is closed and a new 合作维修 order carries the machine, INTH and files
+  const repairNo = pOrderNo; await page.locator("summary:has-text('Reopen as partner repair')").click();
   const f = page.locator("form").filter({ has: page.locator("[name=reason]") }); await f.locator("[name=reason]").fill("rewinding is not our trade"); await submit(f);
-  await page.waitForURL(/\/partner/); await noFlashError(); await expectText("never deals with the customer"); await expectText("Recommended partners"); // the new partner (0 jobs) may rank below the test DB's rated ones
+  await page.waitForURL(/\/partner/); await noFlashError(); pOrderNo = page.url().split("/service-orders/")[1].split("/")[0];
+  if (pOrderNo === repairNo) throw new Error("reopen kept the same order number");
+  await expectText("never deals with the customer"); await expectText("Recommended partners"); await expectText("Partner repair"); // the new partner (0 jobs) may rank below the test DB's rated ones
+  await page.goto(`${BASE}/service-orders/${repairNo}`); await expectText("continued as partner repair"); await expectText(pOrderNo);
+  await page.goto(`${BASE}/service-orders/${pOrderNo}`); await expectText(`Reopened from ${repairNo}`); await expectText("winding insulation 0.3 MOhm");
+  await page.goto(`${BASE}/service-orders/${pOrderNo}/partner`);
 });
 await step("partner-inquiry-quote-compare", async () => {
   await page.locator("button:has-text('Send partner inquiry')").click(); await page.waitForURL(/\/purchasing\/inquiries\/PRTH/); await expectText("Partner warranty (days)"); await expectText(`Repair`);

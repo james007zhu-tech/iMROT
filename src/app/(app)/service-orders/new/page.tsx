@@ -12,12 +12,17 @@ import { FormMemory } from "@/components/FormMemory";
 import { AssetPicker } from "@/components/AssetPicker";
 import { ScanButton } from "@/components/ScanButton";
 import { Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
+import { ModeCards } from "@/components/ModeCards";
+import { MODES, MODE_KINDS, OPEN_MODES, modeNeedsAsset, type Mode } from "@/lib/modes";
+import { modeRules } from "@/server/modes";
 
 export const dynamic = "force-dynamic";
 
-/** 新增服务单 (报修 → QTTH) — wireframe 4. */
-export default async function NewOrder({ searchParams }: { searchParams: Promise<{ asset?: string; customer?: string; error?: string }> }) {
-  const { asset, customer, error } = await searchParams;
+/** 新建业务单 — the business mode first (mockup business-modes-v0.1, 2026-11-09), then the fields that mode needs (wireframe 4). */
+export default async function NewOrder({ searchParams }: { searchParams: Promise<{ asset?: string; customer?: string; error?: string; mode?: string }> }) {
+  const { asset, customer, error, mode: askedMode } = await searchParams;
+  const initialMode: Mode = OPEN_MODES.includes(askedMode as Mode) ? (askedMode as Mode) : "REPAIR";
+  const floors = await modeRules();
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [assets, engineers, contacts] = await Promise.all([
     prisma.asset.findMany({ where: { status: { not: "RETIRED" }, customer: customer ? { code: customer } : undefined }, include: { customer: true, plant: true, model: true }, orderBy: { code: "asc" } }),
@@ -31,15 +36,16 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
     await guarded(async () => {
       const me = await currentEmployee();
       const s = (k: string) => String(form.get(k) ?? "").trim() || undefined;
+      const mode = (s("mode") ?? "REPAIR") as Mode;
       const codes = [...new Set(form.getAll("assetCodes").map(String).filter(Boolean))];
-      if (!codes.length) throw new Error("ASSET_REQUIRED");
+      if (modeNeedsAsset(mode) && !codes.length) throw new Error("ASSET_REQUIRED");
       const first = await prisma.asset.findUniqueOrThrow({ where: { code: codes[0] } });
       const boxed = JSON.parse(s("attachments") ?? "[]") as { name: string; url: string; kind: string }[];
       const po = [];
       for (const f of form.getAll("poFiles")) if (f instanceof File && f.size > 0) po.push({ ...(await saveUpload(f, "po")), name: f.name, kind: "PO" });
       const order = await createServiceOrder({
         createdByEmployeeCode: me.code, customerId: first.customerId!, plantId: first.plantId ?? undefined, assetCodes: codes,
-        kind: form.get("kind") as "REPAIR", reportedSymptom: s("reportedSymptom"), reportedAlarm: s("reportedAlarm"), productionImpact: s("productionImpact"),
+        mode, kind: s("kind") as "REPAIR" | undefined, partnerReason: s("partnerReason"), reportedSymptom: s("reportedSymptom"), reportedAlarm: s("reportedAlarm"), productionImpact: s("productionImpact"),
         customerRef: s("customerRef"), reportedByContactId: s("reportedById"), reportedAt: s("reportedAt") ? new Date(s("reportedAt")!) : undefined,
         currency: "THB", attachments: [...boxed, ...po],
       });
@@ -57,6 +63,12 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         actions={<><Link href="/service-orders" className={btnGhost}>{t("cancel")}</Link><button form="f" name="assign" value="1" className={btnGhost}>{u("saveAndAssign")}</button><button form="f" className={btnPrimary}>{t("save")}</button></>} />
       <Flash error={error === "ASSET_REQUIRED" ? u("assetRequired") : error} />
       <FormMemory formId="f" />
+      <Card title={u("businessMode")}>
+        <ModeCards form="f" initial={initialMode} inputCls={inputCls}
+          cards={MODES.map((m) => ({ mode: m, name: u(`mode_${m}`), sub: u(`modeSub_${m}`), desc: u(`modeDesc_${m}`), floor: u("marginFloorTag", { pct: Math.round(floors[m] * 100) }), assetNote: u(modeNeedsAsset(m) ? (m === "MAINTENANCE" ? "modeAssetMany" : m === "AUTOMATION_PROJECT" ? "modeAssetTbd" : "modeAsset") : "modeSkuOnly"), open: OPEN_MODES.includes(m) }))}
+          kinds={MODE_KINDS.MAINTENANCE.map((k) => ({ value: k, label: t(k) }))}
+          labels={{ kind: u("maintenanceKind"), reason: u("partnerReason"), reasonPh: u("partnerReasonPh"), soon: u("modeComingSoon") }} />
+      </Card>
       <UploadRecognize kind="service" formId="f" title={u("upServiceTitle")} hint={u("upServiceHint")} />
       <form id="f" action={submit} className="space-y-4">
         <Card title={u("whichAsset")}>
@@ -68,7 +80,6 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         </Card>
         <Card title={u("reportContent")}>
           <Grid>
-            <Field label={t("kind")} required><select name="kind" className={inputCls}>{["REPAIR", "MAINTENANCE", "OVERHAUL", "CONTRACT", "PARTS_SALE"].map((k) => <option key={k} value={k}>{t(k)}</option>)}</select></Field>
             <Field label={t("alarmCode")}><input name="reportedAlarm" className={`${inputCls} font-semibold text-fault`} /></Field>
             <Field label={t("impact")} required><select name="productionImpact" className={inputCls}><option value="STOPPED">{u("impactStopped")}</option><option value="DEGRADED">{u("impactDegraded")}</option><option value="NONE">{u("impactNone")}</option></select></Field>
           </Grid>

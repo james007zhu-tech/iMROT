@@ -69,7 +69,7 @@ async function main() {
   await prisma.asset.update({ where: { id: vfd.id }, data: { status: "IN_SERVICE" } });
 
   console.log("3. report → QTTH");
-  const order = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, plantId: plant.id, assetCodes: [vfd.code], kind: "REPAIR", reportedSymptom: "F30001 overcurrent at start", reportedAlarm: "F30001", productionImpact: "Line stopped", customerRef: "XCGDD2610140001" });
+  const order = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, plantId: plant.id, assetCodes: [vfd.code], mode: "REPAIR", reportedSymptom: "F30001 overcurrent at start", reportedAlarm: "F30001", productionImpact: "Line stopped", customerRef: "XCGDD2610140001" });
   assert(parseNumber(order.no)?.prefix === "QT" && order.status === "RECEIVED", `service order ${order.no}`);
   assert(order.customerRef === "XCGDD2610140001", "customer ref kept verbatim");
 
@@ -178,6 +178,7 @@ async function main() {
   console.log("10b. BLTH monthly statement for a credit customer");
   await prisma.customer.update({ where: { id: customer.id }, data: { monthlyStatement: true } });
   const o2 = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, assetCodes: [vfd.code], kind: "CONTRACT", reportedSymptom: "quarterly PM" });
+  assert(o2.mode === "MAINTENANCE" && o2.kind === "CONTRACT", "a contract-maintenance order is in the 维保 mode");
   for (const st of ["ASSIGNED", "DIAGNOSING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] as const) await advanceServiceOrder(o2.no, st, admin.code);
   await setQuoteLines({ serviceOrderNo: o2.no, actorCode: admin.code, lines: [{ description: "PM visit", descriptionLocal: "บำรุงรักษา", qty: 1, unitPrice: 3000 }] });
   try { await recordAcceptance({ serviceOrderNo: o2.no, actorCode: admin.code, deliverables: [{ deliverable: "PM done" }], status: "ACCEPTED" }); assert(false, "acceptance without PMTH must be refused"); }

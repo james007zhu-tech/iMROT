@@ -96,7 +96,7 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
   const docs = lines_(
     o.kind !== "PARTS_SALE" && o.kind !== "MAINTENANCE" ? both(REPORT_NAME.IN) : "",
     // 合作维修: the partner's work is never shown to the customer — our retest gates the delivery, there is no RPTH
-    both(o.kind === "MAINTENANCE" ? REPORT_NAME.PM : o.kind !== "PARTS_SALE" && o.fulfilment !== "PARTNER" ? (onSite ? REPORT_NAME.FS : REPORT_NAME.RP) : undefined),
+    both(o.kind === "MAINTENANCE" ? REPORT_NAME.PM : o.kind !== "PARTS_SALE" && o.mode !== "PARTNER_REPAIR" ? (onSite ? REPORT_NAME.FS : REPORT_NAME.RP) : undefined),
     "Delivery note  ใบส่งของ",
     o.kind !== "PARTS_SALE" ? "Service completion confirmation  ใบยืนยันงานบริการแล้วเสร็จ" : "",
     o.kind !== "PARTS_SALE" ? "Customer acceptance record  บันทึกการตรวจรับงาน" : "",

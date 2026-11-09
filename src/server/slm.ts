@@ -9,6 +9,7 @@ import type { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { canTransitionOrder } from "@/lib/lifecycle";
 import { quoteMayGoOut } from "@/lib/margin";
 import { raisePurchaseOrdersForOrder } from "@/server/purchasing";
+import { MODES, OPEN_MODES, kindFor, modeFromKind, modeNeedsAsset } from "@/lib/modes";
 
 /** Shortest path through the status chain, e.g. RECEIVED → ASSIGNED → DIAGNOSING. */
 const CHAIN: ServiceOrderStatus[] = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED", "INVOICED", "CLOSED"];
@@ -57,8 +58,12 @@ export const CreateServiceOrderInput = z.object({
   createdByEmployeeCode: z.string(),
   customerId: z.string(),
   plantId: z.string().optional(),
-  assetCodes: z.array(z.string()).min(1, "a service order must name at least one asset"),
-  kind: z.enum(["REPAIR", "MAINTENANCE", "OVERHAUL", "CONTRACT", "PARTS_SALE"]).default("REPAIR"),
+  /** 业务模式, picked first and never changed (2026-11-09). Callers that only name a kind get the kind's mode. */
+  mode: z.enum(MODES).optional(),
+  assetCodes: z.array(z.string()).default([]),
+  /** sub-type inside the mode — only 维保 has a choice (MAINTENANCE / OVERHAUL / CONTRACT) */
+  kind: z.enum(["REPAIR", "MAINTENANCE", "OVERHAUL", "CONTRACT", "PARTS_SALE"]).optional(),
+  partnerReason: z.string().optional(),
   reportedSymptom: z.string().optional(),
   reportedAlarm: z.string().optional(),
   productionImpact: z.string().optional(),
@@ -72,6 +77,10 @@ export const CreateServiceOrderInput = z.object({
 /** 报修 → QTTH draft (status RECEIVED) + SERVICE_REQUESTED event on every named asset. */
 export async function createServiceOrder(input: z.input<typeof CreateServiceOrderInput>) {
   const data = CreateServiceOrderInput.parse(input);
+  const mode = data.mode ?? modeFromKind(data.kind ?? "REPAIR");
+  if (!OPEN_MODES.includes(mode)) throw new Error(`MODE_NOT_OPEN:${mode}`);
+  if (modeNeedsAsset(mode) && data.assetCodes.length === 0) throw new Error("ASSET_REQUIRED");
+  const kind = kindFor(mode, data.kind);
   const creator = await prisma.employee.findUniqueOrThrow({ where: { code: data.createdByEmployeeCode } });
   const assets = await prisma.asset.findMany({ where: { code: { in: data.assetCodes } } });
   if (assets.length !== data.assetCodes.length) throw new Error("unknown asset code in request");
@@ -84,7 +93,9 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
         entityId: creator.entityId,
         customerId: data.customerId,
         plantId: data.plantId,
-        kind: data.kind,
+        mode,
+        kind,
+        partnerReason: mode === "PARTNER_REPAIR" ? data.partnerReason : undefined,
         status: "RECEIVED",
         reportedSymptom: data.reportedSymptom,
         reportedAlarm: data.reportedAlarm,
@@ -107,8 +118,8 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
           actorId: creator.id,
           serviceOrderId: order.id,
           sourceDocNo: no,
-          summary: `${data.reportedSymptom ?? data.kind}${data.reportedAlarm ? ` (${data.reportedAlarm})` : ""}`,
-          payload: { kind: data.kind, productionImpact: data.productionImpact } as Prisma.InputJsonValue,
+          summary: `${data.reportedSymptom ?? kind}${data.reportedAlarm ? ` (${data.reportedAlarm})` : ""}`,
+          payload: { mode, kind, productionImpact: data.productionImpact } as Prisma.InputJsonValue,
           attachments: data.attachments as Prisma.InputJsonValue | undefined,
           occurredAt: data.reportedAt,
         },
@@ -152,6 +163,8 @@ export async function getServiceOrder(no: string) {
       plant: true,
       assignee: { select: { code: true, name: true } },
       createdBy: { select: { code: true, name: true } },
+      transferredFrom: { select: { no: true } },
+      transferredTo: { select: { no: true } },
       assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } },
       lines: { orderBy: { lineNo: "asc" } },
       inspections: { where: { draft: false }, include: { engineer: { select: { name: true } } } },

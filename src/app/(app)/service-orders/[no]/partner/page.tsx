@@ -8,7 +8,7 @@ import { UploadRecognize } from "@/components/UploadRecognize";
 import { OrderStatusBadge } from "@/components/StatusBadge";
 import { Card, Field, Grid, PageHeader, Table, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { OrderBrief, loadOrder } from "../_shell";
-import { dispatchAction, inquiryAction, milestoneAction, rateAction, retestAction, returnAction, reviseAction, routeInHouseAction, supplierInvoiceAction } from "./actions";
+import { dispatchAction, inquiryAction, milestoneAction, rateAction, retestAction, returnAction, reviseAction, supplierInvoiceAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -38,13 +38,12 @@ export default async function PartnerRepair({ params, searchParams }: { params: 
 
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: `/service-orders/${order.no}`, label: order.no }} title={u("step_partner")} badge={<><OrderStatusBadge status={order.status} />{order.fulfilment === "PARTNER" && <Tag>{u("partnerRepair")}</Tag>}</>}
-        actions={order.fulfilment === "PARTNER" && !pos.some((p) => p.status !== "CANCELLED") && !locked ? <form action={routeInHouseAction.bind(null, order.no)}><button className={btnGhost}>{u("routeInHouse")}</button></form> : null} />
+      <PageHeader back={{ href: `/service-orders/${order.no}`, label: order.no }} title={u("step_partner")} badge={<><Tag>{u(`mode_${order.mode}`)}</Tag><OrderStatusBadge status={order.status} /></>} />
       <Flash ok={ok} error={error} />
       <OrderBrief order={order} />
       <div className="rounded-lg border border-blue/40 bg-tint px-4 py-2 text-sm">{u("partnerPrinciple")}{order.partnerReason ? <span className="block text-xs text-navy/70">{u("partnerReason")}: {order.partnerReason}</span> : null}</div>
 
-      {order.fulfilment !== "PARTNER" ? <Card title={u("partnerRepair")}><p className="text-sm">{u("notPartnerOrder")}</p></Card> : (<>
+      {order.mode !== "PARTNER_REPAIR" ? <Card title={u("partnerRepair")}><p className="text-sm">{u("notPartnerOrder")}</p></Card> : (<>
         <Card title={u("recommendedPartners")}>
           <details open={!pos.length}><summary className="cursor-pointer text-xs text-navy/70">{u("topPartners", { n: Math.min(partners.length, 8) })}</summary>
           <Table head={[u("supplier"), u("capabilities"), u("partnerScore"), u("partnerJobs"), u("paymentTerms")]}>

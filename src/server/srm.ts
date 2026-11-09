@@ -1,6 +1,7 @@
 /**
  * SRM — 合作维修 (partner repair), flow v4 confirmed by the MD on 2026-11-08 (docs: project 《合作维修业务闭环》).
- *   INTH → 是否自修? 否 → routeToPartner → recommendPartners → PRTH (SUBCONTRACT, no customer data) to several partners
+ *   合作维修 order (mode PARTNER_REPAIR, picked at creation — or reopenAsPartner from a REPAIR order after its INTH)
+ *   → recommendPartners → PRTH (SUBCONTRACT, no customer data) to several partners
  *   → partner quotes (plan, price, lead time, warranty) → select → cost flows into the QTTH (floor 33 %) → customer signs
  *   → POTH to the chosen partner (warranty back-to-back) → dispatchToPartner = OBTH 外协送修 (外送维修单)
  *   → milestones (internal only) → revisions need customer consent → returnFromPartner = IBTH 外协返回 → our retest
@@ -15,7 +16,8 @@ import { assertNotLocked, progressOrder } from "@/server/slm";
 import { recomputeMargin, parseAccessories } from "@/server/slm-docs";
 import { createInquiry } from "@/server/purchasing";
 import { averageScore, custodyOf, defaultPaymentMode, MANUAL_STAGES, missingAccessories, payableDueDate, revisionNeedsConsent, whtRateFor, type PartnerStageKind } from "@/lib/srm";
-import { canTransitionAsset } from "@/lib/lifecycle";
+import { canTransitionAsset, canTransitionOrder } from "@/lib/lifecycle";
+import { reopenBlocker } from "@/lib/modes";
 import type { Prisma } from "@prisma/client";
 
 const Att = z.object({ name: z.string(), url: z.string(), kind: z.string().optional() });
@@ -25,33 +27,47 @@ async function actorOf(code: string) {
   return prisma.employee.findUniqueOrThrow({ where: { code } });
 }
 
-// ───────────── 是否自修? 否 → partner ─────────────
+// ───────────── 转合作维修: close the repair order, reopen as 合作维修 (decided 2026-11-09) ─────────────
 
-/** Engineer's decision after the INTH: this machine goes to a partner. Only before the customer confirmed the quote. */
-export async function routeToPartner(input: { no: string; actorCode: string; reason: string }) {
+/**
+ * A REPAIR order whose INTH shows we cannot repair it ourselves is closed (CANCELLED, reason kept) and a new
+ * PARTNER_REPAIR order takes over: the machines, the INTH and ERTH documents with their events, the customer's files,
+ * contact and reference. The mode of an order never changes; only before the quote went out and before the lock.
+ */
+export async function reopenAsPartner(input: { no: string; actorCode: string; reason: string }) {
   const reason = input.reason.trim();
   if (!reason) throw new Error("PARTNER_REASON_REQUIRED");
-  const [order, actor] = await Promise.all([prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: true } }), actorOf(input.actorCode)]);
-  assertNotLocked(order);
-  if (!["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING"].includes(order.status)) throw new Error(`ROUTE_TOO_LATE:${order.status}`);
-  if (order.kind === "CONTRACT" || order.kind === "PARTS_SALE") throw new Error(`ROUTE_NOT_FOR_KIND:${order.kind}`);
+  const [old, actor] = await Promise.all([
+    prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: true, transferredTo: { select: { no: true } }, documents: { where: { type: { in: ["IN", "ER"] } }, select: { id: true, no: true } } } }),
+    actorOf(input.actorCode),
+  ]);
+  const blocker = reopenBlocker(old);
+  if (blocker) throw new Error(`${blocker}:${old.no}`);
+  if (!canTransitionOrder(old.status, "CANCELLED")) throw new Error(`TRANSFER_TOO_LATE:${old.no}`);
+  const moved = old.documents.map((d) => d.no);
   return prisma.$transaction(async (tx) => {
-    await tx.serviceOrder.update({ where: { id: order.id }, data: { fulfilment: "PARTNER", partnerReason: reason } });
-    for (const a of order.assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "STATUS_CHANGED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `合作维修 · ${reason}`, payload: { fulfilment: "PARTNER", reason } as Prisma.InputJsonValue } });
-    return recomputeMargin(tx, order.id, actor.id); // floor drops to 33 %
-  });
-}
-
-/** Back to in-house while nothing was ordered from a partner yet. */
-export async function routeInHouse(input: { no: string; actorCode: string }) {
-  const [order, actor] = await Promise.all([prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: true } }), actorOf(input.actorCode)]);
-  assertNotLocked(order);
-  if (await prisma.purchaseOrder.count({ where: { serviceOrderId: order.id, kind: "SUBCONTRACT", status: { not: "CANCELLED" } } })) throw new Error(`PARTNER_PO_EXISTS:${order.no}`);
-  return prisma.$transaction(async (tx) => {
-    await tx.serviceOrder.update({ where: { id: order.id }, data: { fulfilment: "IN_HOUSE", partnerReason: null } });
-    await tx.purchaseInquiry.updateMany({ where: { serviceOrderId: order.id, kind: "SUBCONTRACT", status: { in: ["OPEN", "COMPARED"] } }, data: { status: "CANCELLED" } });
-    for (const a of order.assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "STATUS_CHANGED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: "自修", payload: { fulfilment: "IN_HOUSE" } as Prisma.InputJsonValue } });
-    return recomputeMargin(tx, order.id, actor.id);
+    const no = await allocateNumber(tx, { prefix: "QT", createdByEmployeeCode: actor.code, entityId: old.entityId });
+    const order = await tx.serviceOrder.create({
+      data: {
+        no, entityId: old.entityId, customerId: old.customerId, plantId: old.plantId, mode: "PARTNER_REPAIR", kind: "REPAIR", partnerReason: reason, transferredFromId: old.id,
+        status: old.status, reportedSymptom: old.reportedSymptom, reportedAlarm: old.reportedAlarm, productionImpact: old.productionImpact, reportedById: old.reportedById, reportedAt: old.reportedAt,
+        assigneeId: old.assigneeId ?? actor.id, createdById: actor.id, customerRef: old.customerRef, currency: old.currency, warrantyDays: old.warrantyDays,
+        poLines: old.poLines ?? undefined, attachments: old.attachments ?? undefined,
+        assets: { create: old.assets.map((a) => ({ assetId: a.assetId, isPrimary: a.isPrimary })) },
+      },
+    });
+    await tx.document.create({ data: { no, type: "QT", entityId: old.entityId, countryCode: no.slice(2, 4), customerId: old.customerId, serviceOrderId: order.id, createdById: actor.id } });
+    // The inspection and the machine's intake travel with the machine; in-house parts inquiries no longer apply.
+    await tx.inspection.updateMany({ where: { serviceOrderId: old.id }, data: { serviceOrderId: order.id } });
+    await tx.document.updateMany({ where: { id: { in: old.documents.map((d) => d.id) } }, data: { serviceOrderId: order.id } });
+    if (moved.length) await tx.assetEvent.updateMany({ where: { serviceOrderId: old.id, sourceDocNo: { in: moved } }, data: { serviceOrderId: order.id } });
+    await tx.purchaseInquiry.updateMany({ where: { serviceOrderId: old.id, status: { in: ["OPEN", "COMPARED"] } }, data: { status: "CANCELLED" } });
+    await tx.serviceOrder.update({ where: { id: old.id }, data: { status: "CANCELLED", closedAt: new Date() } });
+    for (const a of old.assets) {
+      await tx.assetEvent.create({ data: { assetId: a.assetId, type: "STATUS_CHANGED", actorId: actor.id, serviceOrderId: old.id, sourceDocNo: old.no, summary: `转合作维修 → ${no} · ${reason}`, payload: { to: no, reason } as Prisma.InputJsonValue } });
+      await tx.assetEvent.create({ data: { assetId: a.assetId, type: "SERVICE_REQUESTED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, summary: `合作维修 ← ${old.no} · ${reason}`, payload: { mode: "PARTNER_REPAIR", from: old.no, reason, moved } as Prisma.InputJsonValue } });
+    }
+    return order;
   });
 }
 
@@ -71,7 +87,7 @@ export async function recommendPartners(no: string) {
  */
 export async function createSubcontractInquiry(input: { no: string; actorCode: string; neededBy?: Date; note?: string; attachments?: AttT[] }) {
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } }, inspections: { where: { draft: false }, orderBy: { inspectedAt: "desc" } } } });
-  if (order.fulfilment !== "PARTNER") throw new Error(`NOT_PARTNER_ORDER:${order.no}`);
+  if (order.mode !== "PARTNER_REPAIR") throw new Error(`NOT_PARTNER_ORDER:${order.no}`);
   const open = await prisma.purchaseInquiry.findFirst({ where: { serviceOrderId: order.id, kind: "SUBCONTRACT", status: { in: ["OPEN", "COMPARED"] } } });
   if (open) throw new Error(`SUBCONTRACT_INQUIRY_OPEN:${open.no}`);
   const lines = order.assets.map((l) => {
@@ -219,7 +235,7 @@ export async function recordRetest(input: { poNo: string; actorCode: string; ass
 /** DNTH may go out for a partner order only after our retest passed on every machine. */
 export async function partnerDeliveryBlockers(orderId: string): Promise<string[]> {
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: { assets: { include: { asset: { select: { code: true } } } } } });
-  if (order.fulfilment !== "PARTNER") return [];
+  if (order.mode !== "PARTNER_REPAIR") return [];
   const ms = await prisma.subcontractMilestone.findMany({ where: { purchaseOrder: { serviceOrderId: order.id } }, orderBy: { at: "asc" }, select: { assetId: true, stage: true } });
   return order.assets.filter((a) => custodyOf(ms.filter((m) => m.assetId === a.assetId).map((m) => m.stage as PartnerStageKind)) !== "PASSED").map((a) => a.asset.code);
 }

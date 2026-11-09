@@ -657,9 +657,24 @@ enum ServiceKind {
 
 /// Who does the work (decided 2026-11-08): IN_HOUSE, or PARTNER = 合作维修 — a partner repairs it under our POTH,
 /// the margin floor is 33 % instead of 50 %, and the partner never meets the customer (we carry the machine both ways).
-enum Fulfilment {
-  IN_HOUSE
-  PARTNER
+/// 业务模式 (朱总 2026-11-09): chosen when the order is created and never changed. It decides the documents, the margin
+/// floor (ModeRule) and the inquiry/quote route. A repair that turns out to need a partner is closed and reopened as
+/// PARTNER_REPAIR (reopenAsPartner) — the two are never mixed on one order. Trade orders carry SKUs, not assets.
+enum BusinessMode {
+  REPAIR /// 维修 — we inspect, quote and repair ourselves
+  PARTNER_REPAIR /// 合作维修 — we inspect, a partner repairs, we retest and deliver
+  MAINTENANCE /// 维保 — kind MAINTENANCE (维护保养) / OVERHAUL (系统性检修) / CONTRACT (合同维保)
+  AUTOMATION_PROJECT /// 自动化项目
+  DOMESTIC_TRADE /// 国内贸易
+  INTERNATIONAL_TRADE /// 国际贸易
+}
+
+/// Minimum gross margin per business mode; a quote below it needs the MD (rule decided 2026-11-09, MD edits on /admin).
+model ModeRule {
+  mode         BusinessMode @id
+  minMarginPct Decimal      @db.Decimal(5, 4)
+  updatedBy    String? /// employee code of the last editor
+  updatedAt    DateTime     @updatedAt
 }
 
 model ServiceOrder {
@@ -671,9 +686,12 @@ model ServiceOrder {
   customer           Customer           @relation(fields: [customerId], references: [id])
   plantId            String?
   plant              Plant?             @relation(fields: [plantId], references: [id])
-  kind               ServiceKind        @default(REPAIR)
-  fulfilment         Fulfilment         @default(IN_HOUSE)
-  partnerReason      String? /// why it went to a partner (not our trade: motor rewinding, CNC …)
+  mode               BusinessMode       @default(REPAIR) /// fixed at creation
+  kind               ServiceKind        @default(REPAIR) /// sub-type inside the mode (维保: MAINTENANCE / OVERHAUL / CONTRACT)
+  partnerReason      String? /// PARTNER_REPAIR: why a partner repairs it (not our trade: motor rewinding, CNC …)
+  transferredFromId  String?            @unique /// the REPAIR order this partner repair was reopened from
+  transferredFrom    ServiceOrder?      @relation("OrderTransfer", fields: [transferredFromId], references: [id])
+  transferredTo      ServiceOrder?      @relation("OrderTransfer")
   warrantyDays       Int? /// what we promise the customer; for PARTNER work the POTH carries the same days (back-to-back)
   status             ServiceOrderStatus @default(RECEIVED)
   reportedSymptom    String?
@@ -727,6 +745,7 @@ model ServiceOrder {
   purchaseOrders PurchaseOrder[]
 
   @@index([customerId, status])
+  @@index([mode, status])
 }
 
 model ServiceOrderAsset {

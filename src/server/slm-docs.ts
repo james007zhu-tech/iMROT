@@ -9,7 +9,7 @@ import { allocateNumber } from "@/lib/numbering-db";
 import { totals } from "@/lib/money";
 import { assetStatusForWork, canTransitionAsset } from "@/lib/lifecycle";
 import { costTotal, marginApprovalFor, marginPct } from "@/lib/margin";
-import { marginFloorFor } from "@/lib/srm";
+import { marginFloor } from "@/server/modes";
 import { assertNotLocked, progressOrder } from "@/server/slm";
 import type { AssetStatus, Prisma } from "@prisma/client";
 
@@ -153,9 +153,9 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
   const fx = order.currency === "CNY" ? 1 : (await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny;
   const parts = await prisma.part.findMany({ where: { sku: { in: d.lines.map((l) => l.partSku).filter((s): s is string => !!s) } } });
-  const partnerCosts = order.fulfilment === "PARTNER" ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
+  const partnerCosts = order.mode === "PARTNER_REPAIR" ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
   const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.find((p) => p.sku === l.partSku)?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
-  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, marginFloorFor(order.fulfilment));
+  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 
   return prisma.$transaction(async (tx) => {
     await tx.quoteLine.deleteMany({ where: { serviceOrderId: order.id } });
@@ -337,7 +337,7 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
       await tx.assetEvent.create({
         data: { assetId: link.assetId, type: "ACCEPTED", actorId: actor.id, actorName: d.customerSignatory, serviceOrderId: order.id, sourceDocNo: order.no, occurredAt: d.acceptedAt,
           summary: `${d.status}${d.punchList ? ` · ${d.punchList}` : ""}`, // the signatory lives in actorName and is masked when shown
-          payload: { status: d.status, deliverables: d.deliverables, warrantyStart: d.warrantyStart, warrantyDays: order.warrantyDays, warrantyUntil: ok && order.warrantyDays != null ? new Date((d.warrantyStart ?? d.acceptedAt ?? new Date()).getTime() + order.warrantyDays * 86_400_000).toISOString().slice(0, 10) : undefined, fulfilment: order.fulfilment, statusFrom: from, statusTo: to } as Prisma.InputJsonValue },
+          payload: { status: d.status, deliverables: d.deliverables, warrantyStart: d.warrantyStart, warrantyDays: order.warrantyDays, warrantyUntil: ok && order.warrantyDays != null ? new Date((d.warrantyStart ?? d.acceptedAt ?? new Date()).getTime() + order.warrantyDays * 86_400_000).toISOString().slice(0, 10) : undefined, mode: order.mode, statusFrom: from, statusTo: to } as Prisma.InputJsonValue },
       });
     }
     return acc;
@@ -351,7 +351,7 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
 export async function recomputeMargin(tx: Prisma.TransactionClient, orderId: string, actorId: string, sourceDocNo?: string) {
   const o = await tx.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: { lines: true, assets: true } });
   const costed = o.lines.map((l) => ({ qty: Number(l.qty), unitPrice: Number(l.unitPrice), unitCost: l.unitCost != null ? Number(l.unitCost) : undefined }));
-  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, marginFloorFor(o.fulfilment));
+  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(o.mode, tx));
   const keep = approval === "NOT_NEEDED" ? "NOT_NEEDED" : o.marginApproval === "APPROVED" && o.marginPct != null && pct != null && pct >= Number(o.marginPct) ? "APPROVED" : "PENDING";
   await tx.serviceOrder.update({ where: { id: orderId }, data: { costTotal: cost, marginPct: pct, marginApproval: keep, ...(keep === "PENDING" ? { marginApprovedById: null, marginApprovedAt: null } : {}) } });
   for (const a of o.assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "QUOTED", actorId, serviceOrderId: orderId, sourceDocNo: sourceDocNo ?? o.no, summary: `cost ${cost.toFixed(2)} · margin ${pct == null ? "-" : (pct * 100).toFixed(1) + "%"}`, payload: { costTotal: cost, marginPct: pct, marginApproval: keep } as Prisma.InputJsonValue } });
@@ -366,7 +366,7 @@ export async function recomputeMargin(tx: Prisma.TransactionClient, orderId: str
 export async function missingForAcceptance(no: string): Promise<string[]> {
   const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { inspections: { select: { id: true } }, repairJobs: { select: { location: true } }, documents: { select: { type: true } }, deliveries: { select: { status: true } }, assets: { select: { assetId: true, asset: { select: { code: true } } } } } });
   const missing: string[] = [];
-  if (o.fulfilment === "PARTNER") {
+  if (o.mode === "PARTNER_REPAIR") {
     // 合作维修 (flow 2026-11-08): QTTH · INTH · POTH · 外送 OBTH · 返回 IBTH · our retest passed · ERTH in · DNTH out — no RPTH, the partner repaired it
     if (!o.inspections.length) missing.push("INTH");
     const pos = await prisma.purchaseOrder.findMany({ where: { serviceOrderId: o.id, kind: "SUBCONTRACT", status: { not: "CANCELLED" } }, select: { id: true } });

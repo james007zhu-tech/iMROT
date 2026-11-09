@@ -8,17 +8,19 @@ import { maskName } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
 import { OrderProgress } from "@/components/OrderProgress";
 import { OrderStatusBadge } from "@/components/StatusBadge";
-import { Alert, AssetTriple, Card, FaultText, Field, Grid, PageHeader, Table, Value, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
+import { Alert, AssetTriple, Card, FaultText, Field, Grid, PageHeader, Table, Tag, Value, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { ORDER_TRANSITIONS, type OrderStatus } from "@/lib/lifecycle";
 import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps";
 import { businessClosureOn } from "@/lib/closure";
 import { pdfAvailable } from "@/server/office";
-import { marginFloorFor } from "@/lib/srm";
-import { routeToPartnerAction } from "./partner/actions";
+import { marginFloor } from "@/server/modes";
+import { reopenBlocker } from "@/lib/modes";
+import { reopenAsPartnerAction } from "./actions";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
 
 export const dynamic = "force-dynamic";
+const atts0 = (o: { attachments: unknown }) => (o.attachments as { name: string; url: string; kind: string }[] | null) ?? [];
 
 /**
  * 服务单详情 — wireframe 5. The page shows the order and what has been done; each step is its own form page,
@@ -38,7 +40,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     workshop: jobs.some((j) => j.location === "WORKSHOP") || order.documents.some((d) => d.type === "ER"),
     deliveriesSigned: order.deliveries.filter((d) => d.status === "SIGNED").length, deliveriesOpen: order.deliveries.filter((d) => d.status !== "SIGNED").length,
     invoicesUnpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, hasAcceptance: !!order.acceptance,
-    partner: order.fulfilment === "PARTNER",
+    partner: order.mode === "PARTNER_REPAIR",
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
   const money = (k: StepKey) => k === "invoice" || k === "payment";
@@ -71,9 +73,11 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     await guarded(async () => { const me = await currentEmployee(); await approveMargin({ no, actorCode: me.code, decision: form.get("decision") as "APPROVED" | "REJECTED", note: String(form.get("note") || "") || undefined }); }, `/service-orders/${no}`);
   }
   const me = await currentEmployee();
-  const floor = marginFloorFor(order.fulfilment);
+  const floor = await marginFloor(order.mode);
   const marginLow = order.marginPct != null && Number(order.marginPct) < floor;
-  const mayRoute = order.fulfilment === "IN_HOUSE" && !order.lockedAt && ["ASSIGNED", "DIAGNOSING", "QUOTE_PENDING"].includes(order.status) && order.kind !== "CONTRACT" && order.kind !== "PARTS_SALE";
+  // 转合作维修 (2026-11-09): a REPAIR order is closed and reopened as 合作维修 — the mode itself never changes.
+  const mayReopen = reopenBlocker(order) === null;
+  const custFiles = atts0(order).filter((a) => ["INQUIRY", "PO"].includes(a.kind));
   const canBuy = !order.lockedAt && ["DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"].includes(order.status);
 
   // One line per document: who, when, what it says, which reports it renders to.
@@ -103,8 +107,24 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
 
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={<span className="font-mono">{order.no}</span>} badge={<OrderStatusBadge status={order.status} />}
+      <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={<span className="font-mono">{order.no}</span>}
+        badge={<><Tag>{u(`mode_${order.mode}`)}</Tag><OrderStatusBadge status={order.status} />{order.transferredFrom && <Link href={`/service-orders/${order.transferredFrom.no}`} className="text-xs text-blue hover:underline">{u("transferredFrom", { no: order.transferredFrom.no })}</Link>}</>}
         actions={<>
+          {mayReopen && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u("reopenAsPartner")}</summary>
+            <form action={reopenAsPartnerAction.bind(null, order.no)} className="absolute right-0 z-20 mt-1 w-[26rem] space-y-2 rounded-xl border bg-white p-4 text-sm shadow-xl">
+              <div className="text-base font-semibold text-navy">{u("reopenAsPartner")}</div>
+              <p>{u("reopenAsPartnerHint", { no: order.no })}</p>
+              <div className="font-semibold text-navy">{u("carriedOver")}</div>
+              <ul className="space-y-0.5">
+                <li>☑ <b>{t("asset")}</b> <span className="font-mono">{order.assets.map((l) => l.asset.code).join(", ")}</span></li>
+                {order.inspections.length > 0 && <li>☑ <b>{u("linkInspection")}</b> <span className="font-mono">{order.inspections.map((i) => i.no).join(", ")}</span></li>}
+                <li>☑ <b>{u("customerFiles")}</b> {custFiles.length}</li>
+                <li>☑ <b>{u("contactAndRef")}</b> <span className="font-mono">{order.customerRef ?? "—"}</span></li>
+              </ul>
+              <Field label={u("partnerReason")} required><input name="reason" required placeholder={u("partnerReasonPh")} className={inputCls} /></Field>
+              <div className="flex justify-end"><button className={btnPrimary}>{u("reopenAsPartnerGo")}</button></div>
+            </form>
+          </details>}
           {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
           {primary && primary !== "assign" && primary !== "contractDirect" && <Link href={stepHref(order.no, primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
@@ -167,17 +187,12 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               <form action={contractDirect}><button className={btnBlue}>{stepLabel("contractDirect")} →</button></form>
             ) : <Link href={stepHref(order.no, primary)} className={btnBlue}>{stepLabel(primary)} →</Link>}
           </Card>}
-          {order.fulfilment === "PARTNER" && <Card title={u("partnerRepair")}>
+          {order.mode === "PARTNER_REPAIR" && <Card title={u("partnerRepair")}>
             <p className="text-sm">{order.partnerReason}</p>
             <p className="mt-1 text-xs text-navy/70">{u("partnerPrinciple")}</p>
             <Link href={`/service-orders/${order.no}/partner`} className={`${btnGhost} mt-2`}>{u("step_partner")} →</Link>
           </Card>}
-          {mayRoute && shape.hasInspection && <Card title={u("selfRepairQuestion")}>
-            <form action={routeToPartnerAction.bind(null, order.no)} className="space-y-2">
-              <input name="reason" required placeholder={u("partnerReasonPh")} className={inputCls} />
-              <button className={btnGhost}>{u("routeToPartner")}</button>
-            </form>
-          </Card>}
+          {order.transferredTo && <Alert>{u("transferredTo", { no: order.transferredTo.no })} <Link href={`/service-orders/${order.transferredTo.no}`} className="font-mono text-blue underline">{order.transferredTo.no}</Link></Alert>}
           {(also.length > 0 || canBuy) && <Card title={u("alsoPossible")}>
             <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={stepHref(order.no, s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
           </Card>}
