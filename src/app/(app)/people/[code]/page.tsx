@@ -13,7 +13,8 @@ import { FormMemory } from "@/components/FormMemory";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { RevealRows } from "@/components/RevealRows";
 import { ALLOWANCE_ROWS, DEDUCTION_ROWS, EmployeeFormFields } from "@/components/EmployeeFormFields";
-import { credential, dropCredential, reveal, review, salary, save, saveOwn } from "./actions";
+import { credential, dropCredential, letter, reveal, review, salary, save, saveOwn } from "./actions";
+import { salaryChange, type LetterDetails } from "@/lib/salary-letter";
 import { Alert, Card, Field, Grid, PageHeader, Table, Tag, Value, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -139,7 +140,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
         <>
           <div id="salary" />
           <Card title={<>{t("empSalary")} <Tag>{t("mdOnly")}</Tag> <Tag>{open ? t("revealed") : `🔒 ${t("masked")}`}</Tag></>} accent>
-            <Table head={[t("empEffectiveFrom"), t("empBaseSalary"), t("empAllowances"), t("empGross"), t("empSsoBase"), t("empSsoEmployee"), t("empSsoEmployer"), t("empPvd"), t("empWht"), t("empNetEstimate"), t("empTaxDeductions"), t("empReason"), t("empApprovedBy")]}>
+            <Table head={[t("empEffectiveFrom"), t("empBaseSalary"), t("empAllowances"), t("empGross"), t("empSsoBase"), t("empSsoEmployee"), t("empSsoEmployer"), t("empPvd"), t("empWht"), t("empNetEstimate"), t("empTaxDeductions"), t("empReason"), t("empApprovedBy"), t("empLetter")]}>
               {salaries.map((s, i) => (
                 <tr key={s.id} className={i === 0 ? "font-semibold" : ""}>
                   <td className="whitespace-nowrap">{day(s.effectiveFrom)}{i === 0 && <Tag>{t("empCurrent")}</Tag>}</td>
@@ -153,11 +154,38 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
                   <td className="text-xs">{open && s.taxDeductions ? Object.entries(s.taxDeductions as Record<string, unknown>).map(([k, v]) => <span key={k} className="block">{t(`tax_${k}`)}: {String(v)}</span>) : s.taxDeductions ? "••••" : "—"}</td>
                   <td>{s.reason}{s.note && <span className="block text-xs text-navy/60">{s.note}</span>}</td>
                   <td>{s.approvedBy.name}</td>
+                  <td className="whitespace-nowrap text-xs">{salaries[i + 1] && Number(s.baseSalary) > Number(salaries[i + 1].baseSalary) ? <><a className="text-blue hover:underline" href={`/api/people/${code}/salary/${s.id}/letter?format=pdf`}>PDF</a> · <a className="text-blue hover:underline" href={`/api/people/${code}/salary/${s.id}/letter`}>Word</a></> : "—"}</td>
                 </tr>
               ))}
-              {!salaries.length && <tr><td colSpan={13} className="text-navy/60">—</td></tr>}
+              {!salaries.length && <tr><td colSpan={14} className="text-navy/60">—</td></tr>}
             </Table>
             <p className="text-xs text-navy/60">{t("empSalaryNote")}</p>
+            {(() => {
+              const [cur, prev] = salaries;
+              const ch = cur && prev ? salaryChange(Number(prev.baseSalary), Number(cur.baseSalary)) : undefined;
+              if (!cur || !ch || ch.diff <= 0) return null;
+              const l = (cur.letter as LetterDetails | null) ?? {};
+              return (
+                <div id="letter" className="rounded-lg border border-blue/40 bg-tint p-3">
+                  <p className="text-sm font-semibold text-navy">{t("empLetter")} <Tag>STRICTLY CONFIDENTIAL</Tag></p>
+                  <p className="mb-2 text-xs text-navy/70">{t("empLetterHint", { from: day(cur.effectiveFrom), pct: ch.pct })}</p>
+                  <form action={letter.bind(null, code, cur.id)} className="space-y-2">
+                    <Grid cols={2}>
+                      <Field label={t("empLetterSalutation")}><input name="salutation" defaultValue={l.salutation ?? e.name.split(" ")[0]} className={inputCls} /></Field>
+                      <Field label={t("empLetterPosition")}><input name="position" defaultValue={l.position ?? e.position ?? ""} className={inputCls} /></Field>
+                    </Grid>
+                    <Field label={t("empLetterPraiseTh")}><textarea name="praiseTh" rows={2} defaultValue={l.praiseTh ?? ""} className={inputCls} /></Field>
+                    <Field label={t("empLetterPraiseEn")}><textarea name="praiseEn" rows={2} defaultValue={l.praiseEn ?? ""} className={inputCls} /></Field>
+                    <Field label={t("empLetterPraiseZh")}><textarea name="praiseZh" rows={2} defaultValue={l.praiseZh ?? ""} className={inputCls} /></Field>
+                    <div className="flex flex-wrap gap-2">
+                      <button className={btnPrimary}>{t("empLetterSave")}</button>
+                      <a className={btnGhost} href={`/api/people/${code}/salary/${cur.id}/letter?format=pdf`}>{t("empLetterPdf")}</a>
+                      <a className={btnGhost} href={`/api/people/${code}/salary/${cur.id}/letter`}>{t("empLetterWord")}</a>
+                    </div>
+                  </form>
+                </div>
+              );
+            })()}
             <details className="rounded-lg border border-line p-3">
               <summary className="cursor-pointer text-sm font-semibold text-navy">＋ {t("empAddSalary")}</summary>
               <form action={salary.bind(null, code)} className="mt-3 space-y-3">
