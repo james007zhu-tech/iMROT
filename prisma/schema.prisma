@@ -134,10 +134,13 @@ model Employee {
   taxNo             String? /// personal tax ID
   attachments       Json? /// archived originals: CV, contract, ID copies — [{name,url,kind}]
 
-  careers     EmployeeCareer[]
-  credentials EmployeeCredential[]
-  salaries    SalaryRecord[]       @relation("SalaryOf")
-  reviews     PerformanceReview[]  @relation("ReviewOf")
+  careers         EmployeeCareer[]
+  credentials     EmployeeCredential[]
+  salaries        SalaryRecord[]       @relation("SalaryOf")
+  reviews         PerformanceReview[]  @relation("ReviewOf")
+  overtime        OvertimeRequest[]    @relation("OvertimeOf")
+  overtimeDecided OvertimeRequest[]    @relation("OvertimeApprover")
+  overtimeLines   OvertimePayLine[]
 
   assetsResponsible Asset[]                @relation("AssetResponsible")
   events            AssetEvent[]
@@ -1377,4 +1380,89 @@ model Dashboard {
   isShared  Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+}
+
+// ───────────── OPD · 加班 overtime (2026-11-09) ─────────────
+
+/// LPA s.61–63: WORKDAY_OT 1.5×, HOLIDAY_WORK 1× (monthly staff), HOLIDAY_OT 3× the hourly wage (src/lib/overtime.ts).
+enum OvertimeKind {
+  WORKDAY_OT
+  HOLIDAY_WORK
+  HOLIDAY_OT
+}
+
+enum OvertimeStatus {
+  PENDING /// waiting for the manager (or the MD)
+  APPROVED /// counts at month end — actual hours when confirmed, otherwise the approved hours
+  REJECTED
+  CANCELLED
+}
+
+/// 加班申请 — the employee asks before the work (consent on each occasion), the manager or MD decides, the employee confirms
+/// the actual hours afterwards. Month end counts every APPROVED request not yet paid (a late approval is paid next month).
+model OvertimeRequest {
+  id             String         @id @default(cuid())
+  entityId       String
+  employeeId     String
+  employee       Employee       @relation("OvertimeOf", fields: [employeeId], references: [id])
+  workDate       DateTime       @db.Date
+  startTime      String /// "18:00" local time
+  endTime        String /// "21:30"; at or before the start = past midnight
+  breakMinutes   Int            @default(0)
+  hours          Decimal        @db.Decimal(5, 2) /// requested / approved
+  kind           OvertimeKind
+  reason         String
+  serviceOrderNo String? /// the QTTH the work was for, when there is one
+  status         OvertimeStatus @default(PENDING)
+  approverId     String?
+  approver       Employee?      @relation("OvertimeApprover", fields: [approverId], references: [id])
+  decidedAt      DateTime?
+  decisionNote   String?
+  actualStart    String?
+  actualEnd      String?
+  actualHours    Decimal?       @db.Decimal(5, 2) /// confirmed by the employee after the work; pays instead of `hours`
+  confirmedAt    DateTime?
+  payMonthId     String? /// set by the month-end close that paid it
+  payMonth       OvertimeMonth? @relation(fields: [payMonthId], references: [id])
+  createdById    String
+  createdAt      DateTime       @default(now())
+
+  @@index([employeeId, workDate])
+  @@index([status, payMonthId])
+}
+
+/// 加班费月结 — the month-end result per legal entity, closed automatically on the 1st (Bangkok) or by the MD.
+model OvertimeMonth {
+  id          String            @id @default(cuid())
+  entityId    String
+  month       String /// "2026-11"
+  closedAt    DateTime          @default(now())
+  closedBy    String /// employee code, or "SYSTEM" for the automatic close
+  totalHours  Decimal           @db.Decimal(8, 2)
+  totalAmount Decimal           @db.Decimal(14, 2)
+  lines       OvertimePayLine[]
+  requests    OvertimeRequest[]
+
+  @@unique([entityId, month])
+}
+
+/// One employee's overtime pay in a closed month. Rate basis and multipliers are copied so later changes never rewrite it.
+model OvertimePayLine {
+  id             String        @id @default(cuid())
+  monthId        String
+  month          OvertimeMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+  employeeId     String
+  employee       Employee      @relation(fields: [employeeId], references: [id])
+  salaryRecordId String? /// the salary in force on the last day of the month
+  baseSalary     Decimal       @db.Decimal(14, 2)
+  hourlyRate     Decimal       @db.Decimal(10, 2) /// base ÷ 30 ÷ 8
+  hours          Json /// {WORKDAY_OT, HOLIDAY_WORK, HOLIDAY_OT}
+  multipliers    Json /// {WORKDAY_OT: 1.5, HOLIDAY_WORK: 1, HOLIDAY_OT: 3}
+  amounts        Json
+  totalHours     Decimal       @db.Decimal(6, 2)
+  total          Decimal       @db.Decimal(14, 2)
+  lateFrom       String[]      @default([]) /// earlier months whose late approvals are paid here
+  missingSalary  Boolean       @default(false) /// no salary record: hours counted, amount 0 — the MD must add the salary and re-close
+
+  @@unique([monthId, employeeId])
 }

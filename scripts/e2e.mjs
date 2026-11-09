@@ -366,6 +366,24 @@ await step("non-md-sees-only-own-file", async () => {
   await p2.fill("[name=wechatId]", "eng_wx"); await p2.click("button:has-text('Save contact details')"); await p2.waitForTimeout(900); await p2.waitForLoadState("networkidle"); if ((await p2.inputValue("[name=wechatId]")) !== "eng_wx") throw new Error("own contact change not saved");
   await p2.goto(`${BASE}/people/ETH2611001`); b = await p2.locator("body").innerText(); if (!/permission|Forbidden|403|无权|ไม่มีสิทธิ์/i.test(b)) throw new Error("engineer can open the MD's file"); await c2.close();
 });
+// ── 加班 (2026-11-09): engineer applies → MD approves → actual hours → month preview, closed month ──
+await step("overtime-request-approve-month", async () => {
+  const c3 = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const p3 = await c3.newPage();
+  await p3.goto(`${BASE}/login`); await p3.fill("[name=email]", `eng-${stamp.toLowerCase()}@ducheng-industrial.com`); await p3.fill("[name=password]", "engineer1"); await p3.click("form button[type=submit]"); await p3.waitForURL(/\/(dashboard|assets)/); await p3.click("text=EN"); await p3.waitForTimeout(800);
+  await p3.goto(`${BASE}/people/${engCode}`); await p3.click("a:has-text('Overtime')"); await p3.waitForURL(/\/people\/overtime/);
+  if ((await p3.locator("text=Overtime month end").count()) > 0) throw new Error("engineer sees the month-end pay");
+  await p3.fill("[name=reason]", `E2E retest ${stamp}`); await p3.locator("form").filter({ has: p3.locator("[name=reason]") }).locator("button").click(); await p3.waitForTimeout(900); await p3.waitForLoadState("networkidle");
+  const b3 = await p3.locator("body").innerText(); if (/Error|错误/.test(await p3.locator("[role=alert], .text-alert-ink").first().innerText().catch(() => ""))) throw new Error("request refused");
+  if (!b3.includes(`E2E retest ${stamp}`) || !b3.includes("Pending")) throw new Error("request not listed as pending");
+  await page.goto(`${BASE}/people/overtime`); await expectText("Waiting for my approval"); await expectText(`E2E retest ${stamp}`);
+  const row = page.locator("tr").filter({ hasText: `E2E retest ${stamp}` }).first(); await row.locator("button[name=decision][value=APPROVED]").click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError();
+  await p3.reload(); const mine = p3.locator("tr").filter({ hasText: `E2E retest ${stamp}` }).first(); if (!(await mine.innerText()).includes("Approved")) throw new Error("not approved for the engineer");
+  await mine.locator("[name=actualEnd]").fill("20:00"); await mine.locator("button:has-text('Confirm actual')").click(); await p3.waitForTimeout(900); await p3.waitForLoadState("networkidle");
+  const after = await p3.locator("tr").filter({ hasText: `E2E retest ${stamp}` }).first().innerText(); if (!after.includes("2.5") || !after.includes("Approved")) throw new Error(`actual hours not recorded: ${after}`);
+  await c3.close();
+  await page.reload(); await expectText("Overtime month end"); await expectText("so far (not closed)"); if (!(await page.locator("tr").filter({ hasText: engCode }).count())) throw new Error("engineer missing from the month preview");
+  const closed = page.locator("a[href^='/people/overtime/20']").first(); if (await closed.count()) { await closed.click(); await page.waitForURL(/\/people\/overtime\/20\d\d-\d\d/); await expectText("Overtime pay per person"); }
+});
 await step("finance-and-blth", async () => { await page.goto(`${BASE}/finance`); await expectText("IVTH"); await page.goto(`${BASE}/customers/${customerCode}`); await page.click("button:has-text('BLTH')"); await page.waitForTimeout(800); await page.waitForLoadState("networkidle"); const b = await page.locator("body").innerText(); if (!/BLTH2611|nothing to bill/.test(b)) throw new Error("BLTH neither issued nor correctly refused"); blNo = (b.match(/BLTH\d{10}/) || [])[0]; });
 await step("blth-detail-and-ti-void-ui", async () => {
   if (blNo) { await page.goto(`${BASE}/customers/${customerCode}`); await page.click(`a[href='/statements/${blNo}']`); await page.waitForURL(/\/statements\/BLTH/); await expectText("Statement lines"); await expectText("Ageing"); }
