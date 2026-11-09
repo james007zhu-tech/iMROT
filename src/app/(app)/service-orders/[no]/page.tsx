@@ -15,7 +15,8 @@ import { businessClosureOn } from "@/lib/closure";
 import { pdfAvailable } from "@/server/office";
 import { marginFloor } from "@/server/modes";
 import { isTradeMode, reopenBlocker } from "@/lib/modes";
-import { reopenAsPartnerAction } from "./actions";
+import { declineCloseBlockers, feeTotal, undoDeclineBlocker, type DeclineFee } from "@/lib/decline";
+import { closeDeclinedAction, reopenAsPartnerAction, undoDeclineAction } from "./actions";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
 
@@ -35,6 +36,15 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const stamp = (d: Date) => new Intl.DateTimeFormat(locale, { ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}), month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
 
   const jobs = order.repairJobs;
+  // 客户拒绝报价 (2026-11-09): what is still open before the order may close
+  const dec = order.decline;
+  const decFees = (dec?.fees as DeclineFee[] | null) ?? [];
+  const decShape = dec ? {
+    status: order.status, feeDue: feeTotal(decFees) > 0, invoiced: order.taxInvoices.some((x) => !x.voidedAt),
+    returnNeeded: order.documents.some((d) => d.type === "ER" && !d.voidedAt), returnSigned: order.deliveries.some((d) => d.status === "SIGNED"),
+    returnIssued: order.deliveries.some((d) => d.status === "ISSUED" || d.status === "SIGNED"),
+  } : null;
+  const declineOpen = decShape ? declineCloseBlockers(decShape) : undefined;
   const shape = {
     status: order.status, kind: order.kind, hasInspection: order.inspections.length > 0, hasQuote: order.lines.length > 0, hasJob: jobs.length > 0, jobFinished: jobs.some((j) => j.finishedAt),
     workshop: jobs.some((j) => j.location === "WORKSHOP") || order.documents.some((d) => d.type === "ER"),
@@ -42,6 +52,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     invoicesUnpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, hasAcceptance: !!order.acceptance,
     partner: order.mode === "PARTNER_REPAIR",
     trade: isTradeMode(order.mode), stockOuts: order.stockMovements.filter((m) => m.direction === "OUT").length,
+    declineOpen,
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
   const money = (k: StepKey) => k === "invoice" || k === "payment";
@@ -49,7 +60,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const primary = businessClosureOn() || !steps.primary || !money(steps.primary) ? steps.primary : undefined;
   const also = businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k));
   const stepLabel = (s: StepKey) => u(`step_${s}`);
-  const transitions = ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CANCELLED" || s === "CLOSED");
+  // a quote for machines is declined (its own step), not cancelled; a declined order closes from its own card
+  const transitions = dec ? [] : ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CLOSED" || (s === "CANCELLED" && !(order.status === "QUOTE_PENDING" && !isTradeMode(order.mode))));
   // "项目完成" (flow step 10): the person confirms the close once the money is in; the system no longer closes by itself.
   const outstanding = order.invoices.filter((i) => !i.cancelledAt).reduce((s, i) => s + Math.max(0, Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0)), 0);
   const settledAwaitingClose = order.status === "INVOICED" && order.invoices.some((i) => !i.cancelledAt) && outstanding < 0.005;
@@ -84,6 +96,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   // One line per document: who, when, what it says, which reports it renders to.
   const summaryOf = (docNo: string, type: string): React.ReactNode => {
     if (type === "IN") { const i = order.inspections.find((x) => x.no === docNo); return [i?.findings, i?.probableCause].filter(Boolean).join(" → "); }
+    if (type === "QT" && dec) return <Tag>{u("quoteDeclinedKept")}</Tag>;
     if (type === "QT") return order.total != null ? `${order.currency} ${Number(order.total).toFixed(2)} ${u("inclVat")}${order.quoteConfirmedAt ? ` · ${u("poConfirmed")}` : ""}` : u("draft");
     if (type === "RP") { const j = jobs.find((x) => x.no === docNo); return j?.rootCause ?? j?.workPerformed ?? ""; }
     if (type === "PM") { const j = jobs.find((x) => x.no === docNo); return j?.hazards ? <FaultText>{j.hazards}</FaultText> : j?.handled ?? ""; }
@@ -109,7 +122,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={<span className="font-mono">{order.no}</span>}
-        badge={<><Tag>{u(`mode_${order.mode}`)}</Tag><OrderStatusBadge status={order.status} />{order.transferredFrom && <Link href={`/service-orders/${order.transferredFrom.no}`} className="text-xs text-blue hover:underline">{u("transferredFrom", { no: order.transferredFrom.no })}</Link>}</>}
+        badge={<><Tag>{u(`mode_${order.mode}`)}</Tag><OrderStatusBadge status={order.status} />{declineOpen?.includes("RETURN_DNTH") && <Tag hot>{u("returnPending")}</Tag>}{order.transferredFrom && <Link href={`/service-orders/${order.transferredFrom.no}`} className="text-xs text-blue hover:underline">{u("transferredFrom", { no: order.transferredFrom.no })}</Link>}</>}
         actions={<>
           {mayReopen && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u("reopenAsPartner")}</summary>
             <form action={reopenAsPartnerAction.bind(null, order.no)} className="absolute right-0 z-20 mt-1 w-[26rem] space-y-2 rounded-xl border bg-white p-4 text-sm shadow-xl">
@@ -129,8 +142,9 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
           {primary && primary !== "assign" && primary !== "contractDirect" && <Link href={stepHref(order.no, primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
-      <OrderProgress status={order.status as OrderStatus} />
+      <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
       <Flash ok={ok} error={error} />
+      {dec && <Alert>{u("declinedBanner", { date: dec.toldAt.toISOString().slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
@@ -201,6 +215,19 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             <p className="text-sm">{order.partnerReason}</p>
             <p className="mt-1 text-xs text-navy/70">{u("partnerPrinciple")}</p>
             <Link href={`/service-orders/${order.no}/partner`} className={`${btnGhost} mt-2`}>{u("step_partner")} →</Link>
+          </Card>}
+          {dec && decShape && <Card title={order.status === "CLOSED" ? u("declineDone") : u("declineBeforeClose")} accent={order.status !== "CLOSED"}>
+            <ol className="space-y-2 text-sm">
+              {decShape.returnNeeded && <li className="flex items-start gap-2"><span className={decShape.returnSigned ? "text-navy" : "text-alert-ink"}>{decShape.returnSigned ? "✓" : "○"}</span><span><b>{u("declineItemReturn")}</b><span className="block text-xs text-navy/70">{decShape.returnSigned ? u("declineItemReturnDone") : decShape.returnIssued ? u("awaitingSignature") : u("declineItemReturnHint")}</span></span></li>}
+              {decShape.feeDue ? <li className="flex items-start gap-2"><span className={decShape.invoiced ? "text-navy" : "text-alert-ink"}>{decShape.invoiced ? "✓" : "○"}</span><span><b>{u("declineItemFee")}</b><span className="block text-xs text-navy/70">{decShape.invoiced ? (shape.invoicesUnpaid > 0 ? u("declineItemFeeUnpaid") : u("declineItemFeePaid")) : u("declineItemFeeHint")}</span></span></li>
+                : <li className="flex items-start gap-2"><span className="text-navy">✓</span><span><b>{u("feeWaive")}</b><span className="block text-xs text-navy/70">{dec.waivedReason}</span></span></li>}
+            </ol>
+            {order.status !== "CLOSED" && <div className="mt-3 flex flex-wrap gap-2">
+              <form action={closeDeclinedAction.bind(null, order.no)}><button disabled={(declineOpen ?? []).length > 0} className={`${btnPrimary} disabled:cursor-not-allowed disabled:opacity-40`}>{u("actionCloseOrder")}</button></form>
+              {!undoDeclineBlocker(decShape) && <form action={undoDeclineAction.bind(null, order.no)}><button className={btnGhost}>{u("undoDecline")}</button></form>}
+            </div>}
+            {order.status === "INVOICED" && outstanding >= 0.005 && <p className="mt-2 text-xs text-alert-ink">{u("closeWithOutstanding", { amount: `${order.currency} ${outstanding.toFixed(2)}` })}</p>}
+            <p className="mt-2 text-xs text-navy/60">{u("declineBy", { name: dec.actor.name })}{dec.contact ? ` · ${maskName(dec.contact.name)}` : ""}</p>
           </Card>}
           {order.transferredTo && <Alert>{u("transferredTo", { no: order.transferredTo.no })} <Link href={`/service-orders/${order.transferredTo.no}`} className="font-mono text-blue underline">{order.transferredTo.no}</Link></Alert>}
           {(also.length > 0 || canBuy) && <Card title={u("alsoPossible")}>

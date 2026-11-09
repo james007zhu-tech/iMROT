@@ -14,7 +14,7 @@
  */
 export type RecognizeKind =
   | "asset" | "customer" | "service" | "inspection" | "receive" | "repair" | "maintenance"
-  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity";
+  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline";
 
 export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<string, string>; accept?: string[]; attachKind: string }
 
@@ -22,7 +22,7 @@ export const CONFIDENCE_FLOOR = 0.8;
 
 /** Fields that must appear verbatim in the document (no paraphrase, no guessing). */
 export const VERBATIM_FIELDS = new Set(["serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo", "passportNo", "idCardNo", "workPermitNo"]);
-const DATE_FIELDS = new Set(["signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
+const DATE_FIELDS = new Set(["toldAt", "signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
 const NUMBER_FIELDS = new Set(["ratedPowerKw", "ratedVoltageV", "ratedCurrentA", "laborHours", "runHours", "paidAmount", "whtAmount", "qty", "unitPrice", "amount", "total", "vatRate", "vatAmount", "subtotal"]);
 const ENUM_FIELDS: Record<string, string[]> = { productionImpact: ["STOPPED", "DEGRADED", "NONE"], status: ["ACCEPTED", "CONDITIONAL", "REJECTED"], currency: ["THB", "USD", "CNY", "EUR", "JPY"] };
 
@@ -40,6 +40,8 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
   receive: { attachKind: "RECEIVING", fields: { sender: "who delivered the equipment", condition: "condition on arrival", fault: "fault reported with it", accessories: "accessories received, one per line as 'item × qty'" } },
   repair: { attachKind: "REPAIR", fields: { confirmedFault: "confirmed fault", rootCause: "root cause", workPerformed: "work done, step by step", configBackupRef: "parameter backup file name", laborHours: "labour hours" } },
   maintenance: { attachKind: "MAINTENANCE", fields: { runHours: "cumulative running hours", hazards: "hazards found and not yet fixed", handled: "what was fixed during this visit", recommendation: "recommended next steps" } },
+  /** 客户拒绝报价: the customer's reply in any form (e-mail, LINE, letter) — never rejected, kept on the order as DECLINE; fills the note and the date. */
+  decline: { attachKind: "DECLINE", fields: { declineNote: "why the customer does not go ahead, in their words", toldAt: "date of the reply YYYY-MM-DD" } },
   delivery: { attachKind: "DELIVERY", fields: { signedBy: "name of person who signed for the goods", signedAt: "date signed, YYYY-MM-DD", remark: "remarks written on the signed copy" } },
   acceptance: { attachKind: "ACCEPTANCE", fields: { customerSignatory: "who signed", punchList: "open items written on the form", status: "ACCEPTED, CONDITIONAL or REJECTED" } },
   payment: { attachKind: "PAYMENT", fields: { paidAt: "payment date YYYY-MM-DD (the date the money arrived)", paidAmount: "amount received, number only", whtAmount: "withholding tax deducted, number only", whtCertRef: "withholding certificate number", bankRef: "bank transfer reference / slip number" } },

@@ -18,6 +18,8 @@ export function FormMemory({ formId }: { formId: string }) {
         for (const el of fields(form)) {
           if (!(el.name in values) || (el as HTMLInputElement).type === "file") continue;
           if ((el as HTMLInputElement).type === "checkbox") (el as HTMLInputElement).checked = values[el.name] === true;
+          // a radio group shares one name: tick the one whose value was chosen, never overwrite the values themselves
+          else if ((el as HTMLInputElement).type === "radio") (el as HTMLInputElement).checked = el.value === values[el.name];
           else el.value = String(values[el.name]);
         }
         window.dispatchEvent(new CustomEvent("draft-restored", { detail: formId }));
@@ -28,6 +30,7 @@ export function FormMemory({ formId }: { formId: string }) {
       const values: Record<string, string | boolean> = {};
       for (const el of fields(form)) {
         if ((el as HTMLInputElement).type === "file" || (el as HTMLInputElement).type === "password") continue;
+        if ((el as HTMLInputElement).type === "radio") { if ((el as HTMLInputElement).checked) values[el.name] = el.value; continue; }
         values[el.name] = (el as HTMLInputElement).type === "checkbox" ? (el as HTMLInputElement).checked : el.value;
       }
       try { sessionStorage.setItem(key, JSON.stringify(values)); } catch { /* ignore */ }
