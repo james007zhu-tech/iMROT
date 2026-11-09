@@ -6,6 +6,7 @@ same blocks as the finance templates 20–27):
   06_Order_Confirmation.docx       QTTH  订单确认     — the customer's PO confirmed at the quoted prices
   12_Service_Completion.docx       QTTH  服务完成确认 — DCiT confirms the work is done and tested
   13_Customer_Acceptance.docx      QTTH  客户验收单   — the customer's acceptance decision
+  30 / 31 trade quotation and order confirmation (QTTH); 33 commercial invoice (IVTH) and 34 packing list (DNTH) — 国际贸易
 Rules (AGENTS #17, #18, #21): Helvetica / Sarabun / Noto Sans SC; one item per line, never " · "; two-line headers
 (EN above TH) in every column; signature block floats at the page foot, first slot = the person who filled the record,
 name prefilled; every slot accepts an e-signature; only fields the web form holds. Line rows use [[L_*]] placeholders.
@@ -158,7 +159,7 @@ def build_trade_quotation():
     section(doc, "Items and price", "รายการและราคา")
     priced_lines(doc, [], SKU_COL)
     section(doc, "Terms", "เงื่อนไข")
-    together(kv_table(doc, [(["Payment terms", "เงื่อนไขการชำระเงิน"], "[[PAYMENT_TERMS]]"), (["To proceed", "การยืนยัน"], "[[TO_PROCEED]]"), (["You will receive", "เอกสารที่ท่านจะได้รับ"], "[[DELIVERABLE_DOCS]]")], (2200, 7666)))
+    together(kv_table(doc, [(["Delivery terms", "เงื่อนไขการส่งมอบ"], "[[DELIVERY_TERMS]]"), (["Payment terms", "เงื่อนไขการชำระเงิน"], "[[PAYMENT_TERMS]]"), (["To proceed", "การยืนยัน"], "[[TO_PROCEED]]"), (["You will receive", "เอกสารที่ท่านจะได้รับ"], "[[DELIVERABLE_DOCS]]")], (2200, 7666)))
     signature_block(doc, [("Prepared by", "ผู้จัดทำ", "[[PREPARED_BY]]"), ("Authorised by", "ผู้มีอำนาจลงนาม", "[[AUTHORISED_BY]]"), ("Accepted by customer", "ลูกค้าตกลงตามข้อเสนอ", "[[CUSTOMER_SIGNATORY]]")])
     footer(doc, "SAL-QT")
     doc.save(TPL / "30_Sales_Quotation.docx")
@@ -177,7 +178,68 @@ def build_trade_order_confirmation():
     footer(doc, "SAL-SOC")
     doc.save(TPL / "31_Sales_Order_Confirmation.docx")
 
+# ── 33 / 34 Commercial invoice and packing list (国际贸易, 2026-11-09) ─────────────────────────────────────────
+# The CI is the IVTH of an export order (order currency, VAT 0 %), the PL is its DNTH. Customs and the forwarder read
+# both, so English leads; Thai stays under every header (rule 18).
+
+def grid3(doc, pairs, widths=(1480, 1808)):
+    """Three label/value pairs per row — the shipment block of the export documents in three rows."""
+    rows = [pairs[i:i + 3] for i in range(0, len(pairs), 3)]
+    t = doc.add_table(rows=len(rows), cols=6); set_widths(t, list(widths) * 3)
+    for i, row in enumerate(rows):
+        cells = t.rows[i].cells
+        for j in range(3):
+            label, value = row[j] if j < len(row) else (["", ""], "")
+            lc, vc = cells[2 * j], cells[2 * j + 1]
+            borders(lc); margins(lc); shade(lc, TINT); cell_text(lc, label, 7.5, False, NAVY, first_bold=True)
+            body_cell(vc, value, size=8)
+    return t
+
+def shipment_kv(doc, last):
+    """Ports, transport and documents; `last` = the final pair (CI: packing list, PL: shipping marks)."""
+    section(doc, "Shipment", "การขนส่ง")
+    together(grid3(doc, [(["Port of loading", "ท่าต้นทาง"], "[[PORT_LOADING]]"), (["Port of discharge", "ท่าปลายทาง"], "[[PORT_DISCHARGE]]"), (["Destination", "ประเทศปลายทาง"], "[[DEST_COUNTRY]]"),
+                         (["Transport", "การขนส่ง"], "[[TRANSPORT]]"), (["Departure", "วันออกเดินทาง"], "[[DEPARTURE]]"), (["Transport doc.", "เอกสารขนส่ง"], "[[TRANSPORT_DOC]]"),
+                         (["Export entry", "ใบขนขาออก"], "[[EXPORT_ENTRY]]"), last]))
+
+def build_commercial_invoice():
+    doc = Document(BASE); clear_body(doc)
+    title_block(doc, "ใบกำกับสินค้า", "COMMERCIAL INVOICE", "商业发票", "Invoice No.", "[[DOC_NO]]")
+    rule(doc)
+    two_blocks(doc, ("Buyer / consignee", "ผู้ซื้อ / ผู้รับสินค้า"), ["[[CUSTOMER_NAME]]", "[[CUSTOMER_DETAILS]]"],
+               [(["Invoice date", "วันที่"], "[[ISSUE_DATE]]"), (["Customer PO", "ใบสั่งซื้อลูกค้า"], "[[CUSTOMER_PO]]"),
+                (["Incoterms", "เงื่อนไขการส่งมอบ"], "[[INCOTERMS]]"), (["Payment terms", "เงื่อนไขการชำระเงิน"], "[[PAYMENT_TERMS]]")])
+    shipment_kv(doc, (["Packing list", "รายการบรรจุ"], "[[PACKING_LIST_NO]]"))
+    para(doc, after=4)
+    lines_table(doc, [("#", "ลำดับ"), ("Description", "รายการ"), ("SKU", "รหัสสินค้า"), ("HS code", "พิกัดศุลกากร"), ("Origin", "แหล่งกำเนิด"), ("Qty", "จำนวน"), ("Unit", "หน่วย"), ("Unit price", "ราคา/หน่วย"), ("Amount", "จำนวนเงิน")],
+                [560, 2306, 1300, 1050, 950, 650, 650, 1100, 1300], ["[[L_NO]]", "[[L_DESC]]", "[[L_SKU]]", "[[L_HS]]", "[[L_ORIGIN]]", "[[L_QTY]]", "[[L_UNIT]]", "[[L_PRICE]]", "[[L_AMOUNT]]"], [C, None, None, None, C, R, C, R, R], size=8.5)
+    para(doc, after=3)
+    # the VAT basis sits in the VAT row label; the declaration closes the left column (no extra paragraph: one page)
+    totals_block(doc, [(["Subtotal", "รวม"], "[[SUBTOTAL]]", False), (["VAT [[VAT_LABEL]]", "ภาษีมูลค่าเพิ่ม"], "[[VAT_AMOUNT]]", False), (["Total [[INCOTERM_CODE]]", "รวมทั้งสิ้น"], "[[CURRENCY]] [[TOTAL]]", True)],
+                 left_lines=[[("[[TOTAL_WORDS_EN]]", 8.5, True, NAVY)], [("Bank transfer  โอนเงิน", 8, True, NAVY), ("[[BANK_LINES]]", 7.5, False, None)],
+                             [("We certify this invoice is true and correct and the goods are of the origin stated.", 7.5, False, GREY), ("ขอรับรองว่าใบกำกับสินค้านี้ถูกต้องตามความเป็นจริง และสินค้ามีแหล่งกำเนิดตามที่ระบุ", 7.5, False, GREY)]])
+    signature_block(doc, [("Prepared by", "ผู้จัดทำ", "[[PREPARED_BY]]"), ("Authorised by", "ผู้มีอำนาจลงนาม", "[[AUTHORISED_BY]]")])
+    footer(doc, "EXP-CI")
+    doc.save(TPL / "33_Commercial_Invoice.docx")
+
+def build_packing_list():
+    doc = Document(BASE); clear_body(doc)
+    title_block(doc, "รายการบรรจุหีบห่อ", "PACKING LIST", "装箱单", "No.", "[[DOC_NO]]")
+    rule(doc)
+    two_blocks(doc, ("Buyer / consignee", "ผู้ซื้อ / ผู้รับสินค้า"), ["[[CUSTOMER_NAME]]", "[[CUSTOMER_DETAILS]]"],
+               [(["Date", "วันที่"], "[[ISSUE_DATE]]"), (["Commercial invoice", "ใบกำกับสินค้า"], "[[INVOICE_NO]]"), (["Customer PO", "ใบสั่งซื้อลูกค้า"], "[[CUSTOMER_PO]]"), (["Incoterms", "เงื่อนไขการส่งมอบ"], "[[INCOTERMS]]")])
+    shipment_kv(doc, (["Shipping marks", "เครื่องหมาย"], "[[MARKS]]"))
+    section(doc, "Packing", "การบรรจุ")
+    lines_table(doc, [("#", "ลำดับ"), ("Description", "รายการ"), ("SKU", "รหัสสินค้า"), ("HS code", "พิกัดศุลกากร"), ("Qty", "จำนวน"), ("Packages", "หีบห่อ"), ("Net kg", "น้ำหนักสุทธิ กก."), ("Gross kg", "น้ำหนักรวม กก.")],
+                [550, 2716, 1400, 1100, 900, 1100, 1050, 1050], ["[[L_NO]]", "[[L_DESC]]", "[[L_SKU]]", "[[L_HS]]", "[[L_QTY]]", "[[L_PKGS]]", "[[L_NET]]", "[[L_GROSS]]"], [C, None, None, None, R, R, R, R], size=8.5)
+    para(doc, after=3)
+    together(grid2(doc, [(["Total packages", "จำนวนหีบห่อรวม"], "[[TOTAL_PACKAGES]]", ["Measurement", "ปริมาตร"], "[[TOTAL_CBM]]"),
+                         (["Total net weight", "น้ำหนักสุทธิรวม"], "[[TOTAL_NET]]", ["Total gross weight", "น้ำหนักรวมทั้งหมด"], "[[TOTAL_GROSS]]")]))
+    signature_block(doc, [("Packed and checked by", "ผู้บรรจุและตรวจสอบ", "[[PREPARED_BY]]"), ("Authorised by", "ผู้มีอำนาจลงนาม", "[[AUTHORISED_BY]]")])
+    footer(doc, "EXP-PL")
+    doc.save(TPL / "34_Packing_List.docx")
+
 if __name__ == "__main__":
     build_proposal(); build_order_confirmation(); build_completion(); build_acceptance()
-    build_trade_quotation(); build_trade_order_confirmation()
-    print("built 04, 06, 12, 13, 30, 31")
+    build_trade_quotation(); build_trade_order_confirmation(); build_commercial_invoice(); build_packing_list()
+    print("built 04, 06, 12, 13, 30, 31, 33, 34")

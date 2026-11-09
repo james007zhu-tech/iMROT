@@ -3,11 +3,12 @@
  * event data → .docx (and .pdf when LibreOffice is installed). Nothing is typed by hand; the template layout is untouched.
  */
 import { bankLines, type BankDetails } from "@/lib/bank";
+import { EXPORT_VAT_RATE, incotermLine, shipTotals, transportDoc, type Shipping, type TradeTerms } from "@/lib/export";
 import { readFile, writeFile, mkdir, mkdtemp, rm, copyFile } from "node:fs/promises";
 import { convertToPdf } from "./office";
 import path from "node:path";
 import { prisma } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { fillDocx, type FieldValues } from "@/lib/docx/fill";
 import { maskNamesIn } from "@/lib/mask";
 import { englishAmount, thaiAmount } from "@/lib/amount-words";
@@ -21,7 +22,7 @@ const TEMPLATE_FILES: Record<string, string> = {
   "11": "11_Preventive_Maintenance_Record.docx", "12": "12_Service_Completion.docx", "13": "13_Customer_Acceptance.docx", "19": "19_Delivery_Note.docx",
   "20": "20_Tax_Invoice.docx", "21": "21_Invoice.docx", "22": "22_Receipt.docx", "23": "23_Statement.docx",
   "24": "24_Purchase_Inquiry.docx", "25": "25_Purchase_Order.docx", "26": "26_Goods_Receipt.docx", "27": "27_Stock_Issue.docx",
-  "30": "30_Sales_Quotation.docx", "31": "31_Sales_Order_Confirmation.docx",
+  "30": "30_Sales_Quotation.docx", "31": "31_Sales_Order_Confirmation.docx", "33": "33_Commercial_Invoice.docx", "34": "34_Packing_List.docx",
   "28": "28_Subcontract_Dispatch.docx", "29": "29_Subcontract_Return.docx",
 };
 
@@ -112,10 +113,11 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
   const party = partyFields(c, o.plant, o.reportedBy);
   const equipment = equipmentRows(o.assets.map((x) => x.asset), o.plant?.name);
   const po = o.customerRef ?? "—";
-  const terms = `${c.paymentTermDays} days from invoice\n${c.paymentTermDays} วันนับจากวันที่ใบแจ้งหนี้`;
+  const tt = o.tradeTerms as TradeTerms | null; // 国际贸易: the terms fixed on the order
+  const terms = tt ? lines_(tt.paymentTerms, tt.paymentDays ? `${tt.paymentDays} days from invoice` : "") : `${c.paymentTermDays} days from invoice\n${c.paymentTermDays} วันนับจากวันที่ใบแจ้งหนี้`;
   const onSite = o.documents.some((x) => x.templateCode === "10");
   const trade = want === "30" || want === "31";
-  const docs = trade ? lines_("Delivery note  ใบส่งของ", "Tax invoice and receipt  ใบกำกับภาษีและใบเสร็จรับเงิน") : lines_(
+  const docs = tt ? lines_("Commercial invoice  ใบกำกับสินค้า", "Packing list  รายการบรรจุหีบห่อ", "Receipt  ใบเสร็จรับเงิน") : trade ? lines_("Delivery note  ใบส่งของ", "Tax invoice and receipt  ใบกำกับภาษีและใบเสร็จรับเงิน") : lines_(
     o.kind !== "PARTS_SALE" && o.kind !== "MAINTENANCE" ? both(REPORT_NAME.IN) : "",
     // 合作维修: the partner's work is never shown to the customer — our retest gates the delivery, there is no RPTH
     both(o.kind === "MAINTENANCE" ? REPORT_NAME.PM : o.kind !== "PARTS_SALE" && o.mode !== "PARTNER_REPAIR" ? (onSite ? REPORT_NAME.FS : REPORT_NAME.RP) : undefined),
@@ -130,7 +132,7 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
 
   if (want === "04" || want === "06" || trade) {
     const subtotal = o.subtotal != null ? Number(o.subtotal) : round2(o.lines.reduce((s, l) => s + Number(l.amount), 0));
-    const vatRate = Number(doc.entity.vatRate);
+    const vatRate = tt ? EXPORT_VAT_RATE : Number(doc.entity.vatRate);
     const vat = o.vatAmount != null ? Number(o.vatAmount) : round2(subtotal * vatRate);
     const total = o.total != null ? Number(o.total) : round2(subtotal + vat);
     const priced = {
@@ -142,6 +144,7 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
     if (want === "30") {
       const owner = o.assignee ?? doc.createdBy;
       return { ...party, ...priced, ISSUE_DATE: d(o.quoteSentAt ?? doc.issuedAt), CUSTOMER_REF: o.customerRef ?? "—", OUR_CONTACT: lines_(owner.name, owner.phone), PAYMENT_TERMS: terms, DELIVERABLE_DOCS: docs,
+        DELIVERY_TERMS: tt ? lines_(incotermLine(tt), [tt.destPort, tt.destCountry].filter(Boolean).join(", ")) : lines_(`Delivered to ${o.plant?.name ?? c.name}`, `ส่งถึง ${o.plant?.name ?? c.nameLocal ?? c.name}`),
         TO_PROCEED: `Please send your purchase order quoting ${o.no}.\nกรุณาส่งใบสั่งซื้อโดยอ้างอิงเลขที่ ${o.no}`,
         PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "", CUSTOMER_SIGNATORY: signHint };
     }
@@ -157,7 +160,7 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
     }
     const confirmed = o.events[0];
     return { ...party, ...equipment, ...priced, CONFIRMED_ON: d(confirmed?.occurredAt ?? o.quoteConfirmedAt ?? doc.issuedAt), CUSTOMER_PO: po, QUOTE_REF: lines_(o.no, d(o.quoteSentAt ?? doc.issuedAt)), PAYMENT_TERMS: terms,
-      DELIVER_TO: lines_(c.name, o.plant?.name, o.plant?.address ?? c.addressLocal ?? c.addressEn), WARRANTY: promise,
+      DELIVER_TO: tt ? lines_(incotermLine(tt), [tt.destPort, tt.destCountry].filter(Boolean).join(", ")) : lines_(c.name, o.plant?.name, o.plant?.address ?? c.addressLocal ?? c.addressEn), WARRANTY: promise,
       CONFIRMED_BY: confirmed?.actor?.name ?? doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "", CUSTOMER_SIGNATORY: signHint };
   }
 
@@ -173,6 +176,55 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
   if (want === "12") return { ...shared, COMPLETED_ON: d(job?.finishedAt ?? acc?.acceptedAt ?? doc.issuedAt), COMPLETED_BY: acc?.dcitSignatory ?? job?.engineer.name ?? doc.createdBy.name };
   return { ...shared, ACCEPTED_ON: d(acc?.acceptedAt ?? doc.issuedAt), CHK_ACCEPTED: CHECK(acc?.status === "ACCEPTED"), CHK_CONDITIONAL: CHECK(acc?.status === "CONDITIONAL"), CHK_REJECTED: CHECK(acc?.status === "REJECTED"),
     RECORDED_BY: acc?.dcitSignatory ?? doc.createdBy.name };
+}
+
+// ── 国际贸易: 33 commercial invoice (the IVTH) and 34 packing list (the DNTH) — src/server/export.ts ──────────────
+type ExportDoc = { issuedAt: Date; createdBy: { name: string }; entity: { signatoryName: string | null; bankDetails: unknown } };
+type ExportOrder = { id: string; no: string; customerRef: string | null; tradeTerms: unknown };
+
+async function shipmentOf(orderId: string) {
+  const dn = await prisma.deliveryNote.findFirst({ where: { serviceOrderId: orderId, status: { not: "DRAFT" }, shipping: { not: Prisma.AnyNull } }, orderBy: { createdAt: "asc" } });
+  return dn ? { no: dn.no, shipping: dn.shipping as unknown as Shipping } : null;
+}
+function shipmentValues(s: Shipping | undefined, tt: TradeTerms | null) {
+  return {
+    PORT_LOADING: s?.portLoading || "—", PORT_DISCHARGE: s?.portDischarge || tt?.destPort || "—", DEST_COUNTRY: tt?.destCountry ?? "—",
+    TRANSPORT: s ? lines_(SHIP_MODE_EN[s.shipMode] ?? s.shipMode, s.vessel, s.forwarder) : "—",
+    DEPARTURE: s ? lines_(s.shippedAt ? `Shipped on ${s.shippedAt}` : s.etd ? `ETD ${s.etd}` : "", s.eta ? `ETA ${s.eta}` : "") || "—" : "—",
+    TRANSPORT_DOC: s?.blNo ? `${transportDoc(s.shipMode)} ${s.blNo}` : "—", EXPORT_ENTRY: s?.exportEntryNo || "—", MARKS: s?.marks?.trim() || "N/M",
+  };
+}
+const SHIP_MODE_EN: Record<string, string> = { SEA: "By sea  ทางเรือ", AIR: "By air  ทางอากาศ", ROAD: "By road  ทางบก", COURIER: "Courier  บริการขนส่งด่วน" };
+
+async function commercialInvoiceFields(no: string, doc: ExportDoc, o: ExportOrder, common: FieldValues, party: FieldValues): Promise<FieldValues> {
+  const iv = await prisma.invoice.findUniqueOrThrow({ where: { no } });
+  const tt = o.tradeTerms as TradeTerms | null;
+  const ship = await shipmentOf(o.id);
+  const byLine = new Map((ship?.shipping.lines ?? []).map((l) => [l.lineNo, l]));
+  const q = await prisma.quoteLine.findMany({ where: { serviceOrderId: o.id }, orderBy: { lineNo: "asc" }, include: { part: { select: { sku: true } } } });
+  const subtotal = round2(q.reduce((s, l) => s + Number(l.amount), 0));
+  const total = Number(iv.amountDue), vat = round2(total - subtotal);
+  return { ...common, ...party, ISSUE_DATE: d(iv.issuedAt), CUSTOMER_PO: lines_(o.customerRef, `Our quotation ${o.no}`), INCOTERMS: tt ? incotermLine(tt) : "—", INCOTERM_CODE: tt?.incoterm ?? "",
+    PAYMENT_TERMS: tt ? lines_(tt.paymentTerms, iv.dueAt ? `Due ${d(iv.dueAt)}` : "") : "—", PACKING_LIST_NO: ship?.no ?? "—",
+    L_NO: q.map((l) => l.lineNo), L_DESC: q.map((l) => l.description), L_SKU: q.map((l) => l.part?.sku ?? ""), L_HS: q.map((l) => byLine.get(l.lineNo)?.hsCode ?? ""), L_ORIGIN: q.map((l) => byLine.get(l.lineNo)?.origin ?? ""),
+    L_QTY: q.map((l) => String(Number(l.qty))), L_UNIT: q.map((l) => l.unit), L_PRICE: q.map((l) => money(l.unitPrice)), L_AMOUNT: q.map((l) => money(l.amount)),
+    SUBTOTAL: money(subtotal), VAT_LABEL: vat ? pctLabel(vat / subtotal) : `${pctLabel(EXPORT_VAT_RATE)} export (s.80/1)`, VAT_AMOUNT: money(vat), CURRENCY: iv.currency, TOTAL: money(total), TOTAL_WORDS_EN: englishAmount(total, iv.currency),
+    BANK_LINES: bankLines(doc.entity.bankDetails as BankDetails | null, iv.currency),
+    ...shipmentValues(ship?.shipping, tt), PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "" };
+}
+
+async function packingListFields(no: string, doc: ExportDoc, o: ExportOrder, common: FieldValues, party: FieldValues): Promise<FieldValues> {
+  const dn = await prisma.deliveryNote.findUniqueOrThrow({ where: { no } });
+  const s = dn.shipping as unknown as Shipping;
+  const tt = o.tradeTerms as TradeTerms | null;
+  const ci = await prisma.document.findFirst({ where: { serviceOrderId: o.id, type: "IV", templateCode: "33", voidedAt: null }, select: { no: true } });
+  const tot = shipTotals(s.lines);
+  const kg = (n: number) => `${n.toLocaleString("en-US", { maximumFractionDigits: 3 })} kg`;
+  return { ...common, ...party, ISSUE_DATE: d(dn.deliverOn), INVOICE_NO: ci?.no ?? "—", CUSTOMER_PO: o.customerRef ?? "—", INCOTERMS: tt ? incotermLine(tt) : "—",
+    L_NO: s.lines.map((l) => l.lineNo), L_DESC: s.lines.map((l) => l.description), L_SKU: s.lines.map((l) => l.sku ?? ""), L_HS: s.lines.map((l) => l.hsCode),
+    L_QTY: s.lines.map((l) => `${l.qty} ${l.unit}`), L_PKGS: s.lines.map((l) => String(l.packages)), L_NET: s.lines.map((l) => String(l.netKg)), L_GROSS: s.lines.map((l) => String(l.grossKg)),
+    TOTAL_PACKAGES: `${tot.packages} ${s.packageKind}`, TOTAL_NET: kg(tot.netKg), TOTAL_GROSS: kg(tot.grossKg), TOTAL_CBM: s.cbm ? `${s.cbm} m³` : "—",
+    ...shipmentValues(s, tt), PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "" };
 }
 
 /** Build the field map for one document. Returns template code + values. */
@@ -243,6 +295,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
       return { template: ["04", "06", "12", "30", "31"].includes(want) ? want : "13", values: { DOC_NO: no, ISSUE_DATE: common.ISSUE_DATE, ...(await serviceFields(doc, want)) } };
     }
     case "DN": {
+      if (doc.templateCode === "34") return { template: "34", values: await packingListFields(no, doc, o!, common, party) };
       const dn = await prisma.deliveryNote.findUniqueOrThrow({ where: { no }, include: { driver: true, serviceOrder: { select: { decline: { select: { id: true } } } } } });
       const unrepaired = !!dn.serviceOrder.decline; // 客户拒绝报价: the machine goes back as it came in
       const lines = (dn.lines as { kind: string; description: string; assetCode?: string; partSku?: string; delivered: number; poLineNo?: number; source?: string }[]).filter((l) => l.delivered > 0);
@@ -272,6 +325,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
         RECEIVED_BY: "", ISSUED_BY: doc.createdBy.name, AUTHORISED_BY: e.signatoryName ?? "", VAT_REG_DATE: d(e.vatRegisteredFrom) } };
     }
     case "IV": {
+      if (doc.templateCode === "33") return { template: "33", values: await commercialInvoiceFields(no, doc, o!, common, party) };
       const iv = await prisma.invoice.findUniqueOrThrow({ where: { no }, include: { taxInvoice: true, receipts: true } });
       const c = o!.customer; const e = doc.entity;
       const lines: TiLine[] = (iv.taxInvoice?.lines as TiLine[] | undefined) ?? (await prisma.quoteLine.findMany({ where: { serviceOrderId: o!.id }, orderBy: { lineNo: "asc" } })).map((l) => ({ description: l.description, descriptionLocal: l.descriptionLocal ?? undefined, qty: Number(l.qty), unit: l.unit, unitPrice: Number(l.unitPrice), amount: Number(l.qty) * Number(l.unitPrice) }));

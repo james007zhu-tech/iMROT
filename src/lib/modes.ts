@@ -17,8 +17,8 @@ export const MODE_KINDS: Record<Mode, Kind[]> = {
   AUTOMATION_PROJECT: ["REPAIR"], DOMESTIC_TRADE: ["PARTS_SALE"], INTERNATIONAL_TRADE: ["PARTS_SALE"],
 };
 
-/** Modes that can be opened today. Automation projects and international trade wait for their flow (decision doc 2026-11-09). */
-export const OPEN_MODES: readonly Mode[] = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE", "DOMESTIC_TRADE"];
+/** Modes that can be opened today. International trade opened 2026-11-09 (flow 国际贸易-流程图-v1); automation projects wait for theirs. */
+export const OPEN_MODES: readonly Mode[] = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE", "DOMESTIC_TRADE", "INTERNATIONAL_TRADE"];
 
 /** Trade orders carry SKUs only — no ATH (decided 2026-11-09; the one exception to "every record carries an asset"). */
 export const modeNeedsAsset = (m: Mode): boolean => m !== "DOMESTIC_TRADE" && m !== "INTERNATIONAL_TRADE";
@@ -29,10 +29,11 @@ export const isTradeMode = (m: string | null | undefined): boolean => m === "DOM
 export const TRADE_QUOTE_TEMPLATE = "30";
 
 /** One line of a customer's trade inquiry, as typed on the new-order page. */
-export type RequestLine = { sku?: string; description: string; qty: number; unit: string; neededBy?: string };
-export function requestLinesFrom(rows: { sku?: string; description?: string; qty?: number; unit?: string; neededBy?: string }[]): RequestLine[] {
+/** 国际贸易 adds the HS code and the country of origin the customs entry needs (they carry over to the shipment). */
+export type RequestLine = { sku?: string; description: string; qty: number; unit: string; neededBy?: string; hsCode?: string; origin?: string };
+export function requestLinesFrom(rows: { sku?: string; description?: string; qty?: number; unit?: string; neededBy?: string; hsCode?: string; origin?: string }[]): RequestLine[] {
   return rows
-    .map((r) => ({ sku: r.sku?.trim() || undefined, description: (r.description ?? "").trim(), qty: Number(r.qty) || 0, unit: r.unit?.trim() || "pcs", neededBy: r.neededBy || undefined }))
+    .map((r) => ({ sku: r.sku?.trim() || undefined, description: (r.description ?? "").trim(), qty: Number(r.qty) || 0, unit: r.unit?.trim() || "pcs", neededBy: r.neededBy || undefined, hsCode: r.hsCode?.trim() || undefined, origin: r.origin?.trim().toUpperCase() || undefined }))
     .filter((r) => r.qty > 0 && (r.description || r.sku))
     .map((r) => ({ ...r, description: r.description || r.sku! }));
 }

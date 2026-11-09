@@ -1,6 +1,7 @@
 /**
  * SLM service layer. One service = one QTTH created at report time; everything else hangs below it.
  */
+import { tradeTermsFrom } from "@/lib/export";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -67,7 +68,9 @@ export const CreateServiceOrderInput = z.object({
   kind: z.enum(["REPAIR", "MAINTENANCE", "OVERHAUL", "CONTRACT", "PARTS_SALE"]).optional(),
   partnerReason: z.string().optional(),
   /** 贸易: the customer's inquiry lines (no ATH) */
-  requestLines: z.array(z.object({ sku: z.string().optional(), description: z.string().optional(), qty: z.coerce.number().optional(), unit: z.string().optional(), neededBy: z.string().optional() })).optional(),
+  requestLines: z.array(z.object({ sku: z.string().optional(), description: z.string().optional(), qty: z.coerce.number().optional(), unit: z.string().optional(), neededBy: z.string().optional(), hsCode: z.string().optional(), origin: z.string().optional() })).optional(),
+  /** 国际贸易: currency, Incoterms and place, destination, payment terms (src/lib/export.ts) — required for that mode */
+  tradeTerms: z.record(z.unknown()).optional(),
   reportedSymptom: z.string().optional(),
   reportedAlarm: z.string().optional(),
   productionImpact: z.string().optional(),
@@ -88,6 +91,8 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
   const requestLines = trade ? requestLinesFrom(data.requestLines ?? []) : [];
   if (trade && !requestLines.length) throw new Error("ITEM_LINES_REQUIRED");
   if (trade && data.assetCodes.length) throw new Error("TRADE_HAS_NO_ASSET"); // decided 2026-11-09: SKUs only
+  // 国际贸易 (2026-11-09): quoted in the terms' currency on Incoterms; the terms are fixed with the order
+  const terms = mode === "INTERNATIONAL_TRADE" ? tradeTermsFrom(data.tradeTerms ?? {}) : undefined;
   const kind = kindFor(mode, data.kind);
   const creator = await prisma.employee.findUniqueOrThrow({ where: { code: data.createdByEmployeeCode } });
   const assets = await prisma.asset.findMany({ where: { code: { in: data.assetCodes } } });
@@ -111,7 +116,8 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
         reportedById: data.reportedByContactId,
         createdById: creator.id,
         customerRef: keepCustomerRef(data.customerRef),
-        currency: data.currency,
+        currency: terms?.currency ?? data.currency,
+        tradeTerms: terms as Prisma.InputJsonValue | undefined,
         reportedAt: data.reportedAt,
         attachments: data.attachments as Prisma.InputJsonValue | undefined,
         requestLines: trade ? (requestLines as Prisma.InputJsonValue) : undefined,

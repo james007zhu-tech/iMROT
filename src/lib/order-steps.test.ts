@@ -33,4 +33,13 @@ describe("next step", () => {
     expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 2 }).primary).toBe("deliver");
     expect(nextSteps({ ...t, status: "ACCEPTED" }).primary).toBe("invoice");
   });
+  it("international trade: stock out, then the shipment (CI + PL), then payment — no DNTH signature, no TITH", () => {
+    const t = { kind: "PARTS_SALE", hasInspection: false, hasQuote: true, hasJob: false, jobFinished: false, workshop: false, deliveriesSigned: 0, deliveriesOpen: 0, invoicesUnpaid: 0, hasAcceptance: false, trade: true, intl: true };
+    expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 0 }).primary).toBe("stockOut");
+    expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 2 }).primary).toBe("ship");
+    expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 2, deliveriesOpen: 1, invoicesUnpaid: 1 })).toEqual({ primary: "ship", also: ["payment", "stockOut"] });
+    expect(nextSteps({ ...t, status: "INVOICED", invoicesUnpaid: 1 }).primary).toBe("payment");
+    expect(reportsFor({ type: "IV", templateCode: "33" }, false)[0].key).toBe("rpt33");
+    expect(reportsFor({ type: "DN", templateCode: "34" }, false)[0].key).toBe("rpt34");
+  });
 });

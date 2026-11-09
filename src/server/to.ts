@@ -37,6 +37,8 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, customer: true, lines: true, assets: true, taxInvoices: true, decline: true } });
   // ACCEPTED for the first tax invoice; INVOICED is fine only when every earlier tax invoice of the order was voided (re-issue after a void).
   const reissue = order.status === "INVOICED" && order.taxInvoices.length > 0 && order.taxInvoices.every((t) => t.voidedAt);
+  // 国际贸易: an export carries no TITH — the commercial invoice (IVTH 33) and the export entry stand in (src/lib/export.ts)
+  if (order.mode === "INTERNATIONAL_TRADE") throw new Error(`EXPORT_NO_TAX_INVOICE:${order.no}`);
   const feeLines = order.decline ? await declineInvoiceLines(order.no) : null;
   if (order.decline && !feeLines?.length) throw new Error(`FEE_WAIVED:${order.no}`);
   const first = order.decline ? order.status === "DECLINED" : order.status === "ACCEPTED";

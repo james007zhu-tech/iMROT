@@ -15,6 +15,7 @@ import { Card, Field, Grid, PageHeader, Table, btnGhost, btnPrimary, inputCls } 
 import { ModeCards } from "@/components/ModeCards";
 import { MODES, MODE_KINDS, OPEN_MODES, isTradeMode, modeNeedsAsset, type Mode } from "@/lib/modes";
 import { modeRules } from "@/server/modes";
+import { EXPORT_CURRENCIES, INCOTERMS, SHIP_MODES } from "@/lib/export";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
   ]);
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const trade = isTradeMode(initialMode);
+  const intl = initialMode === "INTERNATIONAL_TRADE";
   // 贸易: customer + SKU lines; the datalist shows what is on the shelf
   const [customers, parts, stock] = trade ? await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" }, select: { id: true, code: true, name: true } }),
@@ -57,7 +59,8 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       for (const f of form.getAll("poFiles")) if (f instanceof File && f.size > 0) po.push({ ...(await saveUpload(f, "po")), name: f.name, kind: "PO" });
       const order = await createServiceOrder({
         createdByEmployeeCode: me.code, customerId, plantId: first?.plantId ?? undefined, assetCodes: codes,
-        requestLines: Array.from({ length: 12 }, (_, i) => ({ sku: s(`ls${i}`), description: s(`ld${i}`), qty: Number(s(`lq${i}`) ?? 0), unit: s(`lu${i}`), neededBy: s(`ln${i}`) })),
+        requestLines: Array.from({ length: 12 }, (_, i) => ({ sku: s(`ls${i}`), description: s(`ld${i}`), qty: Number(s(`lq${i}`) ?? 0), unit: s(`lu${i}`), neededBy: s(`ln${i}`), hsCode: s(`lh${i}`), origin: s(`lo${i}`) })),
+        tradeTerms: mode === "INTERNATIONAL_TRADE" ? { currency: s("tCurrency"), incoterm: s("tIncoterm"), place: s("tPlace"), destCountry: s("tDestCountry"), destPort: s("tDestPort"), shipMode: s("tShipMode"), paymentTerms: s("tPaymentTerms"), paymentDays: Number(s("tPaymentDays") ?? 0) } : undefined,
         mode, kind: s("kind") as "REPAIR" | undefined, partnerReason: s("partnerReason"), reportedSymptom: s("reportedSymptom"), reportedAlarm: s("reportedAlarm"), productionImpact: s("productionImpact"),
         customerRef: s("customerRef"), reportedByContactId: s("reportedById"), reportedAt: s("reportedAt") ? new Date(s("reportedAt")!) : undefined,
         currency: "THB", attachments: [...boxed, ...po],
@@ -94,9 +97,22 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           </Grid>
           <Field label={u("inquiryFiles")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>
         </Card>
+        {intl && <Card title={u("tradeTerms")}>
+          <Grid cols={4}>
+            <Field label={u("quoteCurrency")} required><select name="tCurrency" defaultValue="USD" className={inputCls}>{EXPORT_CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
+            <Field label={u("incoterms")} required><select name="tIncoterm" defaultValue="FOB" className={inputCls}>{INCOTERMS.map((c) => <option key={c} value={c}>{c} · {u(`incoterm_${c}`)}</option>)}</select></Field>
+            <Field label={u("incotermPlace")} required><input name="tPlace" required placeholder="Laem Chabang" className={inputCls} /></Field>
+            <Field label={u("shipMode")}><select name="tShipMode" className={inputCls}>{SHIP_MODES.map((m) => <option key={m} value={m}>{u(`shipMode_${m}`)}</option>)}</select></Field>
+            <Field label={u("destCountry")} required><input name="tDestCountry" required placeholder="Indonesia" className={inputCls} /></Field>
+            <Field label={u("destPort")}><input name="tDestPort" placeholder="Jakarta" className={inputCls} /></Field>
+            <Field label={u("paymentTerms")} required><input name="tPaymentTerms" required placeholder="T/T 30% advance, 70% before shipment" className={inputCls} /></Field>
+            <Field label={u("paymentDaysAfterCi")}><input name="tPaymentDays" type="number" min="0" defaultValue="0" className={inputCls} /></Field>
+          </Grid>
+          <p className="text-xs text-navy/70">{u("tradeTermsHint")}</p>
+        </Card>}
         <Card title={u("itemLines")}>
           <datalist id="trade-parts">{parts.map((p) => <option key={p.id} value={p.sku}>{p.name} · {u("onHand", { n: onHand.get(p.id) ?? 0 })}</option>)}</datalist>
-          <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy")]}>
+          <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy"), ...(intl ? [u("hsCode"), u("origin")] : [])]}>
             {Array.from({ length: TRADE_ROWS }, (_, i) => (
               <tr key={i}>
                 <td className="w-8 text-navy/60">{i + 1}</td>
@@ -105,6 +121,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
                 <td className="w-24"><input name={`lq${i}`} type="number" min={0} step="0.001" required={i === 0} className={inputCls} /></td>
                 <td className="w-20"><input name={`lu${i}`} defaultValue="pcs" className={inputCls} /></td>
                 <td className="w-40"><input name={`ln${i}`} type="date" className={inputCls} /></td>
+                {intl && <><td className="w-32"><input name={`lh${i}`} placeholder="8504.40" className={`${inputCls} font-mono`} /></td><td className="w-20"><input name={`lo${i}`} placeholder="DE" className={`${inputCls} uppercase`} /></td></>}
               </tr>
             ))}
           </Table>

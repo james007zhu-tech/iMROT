@@ -714,7 +714,8 @@ model ServiceOrder {
   createdBy          Employee           @relation("OrderCreator", fields: [createdById], references: [id])
   customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
-  requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?}] — the quote starts from it, shortages raise a PRTH
+  requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH
+  tradeTerms         Json? /// 国际贸易 (2026-11-09): {currency, incoterm, place, destCountry, destPort?, shipMode, paymentTerms, paymentDays} — src/lib/export.ts
   attachments        Json? /// [{name, url, kind: PO | REPORT_MSG | PHOTO}] — originals kept for later comparison
   currency           String             @default("THB")
   fxRateToCny        Decimal?           @db.Decimal(18, 8)
@@ -1368,6 +1369,7 @@ model DeliveryNote {
   signatureUrl   String?
   attachments    Json? /// archived with the DN: our signed copy (DELIVERY) and, when the customer insists on their own form, their delivery note (CUSTOMER_DN, optional)
   remark         String?
+  shipping       Json? /// 国际贸易: the shipment behind this DNTH — packing per line (HS, origin, packages, kg), ports, vessel, B/L, export entry (src/lib/export.ts); prints as 34 Packing List
   createdAt      DateTime       @default(now())
 }
 
