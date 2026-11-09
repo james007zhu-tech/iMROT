@@ -245,6 +245,7 @@ model SalaryRecord {
   createdBy       Employee @relation("SalaryCreator", fields: [createdById], references: [id])
   createdAt       DateTime @default(now())
   attachments     Json? /// offer letter, salary memo
+  letter          Json? /// 调薪通知单 details: {salutation, position, praiseTh, praiseEn, praiseZh} — template 32
 
   @@index([employeeId, effectiveFrom])
 }

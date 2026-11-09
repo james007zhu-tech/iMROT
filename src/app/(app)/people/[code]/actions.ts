@@ -1,6 +1,7 @@
 "use server";
 /** Server actions of the ETH file page. Kept in their own module so nothing but `code` is bound (rule: actions never close over translators or helpers). */
 import { currentEmployee, grantReveal } from "@/server/auth";
+import { saveLetterDetails } from "@/server/salary-letter";
 import { addCredential, addQuickCredentials, addReview, addSalaryRecord, auditSalaryView, authorizeEmployeeReveal, removeCredential, setCareers, updateEmployee, updateOwnContacts } from "@/server/opd";
 import { guarded } from "@/lib/action-result";
 import { ALLOWANCE_ROWS, DEDUCTION_ROWS, readContacts, readEmployeeForm } from "@/components/EmployeeFormFields";
@@ -46,9 +47,17 @@ export async function salary(code: string, f: FormData) {
     for (const k of ["maritalStatus", "children", "parentsSupported", "lifeInsurance", "homeLoanInterest", "pvdDeclared", "otherDeductionsNote"]) { const v = str(f, `tx_${k}`); if (v !== undefined) taxDeductions[k] = ["children", "parentsSupported", "lifeInsurance", "homeLoanInterest", "pvdDeclared"].includes(k) ? Number(v) : v; }
     await addSalaryRecord(me.code, code, { effectiveFrom: String(f.get("effectiveFrom")), currency: str(f, "currency") ?? "THB", baseSalary: num(f, "baseSalary") ?? 0, allowances, ssoWageBase: num(f, "ssoWageBase"), ssoEmployeeRate: num(f, "ssoEmployeeRate"), ssoEmployerRate: num(f, "ssoEmployerRate"), pvdEmployeeRate: num(f, "pvdEmployeeRate"), pvdEmployerRate: num(f, "pvdEmployerRate"), taxDeductions, whtMonthly: num(f, "whtMonthly"), otherDeductions, reason: str(f, "reason") ?? "", note: str(f, "note"), approvedByCode: str(f, "approvedByCode"), approvedAt: str(f, "approvedAt") });
     return "saved";
-  }, `${back(code)}#salary`);
+  }, `${back(code)}#letter`); // last step of an adjustment: the 调薪通知单
 }
 export async function review(code: string, f: FormData) {
   await guarded(async () => { const me = await currentEmployee(); await addReview(me.code, code, { period: str(f, "period") ?? "", kind: f.get("kind") as "QUARTERLY", score: num(f, "score"), grade: str(f, "grade"), reviewedAt: String(f.get("reviewedAt")), conclusion: str(f, "conclusion"), improvements: str(f, "improvements"), visibleToEmployee: f.get("visibleToEmployee") === "on", confirmProbation: f.get("confirmProbation") === "on" }); return "saved"; }, `${back(code)}#reviews`);
 }
 
+
+/** 调薪通知单 details (greeting, title on the letter, thanks in three languages) — then download from the same card. */
+export async function letter(code: string, recordId: string, f: FormData) {
+  await guarded(async () => {
+    const me = await currentEmployee();
+    await saveLetterDetails(me.code, recordId, { salutation: str(f, "salutation"), position: str(f, "position"), praiseTh: str(f, "praiseTh"), praiseEn: str(f, "praiseEn"), praiseZh: str(f, "praiseZh") });
+  }, `${back(code)}#letter`);
+}

@@ -345,6 +345,17 @@ await step("employee-salary-and-review", async () => {
   await page.fill("[name=period]", "2026 Q4"); await page.fill("[name=score]", "90"); await page.fill("[name=grade]", "A"); await page.fill("[name=conclusion]", "good start");
   await page.click("button:has-text('Add review')"); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError(); await expectText("good start");
 });
+await step("salary-adjustment-notice", async () => {
+  await page.goto(`${BASE}/people/${engCode}`); await page.click("summary:has-text('Add salary record')");
+  await page.fill("[name=effectiveFrom]", "2026-12-01"); await page.fill("[name=baseSalary]", "28000"); await page.fill("[name=reason]", "annual review");
+  await page.click("form button:has-text('Add salary record')"); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError();
+  await expectText("Salary adjustment notice"); await expectText("+12.0%");
+  const f = page.locator("#letter form"); await f.locator("[name=praiseEn]").fill("Great site work."); await f.locator("[name=praiseZh]").fill("现场工作很出色。"); await f.locator("[name=praiseTh]").fill("งานหน้างานยอดเยี่ยม");
+  await f.locator("button").first().click(); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError();
+  const href = await page.locator("#letter a:has-text('Download PDF')").getAttribute("href");
+  const r = await ctx.request.get(`${BASE}${href}`); if (r.status() !== 200 || !(r.headers()["content-type"] ?? "").includes("pdf")) throw new Error(`notice PDF → ${r.status()}`);
+  if ((r.headers()["x-unfilled-placeholders"] ?? "") !== "") throw new Error(`unfilled: ${r.headers()["x-unfilled-placeholders"]}`);
+});
 await step("non-md-sees-only-own-file", async () => {
   const c2 = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const p2 = await c2.newPage();
   await p2.goto(`${BASE}/login`); await p2.fill("[name=email]", `eng-${stamp.toLowerCase()}@ducheng-industrial.com`); await p2.fill("[name=password]", "engineer1"); await p2.click("form button[type=submit]"); await p2.waitForURL(/\/(dashboard|assets)/); await p2.click("text=EN"); await p2.waitForTimeout(800);
