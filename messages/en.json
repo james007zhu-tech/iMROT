@@ -1452,7 +1452,7 @@
     "orderOwner": "Owner",
     "empLetter": "Salary adjustment notice",
     "empLetterHint": "Last step of the adjustment: effective {from} ({pct}) — Thai, English and Chinese, strictly confidential; add the personal thanks, then download",
-    "empLetterSalutation": "Greeting (nickname is fine)",
+    "empLetterSalutation": "Greeting, e.g. Mr. Nattawut",
     "empLetterPosition": "Position on the letter",
     "empLetterPraiseTh": "Personal thanks (Thai)",
     "empLetterPraiseEn": "Personal thanks (English)",
@@ -1461,7 +1461,8 @@
     "empLetterPdf": "Download PDF",
     "empLetterWord": "Download Word",
     "err_NO_PREVIOUS_SALARY": "No earlier salary to compare — a first salary is not an adjustment",
-    "err_NOT_AN_INCREASE": "The notice is for an increase only"
+    "err_NOT_AN_INCREASE": "The notice is for an increase only",
+    "empLetterEmployeeNo": "Employee no. on the letter"
   },
   "role": {
     "MD": "Managing Director",
