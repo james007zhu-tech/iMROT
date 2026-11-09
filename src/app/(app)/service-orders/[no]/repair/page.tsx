@@ -19,7 +19,7 @@ export default async function Repair({ params, searchParams }: { params: Promise
   const order = await loadOrder(no);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const engineers = await prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" } });
-  const outs = order.stockMovements.filter((m) => m.direction === "OUT");
+  const outs = order.stockMovements.filter((m) => m.direction === "OUT" && m.kind === "PART" && m.part).map((m) => ({ ...m, part: m.part! }));
   const insp = order.inspections.at(-1);
   // An unfinished RPTH (saved as draft) is reopened here and saved onto the same number.
   const draft = openJob(order.repairJobs, { maintenance: false, orderStatus: order.status });

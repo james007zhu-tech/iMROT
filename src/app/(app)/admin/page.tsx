@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { saveLegalEntity } from "@/server/opd";
 import { refreshBocRates } from "@/server/fx";
+import { modeRules, setModeRules } from "@/server/modes";
+import { MODES, DEFAULT_MARGIN_FLOOR, type Mode } from "@/lib/modes";
 import { guarded } from "@/lib/action-result";
 import { entityLabel } from "@/lib/entity";
 import { Flash } from "@/components/Flash";
@@ -23,6 +25,15 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
     prisma.docSequence.findMany({ orderBy: [{ prefix: "asc" }, { period: "desc" }], take: 100, include: { entity: true } }),
   ]);
   const md = me.role === "MD"; // legal entities: MD only (decision 2026-11-03)
+  const floors = await modeRules();
+  async function saveFloors(f: FormData) {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      await setModeRules({ actorCode: me.code, floors: Object.fromEntries(MODES.map((m) => [m, Number(f.get(`floor_${m}`)) / 100])) as Record<Mode, number> });
+      return "OK";
+    }, "/admin");
+  }
   async function fetchRates() {
     "use server";
     await guarded(async () => {
@@ -92,6 +103,17 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
           <Card title={u("newEntity")}>{form(null)}</Card>
         </section>
       )}
+      <Card title={u("modeFloors")}>
+        <form action={saveFloors} className="space-y-3">
+          <Table head={[u("businessMode"), u("marginFloorCol"), u("decidedDefault")]}>
+            {MODES.map((m) => <tr key={m}><td>{u(`mode_${m}`)}</td>
+              <td>{md ? <span className="flex items-center gap-1"><input name={`floor_${m}`} type="number" min={0} max={99} step="0.5" required defaultValue={Math.round(floors[m] * 1000) / 10} className={`${inputCls} w-24!`} />%</span> : `${Math.round(floors[m] * 1000) / 10}%`}</td>
+              <td className="text-navy/70">{Math.round(DEFAULT_MARGIN_FLOOR[m] * 100)}%</td></tr>)}
+          </Table>
+          <p className="text-xs text-navy/70">{u("modeFloorsHint")}</p>
+          {md && <div className="flex justify-end"><button className={btnPrimary}>{t("save")}</button></div>}
+        </form>
+      </Card>
       <Card title={t("bocRates")}>
         <form action={fetchRates} className="flex flex-wrap items-center gap-3"><button className={btnGhost}>{u("fxFetchNow")}</button><span className="text-xs text-navy/70">{u("fxAutoNote")}</span></form>
         <Table head={[t("date"), t("currency"), t("rate"), t("published")]}>

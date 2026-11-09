@@ -8,16 +8,19 @@ import { maskName } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
 import { OrderProgress } from "@/components/OrderProgress";
 import { OrderStatusBadge } from "@/components/StatusBadge";
-import { Alert, AssetTriple, Card, FaultText, Field, Grid, PageHeader, Table, Value, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
+import { Alert, AssetTriple, Card, FaultText, Field, Grid, PageHeader, Table, Tag, Value, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { ORDER_TRANSITIONS, type OrderStatus } from "@/lib/lifecycle";
 import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps";
 import { businessClosureOn } from "@/lib/closure";
 import { pdfAvailable } from "@/server/office";
-import { MIN_MARGIN_PCT } from "@/lib/margin";
+import { marginFloor } from "@/server/modes";
+import { isTradeMode, reopenBlocker } from "@/lib/modes";
+import { reopenAsPartnerAction } from "./actions";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
 
 export const dynamic = "force-dynamic";
+const atts0 = (o: { attachments: unknown }) => (o.attachments as { name: string; url: string; kind: string }[] | null) ?? [];
 
 /**
  * 服务单详情 — wireframe 5. The page shows the order and what has been done; each step is its own form page,
@@ -37,6 +40,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     workshop: jobs.some((j) => j.location === "WORKSHOP") || order.documents.some((d) => d.type === "ER"),
     deliveriesSigned: order.deliveries.filter((d) => d.status === "SIGNED").length, deliveriesOpen: order.deliveries.filter((d) => d.status !== "SIGNED").length,
     invoicesUnpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, hasAcceptance: !!order.acceptance,
+    partner: order.mode === "PARTNER_REPAIR",
+    trade: isTradeMode(order.mode), stockOuts: order.stockMovements.filter((m) => m.direction === "OUT").length,
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
   const money = (k: StepKey) => k === "invoice" || k === "payment";
@@ -69,7 +74,11 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     await guarded(async () => { const me = await currentEmployee(); await approveMargin({ no, actorCode: me.code, decision: form.get("decision") as "APPROVED" | "REJECTED", note: String(form.get("note") || "") || undefined }); }, `/service-orders/${no}`);
   }
   const me = await currentEmployee();
-  const marginLow = order.marginPct != null && Number(order.marginPct) < MIN_MARGIN_PCT;
+  const floor = await marginFloor(order.mode);
+  const marginLow = order.marginPct != null && Number(order.marginPct) < floor;
+  // 转合作维修 (2026-11-09): a REPAIR order is closed and reopened as 合作维修 — the mode itself never changes.
+  const mayReopen = reopenBlocker(order) === null;
+  const custFiles = atts0(order).filter((a) => ["INQUIRY", "PO"].includes(a.kind));
   const canBuy = !order.lockedAt && ["DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"].includes(order.status);
 
   // One line per document: who, when, what it says, which reports it renders to.
@@ -84,6 +93,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     if (type === "IV") { const x = order.invoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.amountDue).toFixed(2)}${x.paidAt ? ` · ${t("paid")}` : ""}` : ""; }
     if (type === "PR") { const x = order.inquiries.find((y) => y.no === docNo); return x ? <Link href={`/purchasing/inquiries/${x.no}`} className="text-blue hover:underline">{tInq(x.status)} · {(x.lines as unknown[]).length} {u("lines")}</Link> : ""; }
     if (type === "PO") { const x = order.purchaseOrders.find((y) => y.no === docNo); return x ? <Link href={`/purchasing/orders/${x.no}`} className="text-blue hover:underline">{tPo(x.status)} · {x.currency} {Number(x.total).toFixed(2)}</Link> : ""; }
+    if (type === "OB" || type === "IB") { const m = order.stockMovements.find((x) => x.no === docNo); if (m && m.kind !== "PART") return <Link href={`/service-orders/${order.no}/partner`} className="text-blue hover:underline">{u(m.kind === "SUBCONTRACT_OUT" ? "custodyOut" : "custodyBack")}</Link>; }
     if (type === "RC") { const e = order.events.find((x) => x.sourceDocNo === docNo); return e?.summary ?? ""; }
     return "";
   };
@@ -98,8 +108,24 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
 
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={<span className="font-mono">{order.no}</span>} badge={<OrderStatusBadge status={order.status} />}
+      <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={<span className="font-mono">{order.no}</span>}
+        badge={<><Tag>{u(`mode_${order.mode}`)}</Tag><OrderStatusBadge status={order.status} />{order.transferredFrom && <Link href={`/service-orders/${order.transferredFrom.no}`} className="text-xs text-blue hover:underline">{u("transferredFrom", { no: order.transferredFrom.no })}</Link>}</>}
         actions={<>
+          {mayReopen && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u("reopenAsPartner")}</summary>
+            <form action={reopenAsPartnerAction.bind(null, order.no)} className="absolute right-0 z-20 mt-1 w-[26rem] space-y-2 rounded-xl border bg-white p-4 text-sm shadow-xl">
+              <div className="text-base font-semibold text-navy">{u("reopenAsPartner")}</div>
+              <p>{u("reopenAsPartnerHint", { no: order.no })}</p>
+              <div className="font-semibold text-navy">{u("carriedOver")}</div>
+              <ul className="space-y-0.5">
+                <li>☑ <b>{t("asset")}</b> <span className="font-mono">{order.assets.map((l) => l.asset.code).join(", ")}</span></li>
+                {order.inspections.length > 0 && <li>☑ <b>{u("linkInspection")}</b> <span className="font-mono">{order.inspections.map((i) => i.no).join(", ")}</span></li>}
+                <li>☑ <b>{u("customerFiles")}</b> {custFiles.length}</li>
+                <li>☑ <b>{u("contactAndRef")}</b> <span className="font-mono">{order.customerRef ?? "—"}</span></li>
+              </ul>
+              <Field label={u("partnerReason")} required><input name="reason" required placeholder={u("partnerReasonPh")} className={inputCls} /></Field>
+              <div className="flex justify-end"><button className={btnPrimary}>{u("reopenAsPartnerGo")}</button></div>
+            </form>
+          </details>}
           {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
           {primary && primary !== "assign" && primary !== "contractDirect" && <Link href={stepHref(order.no, primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
@@ -108,7 +134,16 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <Card title={u("assetAndReport")}>
+          {isTradeMode(order.mode) ? <Card title={u("customerAndInquiry")}>
+            <Grid>
+              <Field label={t("customer")}><Value>{order.customer.name}</Value></Field>
+              <Field label={u("customerInquiryRef")}><Value className="font-mono">{order.customerRef ?? "—"}</Value></Field>
+            </Grid>
+            <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy")]}>
+              {((order.requestLines as { sku?: string; description: string; qty: number; unit: string; neededBy?: string }[] | null) ?? []).map((l, i) => <tr key={i}><td>{i + 1}</td><td className="font-mono">{l.sku ?? "—"}</td><td>{l.description}</td><td className="text-right">{l.qty}</td><td>{l.unit}</td><td>{l.neededBy ?? ""}</td></tr>)}
+            </Table>
+            {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.name}</a>)}</div>}
+          </Card> : <Card title={u("assetAndReport")}>
             <Grid>
               <Field label={t("asset")}><div className="space-y-2 rounded-md border bg-white px-2.5 py-2 text-sm">{order.assets.map((l) => <AssetTriple key={l.assetId} asset={l.asset} />)}</div></Field>
               <Field label={u("customerPlantLocation")}><Value>{order.customer.name}{order.plant ? ` · ${order.plant.code}` : ""}{order.assets[0]?.asset.location ? ` · ${order.assets[0].asset.location}` : ""}</Value></Field>
@@ -116,7 +151,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             </Grid>
             <Field label={t("symptom")}><Value><FaultText>{order.reportedSymptom ?? "—"}{order.reportedAlarm ? ` · ${order.reportedAlarm}` : ""}</FaultText>{order.productionImpact ? <span className="ml-2 text-navy/80">· {["STOPPED", "DEGRADED", "NONE"].includes(order.productionImpact) ? u(`impact${order.productionImpact[0]}${order.productionImpact.slice(1).toLowerCase()}`) : order.productionImpact}</span> : null}</Value></Field>
             {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {["INQUIRY", "PO", "MESSAGE", "PAYMENT", "CUSTOMER_DN"].includes(a.kind) ? `${u(`kind_${a.kind}`)} · ` : ""}{a.name}</a>)}</div>}
-          </Card>
+          </Card>}
 
           <Card title={u("documentsDone")}>
             <Table head={[u("document"), t("type"), u("time"), u("executor"), u("summary"), u("reports")]}>
@@ -138,7 +173,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               {order.lines.map((l) => <tr key={l.id}><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-navy/70">{l.descriptionLocal}</span> : null}</td><td>{Number(l.qty)} {l.unit}</td><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></tr>)}
             </Table>
             <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>
-            {order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: order.lockedAt.toISOString().slice(0, 10) })}` : ""}</p>}
+            {order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: order.lockedAt.toISOString().slice(0, 10) })}` : ""}</p>}
             {order.marginApproval === "PENDING" && me.role === "MD" && (
               <form action={decideMargin} className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">
                 <span className="text-sm font-semibold text-alert-ink">{u("marginDecision")}</span>
@@ -162,6 +197,12 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               <form action={contractDirect}><button className={btnBlue}>{stepLabel("contractDirect")} →</button></form>
             ) : <Link href={stepHref(order.no, primary)} className={btnBlue}>{stepLabel(primary)} →</Link>}
           </Card>}
+          {order.mode === "PARTNER_REPAIR" && <Card title={u("partnerRepair")}>
+            <p className="text-sm">{order.partnerReason}</p>
+            <p className="mt-1 text-xs text-navy/70">{u("partnerPrinciple")}</p>
+            <Link href={`/service-orders/${order.no}/partner`} className={`${btnGhost} mt-2`}>{u("step_partner")} →</Link>
+          </Card>}
+          {order.transferredTo && <Alert>{u("transferredTo", { no: order.transferredTo.no })} <Link href={`/service-orders/${order.transferredTo.no}`} className="font-mono text-blue underline">{order.transferredTo.no}</Link></Alert>}
           {(also.length > 0 || canBuy) && <Card title={u("alsoPossible")}>
             <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={stepHref(order.no, s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
           </Card>}

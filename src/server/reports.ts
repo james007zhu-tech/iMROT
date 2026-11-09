@@ -2,17 +2,15 @@
  * Report generation: a registered document number → the DCiT Word template it belongs to → field values from the
  * event data → .docx (and .pdf when LibreOffice is installed). Nothing is typed by hand; the template layout is untouched.
  */
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { sofficePath } from "./office";
-import { promisify } from "node:util";
+import { readFile, writeFile, mkdir, mkdtemp, rm, copyFile } from "node:fs/promises";
+import { convertToPdf } from "./office";
 import path from "node:path";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { fillDocx, type FieldValues } from "@/lib/docx/fill";
 import { maskNamesIn } from "@/lib/mask";
 import { englishAmount, thaiAmount } from "@/lib/amount-words";
 
-const exec = promisify(execFile);
 const TEMPLATES = path.join(process.cwd(), "templates", "word");
 const OUT = process.env.DOCS_DIR ?? path.join(process.cwd(), "uploads", "documents");
 
@@ -22,6 +20,8 @@ const TEMPLATE_FILES: Record<string, string> = {
   "11": "11_Preventive_Maintenance_Record.docx", "12": "12_Service_Completion.docx", "13": "13_Customer_Acceptance.docx", "19": "19_Delivery_Note.docx",
   "20": "20_Tax_Invoice.docx", "21": "21_Invoice.docx", "22": "22_Receipt.docx", "23": "23_Statement.docx",
   "24": "24_Purchase_Inquiry.docx", "25": "25_Purchase_Order.docx", "26": "26_Goods_Receipt.docx", "27": "27_Stock_Issue.docx",
+  "30": "30_Sales_Quotation.docx", "31": "31_Sales_Order_Confirmation.docx",
+  "28": "28_Subcontract_Dispatch.docx", "29": "29_Subcontract_Return.docx",
 };
 
 /**
@@ -55,6 +55,106 @@ const d = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : ""
 type TestRow = { test: string; criterion?: string; result?: string; recordId?: string; pass?: boolean };
 const col = (tests: TestRow[] | null | undefined, k: keyof TestRow, n = 4) => Array.from({ length: n }, (_, i) => (tests?.[i]?.[k] as string | undefined) ?? "");
 
+const KIND: Record<string, string> = { REPAIR: "Repair\nซ่อม", MAINTENANCE: "Maintenance\nบำรุงรักษา", OVERHAUL: "Overhaul\nยกเครื่อง", CONTRACT: "Contract service\nบริการตามสัญญา", PARTS_SALE: "Parts supply\nจำหน่ายอะไหล่" };
+const IMPACT: Record<string, string> = { STOPPED: "Line stopped\nไลน์ผลิตหยุด", DEGRADED: "Running degraded\nผลิตได้แต่ช้าลง", NONE: "No production impact\nไม่กระทบการผลิต" };
+/** Report names as the customer reads them — never template numbers ("Repair Report 09"). */
+const REPORT_NAME: Record<string, [string, string]> = { IN: ["Diagnostic report", "รายงานการตรวจสอบ"], RP: ["Repair report", "รายงานการซ่อม"], PM: ["Maintenance record", "บันทึกการบำรุงรักษา"], FS: ["Field service report", "รายงานบริการนอกสถานที่"] };
+const both = (n?: [string, string]) => (n ? `${n[0]}  ${n[1]}` : "");
+const lines_ = (...xs: (string | null | undefined | false)[]) => xs.filter((x): x is string => !!x && !!x.trim()).join("\n");
+const CHECK = (on: boolean) => (on ? "☒" : "☐");
+/** Warranty on 12 / 13: start, end from the promised days, then any terms typed at acceptance — one item per line. */
+function warrantyLines(start: Date | null | undefined, days: number | null | undefined, terms: string | null | undefined): string {
+  const until = start && days != null ? new Date(start.getTime() + days * 86_400_000) : null;
+  return lines_(start ? `From  เริ่ม  ${d(start)}` : "", until ? `Until  ถึง  ${d(until)}  (${days} days  ${days} วัน)` : "", terms);
+}
+
+/**
+ * 04 service proposal · 06 order confirmation · 12 service completion · 13 customer acceptance — all under the QTTH.
+ * Built by scripts/templates/build_service_templates.py (v0.3 print system); only what the order forms record (rule 21).
+ */
+async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { name: string; phone: string | null }; entity: { vatRate: unknown; signatoryName: string | null }; serviceOrderId: string | null }, want: string): Promise<FieldValues> {
+  const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: doc.serviceOrderId! }, include: {
+    customer: true, plant: true, reportedBy: true, assignee: true,
+    assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } },
+    lines: { orderBy: { lineNo: "asc" }, include: { part: { select: { sku: true } } } }, acceptance: { include: { customerContact: true } },
+    documents: { where: { voidedAt: null, type: { in: ["IN", "RP", "PM"] } }, orderBy: { issuedAt: "asc" }, select: { no: true, type: true, templateCode: true } },
+    deliveries: { where: { status: { not: "DRAFT" } }, orderBy: { deliverOn: "asc" }, select: { no: true } },
+    events: { where: { type: "ORDER_CONFIRMED" }, orderBy: { occurredAt: "asc" }, take: 1, include: { actor: true } },
+    repairJobs: { where: { finishedAt: { not: null } }, orderBy: { finishedAt: "desc" }, take: 1, include: { engineer: true } },
+  } });
+  const c = o.customer;
+  const contact = o.reportedBy ? `Attn: ${o.reportedBy.name}${o.reportedBy.title ? `, ${o.reportedBy.title}` : ""}` : "";
+  const party = { CUSTOMER_NAME: c.nameLocal ?? c.name, CUSTOMER_DETAILS: lines_(c.nameLocal ? c.name : "", o.plant?.name, o.plant?.address ?? c.addressLocal ?? c.addressEn, c.taxId ? `Tax ID  ${c.taxId}` : "", contact) };
+  const equipment = {
+    L_EQ_ASSET: o.assets.map((x) => x.asset.code),
+    L_EQ_MODEL: o.assets.map(({ asset: a }) => (a.model ? lines_(`${a.model.series.brand.name} ${a.model.series.name}`, a.model.code) : a.type)),
+    L_EQ_SERIAL: o.assets.map((x) => x.asset.serialNumber),
+    L_EQ_LOCATION: o.assets.map(({ asset: a }) => lines_(o.plant?.name, a.location) || "—"),
+  };
+  const po = o.customerRef ?? "—";
+  const terms = `${c.paymentTermDays} days from invoice\n${c.paymentTermDays} วันนับจากวันที่ใบแจ้งหนี้`;
+  const onSite = o.documents.some((x) => x.templateCode === "10");
+  const trade = want === "30" || want === "31";
+  const docs = trade ? lines_("Delivery note  ใบส่งของ", "Tax invoice and receipt  ใบกำกับภาษีและใบเสร็จรับเงิน") : lines_(
+    o.kind !== "PARTS_SALE" && o.kind !== "MAINTENANCE" ? both(REPORT_NAME.IN) : "",
+    // 合作维修: the partner's work is never shown to the customer — our retest gates the delivery, there is no RPTH
+    both(o.kind === "MAINTENANCE" ? REPORT_NAME.PM : o.kind !== "PARTS_SALE" && o.mode !== "PARTNER_REPAIR" ? (onSite ? REPORT_NAME.FS : REPORT_NAME.RP) : undefined),
+    "Delivery note  ใบส่งของ",
+    o.kind !== "PARTS_SALE" ? "Service completion confirmation  ใบยืนยันงานบริการแล้วเสร็จ" : "",
+    o.kind !== "PARTS_SALE" ? "Customer acceptance record  บันทึกการตรวจรับงาน" : "",
+    "Tax invoice and receipt  ใบกำกับภาษีและใบเสร็จรับเงิน",
+  );
+  const signHint = "Name / date  ชื่อ / วันที่";
+  // What we promise the customer (quote page, rule 26: partner work is back-to-back on the same days); runs from acceptance.
+  const promise = o.warrantyDays != null ? `${o.warrantyDays} days from acceptance\n${o.warrantyDays} วันนับจากวันตรวจรับงาน` : "—";
+
+  if (want === "04" || want === "06" || trade) {
+    const subtotal = o.subtotal != null ? Number(o.subtotal) : round2(o.lines.reduce((s, l) => s + Number(l.amount), 0));
+    const vatRate = Number(doc.entity.vatRate);
+    const vat = o.vatAmount != null ? Number(o.vatAmount) : round2(subtotal * vatRate);
+    const total = o.total != null ? Number(o.total) : round2(subtotal + vat);
+    const priced = {
+      L_NO: o.lines.map((l) => l.lineNo), L_DESC: o.lines.map((l) => lines_(l.descriptionLocal && l.descriptionLocal !== l.description ? l.descriptionLocal : "", l.description)),
+      L_ASSET: o.lines.map((l) => l.assetCode ?? ""), L_SKU: o.lines.map((l) => l.part?.sku ?? ""), L_QTY: o.lines.map((l) => String(Number(l.qty))), L_UNIT: o.lines.map((l) => l.unit), L_PRICE: o.lines.map((l) => money(l.unitPrice)), L_AMOUNT: o.lines.map((l) => money(l.amount)),
+      SUBTOTAL: money(subtotal), VAT_LABEL: pctLabel(vatRate), VAT_AMOUNT: money(vat), CURRENCY: o.currency, TOTAL: money(total),
+      TOTAL_WORDS_TH: thaiAmount(total, o.currency), TOTAL_WORDS_EN: englishAmount(total, o.currency),
+    };
+    if (want === "30") {
+      const owner = o.assignee ?? doc.createdBy;
+      return { ...party, ...priced, ISSUE_DATE: d(o.quoteSentAt ?? doc.issuedAt), CUSTOMER_REF: o.customerRef ?? "—", OUR_CONTACT: lines_(owner.name, owner.phone), PAYMENT_TERMS: terms, DELIVERABLE_DOCS: docs,
+        TO_PROCEED: `Please send your purchase order quoting ${o.no}.\nกรุณาส่งใบสั่งซื้อโดยอ้างอิงเลขที่ ${o.no}`,
+        PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "", CUSTOMER_SIGNATORY: signHint };
+    }
+    if (want === "04") {
+      const insp = await prisma.inspection.findFirst({ where: { serviceOrderId: o.id, draft: false }, orderBy: { inspectedAt: "desc" } });
+      const owner = o.assignee ?? doc.createdBy;
+      return { ...party, ...equipment, ...priced, ISSUE_DATE: d(o.quoteSentAt ?? doc.issuedAt), REQUESTED_ON: d(o.reportedAt), SERVICE_KIND: KIND[o.kind] ?? o.kind, OUR_CONTACT: lines_(owner.name, owner.phone),
+        SYMPTOM: lines_(o.reportedSymptom, o.reportedAlarm ? `Alarm  ${o.reportedAlarm}` : "") || "—", IMPACT: IMPACT[o.productionImpact ?? ""] ?? (o.productionImpact || "—"),
+        FINDINGS: lines_(insp?.findings, insp?.probableCause ? `Probable cause: ${insp.probableCause}` : "") || "—", RECOMMENDATION: insp?.recommendation || "—",
+        PAYMENT_TERMS: terms, WARRANTY: promise, DELIVERABLE_DOCS: docs,
+        TO_PROCEED: `Please send your purchase order quoting ${o.no}. Work starts when the purchase order is received.\nกรุณาส่งใบสั่งซื้อโดยอ้างอิงเลขที่ ${o.no} งานจะเริ่มเมื่อได้รับใบสั่งซื้อ`,
+        PREPARED_BY: doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "", CUSTOMER_SIGNATORY: signHint };
+    }
+    const confirmed = o.events[0];
+    return { ...party, ...equipment, ...priced, CONFIRMED_ON: d(confirmed?.occurredAt ?? o.quoteConfirmedAt ?? doc.issuedAt), CUSTOMER_PO: po, QUOTE_REF: lines_(o.no, d(o.quoteSentAt ?? doc.issuedAt)), PAYMENT_TERMS: terms,
+      DELIVER_TO: lines_(c.name, o.plant?.name, o.plant?.address ?? c.addressLocal ?? c.addressEn), WARRANTY: promise,
+      CONFIRMED_BY: confirmed?.actor?.name ?? doc.createdBy.name, AUTHORISED_BY: doc.entity.signatoryName ?? "", CUSTOMER_SIGNATORY: signHint };
+  }
+
+  // 12 / 13: from the acceptance record
+  const acc = o.acceptance;
+  const dv = (acc?.deliverables as { deliverable: string; criterion?: string; result?: string }[] | null) ?? [];
+  const reports = o.documents.map((x) => `${x.no}  ${(x.type === "RP" && x.templateCode === "10" ? REPORT_NAME.FS : REPORT_NAME[x.type])?.[0] ?? ""}`.trim()); // English name only: one report per line in a narrow cell
+  const shared = { ...party, ...equipment, CUSTOMER_PO: po, REPORTS: reports.join("\n") || "—", DELIVERY_NOTES: o.deliveries.map((x) => x.no).join("\n") || "—",
+    L_DV_NO: dv.map((_, i) => i + 1), L_DV_ITEM: dv.map((x) => x.deliverable), L_DV_CRITERION: dv.map((x) => x.criterion ?? ""), L_DV_RESULT: dv.map((x) => x.result ?? ""),
+    PUNCH_LIST: acc?.punchList?.trim() || "None  ไม่มี", WARRANTY: warrantyLines(acc?.warrantyStart ?? acc?.acceptedAt, o.warrantyDays, acc?.warrantyTerms) || "—",
+    CUSTOMER_SIGNATORY: acc?.customerSignatory ?? acc?.customerContact?.name ?? signHint };
+  const job = o.repairJobs[0];
+  if (want === "12") return { ...shared, COMPLETED_ON: d(job?.finishedAt ?? acc?.acceptedAt ?? doc.issuedAt), COMPLETED_BY: acc?.dcitSignatory ?? job?.engineer.name ?? doc.createdBy.name };
+  return { ...shared, ACCEPTED_ON: d(acc?.acceptedAt ?? doc.issuedAt), CHK_ACCEPTED: CHECK(acc?.status === "ACCEPTED"), CHK_CONDITIONAL: CHECK(acc?.status === "CONDITIONAL"), CHK_REJECTED: CHECK(acc?.status === "REJECTED"),
+    RECORDED_BY: acc?.dcitSignatory ?? doc.createdBy.name };
+}
+
 /** Build the field map for one document. Returns template code + values. */
 async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ template: string; values: FieldValues }> {
   const doc = await prisma.document.findUniqueOrThrow({ where: { no }, include: { entity: true, customer: true, createdBy: true, serviceOrder: { include: { plant: true, customer: true, assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } } } } } });
@@ -70,6 +170,9 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
     PO_JOB: [o?.customerRef, o?.no].filter(Boolean).join(" / "),
     MODEL_SERIAL: a ? `${a.model ? `${a.model.series.brand.name} ${a.model.series.name} ${a.model.code}` : a.type} · ${a.code} · S/N ${a.serialNumber}` : "",
   };
+
+  // 合作维修 (2026-11-08): partner-facing documents never carry the customer — not even as unused fill values
+  const partnerSafe = (v: FieldValues): FieldValues => ({ ...v, CUSTOMER_SITE: "", CUSTOMER_NAME: "", SITE: "", JOB_PO: "", PO_JOB: "" });
 
   switch (doc.type) {
     case "IN": {
@@ -104,22 +207,8 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
       return { template: "07", values: { ...common, JOB_NO: o?.no ?? "", EQUIPMENT_SERIAL: `${ev.asset.code} · S/N ${ev.asset.serialNumber}`, SENDER: pl.sender ?? "", RECEIVED_AT: d(ev.occurredAt), ACCESSORIES: pl.accessories ?? "", CONDITION: pl.condition ?? "", FAULT: pl.fault ?? "", PHOTO_REFERENCES: pl.photoRefs ?? "", HANDLING_RESTRICTIONS: pl.handlingRestrictions ?? "" } };
     }
     case "QT": {
-      const lines = await prisma.quoteLine.findMany({ where: { serviceOrderId: o!.id }, orderBy: { lineNo: "asc" } });
-      const entity = doc.entity;
       const want = templateHint ?? doc.templateCode ?? "13";
-      if (want === "04") {
-        const insp = await prisma.inspection.findFirst({ where: { serviceOrderId: o!.id, draft: false }, orderBy: { inspectedAt: "desc" } });
-        return { template: "04", values: { ...common, EQUIPMENT_ID: common.MODEL_SERIAL, FAULT_SYMPTOM: o?.reportedSymptom ?? "", OPERATIONAL_IMPACT: o?.productionImpact ?? "", REQUIRED_COMPLETION_DATE: "", DIAGNOSTIC_DELIVERABLE: insp?.findings ?? "", REPAIR_SCOPE: lines.map((l) => `${l.description} ×${Number(l.qty)}`).join("\n"), TEST_METHOD_AND_CRITERIA: insp?.recommendation ?? "", DELIVERY_AND_REPORT: "Repair Report 09 / Field Service Report 10, Service Completion 12, Customer Acceptance 13", EXCLUSIONS: "", CUSTOMER_INFORMATION_AND_ACCESS: "", QUOTE_REF: o?.no ?? "", PRICE_CURRENCY: `${o?.currency} ${Number(o?.total ?? 0).toFixed(2)} (incl. VAT ${(Number(entity.vatRate) * 100).toFixed(0)}%)`, VAT_TREATMENT: `VAT ${(Number(entity.vatRate) * 100).toFixed(0)}% shown separately`, PAYMENT_MILESTONES: `${o?.customer.paymentTermDays ?? 30} days after invoice`, LEAD_TIME: "", WARRANTY: "", ACCEPTANCE_CRITERIA: "", VALID_UNTIL: "", MILESTONE_1: "Diagnosis", OWNER_1: "DCiT", DATE_1: "", MILESTONE_2: "Repair & test", OWNER_2: "DCiT", DATE_2: "", MILESTONE_3: "Acceptance", OWNER_3: "Customer", DATE_3: "" } };
-      }
-      if (want === "06") {
-        return { template: "06", values: { ...common, CUSTOMER_PO: o?.customerRef ?? "", QUOTE_REF: o?.no ?? "", DELIVERY_ADDRESS: [o?.customer.addressLocal, o?.plant?.address].filter(Boolean).join(" / "), ITEM: lines.map((l) => l.description).join("\n"), QTY: lines.map((l) => `${Number(l.qty)} ${l.unit}`).join("\n"), SCOPE: o?.reportedSymptom ?? "", DELIVERY_DATE: "", AMOUNT_CURRENCY: `${o?.currency} ${Number(o?.total ?? 0).toFixed(2)}`, PAYMENT_TERMS: `${o?.customer.paymentTermDays ?? 30} days`, DEVIATIONS: "", WARRANTY: "" } };
-      }
-      // 12 Service Completion / 13 Customer Acceptance are both rendered from the acceptance record under the QTTH
-      const acc = await prisma.acceptance.findUnique({ where: { serviceOrderId: o!.id } });
-      const dv = (acc?.deliverables as { deliverable: string; criterion?: string; result?: string }[] | null) ?? [];
-      const values: FieldValues = { ...common, REPORT_REF: (await prisma.document.findMany({ where: { serviceOrderId: o!.id, type: { in: ["IN", "RP", "PM"] } } })).map((x) => x.no).join(", "), PUNCH_LIST: acc?.punchList ?? "", DATE: d(acc?.acceptedAt), STATUS: acc?.status ?? "", WARRANTY: [d(acc?.warrantyStart), acc?.warrantyTerms].filter(Boolean).join(" · ") };
-      for (let i = 0; i < 3; i++) { values[`DELIVERABLE_${i + 1}`] = dv[i]?.deliverable ?? ""; values[`CRITERION_${i + 1}`] = dv[i]?.criterion ?? ""; values[`RESULT_${i + 1}`] = dv[i]?.result ?? ""; }
-      return { template: want === "12" ? "12" : "13", values };
+      return { template: ["04", "06", "12", "30", "31"].includes(want) ? want : "13", values: { DOC_NO: no, ISSUE_DATE: common.ISSUE_DATE, ...(await serviceFields(doc, want)) } };
     }
     case "DN": {
       const dn = await prisma.deliveryNote.findUniqueOrThrow({ where: { no }, include: { driver: true } });
@@ -193,7 +282,9 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
       const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no }, include: { requestedBy: true, quotes: { include: { supplier: true } } } });
       const lines = inq.lines as { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; assetCode?: string }[];
       const sup = inq.quotes.find((q) => q.selected)?.supplier ?? inq.quotes[0]?.supplier; // addressed to the chosen supplier when one exists, otherwise generic
-      return { template: "24", values: { ...common, ISSUE_DATE: d(inq.createdAt), NEEDED_BY: d(inq.neededBy) || "—", REFERENCE: [o?.no, o?.customerRef ? `PO ${o.customerRef}` : ""].filter(Boolean).join("\n") || "—",
+      // 合作维修: the partner never learns who the customer is — no QTTH, no customer PO, only the machines (ATH)
+      const ref = inq.kind === "SUBCONTRACT" ? [...new Set(lines.map((l) => l.assetCode).filter(Boolean))].join("\n") : [o?.no, o?.customerRef ? `PO ${o.customerRef}` : ""].filter(Boolean).join("\n");
+      return { template: "24", values: { ...(inq.kind === "SUBCONTRACT" ? partnerSafe(common) : common), ISSUE_DATE: d(inq.createdAt), NEEDED_BY: d(inq.neededBy) || "—", REFERENCE: ref || "—",
         SUPPLIER_NAME: sup?.name ?? "", SUPPLIER_ATTN: sup?.contactName ? `Attn: ${sup.contactName}` : "", SUPPLIER_EMAIL: sup?.email ?? "", SUPPLIER_PHONE: sup?.phone ?? "",
         REQUESTED_BY: inq.requestedBy.name, REQUESTER_PHONE: inq.requestedBy.phone ?? "", NOTE: inq.note ?? "", APPROVED_BY: doc.entity.signatoryName ?? "",
         L_NO: lines.map((l, i) => l.lineNo ?? i + 1), L_PART: lines.map((l) => l.vendorPartNo ?? l.partSku ?? "—"), L_DESC: lines.map((l) => l.description), L_QTY: lines.map((l) => String(Number(l.qty))), L_UNIT: lines.map((l) => l.unit ?? "pcs"), L_REMARK: lines.map((l) => l.assetCode ? `for ${l.assetCode}` : "") } };
@@ -201,26 +292,33 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
     case "PO": {
       const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no }, include: { supplier: true, inquiry: { include: { quotes: { where: { selected: true } } } }, createdBy: true } });
       const lines = po.lines as { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; unitPrice: number; amount: number }[];
-      const q = po.inquiry?.quotes[0]; const e = doc.entity;
-      return { template: "25", values: { ...common, ISSUE_DATE: d(po.orderedAt), EXPECTED_AT: d(po.expectedAt) || "—", REFERENCE: [po.inquiry?.no, o?.no].filter(Boolean).join("\n") || "—",
+      const q = po.inquiry?.quotes[0]; const e = doc.entity; const sub = po.kind === "SUBCONTRACT";
+      if (sub) {
+        // scope, warranty (back-to-back with what we promised the customer) and the version go on the order itself
+        const head = [po.scope ? `Scope  ขอบเขต: ${po.scope}` : "", po.warrantyDays != null ? `Warranty  รับประกัน: ${po.warrantyDays} days` : "", po.version > 1 ? `Revision  แก้ไขครั้งที่ ${po.version - 1}` : ""].filter(Boolean);
+        if (head.length && lines[0]) lines[0] = { ...lines[0], description: [lines[0].description, ...head].join("\n") };
+      }
+      return { template: "25", values: { ...(sub ? partnerSafe(common) : common), ISSUE_DATE: d(po.orderedAt), EXPECTED_AT: d(po.expectedAt) || "—", REFERENCE: (sub ? [po.inquiry?.no] : [po.inquiry?.no, o?.no]).filter(Boolean).join("\n") || "—",
         SUPPLIER_NAME: po.supplier.name, SUPPLIER_ADDRESS: po.supplier.address ?? "", SUPPLIER_TAX_ID: po.supplier.taxId ?? "—", SUPPLIER_BRANCH: po.supplier.branchCode ? (po.supplier.branchCode === "00000" ? "Head Office 00000" : `Branch ${po.supplier.branchCode}`) : "", SUPPLIER_ATTN: po.supplier.contactName ? `Attn: ${po.supplier.contactName}${po.supplier.phone ? `\n${po.supplier.phone}` : ""}` : (po.supplier.phone ?? ""),
         SUPPLIER_QUOTE: [q?.quoteNo, d(q?.quoteDate)].filter(Boolean).join("\n") || "—",
         L_NO: lines.map((l, i) => l.lineNo ?? i + 1), L_PART: lines.map((l) => l.vendorPartNo ?? l.partSku ?? "—"), L_DESC: lines.map((l) => l.description), L_QTY: lines.map((l) => String(Number(l.qty))), L_UNIT: lines.map((l) => l.unit ?? "pcs"), L_PRICE: lines.map((l) => money(l.unitPrice)), L_AMOUNT: lines.map((l) => money(l.amount)),
         SUBTOTAL: money(po.subtotal), VAT_LABEL: pctLabel(po.vatRate), VAT_AMOUNT: money(po.vatAmount), CURRENCY: po.currency, TOTAL: money(po.total),
-        DELIVER_TO: `DCiT workshop\n${e.addressEn ?? ""}`, PAYMENT_TERMS: po.paymentTerms ?? po.supplier.paymentTerms ?? "30 days after delivery and tax invoice", INVOICE_TO: `${e.nameEn}\nTax ID ${e.taxId ?? ""}\n${e.branchCode === "00000" || !e.branchCode ? "Head Office" : `Branch ${e.branchCode}`}`,
+        DELIVER_TO: sub ? `Return the repaired machine to DCiT only — never to a third party\nส่งคืนเครื่องที่ซ่อมแล้วให้ DCiT เท่านั้น\n${e.addressEn ?? ""}` : `DCiT workshop\n${e.addressEn ?? ""}`, PAYMENT_TERMS: po.paymentTerms ?? po.supplier.paymentTerms ?? "30 days after delivery and tax invoice", INVOICE_TO: `${e.nameEn}\nTax ID ${e.taxId ?? ""}\n${e.branchCode === "00000" || !e.branchCode ? "Head Office" : `Branch ${e.branchCode}`}`,
         PREPARED_BY: po.createdBy.name, AUTHORISED_BY: e.signatoryName ?? "" } };
     }
     case "IB":
     case "OB": {
+      const custody = await prisma.stockMovement.findFirst({ where: { no, kind: { in: ["SUBCONTRACT_OUT", "SUBCONTRACT_RETURN"] } }, include: { purchaseOrder: { include: { supplier: true, milestones: { orderBy: { at: "asc" } } } }, asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } });
+      if (custody) return custodyFields(no, doc, custody, partnerSafe(common));
       const mv = await prisma.stockMovement.findMany({ where: { no }, orderBy: { lineNo: "asc" }, include: { part: true, purchaseOrder: { include: { supplier: true } }, asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } });
       if (!mv.length) throw new Error(`no stock lines for ${no}`);
       const first = mv[0];
       const base = { ...common, ISSUE_DATE: d(first.movedAt), REFERENCE: [o?.no, ...new Set(mv.map((m) => m.asset?.code).filter(Boolean))].filter(Boolean).join("\n") || "—",
-        L_NO: mv.map((m) => m.lineNo), L_SKU: mv.map((m) => m.part.sku), L_DESC: mv.map((m) => m.part.name), L_QTY: mv.map((m) => String(Number(m.qty))), L_UNIT: mv.map((m) => m.part.unit), L_BATCH: mv.map((m) => m.batch ?? ""), L_COST: mv.map((m) => (m.unitCost != null ? money(m.unitCost) : "")) };
+        L_NO: mv.map((m) => m.lineNo), L_SKU: mv.map((m) => m.part?.sku ?? ""), L_DESC: mv.map((m) => m.part?.name ?? ""), L_QTY: mv.map((m) => String(Number(m.qty))), L_UNIT: mv.map((m) => m.part?.unit ?? ""), L_BATCH: mv.map((m) => m.batch ?? ""), L_COST: mv.map((m) => (m.unitCost != null ? money(m.unitCost) : "")) };
       if (doc.type === "IB") {
         const po = first.purchaseOrder;
         return { template: "26", values: { ...base, SUPPLIER_NAME: po?.supplier.name ?? "—", SUPPLIER_DOC: [...new Set(mv.map((m) => m.supplierRef).filter(Boolean))].join("\n"), PO_NO: po?.no ?? "—", WAREHOUSE: first.warehouse,
-          L_VENDOR_PART: mv.map((m) => m.part.vendorPartNo), RECEIVED_BY: first.byName ?? doc.createdBy.name, CHECKED_BY: "", STOCK_KEEPER: "" } };
+          L_VENDOR_PART: mv.map((m) => m.part?.vendorPartNo ?? ""), RECEIVED_BY: first.byName ?? doc.createdBy.name, CHECKED_BY: "", STOCK_KEEPER: "" } };
       }
       const a = first.asset;
       return { template: "27", values: { ...base, ISSUED_TO: first.byName ?? doc.createdBy.name, PURPOSE: o ? (o.kind === "MAINTENANCE" ? "Maintenance  บำรุงรักษา" : "Repair  ซ่อม") : "Parts sale  ขายอะไหล่",
@@ -232,7 +330,6 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
   }
 }
 
-/** Render a document to .docx (+ .pdf when soffice exists). Stores files under uploads/documents and sets Document.pdfUrl. */
 /**
  * Customer-facing documents never print a customer person's full name (decision 2026-11-04): every contact name of
  * this customer, and any signatory typed by hand, is replaced by its masked form wherever it appears in a field.
@@ -250,23 +347,66 @@ export async function buildFields(no: string, templateHint?: string): Promise<{ 
 }
 
 /** The DCiT templates are bilingual by design, so every document renders once — no per-language copies (decision 2026-11-03). */
-export async function renderDocument(no: string, template?: string): Promise<{ docxPath: string; pdfPath?: string; unfilled: string[] }> {
+export type Rendered = { docxPath: string; pdfPath?: string; unfilled: string[]; template: string; fileBase: string; cleanup: () => Promise<void> };
+
+/** "QTTH261108004_Repair_Service_Proposal": the number plus the report, so the four reports of one order do not all download as QTTH261108004.pdf. */
+export function reportFileBase(no: string, template: string): string {
+  return `${no}_${(TEMPLATE_FILES[template] ?? template).replace(/^\d+_/, "").replace(/\.docx$/, "")}`;
+}
+
+/**
+ * Render one report into a fresh folder every time (2026-11-08: reports came back in an old version — LibreOffice had
+ * silently not converted and the PDF of an earlier render with the same file name was handed out).
+ * The caller reads the files and calls cleanup(). PDF conversion: convertToPdf in ./office.
+ */
+export async function renderDocument(no: string, template?: string): Promise<Rendered> {
   const { template: tpl, values } = await buildFields(no, template);
-  const file = TEMPLATE_FILES[template ?? tpl];
-  if (!file) throw new Error(`unknown template ${template ?? tpl}`);
+  const code = template ?? tpl;
+  const file = TEMPLATE_FILES[code];
+  if (!file) throw new Error(`unknown template ${code}`);
   const { docx, unfilled } = fillDocx(await readFile(path.join(TEMPLATES, file)), values);
-  await mkdir(OUT, { recursive: true });
-  const docxPath = path.join(OUT, `${no}${template ? `-${template}` : ""}.docx`);
+  await mkdir(path.join(OUT, "renders"), { recursive: true });
+  const dir = await mkdtemp(path.join(OUT, "renders", `${no}-${code}-`));
+  const fileBase = reportFileBase(no, code);
+  const docxPath = path.join(dir, `${fileBase}.docx`);
   await writeFile(docxPath, docx);
-  let pdfPath: string | undefined;
-  try {
-    const soffice = await sofficePath();
-    if (!soffice) throw new Error("no LibreOffice");
-    await exec(soffice, ["--headless", "--convert-to", "pdf", "--outdir", OUT, docxPath], { timeout: 120000 });
-    pdfPath = path.join(OUT, `${no}${template ? `-${template}` : ""}.pdf`);
-    if (!template) await prisma.document.update({ where: { no }, data: { pdfUrl: `/api/documents/${no}/pdf`, templateCode: tpl } });
-  } catch {
-    // LibreOffice not installed on this host: the .docx is still delivered
+  const pdfPath = await convertToPdf(docxPath, dir);
+  // "Last rendered" copy behind Document.pdfUrl: replaced with this render, or removed so nothing stale is served.
+  if (!template) {
+    const last = path.join(OUT, `${no}.pdf`);
+    if (pdfPath) { await copyFile(pdfPath, last); await prisma.document.update({ where: { no }, data: { pdfUrl: `/api/documents/${no}/pdf`, templateCode: tpl } }); }
+    else await rm(last, { force: true }).catch(() => {});
   }
-  return { docxPath, pdfPath, unfilled };
+  return { docxPath, pdfPath, unfilled, template: code, fileBase, cleanup: () => rm(dir, { recursive: true, force: true }).catch(() => {}) };
+}
+
+type CustodyMove = Prisma.StockMovementGetPayload<{ include: { purchaseOrder: { include: { supplier: true; milestones: true } }; asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } }>;
+
+/**
+ * 外送维修单 (28) / 外协返回单 (29) — partner-facing, so nothing about the customer: no name, plant, PO or QTTH,
+ * only our POTH, the machine and what travels with it (principle 2026-11-08: the partner never meets the customer).
+ */
+async function custodyFields(no: string, doc: { createdBy: { name: string } }, m: CustodyMove, common: FieldValues): Promise<{ template: string; values: FieldValues }> {
+  const po = m.purchaseOrder, sup = po?.supplier, a = m.asset;
+  const d = (x?: Date | null) => (x ? x.toISOString().slice(0, 10) : "");
+  const equipment = a ? [a.code, a.model ? `${a.model.series.brand.name} ${a.model.code}` : a.type, `S/N ${a.serialNumber}`].join("\n") : "—";
+  const sentMs = po?.milestones.find((x) => x.sourceDocNo === (m.kind === "SUBCONTRACT_OUT" ? no : m.refNo) && x.stage === "SENT"); // the condition written by this very dispatch
+  const base: FieldValues = { ...common, ISSUE_DATE: d(m.movedAt), PO_NO: po ? `${po.no}${po.version > 1 ? ` (rev ${po.version - 1})` : ""}` : "—",
+    PARTNER_NAME: sup?.name ?? "—", PARTNER_ADDRESS: sup?.address ?? "", PARTNER_ATTN: sup?.contactName ? `Attn: ${sup.contactName}${sup.phone ? `\n${sup.phone}` : ""}` : (sup?.phone ?? ""),
+    WARRANTY: po?.warrantyDays != null ? `${po.warrantyDays} days  วัน` : "—", EQUIPMENT: equipment, SCOPE: po?.scope ?? ((po?.lines as { description: string }[] | undefined)?.[0]?.description ?? "—"),
+    CONDITION: sentMs?.note ?? "—", PARTNER_SIGNED: m.counterpartySigned ?? "", NOTE: "" };
+  const acc = (m.accessories as { item: string; qty: number }[] | null) ?? [];
+  if (m.kind === "SUBCONTRACT_OUT") {
+    const rows = acc.length ? acc : [{ item: "Machine only  เฉพาะตัวเครื่อง", qty: 0 }];
+    return { template: "28", values: { ...base, EXPECTED_AT: d(po?.expectedAt) || "—", ISSUED_BY: doc.createdBy.name, CARRIED_BY: m.byName ?? "",
+      L_NO: rows.map((_, i) => i + 1), L_ITEM: rows.map((r) => r.item), L_QTY: rows.map((r) => (r.qty ? String(r.qty) : "")), L_REMARK: rows.map(() => "") } };
+  }
+  const out = m.refNo ? await prisma.stockMovement.findFirst({ where: { no: m.refNo } }) : null;
+  const sent = (out?.accessories as { item: string; qty: number }[] | null) ?? [];
+  const names = [...new Map([...sent, ...acc].map((x) => [x.item.trim().toLowerCase(), x.item])).values()];
+  const qtyOf = (list: { item: string; qty: number }[], k: string) => list.filter((x) => x.item.trim().toLowerCase() === k.trim().toLowerCase()).reduce((s, x) => s + x.qty, 0);
+  const rows = names.length ? names : ["Machine only  เฉพาะตัวเครื่อง"];
+  return { template: "29", values: { ...base, DISPATCH_NO: m.refNo ?? "—", RECEIVED_BY: m.byName ?? doc.createdBy.name, CHECKED_BY: "", NOTE: m.oldPartDisposition ?? "",
+    L_NO: rows.map((_, i) => i + 1), L_ITEM: rows, L_SENT: rows.map((k) => (names.length ? String(qtyOf(sent, k)) : "")), L_QTY: rows.map((k) => (names.length ? String(qtyOf(acc, k)) : "")),
+    L_CHECK: rows.map((k) => (!names.length ? "✓" : qtyOf(acc, k) >= qtyOf(sent, k) ? "✓" : "✗")) } };
 }

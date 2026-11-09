@@ -69,7 +69,7 @@ async function main() {
   await prisma.asset.update({ where: { id: vfd.id }, data: { status: "IN_SERVICE" } });
 
   console.log("3. report → QTTH");
-  const order = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, plantId: plant.id, assetCodes: [vfd.code], kind: "REPAIR", reportedSymptom: "F30001 overcurrent at start", reportedAlarm: "F30001", productionImpact: "Line stopped", customerRef: "XCGDD2610140001" });
+  const order = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, plantId: plant.id, assetCodes: [vfd.code], mode: "REPAIR", reportedSymptom: "F30001 overcurrent at start", reportedAlarm: "F30001", productionImpact: "Line stopped", customerRef: "XCGDD2610140001" });
   assert(parseNumber(order.no)?.prefix === "QT" && order.status === "RECEIVED", `service order ${order.no}`);
   assert(order.customerRef === "XCGDD2610140001", "customer ref kept verbatim");
 
@@ -171,11 +171,14 @@ async function main() {
   const f13 = await buildFields(order.no, "13");
   const f07 = await buildFields(er.sourceDocNo!);
   assert(!JSON.stringify(f13.values).includes("Somchai") && !JSON.stringify(f07.values).includes("Somchai"), "customer names masked on customer-facing reports");
-  for (const [k, r] of Object.entries({ r08, r09, r13, r04, r06, r07, r19 })) assert(r.unfilled.length === 0, `${k} rendered with no blank placeholders`);
+  for (const [k, r] of Object.entries({ r08, r09, r13, r04, r06, r07, r19 })) { assert(r.unfilled.length === 0, `${k} rendered with no blank placeholders`); await r.cleanup(); }
+  assert(new Set([r04, r06, r13].map((r) => r.fileBase)).size === 3, "reports under one QTTH download under different names");
+  assert(!JSON.stringify((await buildFields(order.no, "04")).values).match(/Repair Report 09|Customer Acceptance 13| · /), "proposal shows report names, one item per line");
 
   console.log("10b. BLTH monthly statement for a credit customer");
   await prisma.customer.update({ where: { id: customer.id }, data: { monthlyStatement: true } });
   const o2 = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, assetCodes: [vfd.code], kind: "CONTRACT", reportedSymptom: "quarterly PM" });
+  assert(o2.mode === "MAINTENANCE" && o2.kind === "CONTRACT", "a contract-maintenance order is in the 维保 mode");
   for (const st of ["ASSIGNED", "DIAGNOSING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] as const) await advanceServiceOrder(o2.no, st, admin.code);
   await setQuoteLines({ serviceOrderNo: o2.no, actorCode: admin.code, lines: [{ description: "PM visit", descriptionLocal: "บำรุงรักษา", qty: 1, unitPrice: 3000 }] });
   try { await recordAcceptance({ serviceOrderNo: o2.no, actorCode: admin.code, deliverables: [{ deliverable: "PM done" }], status: "ACCEPTED" }); assert(false, "acceptance without PMTH must be refused"); }
@@ -195,6 +198,7 @@ async function main() {
   assert(pmJob.no.startsWith("PMTH") && pmJob.hazards === "fan 2 bearing noise", `maintenance job ${pmJob.no}`);
   const r11 = await renderDocument(pmJob.no);
   assert(r11.unfilled.length === 0, "r11 rendered with no blank placeholders");
+  await r11.cleanup();
 
   console.log("10d. CRM customer from documents; OPD is MD-only");
   const c2 = await createCustomer({ actorCode: admin.code, entityCode: "DCiT", taxId: "0205568072149", branchCode: "00001", nameLocal: "บริษัท ทดสอบ จำกัด", name: `Smoke Customer ${Date.now()}`, plants: [{ code: "P1", name: "Plant 1" }], contacts: [{ name: "Khun Anan", phone: "081-234-5612" }], files: [{ name: "dbd.pdf", url: "/x", kind: "DBD" }] }).catch((e) => { if (String(e.message).startsWith("CUSTOMER_EXISTS")) return null; throw e; });

@@ -22,6 +22,15 @@ describe("next step", () => {
   it("reports carry names, not template numbers", () => {
     expect(reportsFor({ type: "QT", templateCode: null }, true).map((r) => r.key)).toEqual(["rpt04", "rpt06", "rpt12", "rpt13"]);
     expect(reportsFor({ type: "RP", templateCode: "10" }, false)[0].key).toBe("rpt10");
+    expect(reportsFor({ type: "QT", templateCode: "30" }, false).map((r) => r.key)).toEqual(["rpt30", "rpt31"]); // 贸易
     expect(reportsFor({ type: "DN", templateCode: "19" }, false)[0].key).toBe("rpt19");
+  });
+  it("trade orders: quote, PO, stock out, delivery — no inspection, no acceptance step", () => {
+    const t = { kind: "PARTS_SALE", hasInspection: false, hasQuote: false, hasJob: false, jobFinished: false, workshop: false, deliveriesSigned: 0, deliveriesOpen: 0, invoicesUnpaid: 0, hasAcceptance: false, trade: true };
+    expect(nextSteps({ ...t, status: "RECEIVED" }).primary).toBe("quote");
+    expect(nextSteps({ ...t, status: "QUOTE_PENDING" }).primary).toBe("confirm");
+    expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 0 }).primary).toBe("stockOut");
+    expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 2 }).primary).toBe("deliver");
+    expect(nextSteps({ ...t, status: "ACCEPTED" }).primary).toBe("invoice");
   });
 });
