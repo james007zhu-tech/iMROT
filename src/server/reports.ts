@@ -53,7 +53,6 @@ const branchLabel = (code?: string | null, plant?: { name: string } | null) => [
 
 const d = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
 type TestRow = { test: string; criterion?: string; result?: string; recordId?: string; pass?: boolean };
-const col = (tests: TestRow[] | null | undefined, k: keyof TestRow, n = 4) => Array.from({ length: n }, (_, i) => (tests?.[i]?.[k] as string | undefined) ?? "");
 
 const KIND: Record<string, string> = { REPAIR: "Repair\nซ่อม", MAINTENANCE: "Maintenance\nบำรุงรักษา", OVERHAUL: "Overhaul\nยกเครื่อง", CONTRACT: "Contract service\nบริการตามสัญญา", PARTS_SALE: "Parts supply\nจำหน่ายอะไหล่" };
 const IMPACT: Record<string, string> = { STOPPED: "Line stopped\nไลน์ผลิตหยุด", DEGRADED: "Running degraded\nผลิตได้แต่ช้าลง", NONE: "No production impact\nไม่กระทบการผลิต" };
@@ -62,6 +61,40 @@ const REPORT_NAME: Record<string, [string, string]> = { IN: ["Diagnostic report"
 const both = (n?: [string, string]) => (n ? `${n[0]}  ${n[1]}` : "");
 const lines_ = (...xs: (string | null | undefined | false)[]) => xs.filter((x): x is string => !!x && !!x.trim()).join("\n");
 const CHECK = (on: boolean) => (on ? "☒" : "☐");
+const SIGN_HINT = "Name / date  ชื่อ / วันที่";
+const NONE = "None  ไม่มี";
+const hm = (x: Date) => x.toISOString().slice(11, 16);
+
+type FullAsset = { code: string; serialNumber: string; type: string; location: string | null; model: { code: string; series: { name: string; brand: { name: string } } } | null };
+const assetFull = { model: { include: { series: { include: { brand: true } } } } } as const;
+
+/** Customer block (left of every customer document): local name bold, then English name, plant, address, tax ID, contact — one item per line. */
+function partyFields(c: { name: string; nameLocal: string | null; addressLocal: string | null; addressEn: string | null; taxId: string | null }, plant?: { name: string; address: string | null } | null, contact?: { name: string; title: string | null } | null) {
+  return { CUSTOMER_NAME: c.nameLocal ?? c.name, CUSTOMER_DETAILS: lines_(c.nameLocal ? c.name : "", plant?.name, plant?.address ?? c.addressLocal ?? c.addressEn, c.taxId ? `Tax ID  ${c.taxId}` : "", contact ? `Attn: ${contact.name}${contact.title ? `, ${contact.title}` : ""}` : "") };
+}
+/** Equipment rows [[L_EQ_*]] — brand and series above the model code, plant above the machine's location. */
+function equipmentRows(assets: FullAsset[], plantName?: string | null) {
+  return {
+    L_EQ_ASSET: assets.map((a) => a.code),
+    L_EQ_MODEL: assets.map((a) => (a.model ? lines_(`${a.model.series.brand.name} ${a.model.series.name}`, a.model.code) : a.type)),
+    L_EQ_SERIAL: assets.map((a) => a.serialNumber),
+    L_EQ_LOCATION: assets.map((a) => lines_(plantName, a.location) || "—"),
+  };
+}
+/** Line rows for a table; nothing to list → one row saying so, so the table never stands empty. */
+function rowsOf<T>(items: T[], cols: Record<string, (x: T, i: number) => string | number>, empty: string): FieldValues {
+  const keys = Object.keys(cols);
+  if (!items.length) return Object.fromEntries(keys.map((k, i) => [k, [i === 0 ? "—" : i === 1 ? empty : ""]]));
+  return Object.fromEntries(keys.map((k) => [k, items.map((x, i) => cols[k](x, i))]));
+}
+const testRows = (tests: TestRow[] | null | undefined) => rowsOf(tests ?? [], {
+  L_T_NO: (_, i) => i + 1, L_T_TEST: (t) => t.test ?? "", L_T_CRITERION: (t) => t.criterion ?? "", L_T_RECORD: (t) => t.recordId ?? "",
+  L_T_RESULT: (t) => t.result || (t.pass === true ? "Pass  ผ่าน" : t.pass === false ? "Fail  ไม่ผ่าน" : ""),
+}, "No tests recorded  ไม่มีการบันทึกการทดสอบ");
+const LEVEL: Record<string, string> = { QUARTERLY: "Quarterly\nรายไตรมาส", HALF_YEAR: "Half-yearly\nราย 6 เดือน", ANNUAL: "Annual\nรายปี", CONTRACT: "Contract visit\nตามสัญญา" };
+const CONDITION: Record<string, string> = { GOOD: "Good  ดี", GOOD_WITH_ISSUE: "Good, with findings  ดี มีข้อสังเกต", POOR: "Poor  ไม่ดี" };
+const VERDICT: Record<string, string> = { OK: "OK  ปกติ", HANDLED: "Fixed  แก้ไขแล้ว", HAZARD: "Hazard  มีความเสี่ยง", WATCH: "Watch  เฝ้าระวัง" };
+const PLACE: Record<string, string> = { SITE: "On site\nหน้างาน", WORKSHOP: "Workshop\nโรงซ่อม" };
 /** Warranty on 12 / 13: start, end from the promised days, then any terms typed at acceptance — one item per line. */
 function warrantyLines(start: Date | null | undefined, days: number | null | undefined, terms: string | null | undefined): string {
   const until = start && days != null ? new Date(start.getTime() + days * 86_400_000) : null;
@@ -83,14 +116,8 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
     repairJobs: { where: { finishedAt: { not: null } }, orderBy: { finishedAt: "desc" }, take: 1, include: { engineer: true } },
   } });
   const c = o.customer;
-  const contact = o.reportedBy ? `Attn: ${o.reportedBy.name}${o.reportedBy.title ? `, ${o.reportedBy.title}` : ""}` : "";
-  const party = { CUSTOMER_NAME: c.nameLocal ?? c.name, CUSTOMER_DETAILS: lines_(c.nameLocal ? c.name : "", o.plant?.name, o.plant?.address ?? c.addressLocal ?? c.addressEn, c.taxId ? `Tax ID  ${c.taxId}` : "", contact) };
-  const equipment = {
-    L_EQ_ASSET: o.assets.map((x) => x.asset.code),
-    L_EQ_MODEL: o.assets.map(({ asset: a }) => (a.model ? lines_(`${a.model.series.brand.name} ${a.model.series.name}`, a.model.code) : a.type)),
-    L_EQ_SERIAL: o.assets.map((x) => x.asset.serialNumber),
-    L_EQ_LOCATION: o.assets.map(({ asset: a }) => lines_(o.plant?.name, a.location) || "—"),
-  };
+  const party = partyFields(c, o.plant, o.reportedBy);
+  const equipment = equipmentRows(o.assets.map((x) => x.asset), o.plant?.name);
   const po = o.customerRef ?? "—";
   const terms = `${c.paymentTermDays} days from invoice\n${c.paymentTermDays} วันนับจากวันที่ใบแจ้งหนี้`;
   const onSite = o.documents.some((x) => x.templateCode === "10");
@@ -104,7 +131,7 @@ async function serviceFields(doc: { no: string; issuedAt: Date; createdBy: { nam
     o.kind !== "PARTS_SALE" ? "Customer acceptance record  บันทึกการตรวจรับงาน" : "",
     "Tax invoice and receipt  ใบกำกับภาษีและใบเสร็จรับเงิน",
   );
-  const signHint = "Name / date  ชื่อ / วันที่";
+  const signHint = SIGN_HINT;
   // What we promise the customer (quote page, rule 26: partner work is back-to-back on the same days); runs from acceptance.
   const promise = o.warrantyDays != null ? `${o.warrantyDays} days from acceptance\n${o.warrantyDays} วันนับจากวันตรวจรับงาน` : "—";
 
@@ -160,6 +187,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
   const doc = await prisma.document.findUniqueOrThrow({ where: { no }, include: { entity: true, customer: true, createdBy: true, serviceOrder: { include: { plant: true, customer: true, assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } } } } } });
   const o = doc.serviceOrder;
   const a = o?.assets[0]?.asset;
+  const party = o ? partyFields(o.customer, o.plant, o.reportedById ? await prisma.contact.findUnique({ where: { id: o.reportedById } }) : null) : { CUSTOMER_NAME: doc.customer?.name ?? "", CUSTOMER_DETAILS: "" };
   const common = {
     DOC_NO: no,
     ISSUE_DATE: d(doc.issuedAt),
@@ -176,35 +204,46 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
 
   switch (doc.type) {
     case "IN": {
-      const i = await prisma.inspection.findUniqueOrThrow({ where: { no }, include: { engineer: true, asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } });
-      const tests = i.tests as TestRow[] | null;
-      return { template: "08", values: { ...common, DATE_TECHNICIAN: `${d(i.inspectedAt)} · ${i.engineer.code} ${i.engineer.name}`, SYMPTOMS: i.symptoms ?? o?.reportedSymptom ?? "", CONDITIONS: i.conditions ?? "", FINDINGS_CAUSE: [i.findings, i.probableCause].filter(Boolean).join("\n"), RECOMMENDATION_AUTHORIZATION: i.recommendation ?? "", APPROVED_CRITERION: col(tests, "criterion"), MEASURED_RESULT: col(tests, "result"), RECORD_ID: col(tests, "recordId"), INSTRUMENT_CALIBRATION: i.instruments ?? "", ATTACHMENT_IDS: [i.attachmentRefs, ((i.attachments as { name: string }[] | null) ?? []).map((x) => x.name).join(", ")].filter(Boolean).join(" · "), OPEN_ISSUES: i.openIssues ?? "", CONCLUSION_LIMITATIONS: i.conclusion ?? "" } };
+      const i = await prisma.inspection.findUniqueOrThrow({ where: { no }, include: { engineer: true, asset: { include: assetFull } } });
+      return { template: "08", values: { ...common, ...party, ...equipmentRows([i.asset], o?.plant?.name), ...testRows(i.tests as TestRow[] | null),
+        INSPECTED_ON: d(i.inspectedAt), JOB_NO: o?.no ?? "—", CUSTOMER_REF: o?.customerRef ?? "—", LOCATION: PLACE[i.location ?? ""] ?? "—",
+        SYMPTOMS: i.symptoms || o?.reportedSymptom || "—", CONDITIONS: i.conditions || "—", FINDINGS: i.findings || "—", PROBABLE_CAUSE: i.probableCause || "—", RECOMMENDATION: i.recommendation || "—",
+        INSTRUMENTS: i.instruments || "—", ATTACHMENTS: lines_(i.attachmentRefs, ...((i.attachments as { name: string }[] | null) ?? []).map((x) => x.name)) || "—",
+        OPEN_ISSUES: i.openIssues || NONE, CONCLUSION: i.conclusion || "—",
+        ENGINEER: i.engineer.name, APPROVER: SIGN_HINT, CUSTOMER_SIGNATORY: SIGN_HINT } }; // INTH needs are internal (rule 21) — never printed
     }
     case "RP":
     case "PM": {
-      const j = await prisma.repairJob.findUniqueOrThrow({ where: { no }, include: { engineer: true } });
-      const tests = j.tests as TestRow[] | null;
-      const parts = ((j.partsReplaced as { partSku: string; qty: number; oldSerial?: string; newSerial?: string; obthNo?: string }[] | null) ?? []).map((p) => `${p.partSku} ×${p.qty}${p.newSerial ? ` (S/N ${p.newSerial})` : ""}${p.obthNo ? ` · ${p.obthNo}` : ""}`).join("\n");
-      const base = { ...common, DATE_TECHNICIAN: `${d(j.finishedAt ?? j.startedAt)} · ${j.engineer.code} ${j.engineer.name}`, APPROVED_CRITERION: col(tests, "criterion"), MEASURED_RESULT: col(tests, "result"), RECORD_ID: col(tests, "recordId"), INSTRUMENT_CALIBRATION: "", ATTACHMENT_IDS: ((j.attachments as { name: string }[] | null) ?? []).map((x) => x.name).join(", "), OPEN_ISSUES: j.openIssues ?? "", CONCLUSION_LIMITATIONS: j.conclusion ?? "" };
+      const j = await prisma.repairJob.findUniqueOrThrow({ where: { no }, include: { engineer: true, asset: { include: assetFull } } });
+      const head = { ...common, ...party, ...equipmentRows([j.asset], o?.plant?.name), JOB_NO: o?.no ?? "—", CUSTOMER_REF: o?.customerRef ?? "—", ENGINEER: j.engineer.name, CUSTOMER_SIGNATORY: SIGN_HINT };
       if (doc.templateCode === "11" || j.kind === "MAINTENANCE") {
         const escort = j.escortContactId ? (await prisma.contact.findUnique({ where: { id: j.escortContactId } }))?.name : undefined; // masked with the other contact names below
         const items = (j.checklist as { item: string; criterion?: string; measured?: string; verdict?: string }[] | null) ?? [];
-        return { template: "11", values: { ...base,
-          ASSET_CONDITION: [j.conditionRating, j.runHours != null ? `${j.runHours} h` : "", j.level].filter(Boolean).join(" · ") || (j.confirmedFault ?? ""),
-          PM_TASKS: [items.length ? items.map((x, i) => `${i + 1}. ${x.item}${x.criterion ? ` [${x.criterion}]` : ""}: ${x.measured ?? ""}${x.verdict ? ` — ${x.verdict}` : ""}`).join("\n") : (j.workPerformed ?? ""), j.consumables ? `Consumables / parts: ${j.consumables}` : ""].filter(Boolean).join("\n"),
-          DATE_TECHNICIAN: `${base.DATE_TECHNICIAN}${escort ? ` · Customer: ${escort}` : ""}`,
-          ABNORMALITIES: [j.hazards, j.handled ? `Handled: ${j.handled}` : ""].filter(Boolean).join("\n") || (j.rootCause ?? ""),
-          NEXT_ACTIONS: [j.recommendation, j.nextDueAt ? `Next: ${d(j.nextDueAt)}` : "", j.nextDueHours ? `or +${j.nextDueHours} h` : ""].filter(Boolean).join(" · ") || (j.openIssues ?? "") } };
+        return { template: "11", values: { ...head, ...rowsOf(items, { L_C_NO: (_, i) => i + 1, L_C_ITEM: (x) => x.item, L_C_CRITERION: (x) => x.criterion ?? "", L_C_MEASURED: (x) => x.measured ?? "", L_C_RESULT: (x) => VERDICT[x.verdict ?? ""] ?? x.verdict ?? "" }, "No checklist recorded  ไม่มีรายการตรวจ"),
+          VISIT_DATE: d(j.finishedAt ?? j.startedAt ?? doc.issuedAt), LEVEL: LEVEL[j.level ?? ""] ?? (j.level || "—"), RUN_HOURS: j.runHours != null ? `${j.runHours.toLocaleString("en-US")} h` : "—",
+          CONDITION: CONDITION[j.conditionRating ?? ""] ?? (j.conditionRating || "—"), HAZARDS: j.hazards || NONE, HANDLED: j.handled || "—", CONSUMABLES: j.consumables || "—", RECOMMENDATION: j.recommendation || "—",
+          NEXT_DUE: lines_(j.nextDueAt ? d(j.nextDueAt) : "", j.nextDueHours ? `or at ${j.nextDueHours.toLocaleString("en-US")} h  หรือที่ ${j.nextDueHours.toLocaleString("en-US")} ชั่วโมง` : "") || "—",
+          CUSTOMER_SIGNATORY: escort ?? SIGN_HINT } };
       }
+      const replaced = (j.partsReplaced as { partSku: string; qty: number; oldSerial?: string; newSerial?: string }[] | null) ?? [];
+      const names = new Map((await prisma.part.findMany({ where: { sku: { in: replaced.map((x) => x.partSku) } }, select: { sku: true, name: true } })).map((x) => [x.sku, x.name]));
+      const parts = rowsOf(replaced, { L_P_NO: (_, i) => i + 1, L_P_PART: (x) => lines_(x.partSku, names.get(x.partSku)), L_P_QTY: (x) => x.qty, L_P_OLD: (x) => x.oldSerial ?? "", L_P_NEW: (x) => x.newSerial ?? "" }, "No parts replaced  ไม่มีการเปลี่ยนอะไหล่"); // stock documents (OBTH) stay internal
+      const work = { ...head, ...parts, ...testRows(j.tests as TestRow[] | null), ROOT_CAUSE: j.rootCause || "—", WORK_PERFORMED: j.workPerformed || "—", OPEN_ISSUES: j.openIssues || NONE };
       if (doc.templateCode === "10" || j.location === "SITE") {
-        return { template: "10", values: { ...base, ISSUE_SCOPE: [j.confirmedFault, j.rootCause].filter(Boolean).join("\n"), PERMIT_ISOLATION: "", ACTIVITY_TIME: `${j.workPerformed ?? ""}${j.laborHours ? `\n${Number(j.laborHours)} h` : ""}`, RESTORATION_HANDOVER: j.conclusion ?? "" } };
+        const time = lines_(j.startedAt && j.finishedAt ? `${hm(j.startedAt)} – ${hm(j.finishedAt)}` : "", j.laborHours ? `${Number(j.laborHours)} h  ชั่วโมง` : "");
+        return { template: "10", values: { ...work, SERVICE_DATE: d(j.startedAt ?? j.finishedAt ?? doc.issuedAt), TIME_ON_SITE: time || "—", ISSUE_SCOPE: j.confirmedFault || o?.reportedSymptom || "—", HANDOVER: j.conclusion || "—" } };
       }
-      return { template: "09", values: { ...base, CONFIRMED_FAULT: [j.confirmedFault, j.rootCause].filter(Boolean).join("\n"), WORK_PERFORMED: j.workPerformed ?? "", PARTS_REPLACED: parts, CONFIG_BACKUP: j.configBackupRef ?? "" } };
+      const insp = o ? await prisma.inspection.findFirst({ where: { serviceOrderId: o.id, assetId: j.assetId, draft: false }, orderBy: { inspectedAt: "desc" }, select: { no: true } }) : null;
+      return { template: "09", values: { ...work, COMPLETED_ON: d(j.finishedAt ?? j.startedAt ?? doc.issuedAt), INSPECTION_REF: insp?.no ?? "—", CONFIRMED_FAULT: j.confirmedFault || "—", CONFIG_BACKUP: j.configBackupRef || "—", CONCLUSION: j.conclusion || "—", APPROVER: SIGN_HINT } };
     }
     case "ER": {
-      const ev = await prisma.assetEvent.findFirstOrThrow({ where: { sourceDocNo: no }, include: { asset: true } });
+      const ev = await prisma.assetEvent.findFirstOrThrow({ where: { sourceDocNo: no }, include: { asset: { include: assetFull }, actor: true } });
       const pl = (ev.payload as Record<string, string> | null) ?? {};
-      return { template: "07", values: { ...common, JOB_NO: o?.no ?? "", EQUIPMENT_SERIAL: `${ev.asset.code} · S/N ${ev.asset.serialNumber}`, SENDER: pl.sender ?? "", RECEIVED_AT: d(ev.occurredAt), ACCESSORIES: pl.accessories ?? "", CONDITION: pl.condition ?? "", FAULT: pl.fault ?? "", PHOTO_REFERENCES: pl.photoRefs ?? "", HANDLING_RESTRICTIONS: pl.handlingRestrictions ?? "" } };
+      const photos = ((ev.attachments as { name: string }[] | null) ?? []).map((x) => x.name);
+      return { template: "07", values: { ...common, ...party, ...equipmentRows([ev.asset], o?.plant?.name),
+        RECEIVED_AT: `${d(ev.occurredAt)}  ${hm(ev.occurredAt)}`, JOB_NO: o?.no ?? "—", CUSTOMER_REF: o?.customerRef ?? "—", SENDER: pl.sender || "—",
+        FAULT: pl.fault || o?.reportedSymptom || "—", ACCESSORIES: pl.accessories || NONE, CONDITION: pl.condition || "—", PHOTO_REFERENCES: lines_(pl.photoRefs, ...photos) || "—", HANDLING_RESTRICTIONS: pl.handlingRestrictions || NONE,
+        RECEIVED_BY: ev.actor?.name ?? doc.createdBy.name, SENDER_SIGN: pl.sender || SIGN_HINT } };
     }
     case "QT": {
       const want = templateHint ?? doc.templateCode ?? "13";
@@ -212,13 +251,18 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
     }
     case "DN": {
       const dn = await prisma.deliveryNote.findUniqueOrThrow({ where: { no }, include: { driver: true } });
-      const lines = dn.lines as { kind: string; description: string; assetCode?: string; delivered: number; poLineNo?: number; source?: string }[];
-      const plant = dn.plantId ? await prisma.plant.findUnique({ where: { id: dn.plantId } }) : null;
-      const list = (f: (l: (typeof lines)[number]) => boolean) => lines.filter((l) => f(l) && l.delivered > 0).map((l) => `${l.poLineNo ? `${l.poLineNo}. ` : ""}${l.description}${l.assetCode ? ` (${l.assetCode})` : ""} × ${l.delivered}${l.source ? ` · ${l.source}` : ""}`).join("\n");
-      return { template: "19", values: { ...common, ISSUE_DATE: d(dn.deliverOn), DELIVER_TO: [o?.customer.name, plant?.name, dn.address ?? plant?.address].filter(Boolean).join(" · "), DRIVER_VEHICLE: [dn.driver ? `${dn.driver.code} ${dn.driver.name}` : "", dn.vehicle].filter(Boolean).join(" · "), DELIVER_ON: d(dn.deliverOn),
-        // The repaired machine itself goes back too; PO lines are the parts and items the customer ordered.
-        PO_ITEMS: list((l) => l.kind === "PO"), EQUIPMENT: [...new Set(lines.filter((l) => l.delivered > 0 && l.assetCode).map((l) => l.assetCode!))].map((c) => { const x = o?.assets.find((y) => y.asset.code === c)?.asset; return x ? `${x.code} · ${x.model ? `${x.model.series.brand.name} ${x.model.code} · ` : ""}S/N ${x.serialNumber}` : c; }).join("\n"),
-        RETURNED_ACCESSORIES: list((l) => l.kind === "RETURN" && (l.source ?? "").startsWith("ER")), RETURNED_PARTS: list((l) => l.kind === "RETURN" && !(l.source ?? "").startsWith("ER")), REMARKS: [dn.remark, dn.overrideReason ? `MD: ${dn.overrideReason}` : ""].filter(Boolean).join("\n") } };
+      const lines = (dn.lines as { kind: string; description: string; assetCode?: string; partSku?: string; delivered: number; poLineNo?: number; source?: string }[]).filter((l) => l.delivered > 0);
+      const plant = dn.plantId ? await prisma.plant.findUnique({ where: { id: dn.plantId } }) : o?.plant;
+      const machine = (code: string) => { const a = o?.assets.find((y) => y.asset.code === code)?.asset; return a ? lines_(a.code, a.model ? `${a.model.series.brand.name} ${a.model.code}` : a.type, `S/N ${a.serialNumber}`) : code; };
+      const items = lines.filter((l) => l.kind === "PO");
+      const back = lines.filter((l) => l.kind === "RETURN");
+      return { template: "19", values: { ...common, ...party, ISSUE_DATE: d(dn.deliverOn), DELIVER_ON: d(dn.deliverOn), CUSTOMER_PO: o?.customerRef ?? "—", JOB_NO: o?.no ?? "—",
+        DELIVER_TO: lines_(plant?.name, dn.address ?? plant?.address ?? o?.customer.addressLocal ?? o?.customer.addressEn) || "—", DRIVER: lines_(dn.driver?.name, dn.vehicle) || "—",
+        // the repaired machine goes back on its PO line: the line names the machine with model and serial number
+        ...rowsOf(items, { L_NO: (l, i) => l.poLineNo ?? i + 1, L_DESC: (l) => l.description, L_REF: (l) => (l.assetCode ? machine(l.assetCode) : l.partSku ?? ""), L_QTY: (l) => l.delivered }, "Nothing delivered  ไม่มีรายการ"),
+        ...rowsOf(back, { L_R_NO: (_, i) => i + 1, L_R_ITEM: (l) => l.description, L_R_FROM: (l) => l.source ?? "", L_R_QTY: (l) => l.delivered }, "Nothing returned  ไม่มี"),
+        REMARKS: dn.remark || "—", // an MD override of a mismatch is internal
+        ISSUED_BY: doc.createdBy.name, DRIVER_NAME: dn.driver?.name ?? SIGN_HINT, RECEIVED_BY: dn.signedBy ? lines_(dn.signedBy, dn.signedAt ? d(dn.signedAt) : "") : SIGN_HINT } };
     }
     case "TI": {
       const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no } });

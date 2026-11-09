@@ -21,7 +21,6 @@ from build_finance_templates import (  # noqa: E402  (shared print-system blocks
 )
 from docx.oxml import OxmlElement  # noqa: E402
 
-VERSION = "V2.0"  # 2026-11-08: rebuilt in the v0.3 print system (V1.0 = the original template package)
 
 def section(doc, en, th):
     p = doc.add_paragraph(); spacing(p, 6, 3); p.paragraph_format.keep_with_next = True  # a heading never ends a page
@@ -38,9 +37,7 @@ def together(t):
     return t
 
 def footer(doc, code):
-    set_footer(doc, code)
-    p = doc.sections[0].footer.paragraphs[0]
-    p.runs[0].text = p.runs[0].text.replace("V1.0", VERSION)
+    set_footer(doc, code)  # version comes from build_finance_templates.VERSION
 
 def customer_blocks(doc, right_pairs):
     two_blocks(doc, ("Customer", "ลูกค้า"), ["[[CUSTOMER_NAME]]", "[[CUSTOMER_DETAILS]]"], right_pairs)

@@ -69,7 +69,7 @@ export default async function Inspect({ params, searchParams }: { params: Promis
           </Grid>
         </Card>
         <Card title={u("inspectSteps")}>
-          <Field label={u("reportedSymptomEditable")}><textarea name="symptoms" rows={2} defaultValue={draft?.symptoms ?? [order.reportedSymptom, order.reportedAlarm].filter(Boolean).join(" · ")} className={`${inputCls} font-semibold text-fault`} /></Field>
+          <Field label={u("reportedSymptomEditable")}><textarea name="symptoms" rows={2} defaultValue={draft?.symptoms ?? [order.reportedSymptom, order.reportedAlarm].filter(Boolean).join("\n")} className={`${inputCls} font-semibold text-fault`} /></Field>
           <Field label={u("testConditions")} required><textarea name="conditions" required rows={2} defaultValue={draft?.conditions ?? ""} className={inputCls} /></Field>
           <Field label={u("findings")} required><textarea name="findings" required rows={3} defaultValue={draft?.findings ?? ""} className={inputCls} /></Field>
           <Field label={t("probableCause")} required><input name="probableCause" required defaultValue={draft?.probableCause ?? ""} className={inputCls} /></Field>
