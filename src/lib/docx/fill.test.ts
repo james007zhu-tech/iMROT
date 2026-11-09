@@ -18,13 +18,13 @@ describe("docx fill", () => {
   it("round-trips the real 08 template", () => {
     const tpl = readFileSync("templates/word/08_Diagnostic_Report.docx");
     const keys = listPlaceholders(tpl);
-    expect(keys).toContain("FINDINGS_CAUSE");
+    expect(keys).toContain("PROBABLE_CAUSE");
     const values = Object.fromEntries(keys.map((k) => [k, k]));
     const { docx, unfilled } = fillDocx(tpl, values);
     expect(unfilled).toEqual([]);
     const doc = readZip(docx).find((e) => e.name === "word/document.xml")!.data.toString();
     expect(doc).not.toContain("[[");
-    expect(doc).toContain("FINDINGS_CAUSE");
+    expect(doc).toContain("PROBABLE_CAUSE");
   });
 
   it("repeats a row per line for L_ keys and drops the row when there are no lines", () => {
