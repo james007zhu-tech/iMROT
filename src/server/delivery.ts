@@ -11,26 +11,32 @@ import { allocateNumber } from "@/lib/numbering-db";
 import { audit } from "@/server/audit";
 import { poLinesFromQuote, progressOrder, type PoLine } from "@/server/slm";
 import { isTradeMode } from "@/lib/modes";
+import { RETURN_UNREPAIRED, returnRemark } from "@/lib/decline";
 
-export type DeliveryLine = { key: string; kind: "PO" | "RETURN"; poLineNo?: number; description: string; assetCode?: string; partSku?: string; expected: number; deliveredBefore: number; source?: string; isService?: boolean };
+export type DeliveryLine = { key: string; kind: "PO" | "RETURN" | "MACHINE"; poLineNo?: number; description: string; assetCode?: string; partSku?: string; expected: number; deliveredBefore: number; source?: string; isService?: boolean };
 
-/** What this order still has to deliver, computed from the PO, earlier DNTHs, ERTH accessories and RPTH old parts. */
+/** What this order still has to deliver, computed from the PO, earlier DNTHs, ERTH accessories and RPTH old parts.
+ *  A declined order (客户拒绝报价) delivers no PO: each machine an ERTH took in goes back unrepaired, with its accessories. */
 export async function deliveryPlan(no: string): Promise<{ lines: DeliveryLine[]; poFromQuote: boolean }> {
   const o = await prisma.serviceOrder.findUniqueOrThrow({
     where: { no },
-    include: { deliveries: true, events: { where: { type: "RECEIVED_WORKSHOP" }, include: { asset: { select: { code: true } } } }, repairJobs: { include: { asset: { select: { code: true } } } }, assets: { include: { asset: true } } },
+    include: { deliveries: true, decline: { select: { id: true } }, events: { where: { type: "RECEIVED_WORKSHOP" }, include: { asset: { select: { code: true } } } }, repairJobs: { include: { asset: { select: { code: true } } } }, assets: { include: { asset: true } } },
   });
   const stored = o.poLines as PoLine[] | null;
-  const po = stored?.length ? stored : await poLinesFromQuote(no);
+  const po = o.decline ? [] : stored?.length ? stored : await poLinesFromQuote(no);
   const before = new Map<string, number>();
   // A draft reserves a DNTH number but nothing has gone out yet.
   for (const d of o.deliveries.filter((x) => x.status !== "DRAFT")) for (const l of d.lines as { key: string; delivered: number }[]) before.set(l.key, (before.get(l.key) ?? 0) + Number(l.delivered || 0));
   const lines: DeliveryLine[] = po.map((l) => ({ key: `PO:${l.lineNo}`, kind: "PO", poLineNo: l.lineNo, description: l.description, assetCode: l.assetCode, partSku: l.partSku, expected: l.isService ? 0 : l.qty, deliveredBefore: before.get(`PO:${l.lineNo}`) ?? 0, isService: l.isService }));
+  if (o.decline) {
+    const inShop = [...new Set(o.events.map((e) => e.asset.code))];
+    for (const code of inShop) lines.push({ key: `AS:${code}`, kind: "MACHINE", description: RETURN_UNREPAIRED, assetCode: code, expected: 1, deliveredBefore: before.get(`AS:${code}`) ?? 0 });
+  }
   for (const e of o.events) {
     const list = ((e.payload as { accessoryList?: { item: string; qty: number }[] } | null)?.accessoryList) ?? [];
     list.forEach((a, i) => lines.push({ key: `ER:${e.sourceDocNo}:${i}`, kind: "RETURN", description: a.item, assetCode: e.asset.code, expected: a.qty, deliveredBefore: before.get(`ER:${e.sourceDocNo}:${i}`) ?? 0, source: e.sourceDocNo ?? undefined }));
   }
-  for (const j of o.repairJobs) {
+  for (const j of o.decline ? [] : o.repairJobs) {
     ((j.partsReplaced as { partSku: string; name?: string; qty: number; oldDisposition?: string; oldSerial?: string }[] | null) ?? []).forEach((p, i) => {
       if (p.oldDisposition === "RETURN_TO_CUSTOMER") lines.push({ key: `RP:${j.no}:${i}`, kind: "RETURN", description: `${p.name ?? p.partSku}${p.oldSerial ? ` S/N ${p.oldSerial}` : ""}`, assetCode: j.asset.code, partSku: p.partSku, expected: p.qty, deliveredBefore: before.get(`RP:${j.no}:${i}`) ?? 0, source: j.no });
     });
@@ -62,8 +68,10 @@ export const DeliveryInput = z.object({
 /** Issue a DNTH (checked against the PO), or save/update this order's draft. An open draft is reused, so it keeps its number. */
 export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
   const d = DeliveryInput.parse(input);
-  const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } });
+  const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { decline: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
+  // 客户拒绝报价: the return DNTH always says the machine goes back unrepaired, whatever else the remark says
+  if (order.decline) { const note = returnRemark(order.decline.toldAt); if (!d.remark?.includes("Returned unrepaired")) d.remark = d.remark ? `${note}\n${d.remark}` : note; }
   if (!d.draft) {
     const blocked = await partnerDeliveryBlockers(order.id); // 合作维修: our retest must pass before the machine goes back
     if (blocked.length) throw new Error(`RETEST_NOT_PASSED:${blocked.join(",")}`);

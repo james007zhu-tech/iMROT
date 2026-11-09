@@ -146,6 +146,7 @@ model Employee {
   events            AssetEvent[]
   ordersAssigned    ServiceOrder[]         @relation("OrderAssignee")
   ordersCreated     ServiceOrder[]         @relation("OrderCreator")
+  quoteDeclines     QuoteDecline[]
   inspections       Inspection[]
   repairJobs        RepairJob[]
   documents         Document[]
@@ -365,6 +366,7 @@ model Contact {
 
   reportedOrders ServiceOrder[]
   acceptances    Acceptance[]
+  quoteDeclines  QuoteDecline[]
 }
 
 // ───────────────────────── ALM — product knowledge: brand → series → model ─────────────────────────
@@ -566,6 +568,7 @@ enum AssetEventType {
   INSPECTED /// INTH
   QUOTED
   ORDER_CONFIRMED
+  QUOTE_DECLINED /// customer declined the quote (QuoteDecline); undone → STATUS_CHANGED back
   MAINTAINED /// PMTH
   REPAIRED /// RPTH
   OVERHAULED
@@ -635,6 +638,7 @@ enum ServiceOrderStatus {
   ASSIGNED /// 已派工
   DIAGNOSING /// 诊断中
   QUOTE_PENDING /// 待确认报价
+  DECLINED /// 客户拒绝报价 — the machine goes back on a DNTH, the inspection fee is invoiced or waived (QuoteDecline)
   IN_PROGRESS /// 执行中
   ACCEPTANCE_PENDING /// 待验收
   ACCEPTED /// 已验收
@@ -740,6 +744,7 @@ model ServiceOrder {
   inspections    Inspection[]
   repairJobs     RepairJob[]
   acceptance     Acceptance?
+  decline        QuoteDecline?
   events         AssetEvent[]
   documents      Document[]
   stockMovements StockMovement[]
@@ -869,6 +874,26 @@ enum AcceptanceStatus {
 }
 
 /// Template 12 (service completion) is the engineer's record; template 13 (customer acceptance) is this row signed.
+/// 客户拒绝报价 (朱总 2026-11-09, mockup docs/mockups/quote-decline-v0.1.html): why, the customer's reply (required, in
+/// ServiceOrder.attachments kind DECLINE), the inspection fee per machine — charged by default, waived only with a reason.
+/// The order goes DECLINED and is locked; it closes once the machine is back with the customer (signed DNTH, when an
+/// ERTH took it in) and the fee is invoiced (TITH) or waived. Undo (back to QUOTE_PENDING) only before a DNTH or TITH.
+model QuoteDecline {
+  id             String       @id @default(cuid())
+  serviceOrderId String       @unique
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  reason         String /// PRICE | REPLACE | LEAD_TIME | SELF | OTHER
+  note           String?
+  toldAt         DateTime /// when the customer said no
+  contactId      String?
+  contact        Contact?     @relation(fields: [contactId], references: [id])
+  fees           Json /// [{assetCode, amount}] in the order currency, before VAT; [] when waived
+  waivedReason   String? /// internal, never on a customer document or the portal
+  actorId        String
+  actor          Employee     @relation(fields: [actorId], references: [id])
+  createdAt      DateTime     @default(now())
+}
+
 model Acceptance {
   id                String           @id @default(cuid())
   serviceOrderId    String           @unique

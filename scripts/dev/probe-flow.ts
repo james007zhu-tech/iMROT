@@ -122,18 +122,21 @@ async function main() {
     } catch (e) { gap("P4 rejected acceptance throws", errMsg(e)); }
   }
 
-  // ── Probe 5: customer declines the quote → end ──
+  // ── Probe 5: customer declines the quote (2026-11-09: its own form, machine back on a DNTH, fee or waiver — probe-decline.ts) ──
   {
     const o = await createServiceOrder({ createdByEmployeeCode: admin.code, customerId: customer.id, assetCodes: [vfd.code], kind: "REPAIR", reportedSymptom: "decline" });
     await advanceServiceOrder(o.no, "ASSIGNED", admin.code, undefined, admin.code);
     await advanceServiceOrder(o.no, "DIAGNOSING", admin.code);
     await setQuoteLines({ serviceOrderNo: o.no, actorCode: admin.code, lines: [{ assetCode: vfd.code, description: "Labour", qty: 1, unitPrice: 1000 }] });
     await advanceServiceOrder(o.no, "QUOTE_PENDING", admin.code);
+    const before = (await prisma.asset.findUniqueOrThrow({ where: { code: vfd.code } })).status;
     try {
       await advanceServiceOrder(o.no, "CANCELLED", admin.code, "customer declined");
+      gap("P5 a machine quote can still be cancelled without return or fee", "");
+    } catch (e) {
       const a = await prisma.asset.findUniqueOrThrow({ where: { code: vfd.code } });
-      a.status === "IN_SERVICE" || a.status === "ONBOARDED" ? pass("P5 declined quote cancels order and asset status is", a.status) : gap("P5 declined quote: asset left in", a.status);
-    } catch (e) { gap("P5 cannot cancel from QUOTE_PENDING", errMsg(e)); }
+      /USE_DECLINE/.test(errMsg(e)) && a.status === before ? pass("P5 declined quote goes through the decline form; machine status untouched", a.status) : gap("P5 declined quote", `${errMsg(e)} · ${a.status}`);
+    }
   }
 
   // ── Probe 6: acceptance with missing documents (no INTH, no RPTH) ──

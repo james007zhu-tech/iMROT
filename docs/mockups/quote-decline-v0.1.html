@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=1600"><title>客户拒绝报价 — mockup v0.1</title>
+<style>
+@font-face{font-family:Sarabun;src:url(https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.2.5/files/sarabun-thai-400-normal.woff2) format("woff2")}
+:root{--navy:#0B2D53;--blue:#2374D5;--tint:#EEF4FB;--line:#D5DEEA;--bg:#F4F6FA;--alert:#E8740C;--alert-ink:#9A4A00;--purple:#6B3FA0}
+*{box-sizing:border-box}body{margin:0;background:#888;font-family:Helvetica,Arial,"Noto Sans SC","Noto Sans CJK SC",Sarabun,sans-serif;font-size:13px;color:#15233a}
+.screen{width:1280px;background:var(--bg);display:grid;grid-template-columns:220px 1fr;margin:0 0 24px;position:relative}
+.side{background:#fff;border-right:1px solid var(--line);padding:18px 14px;min-height:760px}
+.logo{font-weight:800;font-size:22px;color:var(--navy);letter-spacing:.5px;margin-bottom:10px}
+.lang{display:flex;gap:6px;margin-bottom:16px}.lang span{padding:3px 8px;border-radius:6px;color:#556}.lang .on{background:var(--tint);color:var(--navy);font-weight:600}
+.nav a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#2b3a52;margin-bottom:2px}
+.nav a.on{background:var(--tint);color:var(--navy);font-weight:700;box-shadow:inset 3px 0 0 var(--blue)}
+.nav i{display:inline-block;width:16px;height:16px;border:1.5px solid currentColor;border-radius:3px;opacity:.7}
+.main{padding:18px 26px}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:14px}.top h1{margin:0;font-size:22px;color:var(--navy)}
+.badge{background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px}
+.btn{background:var(--blue);color:#fff;border-radius:8px;padding:8px 14px;font-weight:600;display:inline-block}
+.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+.right{margin-left:auto;display:flex;gap:8px}
+.back{color:var(--blue);font-size:13px;margin-bottom:6px;display:block}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.card h3{margin:0 0 10px;font-size:14px;color:var(--navy)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px}
+.f label{display:block;font-size:11px;color:#667;margin-bottom:3px}.f .v{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#fff;min-height:32px}
+.f .v.req::after{content:" *";color:var(--alert)}.f .v.fault{color:#B3261E;font-weight:600}.f .v.ro{background:var(--tint)}
+.up{border:1.5px dashed var(--blue);background:var(--tint);border-radius:12px;padding:12px 16px;margin-bottom:12px}
+.up b{color:var(--navy)}.up small{color:#556;display:block}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.mode{background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;position:relative}
+.mode.on{border-color:var(--blue);box-shadow:0 0 0 3px #2374D522}
+.mode .n{font-size:16px;font-weight:700;color:var(--navy)}.mode .e{font-size:11px;color:#667;margin-top:1px}
+.mode p{margin:8px 0 8px;color:#2b3a52;font-size:12.5px;min-height:34px}
+.mode .meta{display:flex;gap:6px;flex-wrap:wrap}
+.tag{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11px;background:var(--tint);color:var(--navy)}
+.tag.hot{background:#FBEEDF;color:var(--alert-ink)}.tag.mute{background:#F1F2F4;color:#556}
+.mode .tick{position:absolute;right:12px;top:12px;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line)}
+.mode.on .tick{background:var(--blue);border-color:var(--blue);box-shadow:inset 0 0 0 3px #fff}
+.sub{display:flex;gap:8px;margin-top:4px}.sub span{border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:#fff}.sub .on{border-color:var(--blue);background:var(--tint);color:var(--navy);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:var(--navy);color:#fff;text-align:left;padding:7px 8px;font-size:11.5px;vertical-align:top}
+th small{display:block;font-weight:400;opacity:.8}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:nth-child(even) td{background:#FAFCFE}
+td ol{margin:0;padding-left:16px}td ol li{margin:1px 0}
+.mono{font-family:ui-monospace,Menlo,monospace}.r{text-align:right}
+.ann{position:absolute;background:var(--purple);color:#fff;font-size:11px;line-height:1.45;padding:4px 8px;border-radius:5px;max-width:270px;z-index:2}
+.dialog{position:absolute;left:470px;top:170px;width:560px;background:#fff;border-radius:14px;box-shadow:0 20px 60px #0004;padding:18px 20px;border:1px solid var(--line)}
+.dialog h3{margin:0 0 8px;color:var(--navy);font-size:16px}
+.dim{position:absolute;inset:0;background:#0B2D5330}
+.chk{margin:4px 0}.chk b{color:var(--navy)}
+.legend{font-size:11.5px;color:#556;margin-top:8px}
+
+.chips{display:flex;gap:6px;flex-wrap:wrap}.chips span{border:1px solid var(--line);border-radius:999px;padding:4px 11px;background:#fff}.chips .on{border-color:var(--blue);background:var(--tint);color:var(--navy);font-weight:600}
+.radio{display:flex;gap:10px;margin-bottom:10px}.radio div{flex:1;border:1.5px solid var(--line);border-radius:10px;padding:9px 12px;background:#fff}
+.radio .on{border-color:var(--blue);box-shadow:0 0 0 3px #2374D522}.radio b{color:var(--navy)}.radio small{display:block;color:#667;margin-top:2px}
+.dot{display:inline-block;width:13px;height:13px;border-radius:50%;border:1.5px solid var(--line);vertical-align:-2px;margin-right:6px}.on .dot{background:var(--blue);border-color:var(--blue);box-shadow:inset 0 0 0 2.5px #fff}
+.note{background:var(--tint);border-radius:8px;padding:8px 11px;color:#2b3a52}
+.warn{background:#FBEEDF;color:var(--alert-ink);border-radius:8px;padding:8px 11px}
+.screen.wide{width:1600px;grid-template-columns:220px 1060px 320px}.screen.wide .ann{max-width:290px}
+.bhot{background:#FBEEDF;border-color:#F0C9A0;color:var(--alert-ink);font-weight:600}
+.steps .s{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}.steps .s:last-child{border:0}
+.steps .n{width:24px;height:24px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}
+.steps .n.off{background:#C9D3E0}.steps .t{flex:1}.steps .t b{color:var(--navy)}.steps .t small{display:block;color:#667;margin-top:2px}
+.paper{background:#fff;border:1px solid #c9ced6;box-shadow:0 2px 10px #0002;padding:16px 18px;font-size:11.5px}
+.paper h4{margin:0 0 2px;color:var(--navy);font-size:15px}.paper .sub2{color:#667;font-size:10.5px;margin-bottom:8px}
+.stamp{display:inline-block;border:1.5px solid var(--alert);color:var(--alert-ink);border-radius:4px;padding:2px 8px;font-weight:700;font-size:11px}
+
+</style></head><body>
+
+<!-- ─────────── Screen 1: 客户拒绝报价 (new step page) ─────────── -->
+<div class="screen wide">
+  <div class="side"><div class="logo">DCiT OS</div><div class="lang"><span>ไทย</span><span class="on">中文</span><span>EN</span></div><div class="nav"><a><i></i>工作看板</a><a><i></i>设备管理</a><a><i></i>客户管理</a><a class="on"><i></i>服务管理</a><a><i></i>采购仓储</a><a><i></i>财务管理</a><a><i></i>税务运营</a><a><i></i>组织人才</a><a><i></i>系统管理</a></div></div>
+  <div class="main">
+    <span class="back">← QTTH261109012</span>
+    <div class="top"><h1>客户拒绝报价</h1><span class="badge">维修</span><span class="badge">待确认报价</span><div class="right"><span class="btn ghost">返回</span><span class="btn">确认客户拒绝</span></div></div>
+    <div class="up"><b>上传或粘贴客户的回复</b><small>邮件、LINE 截图、拒绝函 —— 存入订单附件，原样保留</small></div>
+    <div class="card"><h3>拒绝原因</h3>
+      <div class="chips" style="margin-bottom:10px"><span class="on">价格太高</span><span>不修了，换新机</span><span>交期太长</span><span>自行处理</span><span>其他</span></div>
+      <div class="grid">
+        <div class="f"><label>客户告知日期</label><div class="v req">2026-11-09</div></div>
+        <div class="f"><label>客户联系人</label><div class="v">Khun Somchai · 设备部</div></div>
+        <div class="f"><label>说明</label><div class="v">报价 38,500 超出预算，准备换新</div></div>
+      </div>
+    </div>
+    <div class="card"><h3>检测费</h3>
+      <div class="radio">
+        <div class="on"><span class="dot"></span><b>收取检测费</b><small>默认。开出 TITH 税务发票和 IVTH 请款单，按正常流程收款</small></div>
+        <div><span class="dot"></span><b>免收</b><small>需填写免收原因，记入订单和设备履历</small></div>
+      </div>
+      <table><tr><th>设备 ATH</th><th>型号</th><th>S/N</th><th class="r">检测费 THB<small>不含税</small></th></tr>
+        <tr><td class="mono">ATH26110001</td><td>SIEMENS SINAMICS S120 · 6SL3120-2TE41-0AA1</td><td class="mono">XAN431002347</td><td class="r"><div class="f"><div class="v req" style="text-align:right">1,500.00</div></div></td></tr>
+        <tr><td colspan="3" class="r">小计 1,500.00 · VAT 7% 105.00</td><td class="r"><b>合计 1,605.00</b></td></tr>
+      </table>
+    </div>
+    <div class="card"><h3>机器退回</h3>
+      <div class="note">ATH26110001 在我方车间 —— 2026-11-05 由 <span class="mono">ERTH261105003</span> 接收，随机附件 3 项（操作面板、电源线、说明书）。<br>需要开送货单退回，客户签收后才能关闭订单。</div>
+      <div class="legend">若是现场检测、机器从未进我方车间，这里显示"现场检测，无需退回"。</div>
+    </div>
+  </div>
+  <div class="ann" style="left:1296px;top:60px">入口：业务单页"待确认报价"阶段，与"客户确认报价"并列。只在维修、合作维修、维保三种有设备的模式出现；贸易单被拒直接取消</div>
+  <div class="ann" style="left:1296px;top:330px">检测费默认收取，金额按台填写，必填；选"免收"时金额隐藏，改为必填"免收原因"。经办人即可免收，不需审批</div>
+  <div class="ann" style="left:1296px;top:560px">机器在不在我方，由 ERTH 自动判断：有 ERTH 的才需要退回送货单；附件清单直接带入送货单</div>
+</div>
+
+<!-- ─────────── Screen 2: 业务单页 after the decline ─────────── -->
+<div class="screen wide">
+  <div class="side"><div class="logo">DCiT OS</div><div class="lang"><span>ไทย</span><span class="on">中文</span><span>EN</span></div><div class="nav"><a><i></i>工作看板</a><a><i></i>设备管理</a><a><i></i>客户管理</a><a class="on"><i></i>服务管理</a><a><i></i>采购仓储</a><a><i></i>财务管理</a><a><i></i>税务运营</a><a><i></i>组织人才</a><a><i></i>系统管理</a></div></div>
+  <div class="main">
+    <span class="back">← 业务单</span>
+    <div class="top"><h1>QTTH261109012</h1><span class="badge">维修</span><span class="badge bhot">客户拒绝 · 待退回</span><div class="right"><span class="btn ghost">撤销拒绝</span></div></div>
+    <div class="warn" style="margin-bottom:12px">客户于 2026-11-09 拒绝报价（价格太高）。检测费 THB 1,500.00 + VAT。报价已锁定，不能再改价或新开询价/采购；未完成的询价已自动取消。</div>
+    <div class="card"><h3>关闭前要完成</h3>
+      <div class="steps">
+        <div class="s"><div class="n">1</div><div class="t"><b>退回送货单 DNTH</b><small>整机 ATH26110001 + 附件 3 项，备注"未维修退回"。签收后此项完成</small></div><span class="btn">开送货单</span></div>
+        <div class="s"><div class="n">2</div><div class="t"><b>检测费发票 TITH → 请款单 IVTH → 收款</b><small>发票行自动带入"检测费 — 型号 / S/N"，1,500.00 + VAT 7%</small></div><span class="btn ghost">开发票</span></div>
+        <div class="s"><div class="n off">3</div><div class="t"><b>关闭订单</b><small>1、2 都完成后可点（免收时只看 1；现场检测时只看 2）</small></div><span class="btn ghost" style="opacity:.45">关闭订单</span></div>
+      </div>
+    </div>
+    <div class="card"><h3>文件</h3>
+      <table><tr><th>单号</th><th>文件</th><th>状态</th></tr>
+        <tr><td class="mono">ERTH261105003</td><td>设备接收单</td><td>已签</td></tr>
+        <tr><td class="mono">INTH261106001</td><td>检测报告</td><td>已完成</td></tr>
+        <tr><td class="mono">QTTH261109012</td><td>报价建议书</td><td><span class="tag mute">客户拒绝 · 保留存档</span></td></tr>
+      </table>
+    </div>
+    <div class="card"><h3>设备履历 ATH26110001</h3>
+      <div class="legend" style="margin:0">2026-11-09 · 客户拒绝报价（价格太高），收取检测费 1,500.00 —— 机器状态不变（按 11-08 决定，不自动回退）</div>
+    </div>
+  </div>
+  <div class="ann" style="left:1296px;top:60px">新订单状态"客户拒绝"。流转：待确认报价 → 客户拒绝 →（开检测费发票）已开票 → 已完成；免收时 客户拒绝 → 已完成</div>
+  <div class="ann" style="left:1296px;top:230px">"撤销拒绝"：客户改主意时用，回到"待确认报价"、报价解锁。送货单或发票开出后不能再撤销</div>
+  <div class="ann" style="left:1296px;top:470px">客户门户显示"客户拒绝报价"，能看到检测报告、送货单和发票；看不到内部的免收原因</div>
+</div>
+
+<!-- ─────────── Screen 3: what the customer receives ─────────── -->
+<div class="screen" style="grid-template-columns:1fr;width:1600px">
+  <div class="main" style="display:grid;grid-template-columns:1fr 1fr;gap:22px;padding:22px 30px">
+    <div>
+      <div class="paper">
+        <h4>ใบส่งสินค้า / 送货单 / Delivery Note</h4><div class="sub2">DNTH261110001 · 参考 QTTH261109012 · 新版版式不变，只多一枚印记</div>
+        <div style="margin-bottom:8px"><span class="stamp">ส่งคืนโดยไม่ได้ซ่อม · 未维修退回 · Returned unrepaired</span></div>
+        <table><tr><th>#</th><th>รายการ / Description</th><th class="r">Qty</th></tr>
+          <tr><td>1</td><td>SINAMICS S120 6SL3120-2TE41-0AA1 · S/N XAN431002347 · ATH26110001</td><td class="r">1</td></tr>
+          <tr><td>2</td><td>操作面板 BOP-2（随机附件，ERTH261105003）</td><td class="r">1</td></tr>
+          <tr><td>3</td><td>电源线（随机附件）</td><td class="r">1</td></tr>
+          <tr><td>4</td><td>说明书（随机附件）</td><td class="r">1</td></tr>
+        </table>
+        <div class="legend">备注：客户 2026-11-09 不接受报价，机器按接收时状态退回。</div>
+      </div>
+    </div>
+    <div>
+      <div class="paper">
+        <h4>ใบกำกับภาษี / Tax Invoice</h4><div class="sub2">TITH261110001 · 新版版式不变，只换发票行</div>
+        <table><tr><th>#</th><th>รายการ / Description</th><th class="r">Qty</th><th class="r">Amount</th></tr>
+          <tr><td>1</td><td>ค่าตรวจเช็คและวิเคราะห์อาการเสีย<br><small style="color:#667">Inspection &amp; diagnosis fee — SINAMICS S120 6SL3120-2TE41-0AA1 · S/N XAN431002347</small></td><td class="r">1</td><td class="r">1,500.00</td></tr>
+          <tr><td colspan="3" class="r">VAT 7%</td><td class="r">105.00</td></tr>
+          <tr><td colspan="3" class="r"><b>รวมทั้งสิ้น / Total</b></td><td class="r"><b>1,605.00</b></td></tr>
+        </table>
+        <div class="legend">IVTH 请款单、RCTH 收据照常；检测费不受毛利率下限约束。</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>

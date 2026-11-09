@@ -20,7 +20,7 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
   const me = await currentContact();
   const order = await prisma.serviceOrder.findFirst({
     where: { no, customerId: me.customerId },
-    include: { assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } }, lines: { orderBy: { lineNo: "asc" } }, documents: { where: { voidedAt: null, type: { in: ["QT", "IN", "RP", "PM", "ER", "DN"] } }, orderBy: { issuedAt: "asc" } }, acceptance: true, repairJobs: true },
+    include: { assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } }, lines: { orderBy: { lineNo: "asc" } }, documents: { where: { voidedAt: null, type: { in: ["QT", "IN", "RP", "PM", "ER", "DN"] } }, orderBy: { issuedAt: "asc" } }, decline: { select: { id: true } }, acceptance: true, repairJobs: true },
   });
   if (!order) notFound();
   const [t, u, locale, pdf] = await Promise.all([getTranslations("common"), getTranslations("ui"), getLocale(), pdfAvailable()]);
@@ -53,11 +53,11 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
 
   const tests = (order.repairJobs.at(-1)?.tests as { test: string; result?: string; pass?: boolean }[] | null) ?? [];
   const rows = order.documents.flatMap((d) => reportsFor(d, !!order.acceptance).map((r) => ({ d, r })));
-  const pendingAcceptance = !order.acceptance && order.status !== "CANCELLED";
+  const pendingAcceptance = !order.acceptance && order.status !== "CANCELLED" && !order.decline; // a declined quote is never accepted
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2"><Link href="/portal" className="inline-flex min-h-11 items-center rounded-lg border border-navy/45 bg-white px-3">←</Link><span className="font-mono text-xl font-bold">{order.no}</span></div>
-      <OrderProgress status={order.status as OrderStatus} />
+      <OrderProgress status={order.status as OrderStatus} declined={!!order.decline} />
       <section className="space-y-2 rounded-xl border bg-white p-4 text-sm">
         {order.assets.map((a) => <AssetTriple key={a.assetId} asset={a.asset} link={false} />)}
         {order.reportedSymptom && <p><FaultText>{order.reportedSymptom}{order.reportedAlarm ? ` · ${order.reportedAlarm}` : ""}</FaultText> <span className="text-navy/70">· {day(order.reportedAt)}</span></p>}

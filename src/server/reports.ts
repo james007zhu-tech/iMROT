@@ -243,11 +243,12 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
       return { template: ["04", "06", "12", "30", "31"].includes(want) ? want : "13", values: { DOC_NO: no, ISSUE_DATE: common.ISSUE_DATE, ...(await serviceFields(doc, want)) } };
     }
     case "DN": {
-      const dn = await prisma.deliveryNote.findUniqueOrThrow({ where: { no }, include: { driver: true } });
+      const dn = await prisma.deliveryNote.findUniqueOrThrow({ where: { no }, include: { driver: true, serviceOrder: { select: { decline: { select: { id: true } } } } } });
+      const unrepaired = !!dn.serviceOrder.decline; // 客户拒绝报价: the machine goes back as it came in
       const lines = (dn.lines as { kind: string; description: string; assetCode?: string; partSku?: string; delivered: number; poLineNo?: number; source?: string }[]).filter((l) => l.delivered > 0);
       const plant = dn.plantId ? await prisma.plant.findUnique({ where: { id: dn.plantId } }) : o?.plant;
       const machine = (code: string) => { const a = o?.assets.find((y) => y.asset.code === code)?.asset; return a ? lines_(a.code, a.model ? `${a.model.series.brand.name} ${a.model.code}` : a.type, `S/N ${a.serialNumber}`) : code; };
-      const items = lines.filter((l) => l.kind === "PO");
+      const items = lines.filter((l) => l.kind === "PO" || l.kind === "MACHINE");
       const back = lines.filter((l) => l.kind === "RETURN");
       return { template: "19", values: { ...common, ...party, ISSUE_DATE: d(dn.deliverOn), DELIVER_ON: d(dn.deliverOn), CUSTOMER_PO: o?.customerRef ?? "—", JOB_NO: o?.no ?? "—",
         DELIVER_TO: lines_(plant?.name, dn.address ?? plant?.address ?? o?.customer.addressLocal ?? o?.customer.addressEn) || "—", DRIVER: lines_(dn.driver?.name, dn.vehicle) || "—",
@@ -255,6 +256,8 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
         ...rowsOf(items, { L_NO: (l, i) => l.poLineNo ?? i + 1, L_DESC: (l) => l.description, L_REF: (l) => (l.assetCode ? machine(l.assetCode) : l.partSku ?? ""), L_QTY: (l) => l.delivered }, "Nothing delivered  ไม่มีรายการ"),
         ...rowsOf(back, { L_R_NO: (_, i) => i + 1, L_R_ITEM: (l) => l.description, L_R_FROM: (l) => l.source ?? "", L_R_QTY: (l) => l.delivered }, "Nothing returned  ไม่มี"),
         REMARKS: dn.remark || "—", // an MD override of a mismatch is internal
+        ACK_EN: unrepaired ? "Equipment returned unrepaired, complete with the accessories listed, in the condition received." : "Goods received complete and in good order, in the quantities stated.",
+        ACK_TH: unrepaired ? "ได้รับอุปกรณ์คืนโดยไม่ได้ซ่อม พร้อมอุปกรณ์ประกอบตามรายการ ในสภาพเดียวกับที่ส่งมอบให้" : "ได้รับสินค้าครบถ้วนตามจำนวนที่ระบุและอยู่ในสภาพเรียบร้อย",
         ISSUED_BY: doc.createdBy.name, DRIVER_NAME: dn.driver?.name ?? SIGN_HINT, RECEIVED_BY: dn.signedBy ? lines_(dn.signedBy, dn.signedAt ? d(dn.signedAt) : "") : SIGN_HINT } };
     }
     case "TI": {

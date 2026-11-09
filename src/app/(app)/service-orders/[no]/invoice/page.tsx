@@ -6,6 +6,8 @@ import { guarded } from "@/lib/action-result";
 import { businessClosureOn } from "@/lib/closure";
 import { Alert, Card, Field, Grid, Table, Tag, Value, btnGhost, inputCls } from "@/components/ui";
 import { StepPage, dayNow, loadOrder, str } from "../_shell";
+import { declineInvoiceLines } from "@/server/decline";
+import { totals } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
 
@@ -19,14 +21,22 @@ export default async function Invoice({ params, searchParams }: { params: Promis
   const taxInvoices = await prisma.taxInvoice.findMany({ where: { serviceOrderId: order.id }, orderBy: { issuedAt: "asc" }, include: { invoices: { select: { no: true, cancelledAt: true, paidAmount: true } } } });
   const active = taxInvoices.find((x) => !x.voidedAt);
   const canIssue = !active; // first issue, or re-issue after every earlier TITH was voided
+  // 客户拒绝报价: the tax invoice carries the inspection fee, one line per charged machine, instead of the declined quote
+  const feeLines = order.decline ? await declineInvoiceLines(no) : null;
+  const entity = await prisma.legalEntity.findUniqueOrThrow({ where: { id: order.entityId } });
+  const shown = feeLines ? feeLines.map((l, i) => ({ id: `fee${i}`, lineNo: i + 1, descriptionLocal: l.descriptionLocal, description: l.descriptionEn, qty: 1, unitPrice: l.unitPrice, amount: l.unitPrice }))
+    : order.lines.map((l) => ({ id: l.id, lineNo: l.lineNo, descriptionLocal: l.descriptionLocal, description: l.description, qty: Number(l.qty), unitPrice: Number(l.unitPrice), amount: Number(l.amount) }));
+  const sum = feeLines ? totals(feeLines, Number(entity.vatRate)) : { subtotal: Number(order.subtotal ?? 0), vatAmount: Number(order.vatAmount ?? 0), total: Number(order.total ?? 0) };
   const today = new Date().toISOString().slice(0, 10);
   const due = new Date(Date.now() + order.customer.paymentTermDays * 86400000).toISOString().slice(0, 10);
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
       const me = await currentEmployee();
-      const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { lines: { orderBy: { lineNo: "asc" } } } });
-      const lines = o.lines.map((l, i) => ({ descriptionLocal: str(f, `th${i}`) ?? l.descriptionLocal ?? "", descriptionEn: l.description, qty: Number(l.qty), unitPrice: Number(l.unitPrice) }));
+      const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { lines: { orderBy: { lineNo: "asc" } }, decline: { select: { id: true } } } });
+      const fees = o.decline ? await declineInvoiceLines(no) : null;
+      const lines = fees ? fees.map((l, i) => ({ ...l, descriptionLocal: str(f, `th${i}`) ?? l.descriptionLocal }))
+        : o.lines.map((l, i) => ({ descriptionLocal: str(f, `th${i}`) ?? l.descriptionLocal ?? "", descriptionEn: l.description, qty: Number(l.qty), unit: l.unit, unitPrice: Number(l.unitPrice) }));
       const missing = lines.findIndex((l) => !l.descriptionLocal);
       if (missing >= 0) throw new Error(`THAI_NAME_REQUIRED:${missing + 1}`);
       const issuedAt = dayNow(str(f, "issuedAt"));
@@ -45,7 +55,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
   }
   const voidTag = (x: (typeof taxInvoices)[number]) => x.voidedAt ? <Tag hot>{u("tiVoided")}</Tag> : x.voidStatus === "REQUESTED" ? <Tag hot>{u("tiVoidRequested")}</Tag> : x.voidStatus === "REJECTED" ? <Tag>{u("tiVoidRejected")}</Tag> : <Tag>{u("tiValid")}</Tag>;
   return (
-    <StepPage order={order} title={u("step_invoice")} ok={ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} saveLabel={businessClosureOn() && canIssue ? u("issueTiIv") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
+    <StepPage order={order} title={feeLines ? u("step_invoiceFee") : u("step_invoice")} ok={ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} saveLabel={businessClosureOn() && canIssue ? u("issueTiIv") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
       {taxInvoices.length > 0 && (
         <Card title={<>{u("taxInvoicesIssued")} <Tag>{taxInvoices.length}</Tag></>}>
           <Table head={["TITH", u("bookNo"), u("issueDate"), t("total"), "IVTH", t("status"), u("voidReason"), ""]}>
@@ -78,14 +88,14 @@ export default async function Invoice({ params, searchParams }: { params: Promis
             <Field label={t("currency")}><Value>{order.currency}</Value></Field>
           </Grid>
           <Table head={["#", u("descThRequired"), u("descEn"), t("qty"), t("price"), t("amount")]}>
-            {order.lines.map((l, i) => <tr key={l.id}><td>{l.lineNo}</td><td><input name={`th${i}`} required defaultValue={l.descriptionLocal ?? ""} className={inputCls} /></td><td>{l.description}</td><td>{Number(l.qty)}</td><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></tr>)}
+            {shown.map((l, i) => <tr key={l.id}><td>{l.lineNo}</td><td><input name={`th${i}`} required defaultValue={l.descriptionLocal ?? ""} className={inputCls} /></td><td>{l.description}</td><td>{l.qty}</td><td className="text-right">{l.unitPrice.toFixed(2)}</td><td className="text-right">{l.amount.toFixed(2)}</td></tr>)}
           </Table>
-          <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal ?? 0).toFixed(2)} · {t("vat")} {Number(order.vatAmount ?? 0).toFixed(2)} · <b>{t("total")} {Number(order.total ?? 0).toFixed(2)}</b>{fx ? ` · CNY ${(Number(order.total ?? 0) * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} (${u("bocOn")} ${fx.rateDate.toISOString().slice(5, 10)})` : ""}</p>
+          <p className="text-right text-[13px]">{t("subtotal")} {sum.subtotal.toFixed(2)} · {t("vat")} {sum.vatAmount.toFixed(2)} · <b>{t("total")} {sum.total.toFixed(2)}</b>{fx ? ` · CNY ${(sum.total * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} (${u("bocOn")} ${fx.rateDate.toISOString().slice(5, 10)})` : ""}</p>
         </Card>
         <Card title={u("invoiceIv")}>
           <Grid>
             <Field label={u("dueDate")}><Value>{due} ({t("termDays")} {order.customer.paymentTermDays})</Value></Field>
-            <Field label={u("receivable")}><Value>{order.currency} {Number(order.total ?? 0).toFixed(2)}</Value></Field>
+            <Field label={u("receivable")}><Value>{order.currency} {sum.total.toFixed(2)}</Value></Field>
             <Field label={u("monthlyCustomer")}><Value>{order.customer.monthlyStatement ? u("yesIntoBl") : u("no")}</Value></Field>
           </Grid>
         </Card>

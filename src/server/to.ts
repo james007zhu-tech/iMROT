@@ -9,6 +9,7 @@ import { expectedReceipt, round2, totals } from "@/lib/money";
 import type { Prisma } from "@prisma/client";
 import { assertBusinessClosure } from "@/lib/closure";
 import { audit } from "@/server/audit";
+import { declineInvoiceLines } from "@/server/decline";
 
 async function bocRate(currency: string, onOrBefore: Date): Promise<number> {
   if (currency === "CNY") return 1;
@@ -22,28 +23,32 @@ export const TaxInvoiceInput = z.object({
   actorCode: z.string(),
   issuedAt: z.coerce.date().optional(),
   /** Thai description is mandatory on a Thai tax invoice; defaults to the quote line's descriptionLocal. */
-  lines: z.array(z.object({ descriptionLocal: z.string().min(1), descriptionEn: z.string().optional(), qty: z.number().positive(), unitPrice: z.number().min(0) })).optional(),
+  lines: z.array(z.object({ descriptionLocal: z.string().min(1), descriptionEn: z.string().optional(), qty: z.number().positive(), unit: z.string().optional(), unitPrice: z.number().min(0) })).optional(),
   vatRate: z.number().optional(),
   buyerTaxId: z.string().optional(),
   buyerBranch: z.string().optional(),
 });
 
-/** Issue TITH from the accepted order. Order must be ACCEPTED. Lines default to the quote lines. */
+/** Issue TITH from the accepted order. Order must be ACCEPTED. Lines default to the quote lines.
+ *  A declined order (客户拒绝报价) is invoiced from DECLINED for its inspection fee — one line per charged machine. */
 export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   assertBusinessClosure("TI");
   const d = TaxInvoiceInput.parse(input);
-  const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, customer: true, lines: true, assets: true, taxInvoices: true } });
+  const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, customer: true, lines: true, assets: true, taxInvoices: true, decline: true } });
   // ACCEPTED for the first tax invoice; INVOICED is fine only when every earlier tax invoice of the order was voided (re-issue after a void).
   const reissue = order.status === "INVOICED" && order.taxInvoices.length > 0 && order.taxInvoices.every((t) => t.voidedAt);
-  if (order.status !== "ACCEPTED" && !reissue) throw new Error(order.status === "INVOICED" ? `TI_EXISTS:${order.taxInvoices.find((t) => !t.voidedAt)?.no ?? ""}` : `${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
+  const feeLines = order.decline ? await declineInvoiceLines(order.no) : null;
+  if (order.decline && !feeLines?.length) throw new Error(`FEE_WAIVED:${order.no}`);
+  const first = order.decline ? order.status === "DECLINED" : order.status === "ACCEPTED";
+  if (!first && !reissue) throw new Error(order.status === "INVOICED" ? `TI_EXISTS:${order.taxInvoices.find((t) => !t.voidedAt)?.no ?? ""}` : `${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const issuedAt = d.issuedAt ?? new Date();
   const currency = order.entity.localCurrency;
   if (order.currency !== currency) throw new Error(`tax invoice must be in ${currency}; order is in ${order.currency}`);
 
-  const lines = d.lines ?? order.lines.map((l) => {
+  const lines = d.lines ?? feeLines ?? order.lines.map((l) => {
     if (!l.descriptionLocal) throw new Error(`quote line ${l.lineNo} has no Thai description (descriptionLocal)`);
-    return { descriptionLocal: l.descriptionLocal, descriptionEn: l.description, qty: Number(l.qty), unitPrice: Number(l.unitPrice) };
+    return { descriptionLocal: l.descriptionLocal, descriptionEn: l.description, qty: Number(l.qty), unit: l.unit, unitPrice: Number(l.unitPrice) };
   });
   const vatRate = d.vatRate ?? Number(order.entity.vatRate);
   const t = totals(lines, vatRate);

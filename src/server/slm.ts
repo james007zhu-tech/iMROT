@@ -10,6 +10,8 @@ import { canTransitionOrder } from "@/lib/lifecycle";
 import { quoteMayGoOut } from "@/lib/margin";
 import { autoInquiryForOrder, raisePurchaseOrdersForOrder } from "@/server/purchasing";
 import { MODES, OPEN_MODES, TRADE_QUOTE_TEMPLATE, isTradeMode, kindFor, modeFromKind, modeNeedsAsset, requestLinesFrom } from "@/lib/modes";
+import { declineCloseBlockers } from "@/lib/decline";
+import { declineShapeOf } from "@/server/decline";
 
 /** Shortest path through the status chain, e.g. RECEIVED → ASSIGNED → DIAGNOSING. */
 const CHAIN: ServiceOrderStatus[] = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED", "INVOICED", "CLOSED"];
@@ -143,6 +145,16 @@ export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, ac
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { assets: true } });
   if (order.status === to) return order; // documents may already have moved the order there (progressOrder)
   if (!canTransitionOrder(order.status, to)) throw new Error(`${no}: ${order.status} → ${to} not allowed`);
+  // 客户拒绝报价 (2026-11-09) has its own form: a quote for machines is declined, not cancelled, so the machine goes back
+  // on a DNTH and the inspection fee is invoiced or waived; undo goes through undoDecline.
+  if (to === "DECLINED") throw new Error(`USE_DECLINE:${no}`);
+  if (order.status === "DECLINED" && to === "QUOTE_PENDING") throw new Error(`USE_UNDO_DECLINE:${no}`);
+  if (to === "CANCELLED" && order.status === "QUOTE_PENDING" && !isTradeMode(order.mode)) throw new Error(`USE_DECLINE:${no}`);
+  if (to === "CLOSED") {
+    const shape = await declineShapeOf(no);
+    const open = shape ? declineCloseBlockers(shape) : [];
+    if (open.length) throw new Error(`DECLINE_OPEN:${open.join(",")}`);
+  }
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorEmployeeCode } });
   const assignee = assigneeCode ? await prisma.employee.findUniqueOrThrow({ where: { code: assigneeCode } }) : null;
   return prisma.$transaction(async (tx) => {
@@ -180,6 +192,7 @@ export async function getServiceOrder(no: string) {
       inspections: { where: { draft: false }, include: { engineer: { select: { name: true } } } },
       repairJobs: { include: { engineer: { select: { name: true } } } },
       acceptance: true,
+      decline: { include: { contact: { select: { name: true } }, actor: { select: { name: true } } } },
       documents: { include: { createdBy: { select: { name: true } } }, orderBy: { issuedAt: "asc" } },
       taxInvoices: true,
       invoices: { include: { taxInvoice: { select: { no: true } } } },

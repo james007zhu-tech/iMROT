@@ -140,7 +140,7 @@ def build_delivery():
     para(doc, after=3)
     together(kv_table(doc, [(["Remarks", "หมายเหตุ"], "[[REMARKS]]")], KV))
     para(doc, before=4, after=0)
-    lines(doc, ["Goods received complete and in good order, in the quantities stated.", "ได้รับสินค้าครบถ้วนตามจำนวนที่ระบุและอยู่ในสภาพเรียบร้อย"], 7.5, GREY, after=0)
+    lines(doc, ["[[ACK_EN]]", "[[ACK_TH]]"], 7.5, GREY, after=0)  # receipt wording; a returned-unrepaired machine (quote declined) says so
     signature_block(doc, [("Issued by", "ผู้ออกเอกสาร", "[[ISSUED_BY]]"), ("Delivered by", "ผู้ส่งของ", "[[DRIVER_NAME]]"), ("Received by", "ผู้รับของ", "[[RECEIVED_BY]]")])
     footer(doc, "OPS-DLV")
     doc.save(TPL / "19_Delivery_Note.docx")

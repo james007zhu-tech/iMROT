@@ -324,6 +324,30 @@ await step("trade-order-from-inquiry", async () => {
   if (!/_(Quotation|ใบเสนอราคา|报价单)\.pdf/.test(decodeURIComponent(r.headers()["content-disposition"] ?? ""))) throw new Error(`quotation download name: ${r.headers()["content-disposition"]}`);
 });
 
+await step("quote-declined-returned", async () => {
+  // 客户拒绝报价 (2026-11-09): no plain cancel, the reply is required, fee charged, machine back on a DNTH marked unrepaired, fee invoiced, close
+  await page.goto(`${BASE}/service-orders/new?asset=${assetCode}`);
+  await page.fill("[name=reportedSymptom]", `decline test ${stamp}`); await page.selectOption("[name=assigneeCode]", { index: 1 });
+  await page.locator("button[name=assign]").click(); await page.waitForURL(/\/service-orders\/QTTH/);
+  const dNo = page.url().split("/service-orders/")[1].split(/[/?]/)[0];
+  const g = async (s) => { await page.goto(`${BASE}/service-orders/${dNo}/${s}`); await expectText(dNo); };
+  await g("receive"); await page.fill("[name=sender]", "customer truck"); await page.fill("[name=accessories]", "keypad × 1"); await save(); await noFlashError();
+  await g("quote"); await page.fill("[name=d0]", "Replace IGBT module"); await page.fill("[name=l0]", "เปลี่ยนโมดูล IGBT"); await page.fill("[name=q0]", "1"); await page.fill("[name=p0]", "38500"); await save(); await noFlashError();
+  await page.goto(`${BASE}/service-orders/${dNo}`); await expectText("Customer declines the quote");
+  if (await page.locator("button[value=CANCELLED]").count()) throw new Error("a quote for a machine can still be cancelled");
+  await g("decline"); await save(); await expectText("Upload the customer's reply");
+  await page.locator("[data-upload-box] input[type=file][multiple]").setInputFiles({ name: `reply-${stamp}.txt`, mimeType: "text/plain", buffer: Buffer.from("Sorry, over budget. We will buy a new drive.") });
+  await expectText(`reply-${stamp}.txt`);
+  await page.fill(`[name=fee_${assetCode}]`, "1500"); await save(); await noFlashError();
+  await expectText("Quote declined"); await expectText("Return pending"); await expectText("Before the order closes");
+  if (!(await page.locator("button:has-text('Close service order')").isDisabled())) throw new Error("close should wait for the return and the fee");
+  await g("deliver"); await expectText("Machine — returned unrepaired"); await page.selectOption("[name=contactId]", { index: 1 });
+  await save(); await page.waitForURL(/\/deliver\/DNTH/);
+  await page.fill("[name=signedBy]", "Khun Somchai"); await save(); await page.waitForURL(new RegExp(`/service-orders/${dNo}\\?`)); await noFlashError();
+  await g("invoice"); await expectText("Inspection-fee invoice"); await expectText("1605.00"); await save(); await noFlashError(); await expectText("TITH2611");
+  await page.goto(`${BASE}/service-orders/${dNo}`); await page.click("button:has-text('Close service order')"); await page.waitForTimeout(900); await page.waitForLoadState("networkidle"); await noFlashError();
+  await expectText("Declined — closed");
+});
 await step("dashboard-build", async () => { await page.goto(`${BASE}/dashboard`); await page.fill("input[placeholder*=\"Describe\"]", "本月维修看板：工单、收入、工程师"); await page.click("form button:has-text('AI')"); await page.waitForURL(/\/dashboard\/[a-z0-9]+/, { timeout: 15000 }); });
 await step("employee-create-md-only", async () => {
   await page.goto(`${BASE}/people`); await page.click("a:has-text('New employee')"); await page.waitForURL(/\/people\/new/);

@@ -41,7 +41,8 @@ export default async function Deliver({ params, searchParams }: { params: Promis
       return asDraft ? { ok: dn.no, to: `/service-orders/${no}/deliver` } : { ok: dn.no, to: `/service-orders/${no}/deliver/${dn.no}` };
     }, `/service-orders/${no}/deliver`);
   }
-  const po = lines.filter((l) => l.kind === "PO");
+  const declined = !!order.decline; // 客户拒绝报价: the machine goes back unrepaired, there is no PO to check against
+  const po = lines.filter((l) => l.kind === "PO" || l.kind === "MACHINE");
   const back = lines.filter((l) => l.kind === "RETURN");
   const issued = order.deliveries.filter((d) => d.status !== "DRAFT");
   const check = { ok: u("qtyMatches"), short: u("qtyShort", { n: "{n}" }), over: u("qtyOver", { n: "{n}" }) };
@@ -50,7 +51,7 @@ export default async function Deliver({ params, searchParams }: { params: Promis
     return (
       <tr key={l.key}>
         <td>{l.poLineNo ?? l.source}</td>
-        <td>{l.description}</td>
+        <td>{l.kind === "MACHINE" ? u("returnUnrepairedLine") : l.description}</td>
         <td>{l.assetCode ? <span className="font-mono">{l.assetCode}</span> : l.partSku ?? ""}</td>
         <td>{l.isService ? "—" : l.expected}</td>
         <td>{l.isService ? "—" : l.deliveredBefore}</td>
@@ -76,8 +77,9 @@ export default async function Deliver({ params, searchParams }: { params: Promis
           </Grid>
           <Field label={u("addressOverride")}><input name="address" defaultValue={draft?.address ?? ""} className={inputCls} /></Field>
         </Card>
-        <Card title={u("deliveryVsPo")}>
-          {poFromQuote && <p className="text-xs text-navy/70">{u("poFromQuoteNote")}</p>}
+        <Card title={u(declined ? "returnUnrepaired" : "deliveryVsPo")}>
+          {declined && <p className="text-xs text-navy/70">{u("declinedReturnNotice")}</p>}
+          {poFromQuote && !declined && <p className="text-xs text-navy/70">{u("poFromQuoteNote")}</p>}
           <Table head={[u("poLine"), u("descPo"), u("assetOrPart"), u("poQty"), u("deliveredBefore"), u("deliverNowCheck")]}>{po.map(row)}</Table>
           {back.length > 0 && <>
             <div className="pt-2 text-[13px] font-semibold text-navy">{u("mustReturn")}</div>
@@ -107,7 +109,7 @@ async function LinkedDocs({ order }: { order: Order }) {
   const confirmed = order.events.find((e) => e.type === "ORDER_CONFIRMED")?.occurredAt;
   type Row = { key: string; label: string; nos: React.ReactNode; date: string; purpose: string };
   const rows: Row[] = [];
-  rows.push({
+  if (!order.decline) rows.push({
     key: "po", label: u("customerPo"), date: shortDate(confirmed), purpose: u("linkPurposePo"),
     nos: <span className="flex flex-wrap items-center gap-2">{order.customerRef ? <span className="font-mono">{order.customerRef}</span> : <span className="text-alert-ink">{u("poMissing")}</span>}{poFiles.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 px-2 py-0.5 text-xs text-blue hover:underline">{u("poOriginal")}</a>)}</span>,
   });
