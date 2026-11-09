@@ -26,7 +26,7 @@ export default async function People({ searchParams }: { searchParams: Promise<{
   return (
     <div className="space-y-4">
       <PageHeader title={t("employees")} badge={<><Tag>{employees.filter((e) => e.active).length}</Tag><Tag>{t("mdOnly")}</Tag></>} newHref="/people/new" newLabel={t("newEmployee")}
-        actions={<Link href={all ? "/people" : "/people?all=1"} className="text-sm text-blue hover:underline">{all ? t("empShowActive") : t("empShowAll")}</Link>} />
+        actions={<><Link href="/people/overtime" className="text-sm text-blue hover:underline">{t("overtime")}</Link><Link href={all ? "/people" : "/people?all=1"} className="text-sm text-blue hover:underline">{all ? t("empShowActive") : t("empShowAll")}</Link></>} />
       <Flash ok={ok} error={error} />
       <div className="rounded-xl border bg-white p-2">
         <Table head={[c("code"), c("name"), c("role"), t("legalEntity"), t("joinedAt"), t("empContactsShort"), t("empCredentialExpiry"), t("empLatestReview"), c("status")]}>

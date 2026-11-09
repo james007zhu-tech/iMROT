@@ -13,6 +13,7 @@ import { FormMemory } from "@/components/FormMemory";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { RevealRows } from "@/components/RevealRows";
 import { ALLOWANCE_ROWS, DEDUCTION_ROWS, EmployeeFormFields } from "@/components/EmployeeFormFields";
+import { overtimeLinesOf } from "@/server/overtime";
 import { credential, dropCredential, letter, reveal, review, salary, save, saveOwn } from "./actions";
 import { salaryChange, type LetterDetails } from "@/lib/salary-letter";
 import { Alert, Card, Field, Grid, PageHeader, Table, Tag, Value, btnGhost, btnPrimary, inputCls } from "@/components/ui";
@@ -40,6 +41,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
   const due = probationDue(e, e.reviews, now);
   const stat = statutoryFor(e.entity.countryCode);
   const salaries = await salaryHistory(me, e.id);
+  const otLines = md ? await overtimeLinesOf(e.id) : [];
 
   const status = e.leftAt || !e.active ? <Tag hot>{t("empLeft")}</Tag> : e.probationEndsAt && !e.confirmedAt && e.probationEndsAt > now ? <Tag>{t("empProbation")}</Tag> : <Tag>{t("empActive")}</Tag>;
   const tabs = [["basic", t("empBasic")], ["contacts", t("empContacts")], ["career", t("empCareerAndCredentials")], ...(md ? [["salary", t("empSalary")]] : []), ["reviews", t("empReviews")], ["account", t("empAccount")], ["files", t("attachments")]] as const;
@@ -49,7 +51,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
     <div className="space-y-4">
       <PageHeader back={md ? { href: "/people", label: t("backToEmployees") } : undefined} title={<><span className="font-mono">{e.code}</span> <span className="font-normal">· {e.name}{e.nameLocal ? ` ${e.nameLocal}` : ""}</span></>}
         badge={<><Tag>{r(e.role)}</Tag><Tag>{e.entity.code}</Tag>{status}</>}
-        actions={<>{revealForm}{md ? <button form="f" className={btnPrimary}>{c("save")}</button> : <button form="own" className={btnPrimary}>{t("empSaveContacts")}</button>}</>} />
+        actions={<>{(self || md) && <Link href="/people/overtime" className={btnGhost}>{t("overtime")}</Link>}{revealForm}{md ? <button form="f" className={btnPrimary}>{c("save")}</button> : <button form="own" className={btnPrimary}>{t("empSaveContacts")}</button>}</>} />
       <Flash ok={ok === "revealed" ? t("revealedFor5") : ok === "saved" ? c("saved") : ok} error={error} />
       {(alerts.length > 0 || due) && (
         <Alert>
@@ -160,6 +162,10 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
               {!salaries.length && <tr><td colSpan={14} className="text-navy/60">—</td></tr>}
             </Table>
             <p className="text-xs text-navy/60">{t("empSalaryNote")}</p>
+            {otLines.length > 0 && <div><p className="mb-1 text-sm font-semibold text-navy">{t("otPayOnFile")}</p>
+              <Table head={[t("otMonth"), t("otHours"), t("otRate"), t("otPay")]}>
+                {otLines.map((l) => <tr key={l.id}><td><Link href={`/people/overtime/${l.month.month}`} className="font-mono text-blue hover:underline">{l.month.month}</Link></td><td>{Number(l.totalHours)}</td><td className="text-right">{fmt(l.hourlyRate, open)}</td><td className="text-right font-semibold">{fmt(l.total, open)}</td></tr>)}
+              </Table></div>}
             {(() => {
               const [cur, prev] = salaries;
               const ch = cur && prev ? salaryChange(Number(prev.baseSalary), Number(cur.baseSalary)) : undefined;
