@@ -1452,7 +1452,7 @@
     "orderOwner": "负责人",
     "empLetter": "调薪通知单",
     "empLetterHint": "调薪流程的最后一步：{from} 生效（{pct}）——泰英中三语，严格保密；写上对这个人的具体感谢，然后下载",
-    "empLetterSalutation": "称呼（可用昵称）",
+    "empLetterSalutation": "称呼，如 Mr. Nattawut",
     "empLetterPosition": "信中职位",
     "empLetterPraiseTh": "具体感谢（泰文）",
     "empLetterPraiseEn": "具体感谢（英文）",
@@ -1530,7 +1530,8 @@
     "err_OT_MONTH_NOT_ENDED": "{detail} 尚未结束，不能月结",
     "err_OT_LATER_MONTH_CLOSED": "之后的月份已月结（{detail}），请先重开最近一个月",
     "err_ORDER_NOT_FOUND": "找不到服务单（{detail}）",
-    "err_EMPLOYEE_INACTIVE": "员工已离职（{detail}）"
+    "err_EMPLOYEE_INACTIVE": "员工已离职（{detail}）",
+    "empLetterEmployeeNo": "信中员工号"
   },
   "role": {
     "MD": "董事总经理 MD",
