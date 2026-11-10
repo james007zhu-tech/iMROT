@@ -420,7 +420,14 @@
     "attach": "添加文件",
     "openPage": "打开这个页面",
     "working": "正在处理…",
-    "newChat": "开始新对话"
+    "newChat": "开始新对话",
+    "formTitle": "协助填写：{name}",
+    "formHint": "直接说、口述、拍照或丢文件，我替你填进这张表；我写的栏位会变成橙色等你确认，保存仍由你来点。",
+    "formAskFill": "口述让我填",
+    "formAskCheck": "检查并优化这张表",
+    "formAskThai": "把还空着的泰文描述补上",
+    "formFilled": "✓ 已写入表单 {n} 项（{list}），橙色栏位请确认。",
+    "formNothing": "没有可写入的栏位。"
   },
   "ui": {
     "chooseFile": "选择文件",

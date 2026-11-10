@@ -420,7 +420,14 @@
     "attach": "Attach files",
     "openPage": "Open this page",
     "working": "Working…",
-    "newChat": "Start a new conversation"
+    "newChat": "Start a new conversation",
+    "formTitle": "Helping with: {name}",
+    "formHint": "Say it, dictate, photograph or attach a document — I fill this form; what I write turns orange for you to confirm, and saving stays yours.",
+    "formAskFill": "Dictate and I fill",
+    "formAskCheck": "Check and improve this form",
+    "formAskThai": "Fill in the missing Thai descriptions",
+    "formFilled": "✓ Wrote {n} fields into the form ({list}) — orange ones are for you to confirm.",
+    "formNothing": "Nothing could be written into the form."
   },
   "ui": {
     "chooseFile": "Choose file",

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { errorCode } from "@/lib/errors";
 import { getLocale } from "next-intl/server";
-import { assist, type AssistFile } from "@/server/ai";
+import { assist, type AssistFile, type AssistForm } from "@/server/ai";
 import { sessionScope } from "@/server/api-auth";
 import { saveUpload, UPLOADS_DIR } from "@/lib/uploads";
 import { readFile } from "node:fs/promises";
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   try {
     const scope = await sessionScope();
     if (!scope) return NextResponse.json({ error: "not signed in" }, { status: 401 });
-    let body: { messages: { role: "user" | "assistant"; content: string }[]; path?: string; fields?: string[]; attachments?: { name: string; url: string }[] };
+    let body: { messages: { role: "user" | "assistant"; content: string }[]; path?: string; fields?: string[]; form?: AssistForm; attachments?: { name: string; url: string }[] };
     const files: AssistFile[] = [];
     if (req.headers.get("content-type")?.includes("multipart/form-data")) {
       const form = await req.formData();
@@ -40,8 +40,9 @@ export async function POST(req: Request) {
     }
     const locale = await getLocale();
     const { messages, path, fields } = body;
+    const form = scope.kind === "staff" && body.form && Array.isArray(body.form.fields) ? { title: String(body.form.title ?? "").slice(0, 120), context: body.form.context ? String(body.form.context) : undefined, fields: body.form.fields.slice(0, 140).map((f) => ({ name: String(f.name), label: f.label ? String(f.label).slice(0, 80) : undefined, value: f.value ? String(f.value) : undefined, options: Array.isArray(f.options) ? f.options.map(String).slice(0, 20) : undefined, type: f.type ? String(f.type) : undefined })) } : undefined;
     const out = await assist(messages, scope.kind === "staff"
-      ? { employeeCode: scope.employeeCode, locale, path, fields }
+      ? { employeeCode: scope.employeeCode, locale, path, fields, form }
       : { contactId: scope.contactId, customerId: scope.customerId, locale, path, fields }, files);
     return NextResponse.json({ ...out, files: files.map((f) => ({ name: f.name, url: f.url })) });
   } catch (e) { return NextResponse.json({ error: errorCode(e) }, { status: 400 }); }

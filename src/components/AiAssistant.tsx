@@ -21,7 +21,11 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
-  const kept = useRef<{ name: string; url: string }[]>([]); // files already handed over in this conversation
+  const kept = useRef<{ name: string; url: string }[]>([]);
+  const [formInfo, setFormInfo] = useState<FormInfo | null>(null);
+  // opened on a page with a form, the assistant is that form's helper (朱总 2026-11-10); a new page starts afresh
+  useEffect(() => { if (variant === "float" && scope === "staff") { setFormInfo(open ? readForm() : null); } }, [open, path, variant, scope]);
+  useEffect(() => { if (variant === "float") { setMsgs([]); kept.current = []; } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [path]); // files already handed over in this conversation
   const recRef = useRef<{ stop: () => void } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { if (msgs.length) bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, open]);
@@ -43,14 +47,16 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
     const next = [...msgs, { role: "user" as const, content: shown }];
     setMsgs(next); setInput(""); setFiles([]); setBusy(true);
     try {
-      const payload = { messages: next.map(({ role, content }) => ({ role, content })), path, attachments: kept.current, fields: variant === "page" ? [] : Array.from(document.querySelectorAll<HTMLElement>("main form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && !n.startsWith("$") && a.indexOf(n) === i).slice(0, 80) };
+      const payload = { messages: next.map(({ role, content }) => ({ role, content })), path, attachments: kept.current, form: variant === "float" && scope === "staff" ? readForm() ?? undefined : undefined, fields: variant === "page" ? [] : Array.from(document.querySelectorAll<HTMLElement>("main form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && !n.startsWith("$") && a.indexOf(n) === i).slice(0, 80) };
       let r: Response;
       if (sent.length) { const fd = new FormData(); fd.append("payload", JSON.stringify(payload)); for (const f of sent) fd.append("file", f); r = await fetch("/api/ai/assist", { method: "POST", body: fd }); }
       else r = await fetch("/api/ai/assist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? r.statusText);
       if (Array.isArray(j.files)) kept.current = j.files;
-      setMsgs([...next, { role: "assistant", content: j.text, actions: j.actions }]);
+      const formFill = variant === "float" && payload.form ? (j.actions as Action[] | undefined)?.find((a) => a.type === "fill_form" && a.fields) : undefined;
+      const done = formFill ? applyToForm(formFill.fields!) : null; // form mode: written at once, marked for confirmation
+      setMsgs([...next, { role: "assistant", content: j.text + (done ? `\n\n${done.n ? t("formFilled", { n: done.n, list: done.labels.slice(0, 8).join("、") }) : t("formNothing")}` : ""), actions: (j.actions as Action[] | undefined)?.filter((a) => a !== formFill) }]);
       const go = (j.actions as Action[] | undefined)?.find((a) => a.type === "navigate");
       if (go?.href && variant !== "page") { router.push(go.href); } // on the home page the conversation stays; the answer carries a button instead
     } catch (e) {
@@ -71,16 +77,29 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
     } catch (e) { patch({ state: "failed", note: (e as Error).message }); }
   }
 
-  function fillForm(fields: Record<string, string>) {
-    let n = 0;
+  /** Write values into the page's form; each written field turns orange until the person touches it. */
+  function applyToForm(fields: Record<string, string>): { n: number; labels: string[] } {
+    const labels: string[] = [];
     for (const [k, v] of Object.entries(fields)) {
-      const el = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${k}"]`);
+      const el = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`main form [name="${CSS.escape(k)}"]`) ?? document.querySelector<HTMLInputElement>(`[name="${CSS.escape(k)}"]`);
       if (!el) continue;
-      const setter = Object.getOwnPropertyDescriptor(el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype, "value")?.set;
-      setter ? setter.call(el, v) : (el.value = v);
+      if (el instanceof HTMLSelectElement && !Array.from(el.options).some((o) => o.value === v)) continue;
+      const row = el.closest("[data-row]") as HTMLElement | null;
+      if (row) row.hidden = false;
+      if (el instanceof HTMLInputElement && el.type === "checkbox") el.checked = /^(1|true|yes|y)$/i.test(v);
+      else {
+        const setter = Object.getOwnPropertyDescriptor(el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype, "value")?.set;
+        if (setter) setter.call(el, v); else el.value = v;
+      }
       el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
-      n++;
+      el.classList.add("ai-uncertain");
+      el.addEventListener("input", () => el.classList.remove("ai-uncertain", "ai-filled"), { once: true });
+      labels.push(el.closest("label")?.querySelector("span")?.textContent?.replace(/\*/g, "").trim() || k);
     }
+    return { n: labels.length, labels: [...new Set(labels)] };
+  }
+  function fillForm(fields: Record<string, string>) {
+    const { n } = applyToForm(fields);
     setMsgs((m) => [...m, { role: "assistant", content: t("filled", { n }) }]);
   }
 
@@ -188,9 +207,13 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
       </button>
       {open && (
         <div className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] flex-col rounded-t-2xl border bg-white shadow-2xl md:inset-x-auto md:bottom-20 md:right-4 md:h-[32rem] md:w-96 md:rounded-2xl">
-          <div className="flex items-center justify-between border-b px-4 py-2"><b className="text-navy">{t("title")}</b><button onClick={() => setOpen(false)} className="text-navy/70">✕</button></div>
+          <div className="flex items-center justify-between border-b px-4 py-2"><b className="min-w-0 truncate text-navy">{formInfo ? t("formTitle", { name: formInfo.title }) : t("title")}</b><button onClick={() => setOpen(false)} className="text-navy/70">✕</button></div>
           <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3 text-sm">
-            {msgs.length === 0 && <p className="text-navy/70">{scope === "portal" ? t("hintPortal") : t("hintStaff")}</p>}
+            {msgs.length === 0 && !formInfo && <p className="text-navy/70">{scope === "portal" ? t("hintPortal") : t("hintStaff")}</p>}
+            {msgs.length === 0 && formInfo && <>
+              <p className="text-navy/80">{t("formHint")}</p>
+              <div className="flex flex-wrap gap-2">{(["formAskFill", "formAskCheck", "formAskThai"] as const).map((k) => <button key={k} type="button" onClick={() => (k === "formAskFill" ? toggleVoice() : void send(t(k)))} className="rounded-full border border-blue/40 bg-white px-3 py-1.5 text-[13px] font-semibold text-blue hover:bg-blue hover:text-white">{k === "formAskFill" ? `🎤 ${t(k)}` : t(k)}</button>)}</div>
+            </>}
             {msgs.map(bubble)}
             {busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">…</div>}
             <div ref={bottom} />
@@ -221,6 +244,31 @@ function Md({ text }: { text: string }) {
     else blocks.push(<div key={i}>{inline(l, i)}</div>);
   }
   return <div className="space-y-0.5 leading-relaxed">{blocks}</div>;
+}
+
+type FormField = { name: string; label?: string; value?: string; options?: string[]; type?: string };
+type FormInfo = { title: string; context?: string; fields: FormField[] };
+
+/** The form on the current page as the assistant sees it: every named field with its label, kind and present value. */
+function readForm(): FormInfo | null {
+  const forms = Array.from(document.querySelectorAll<HTMLFormElement>("main form")).filter((f) => f.querySelectorAll("input:not([type=hidden]),textarea,select").length >= 3);
+  const form = forms.sort((a, b) => b.elements.length - a.elements.length)[0];
+  if (!form) return null;
+  const fields: FormField[] = [];
+  const seen = new Set<string>();
+  for (const el of Array.from(form.elements) as (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[]) {
+    if (!el.name || seen.has(el.name) || el.name.startsWith("$") || (el instanceof HTMLInputElement && ["hidden", "file", "submit", "button", "password"].includes(el.type))) continue;
+    if (el instanceof HTMLButtonElement) continue;
+    seen.add(el.name);
+    const lab = el.closest("label")?.querySelector("span")?.textContent?.replace(/\*/g, "").trim() || (el as HTMLInputElement).placeholder || el.getAttribute("aria-label") || undefined;
+    const value = el instanceof HTMLInputElement && el.type === "checkbox" ? (el.checked ? "yes" : "") : el.value;
+    // repeating rows: empty rows beyond the first few are not worth sending
+    const idx = /(\d+)$/.exec(el.name)?.[1];
+    if (idx && Number(idx) > 5 && !value.trim()) continue;
+    fields.push({ name: el.name, label: lab, value: value || undefined, type: el instanceof HTMLSelectElement ? undefined : el instanceof HTMLTextAreaElement ? "long text" : (el as HTMLInputElement).type, options: el instanceof HTMLSelectElement ? Array.from(el.options).map((o) => o.value).filter(Boolean) : undefined });
+    if (fields.length >= 140) break;
+  }
+  return { title: document.querySelector("main h1")?.textContent?.trim() ?? document.title, context: document.querySelector("[data-ai-context]")?.textContent ?? undefined, fields };
 }
 
 interface SpeechRecognitionLike { lang: string; interimResults: boolean; continuous: boolean; onresult: ((ev: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void }

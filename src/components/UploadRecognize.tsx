@@ -120,6 +120,7 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
         </div>
       )}
       <AttachmentsField formId={formId} atts={atts} />
+      {context && <div data-ai-context hidden>{context}</div>}{/* the same briefing serves the assistant button on this page */}
     </div>
   );
 }
