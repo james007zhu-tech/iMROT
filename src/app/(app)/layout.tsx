@@ -23,7 +23,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <label htmlFor="navtoggle" className="fixed inset-0 z-40 hidden bg-navy/40 peer-checked:block md:!hidden" aria-hidden />
       <aside className="fixed inset-y-0 left-0 z-50 hidden w-[82vw] max-w-xs flex-col overflow-y-auto border-r border-hair bg-white text-navy shadow-2xl peer-checked:flex md:sticky md:top-0 md:z-auto md:flex md:h-screen md:w-56 md:max-w-none md:shrink-0 md:shadow-none">
         <div className="flex items-center justify-between px-4 py-3 md:block md:px-5 md:pt-5">
-          <Link href="/home" className="text-lg font-bold tracking-wide text-navy">{c("appName")}</Link>
+          <Link href="/home" aria-label={c("appName")}><img src="/brand/dcit-logo.png" alt="DCiT" className="h-9 w-auto md:h-11" /></Link>
           <div className="md:mt-2 md:-ml-2"><LanguageSwitcher tone="light" /></div>
         </div>
         <form action="/search" className="mx-3 mb-2 flex gap-1 md:hidden"><input name="q" placeholder={c("search")} className="w-full rounded-md border px-3 py-2 text-sm" /><button className="rounded-md border border-navy/45 px-3 text-sm">⌕</button></form>
@@ -34,7 +34,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-white px-3 py-2 md:static md:px-4">
           <label htmlFor="navtoggle" className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-navy hover:bg-tint md:hidden" aria-label="menu"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth={2} strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h10" /></svg></label>
-          <Link href="/home" className="flex-1 text-center text-[15px] font-bold tracking-wide text-navy md:hidden">{c("appName")}</Link>
+          <Link href="/home" aria-label={c("appName")} className="flex flex-1 justify-center md:hidden"><img src="/brand/dcit-logo.png" alt="DCiT" className="h-8 w-auto" /></Link>
           <form action="/search" className="hidden w-full max-w-md gap-1 md:flex"><input name="q" placeholder={c("search")} className="w-full rounded-md border px-3 py-1.5 text-sm" /><button className="rounded-md border border-navy/45 px-3 text-sm">⌕</button></form>
           <div className="flex items-center gap-3 text-sm text-navy/70 md:ml-auto"><MessageCenter notices={notices} /><span className="hidden md:inline">{me.name} · <span className="font-mono">{me.code}</span></span><form action={out} className="hidden md:block"><button className="text-blue">{c("signOut")}</button></form></div>
         </header>
