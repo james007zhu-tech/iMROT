@@ -3,18 +3,24 @@
  * open /soon/<key>, which says so plainly. Labels: messages "nav" namespace, key = the item key.
  */
 export interface NavItem { key: string; href: string; soon?: boolean; mdOnly?: boolean }
-export interface NavGroup { key: string; items: NavItem[] }
+export interface NavGroup { key: string; href?: string; items: NavItem[] }
 
 const soon = (key: string): NavItem => ({ key, href: `/soon/${key}`, soon: true });
 
+const doc = (key: string, type: string): NavItem => ({ key, href: `/documents?type=${type}` });
+
+/**
+ * 朱总 2026-11-10: every numbered document has one place of its own in the menu, under its own name (not merged
+ * behind tabs); 首页 itself opens the conversation; 单据中心 lists every document.
+ */
 export const NAV: NavGroup[] = [
-  { key: "home", items: [{ key: "chat", href: "/home" }, { key: "dash", href: "/dashboard" }, { key: "shortcuts", href: "/shortcuts" }] },
+  { key: "home", href: "/home", items: [{ key: "dash", href: "/dashboard" }, { key: "shortcuts", href: "/shortcuts" }, { key: "documents", href: "/documents" }] },
   { key: "alm", items: [{ key: "series", href: "/series" }, { key: "assets", href: "/assets" }, { key: "knowledge", href: "/fault-codes" }] },
   { key: "crm", items: [{ key: "customers", href: "/customers" }, { key: "opportunities", href: "/service-orders" }] },
-  { key: "lean", items: [{ key: "inspectionReports", href: "/service-reports?kind=inspection" }, { key: "repairReports", href: "/service-reports?kind=repair" }, { key: "maintenanceReports", href: "/service-reports?kind=maintenance" }, { key: "projects", href: "/service-orders?mode=AUTOMATION_PROJECT" }] },
-  { key: "scm", items: [{ key: "suppliers", href: "/suppliers" }, { key: "inquiries", href: "/purchasing/inquiries" }, { key: "purchaseOrders", href: "/purchasing/orders" }, { key: "stock", href: "/parts" }, { key: "movements", href: "/parts/movement" }] },
-  { key: "fin", items: [{ key: "ledger", href: "/finance" }, soon("finReports"), soon("expenses")] },
-  { key: "to", items: [{ key: "billing", href: "/tax?doc=iv" }, { key: "receipts", href: "/tax?doc=rc" }, { key: "taxInvoices", href: "/tax?doc=ti" }] },
+  { key: "lean", items: [doc("receiving", "ER"), { key: "inspectionReports", href: "/service-reports?kind=inspection" }, { key: "repairReports", href: "/service-reports?kind=repair" }, { key: "maintenanceReports", href: "/service-reports?kind=maintenance" }, doc("deliveryNotes", "DN"), doc("acceptance", "AC"), { key: "projects", href: "/service-orders?mode=AUTOMATION_PROJECT" }] },
+  { key: "scm", items: [{ key: "suppliers", href: "/suppliers" }, { key: "inquiries", href: "/purchasing/inquiries" }, { key: "purchaseOrders", href: "/purchasing/orders" }, { key: "stock", href: "/parts" }, doc("stockIn", "IB"), doc("stockOut", "OB")] },
+  { key: "fin", items: [{ key: "ledger", href: "/finance" }, doc("paymentVouchers", "PV"), doc("statements", "BL"), soon("finReports"), soon("expenses")] },
+  { key: "to", items: [doc("proforma", "PF"), { key: "billing", href: "/tax?doc=iv" }, { key: "taxInvoices", href: "/tax?doc=ti" }, { key: "receipts", href: "/tax?doc=rc" }] },
   { key: "opd", items: [{ key: "talent", href: "/people" }, soon("training"), { key: "payroll", href: "/people/overtime", mdOnly: true }] },
   { key: "admin", items: [soon("permissions"), soon("dictionary"), { key: "entities", href: "/admin" }] },
 ];
@@ -48,6 +54,9 @@ export const SHORTCUTS: { key: string; href: string; group: string }[] = [
   { key: "newInvoice", href: "/service-orders?status=ACCEPTED", group: "to" },
   { key: "payables", href: "/finance/payables", group: "fin" },
   { key: "overtime", href: "/people/overtime", group: "opd" },
+  { key: "newReceiving", href: "/documents?type=ER&new=1", group: "lean" },
+  { key: "newDelivery", href: "/documents?type=DN&new=1", group: "lean" },
+  { key: "allDocuments", href: "/documents", group: "home" },
 ];
 
 /** What a new person sees before pinning anything. */

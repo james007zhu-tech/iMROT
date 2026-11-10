@@ -28,7 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
         <form action="/search" className="mx-3 mb-2 flex gap-1 md:hidden"><input name="q" placeholder={c("search")} className="w-full rounded-md border px-3 py-2 text-sm" /><button className="rounded-md border border-navy/45 px-3 text-sm">⌕</button></form>
         {/* OPD: the MD sees the employee list; everyone else sees only their own file (decision 2026-11-08). */}
-        <Suspense><NavLinks groups={NAV.map((g) => ({ key: g.key, label: t(g.key), items: g.items.filter((i) => !i.mdOnly || me.role === "MD").map((i) => i.key === "talent" && me.role !== "MD" ? { key: i.key, href: `/people/${me.code}`, label: t("opdSelf") } : { key: i.key, href: i.href, label: t(i.key), soon: i.soon }) }))} /></Suspense>
+        <Suspense><NavLinks groups={NAV.map((g) => ({ key: g.key, label: t(g.key), href: g.href, items: g.items.filter((i) => !i.mdOnly || me.role === "MD").map((i) => i.key === "talent" && me.role !== "MD" ? { key: i.key, href: `/people/${me.code}`, label: t("opdSelf") } : { key: i.key, href: i.href, label: t(i.key), soon: i.soon }) }))} /></Suspense>
         <div className="mt-auto flex items-center justify-between border-t border-hair px-4 py-3 text-sm text-navy/70 md:hidden"><span>{me.name} · <span className="font-mono">{me.code}</span></span><form action={out}><button className="text-blue">{c("signOut")}</button></form></div>
       </aside>
       <div className="min-w-0 flex-1">

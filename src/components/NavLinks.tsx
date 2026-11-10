@@ -23,10 +23,11 @@ const ICONS: Record<string, React.ReactNode> = {
  * Side navigation on white (decisions 2026-11-07, two levels 2026-11-10): each module opens its second level; the
  * module of the current page is open on arrival. On a phone the modules scroll sideways and the open one drops below.
  */
-export function NavLinks({ groups }: { groups: { key: string; label: string; items: { key: string; href: string; label: string; soon?: boolean }[] }[] }) {
+export function NavLinks({ groups }: { groups: { key: string; label: string; href?: string; items: { key: string; href: string; label: string; soon?: boolean }[] }[] }) {
   const path = usePathname();
   const query = useSearchParams();
   let best = { g: "", i: "", score: 0 };
+  for (const g of groups) { const own = g.href ? navMatch(g.href, path, query) : 0; if (own > best.score) best = { g: g.key, i: "", score: own }; }
   for (const g of groups) for (const it of g.items) { const sc = navMatch(it.href, path, query); if (sc > best.score) best = { g: g.key, i: it.key, score: sc }; }
   const [open, setOpen] = useState<string>(best.g || groups[0]?.key);
   useEffect(() => { if (best.g) setOpen(best.g); }, [best.g]);
@@ -38,12 +39,20 @@ export function NavLinks({ groups }: { groups: { key: string; label: string; ite
         const on = g.key === best.g;
         return (
           <div key={g.key}>
-            <button type="button" onClick={() => setOpen(open === g.key ? "" : g.key)} aria-expanded={open === g.key}
-              className={`relative flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2.5 text-left text-[14.5px] tracking-wide ${on ? "font-bold text-navy" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
-              <svg viewBox="0 0 24 24" aria-hidden className="h-[18px] w-[18px] shrink-0 fill-none stroke-current" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">{ICONS[g.key]}</svg>
-              <span className="flex-1">{g.label}</span>
-              <svg viewBox="0 0 24 24" aria-hidden className={`h-3.5 w-3.5 fill-none stroke-current opacity-50 transition-transform ${open === g.key ? "rotate-90" : ""}`} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
-            </button>
+            {(() => {
+              const cls = `relative flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2.5 text-left text-[14.5px] tracking-wide ${on ? "font-bold text-navy" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"} ${on && !best.i ? "bg-[#EEF3F9]" : ""}`;
+              const inside = (
+                <>
+                  <svg viewBox="0 0 24 24" aria-hidden className="h-[18px] w-[18px] shrink-0 fill-none stroke-current" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">{ICONS[g.key]}</svg>
+                  <span className="flex-1">{g.label}</span>
+                  <svg viewBox="0 0 24 24" aria-hidden className={`h-3.5 w-3.5 fill-none stroke-current opacity-50 transition-transform ${open === g.key ? "rotate-90" : ""}`} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+                </>
+              );
+              // a module with a page of its own (首页 = the conversation) opens it; the others just unfold
+              return g.href
+                ? <Link href={g.href} onClick={() => setOpen(g.key)} aria-current={on && !best.i ? "page" : undefined} className={cls}>{inside}</Link>
+                : <button type="button" onClick={() => setOpen(open === g.key ? "" : g.key)} aria-expanded={open === g.key} className={cls}>{inside}</button>;
+            })()}
             {open === g.key && (
               <div className="mb-1 ml-[21px] flex flex-col gap-0.5 border-l border-hair pl-2">
                 {g.items.map((it) => {
