@@ -7,7 +7,7 @@
  *    and the fee is invoiced (TITH) or waived;
  *  - undo (the customer changes their mind) only while no DNTH or TITH has been issued after the decline.
  */
-import { isTradeMode } from "./modes";
+import { quoteJustCancels } from "./modes";
 
 export const DECLINE_REASONS = ["PRICE", "REPLACE", "LEAD_TIME", "SELF", "OTHER"] as const;
 export type DeclineReason = (typeof DECLINE_REASONS)[number];
@@ -20,7 +20,7 @@ export function feeTotal(fees: DeclineFee[] | null | undefined): number {
 
 /** Why this order cannot be declined now, or null. */
 export function declineBlocker(o: { mode: string; status: string }): string | null {
-  if (isTradeMode(o.mode)) return "TRADE_QUOTE_CANCEL";
+  if (quoteJustCancels(o.mode)) return "TRADE_QUOTE_CANCEL";
   if (o.status !== "QUOTE_PENDING") return "DECLINE_NEEDS_QUOTE_PENDING";
   return null;
 }

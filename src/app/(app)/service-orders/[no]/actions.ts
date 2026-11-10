@@ -32,3 +32,16 @@ export async function closeDeclinedAction(no: string) {
     return { ok: no, to: `/service-orders/${no}` };
   }, `/service-orders/${no}`);
 }
+
+/** 国际贸易 出口单证: upload the packing list, B/L, export entry or proof of delivery onto the order. */
+export async function exportDocAction(no: string, kind: string, f: FormData) {
+  await guarded(async () => {
+    const me = await currentEmployee();
+    const { saveUpload } = await import("@/lib/uploads");
+    const { addExportDocs } = await import("@/server/export");
+    const files = [];
+    for (const x of f.getAll("files")) if (x instanceof File && x.size > 0) files.push({ ...(await saveUpload(x, "export")), name: x.name });
+    await addExportDocs({ no, actorCode: me.code, kind, files });
+    return { ok: `${files.length}`, to: `/service-orders/${no}#export-docs` };
+  }, `/service-orders/${no}`);
+}

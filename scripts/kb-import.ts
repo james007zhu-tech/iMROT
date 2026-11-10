@@ -5,7 +5,7 @@
  *   .dev-ops/kb-check   → check only, report in .dev-ops/kb-check.out (nothing written)
  *   .dev-ops/kb-import  → import, report in .dev-ops/kb-import.out; imported files move to kb-inbox/done/
  * By hand:  npx tsx scripts/kb-import.ts <file-or-folder> [--commit] [--actor ETH…] [--category VFD]
- * Imported codes land as 待审核 like every import (rule 32): somebody approves them in /fault-codes before they can
+ * Imported codes land as 待审核 like every import (rule 34): somebody approves them in /fault-codes before they can
  * be public. Rows with a blocking issue are not imported; the report says which and why, so the file can be fixed.
  */
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync } from "node:fs";

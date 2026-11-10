@@ -13,8 +13,9 @@ import { AssetPicker } from "@/components/AssetPicker";
 import { ScanButton } from "@/components/ScanButton";
 import { Card, Field, Grid, PageHeader, Table, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { ModeCards } from "@/components/ModeCards";
-import { MODES, MODE_KINDS, OPEN_MODES, isTradeMode, modeNeedsAsset, type Mode } from "@/lib/modes";
+import { MODES, MODE_KINDS, OPEN_MODES, isProjectMode, isTradeMode, modeNeedsAsset, type Mode } from "@/lib/modes";
 import { modeRules } from "@/server/modes";
+import { EXPORT_CURRENCIES, INCOTERMS, SHIP_MODES } from "@/lib/export";
 
 export const dynamic = "force-dynamic";
 
@@ -26,13 +27,17 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [assets, engineers, contacts] = await Promise.all([
     prisma.asset.findMany({ where: { status: { not: "RETIRED" }, customer: customer ? { code: customer } : undefined }, include: { customer: true, plant: true, model: true }, orderBy: { code: "asc" } }),
-    prisma.employee.findMany({ where: { active: true, role: isTradeMode(askedMode) ? undefined : { in: ["ENGINEER", "MANAGER", "MD", "ADMIN"] } }, orderBy: { name: "asc" } }),
+    prisma.employee.findMany({ where: { active: true, role: isTradeMode(askedMode) || isProjectMode(askedMode) ? undefined : { in: ["ENGINEER", "MANAGER", "MD", "ADMIN"] } }, orderBy: { name: "asc" } }),
     prisma.contact.findMany({ include: { customer: { select: { name: true } } }, orderBy: { name: "asc" } }),
   ]);
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const trade = isTradeMode(initialMode);
+  const intl = initialMode === "INTERNATIONAL_TRADE";
+  const proj = isProjectMode(initialMode); // 自动化项目: customer + project card; BOM and milestones on the plan page
+  const noAsset = trade || proj;
   // 贸易: customer + SKU lines; the datalist shows what is on the shelf
-  const [customers, parts, stock] = trade ? await Promise.all([
+  const plants = proj ? await prisma.plant.findMany({ orderBy: { code: "asc" }, include: { customer: { select: { name: true } } } }) : [];
+  const [customers, parts, stock] = noAsset ? await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" }, select: { id: true, code: true, name: true } }),
     prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { id: true, sku: true, name: true } }),
     prisma.stockMovement.groupBy({ by: ["partId", "direction"], where: { partId: { not: null } }, _sum: { qty: true } }),
@@ -56,8 +61,10 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       const po = [];
       for (const f of form.getAll("poFiles")) if (f instanceof File && f.size > 0) po.push({ ...(await saveUpload(f, "po")), name: f.name, kind: "PO" });
       const order = await createServiceOrder({
-        createdByEmployeeCode: me.code, customerId, plantId: first?.plantId ?? undefined, assetCodes: codes,
-        requestLines: Array.from({ length: 12 }, (_, i) => ({ sku: s(`ls${i}`), description: s(`ld${i}`), qty: Number(s(`lq${i}`) ?? 0), unit: s(`lu${i}`), neededBy: s(`ln${i}`) })),
+        createdByEmployeeCode: me.code, customerId, plantId: first?.plantId ?? s("plantId"), assetCodes: codes,
+        requestLines: Array.from({ length: 12 }, (_, i) => ({ sku: s(`ls${i}`), description: s(`ld${i}`), qty: Number(s(`lq${i}`) ?? 0), unit: s(`lu${i}`), neededBy: s(`ln${i}`), hsCode: s(`lh${i}`), origin: s(`lo${i}`) })),
+        project: mode === "AUTOMATION_PROJECT" ? { name: s("projectName") ?? "", dueDate: s("projectDue"), scope: s("projectScope") } : undefined,
+        tradeTerms: mode === "INTERNATIONAL_TRADE" ? { currency: s("tCurrency"), incoterm: s("tIncoterm"), place: s("tPlace"), destCountry: s("tDestCountry"), destPort: s("tDestPort"), shipMode: s("tShipMode"), paymentTerms: s("tPaymentTerms"), paymentDays: Number(s("tPaymentDays") ?? 0) } : undefined,
         mode, kind: s("kind") as "REPAIR" | undefined, partnerReason: s("partnerReason"), reportedSymptom: s("reportedSymptom"), reportedAlarm: s("reportedAlarm"), productionImpact: s("productionImpact"),
         customerRef: s("customerRef"), reportedByContactId: s("reportedById"), reportedAt: s("reportedAt") ? new Date(s("reportedAt")!) : undefined,
         currency: "THB", attachments: [...boxed, ...po],
@@ -78,13 +85,13 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       <FormMemory formId="f" />
       <Card title={u("businessMode")}>
         <ModeCards form="f" initial={initialMode} inputCls={inputCls}
-          cards={MODES.map((m) => ({ mode: m, name: u(`mode_${m}`), sub: u(`modeSub_${m}`), desc: u(`modeDesc_${m}`), floor: u("marginFloorTag", { pct: Math.round(floors[m] * 100) }), assetNote: u(modeNeedsAsset(m) ? (m === "MAINTENANCE" ? "modeAssetMany" : m === "AUTOMATION_PROJECT" ? "modeAssetTbd" : "modeAsset") : "modeSkuOnly"), open: OPEN_MODES.includes(m) }))}
+          cards={MODES.map((m) => ({ mode: m, name: u(`mode_${m}`), sub: u(`modeSub_${m}`), desc: u(`modeDesc_${m}`), floor: u("marginFloorTag", { pct: Math.round(floors[m] * 100) }), assetNote: u(m === "AUTOMATION_PROJECT" ? "modeAssetTbd" : modeNeedsAsset(m) ? (m === "MAINTENANCE" ? "modeAssetMany" : "modeAsset") : "modeSkuOnly"), open: OPEN_MODES.includes(m) }))}
           kinds={MODE_KINDS.MAINTENANCE.map((k) => ({ value: k, label: t(k) }))}
           labels={{ kind: u("maintenanceKind"), reason: u("partnerReason"), reasonPh: u("partnerReasonPh"), soon: u("modeComingSoon") }} />
       </Card>
-      <UploadRecognize kind="service" formId="f" title={u(trade ? "upTradeTitle" : "upServiceTitle")} hint={u(trade ? "upTradeHint" : "upServiceHint")} />
+      <UploadRecognize kind={proj ? "project" : "service"} formId="f" title={u(trade ? "upTradeTitle" : proj ? "upProjectTitle" : "upServiceTitle")} hint={u(trade ? "upTradeHint" : proj ? "upProjectHint" : "upServiceHint")} />
       <form id="f" action={submit} className="space-y-4">
-{trade ? (<>
+{noAsset ? (<>
         <Card title={u("customerAndInquiry")}>
           <Grid>
             <Field label={t("customer")} required><select name="customerId" required defaultValue={customers.find((c) => c.code === customer)?.id ?? ""} className={inputCls}><option value="">—</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select></Field>
@@ -94,9 +101,31 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           </Grid>
           <Field label={u("inquiryFiles")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>
         </Card>
-        <Card title={u("itemLines")}>
+        {proj && <Card title={u("projectCard")}>
+          <Grid>
+            <Field label={u("projectName")} required><input name="projectName" required placeholder="Line 3 extruder drive upgrade" className={inputCls} /></Field>
+            <Field label={u("projectSite")}><select name="plantId" className={inputCls}><option value="">—</option>{plants.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name} · {p.customer.name}</option>)}</select></Field>
+            <Field label={u("projectDue")}><input name="projectDue" type="date" className={inputCls} /></Field>
+          </Grid>
+          <Field label={u("projectScope")} required><textarea name="projectScope" required rows={3} placeholder={u("projectScopePh")} className={inputCls} /></Field>
+          <p className="text-xs text-navy/70">{u("projectNextHint")}</p>
+        </Card>}
+        {intl && <Card title={u("tradeTerms")}>
+          <Grid cols={4}>
+            <Field label={u("quoteCurrency")} required><select name="tCurrency" defaultValue="USD" className={inputCls}>{EXPORT_CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
+            <Field label={u("incoterms")} required><select name="tIncoterm" defaultValue="FOB" className={inputCls}>{INCOTERMS.map((c) => <option key={c} value={c}>{c} · {u(`incoterm_${c}`)}</option>)}</select></Field>
+            <Field label={u("incotermPlace")} required><input name="tPlace" required placeholder="Laem Chabang" className={inputCls} /></Field>
+            <Field label={u("shipMode")}><select name="tShipMode" className={inputCls}>{SHIP_MODES.map((m) => <option key={m} value={m}>{u(`shipMode_${m}`)}</option>)}</select></Field>
+            <Field label={u("destCountry")} required><input name="tDestCountry" required placeholder="Indonesia" className={inputCls} /></Field>
+            <Field label={u("destPort")}><input name="tDestPort" placeholder="Jakarta" className={inputCls} /></Field>
+            <Field label={u("paymentTerms")} required><input name="tPaymentTerms" required placeholder="T/T 30% advance, 70% before shipment" className={inputCls} /></Field>
+            <Field label={u("paymentDaysAfterCi")}><input name="tPaymentDays" type="number" min="0" defaultValue="0" className={inputCls} /></Field>
+          </Grid>
+          <p className="text-xs text-navy/70">{u("tradeTermsHint")}</p>
+        </Card>}
+        {!proj && <Card title={u("itemLines")}>
           <datalist id="trade-parts">{parts.map((p) => <option key={p.id} value={p.sku}>{p.name} · {u("onHand", { n: onHand.get(p.id) ?? 0 })}</option>)}</datalist>
-          <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy")]}>
+          <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy"), ...(intl ? [u("hsCode"), u("origin")] : [])]}>
             {Array.from({ length: TRADE_ROWS }, (_, i) => (
               <tr key={i}>
                 <td className="w-8 text-navy/60">{i + 1}</td>
@@ -105,11 +134,12 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
                 <td className="w-24"><input name={`lq${i}`} type="number" min={0} step="0.001" required={i === 0} className={inputCls} /></td>
                 <td className="w-20"><input name={`lu${i}`} defaultValue="pcs" className={inputCls} /></td>
                 <td className="w-40"><input name={`ln${i}`} type="date" className={inputCls} /></td>
+                {intl && <><td className="w-32"><input name={`lh${i}`} placeholder="8504.40" className={`${inputCls} font-mono`} /></td><td className="w-20"><input name={`lo${i}`} placeholder="DE" className={`${inputCls} uppercase`} /></td></>}
               </tr>
             ))}
           </Table>
           <p className="text-xs text-navy/70">{u("itemLinesHint")}</p>
-        </Card>
+        </Card>}
         </>) : (<>
         <Card title={u("whichAsset")}>
           <AssetPicker formId="f" assets={pick} initial={asset ? [asset] : []} labels={{ asset: t("asset"), customer: u("customerAuto"), plant: u("plantAuto"), add: u("addAnotherAsset") }} />
@@ -132,10 +162,10 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           <Field label={u("poAttachments")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>
         </Card>
         </>)}
-        <Card title={u(trade ? "orderOwner" : "dispatch")}>
+        <Card title={u(noAsset ? "orderOwner" : "dispatch")}>
           <Grid>
             <Field label={t("assignee")}><select name="assigneeCode" className={inputCls}><option value="">—</option>{engineers.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select></Field>
-            {!trade && <Field label={u("plannedVisit")}><input name="plannedAt" type="datetime-local" className={inputCls} /></Field>}
+            {!noAsset && <Field label={u("plannedVisit")}><input name="plannedAt" type="datetime-local" className={inputCls} /></Field>}
             <Field label={u("internalNote")}><input name="internalNote" className={inputCls} /></Field>
           </Grid>
         </Card>

@@ -14,9 +14,11 @@ import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps
 import { businessClosureOn } from "@/lib/closure";
 import { pdfAvailable } from "@/server/office";
 import { marginFloor } from "@/server/modes";
-import { isTradeMode, reopenBlocker } from "@/lib/modes";
+import { isTradeMode, quoteJustCancels, reopenBlocker } from "@/lib/modes";
+import { exportCloseBlockers, incotermLine, requiredExportDocs, type TradeTerms } from "@/lib/export";
+import { invoiceDue, nextMilestone, type ProjectInfo } from "@/lib/project";
 import { declineCloseBlockers, feeTotal, undoDeclineBlocker, type DeclineFee } from "@/lib/decline";
-import { closeDeclinedAction, reopenAsPartnerAction, undoDeclineAction } from "./actions";
+import { closeDeclinedAction, exportDocAction, reopenAsPartnerAction, undoDeclineAction } from "./actions";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
 
@@ -45,13 +47,15 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     returnIssued: order.deliveries.some((d) => d.status === "ISSUED" || d.status === "SIGNED"),
   } : null;
   const declineOpen = decShape ? declineCloseBlockers(decShape) : undefined;
+  const msShape = order.milestones.map((m) => ({ seq: m.seq, phase: m.phase, payPct: m.payPct == null ? null : Number(m.payPct), doneAt: m.doneAt, taxInvoiceNo: m.taxInvoiceNo }));
   const shape = {
     status: order.status, kind: order.kind, hasInspection: order.inspections.length > 0, hasQuote: order.lines.length > 0, hasJob: jobs.length > 0, jobFinished: jobs.some((j) => j.finishedAt),
     workshop: jobs.some((j) => j.location === "WORKSHOP") || order.documents.some((d) => d.type === "ER"),
     deliveriesSigned: order.deliveries.filter((d) => d.status === "SIGNED").length, deliveriesOpen: order.deliveries.filter((d) => d.status !== "SIGNED").length,
     invoicesUnpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, hasAcceptance: !!order.acceptance,
     partner: order.mode === "PARTNER_REPAIR",
-    trade: isTradeMode(order.mode), stockOuts: order.stockMovements.filter((m) => m.direction === "OUT").length,
+    project: order.mode === "AUTOMATION_PROJECT" ? { planned: !!(order.project as ProjectInfo | null)?.solution || ((order.requestLines as unknown[] | null) ?? []).length > 0, invoiceDue: invoiceDue(msShape).length } : undefined,
+    trade: isTradeMode(order.mode), intl: order.mode === "INTERNATIONAL_TRADE", stockOuts: order.stockMovements.filter((m) => m.direction === "OUT").length,
     declineOpen,
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
@@ -61,7 +65,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const also = businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k));
   const stepLabel = (s: StepKey) => u(`step_${s}`);
   // a quote for machines is declined (its own step), not cancelled; a declined order closes from its own card
-  const transitions = dec ? [] : ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CLOSED" || (s === "CANCELLED" && !(order.status === "QUOTE_PENDING" && !isTradeMode(order.mode))));
+  const transitions = dec ? [] : ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CLOSED" || (s === "CANCELLED" && !(order.status === "QUOTE_PENDING" && !quoteJustCancels(order.mode))));
   // "项目完成" (flow step 10): the person confirms the close once the money is in; the system no longer closes by itself.
   const outstanding = order.invoices.filter((i) => !i.cancelledAt).reduce((s, i) => s + Math.max(0, Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0)), 0);
   const settledAwaitingClose = order.status === "INVOICED" && order.invoices.some((i) => !i.cancelledAt) && outstanding < 0.005;
@@ -118,6 +122,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const seen = new Set<string>();
   const timeline = order.events.filter((e) => { const k = `${e.type}|${e.sourceDocNo}|${e.occurredAt.toISOString().slice(0, 16)}`; if (seen.has(k)) return false; seen.add(k); return true; });
   const atts = (order.attachments as { name: string; url: string; kind: string }[] | null) ?? [];
+  const terms = order.tradeTerms as TradeTerms | null; // 国际贸易 only
+  const exportLeft = terms ? exportCloseBlockers({ incoterm: terms.incoterm, shipped: order.deliveries.some((d) => d.status === "SIGNED" && d.shipping), unpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, attachments: atts }) : [];
 
   return (
     <div className="space-y-4">
@@ -148,10 +154,23 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          {isTradeMode(order.mode) ? <Card title={u("customerAndInquiry")}>
+          {order.mode === "AUTOMATION_PROJECT" ? <Card title={(order.project as ProjectInfo | null)?.name ?? u("projectCard")}>
+            <Grid>
+              <Field label={t("customer")}><Value>{order.customer.name}{order.plant ? ` · ${order.plant.code} ${order.plant.name}` : ""}</Value></Field>
+              <Field label={u("customerInquiryRef")}><Value className="font-mono">{order.customerRef ?? "—"}</Value></Field>
+              <Field label={u("projectDue")}><Value>{(order.project as ProjectInfo | null)?.dueDate ?? "—"}</Value></Field>
+            </Grid>
+            <Field label={u("projectScope")}><Value className="whitespace-pre-line">{(order.project as ProjectInfo | null)?.scope ?? "—"}</Value></Field>
+            <div className="flex flex-wrap gap-1.5 text-xs">{order.milestones.map((m) => <span key={m.id} className={`rounded-full border px-2 py-0.5 ${m.doneAt ? "border-navy bg-navy text-white" : nextMilestone(msShape)?.seq === m.seq ? "border-blue text-blue" : "border-navy/25 text-navy/60"}`}>{m.seq}. {u(`phase_${m.phase}`)}{m.payPct ? ` ${Math.round(Number(m.payPct) * 100)}%` : ""}</span>)}</div>
+            {atts.length > 0 && <div className="mt-2 flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.name}</a>)}</div>}
+          </Card> : isTradeMode(order.mode) ? <Card title={u("customerAndInquiry")}>
             <Grid>
               <Field label={t("customer")}><Value>{order.customer.name}</Value></Field>
               <Field label={u("customerInquiryRef")}><Value className="font-mono">{order.customerRef ?? "—"}</Value></Field>
+              {terms && <><Field label={u("incoterms")}><Value>{incotermLine(terms)}</Value></Field>
+                <Field label={u("destination")}><Value>{[terms.destPort, terms.destCountry].filter(Boolean).join(", ")} · {u(`shipMode_${terms.shipMode}`)}</Value></Field>
+                <Field label={u("paymentTerms")}><Value>{terms.paymentTerms}{terms.paymentDays ? ` · ${u("paymentDaysShort", { n: terms.paymentDays })}` : ""}</Value></Field>
+                <Field label={t("currency")}><Value className="font-mono">{order.currency}</Value></Field></>}
             </Grid>
             <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy")]}>
               {((order.requestLines as { sku?: string; description: string; qty: number; unit: string; neededBy?: string }[] | null) ?? []).map((l, i) => <tr key={i}><td>{i + 1}</td><td className="font-mono">{l.sku ?? "—"}</td><td>{l.description}</td><td className="text-right">{l.qty}</td><td>{l.unit}</td><td>{l.neededBy ?? ""}</td></tr>)}
@@ -167,6 +186,22 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {["INQUIRY", "PO", "MESSAGE", "PAYMENT", "CUSTOMER_DN"].includes(a.kind) ? `${u(`kind_${a.kind}`)} · ` : ""}{a.name}</a>)}</div>}
           </Card>}
 
+          {terms && <div id="export-docs"><Card title={u("exportDocs")}>
+            <p className="mb-2 text-xs text-navy/70">{u("exportDocsHint")}</p>
+            <div className="space-y-2">
+              {requiredExportDocs(terms.incoterm).map((k) => {
+                const files = atts.filter((a) => a.kind === k);
+                return (
+                  <div key={k} className="flex flex-wrap items-center gap-2 rounded-md border bg-white px-2.5 py-2 text-sm">
+                    <span className="w-44 font-semibold">{u(`kind_${k}`)}</span>
+                    <span className="flex flex-1 flex-wrap gap-2 text-xs">{files.length ? files.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 px-2.5 py-0.5 font-semibold">📄 {a.name}</a>) : <Tag hot>{u("exportDocMissing")}</Tag>}</span>
+                    {order.status !== "CLOSED" && order.status !== "CANCELLED" && <form action={exportDocAction.bind(null, no, k)} className="flex items-center gap-1"><input name="files" type="file" multiple required accept="image/*,application/pdf" className="w-52 text-xs" /><button className={btnGhost}>{u("upload")}</button></form>}
+                  </div>
+                );
+              })}
+            </div>
+            {exportLeft.length > 0 && order.status !== "CLOSED" && <p className="mt-2 text-xs text-alert-ink">{u("exportCloseNeeds")} {exportLeft.map((k) => u(`exportLeft_${k}`)).join(" / ")}</p>}
+          </Card></div>}
           <Card title={u("documentsDone")}>
             <Table head={[u("document"), t("type"), u("time"), u("executor"), u("summary"), u("reports")]}>
               {docs.map((d) => (

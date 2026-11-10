@@ -2,6 +2,7 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { openJob } from "@/lib/drafts";
@@ -149,7 +150,8 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, assets: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   assertNotLocked(order);
-  const vatRate = d.vatRate ?? Number(order.entity.vatRate);
+  // 国际贸易: an export is zero-rated (src/lib/export.ts — until the accountant says otherwise)
+  const vatRate = d.vatRate ?? (order.mode === "INTERNATIONAL_TRADE" ? EXPORT_VAT_RATE : Number(order.entity.vatRate));
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
   const fx = order.currency === "CNY" ? 1 : (await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny;
   const parts = await prisma.part.findMany({ where: { sku: { in: d.lines.map((l) => l.partSku).filter((s): s is string => !!s) } } });

@@ -33,7 +33,7 @@ async function main() {
 
   console.log("1. trade order: customer + SKU lines, no ATH; shortages raise a PRTH");
   await refused(() => createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, mode: "DOMESTIC_TRADE", requestLines: [] }), /ITEM_LINES_REQUIRED/, "a trade order needs item lines");
-  await refused(() => createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, mode: "INTERNATIONAL_TRADE", requestLines: [{ sku: a.sku, qty: 1 }] }), /MODE_NOT_OPEN/, "international trade is not open yet");
+  await refused(() => createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, mode: "INTERNATIONAL_TRADE", requestLines: [{ sku: a.sku, qty: 1 }] }), /TRADE_TERMS_REQUIRED/, "international trade needs its trade terms (probe-intl-trade.ts runs that chain)");
   const o = await createServiceOrder({
     createdByEmployeeCode: md.code, customerId: customer.id, mode: "DOMESTIC_TRADE", customerRef: `RFQ-${stamp}`,
     requestLines: [{ sku: a.sku, description: a.name, qty: 3, unit: "pcs" }, { sku: b.sku, qty: 2, unit: "pcs" }, { description: "Shielded motor cable 4×10 mm²", qty: 50, unit: "m" }, { description: "", qty: 0 }],
