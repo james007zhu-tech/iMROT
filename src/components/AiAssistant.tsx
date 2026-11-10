@@ -181,7 +181,11 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   if (path === "/home") return null; // the home page is the conversation itself
   return (
     <>
-      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="fixed bottom-3 right-3 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-blue/90 text-sm font-bold text-white shadow-lg md:bottom-4 md:right-4 md:h-14 md:w-14 md:bg-blue md:text-xl">AI</button>
+      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="ai-fab fixed bottom-3 right-3 z-40 h-12 w-12 md:bottom-4 md:right-4 md:h-14 md:w-14">
+        {/* the "i" of DCiT: white stem, blue square dot — the dot is the live part */}
+        <span className="ai-fab-pulse" aria-hidden /><span className="ai-fab-ring" aria-hidden />
+        <svg viewBox="0 0 48 48" aria-hidden className="relative h-full w-full"><rect x="20.5" y="20" width="7" height="16" fill="#fff" /><rect x="20.5" y="10.5" width="7" height="7" className="ai-fab-dot" /></svg>
+      </button>
       {open && (
         <div className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] flex-col rounded-t-2xl border bg-white shadow-2xl md:inset-x-auto md:bottom-20 md:right-4 md:h-[32rem] md:w-96 md:rounded-2xl">
           <div className="flex items-center justify-between border-b px-4 py-2"><b className="text-navy">{t("title")}</b><button onClick={() => setOpen(false)} className="text-navy/70">✕</button></div>

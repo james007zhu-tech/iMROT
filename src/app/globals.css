@@ -35,3 +35,18 @@ body { background: #F4F7FB; color: #0B2D53; }
 
 /* Placeholders are examples, never values: lighter and italic so an empty required field does not look filled (trial 2026-11-05). */
 input::placeholder, textarea::placeholder { color: rgb(11 45 83 / 0.38); font-style: italic; }
+
+/* ── AI button (朱总 2026-11-10): the "i" of the DCiT mark. A light sweeps round the rim, a ring breathes outward,
+   the square dot glows — slow enough to sit in the corner of a form without nagging. Still when motion is reduced. ── */
+/* half-transparent glass: the page shows through, blurred (朱总: 半透明的科技感) */
+.ai-fab { border-radius: 9999px; display: block; background: linear-gradient(145deg, rgb(35 116 213 / 0.30), rgb(11 45 83 / 0.46)); -webkit-backdrop-filter: blur(9px) saturate(1.5); backdrop-filter: blur(9px) saturate(1.5); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.40), inset 0 6px 10px rgb(255 255 255 / 0.14), 0 6px 18px rgb(11 45 83 / 0.28); transition: transform 0.2s; }
+.ai-fab:hover { transform: scale(1.06); }
+.ai-fab:active { transform: scale(0.96); }
+.ai-fab-dot { fill: #2374D5; transform-box: fill-box; transform-origin: center; animation: ai-dot 2.4s ease-in-out infinite; filter: drop-shadow(0 0 2px #5AA6FF); }
+.ai-fab-ring, .ai-fab-pulse { position: absolute; inset: 0; border-radius: 9999px; pointer-events: none; }
+.ai-fab-ring { background: conic-gradient(from 0deg, transparent 0 62%, #2374D5 80%, #9CCBFF 92%, transparent 100%); -webkit-mask: radial-gradient(circle, transparent 60%, #000 62%); mask: radial-gradient(circle, transparent 60%, #000 62%); animation: ai-spin 3.2s linear infinite; }
+.ai-fab-pulse { border: 1.5px solid rgb(35 116 213 / 0.75); animation: ai-pulse 2.4s ease-out infinite; }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@keyframes ai-pulse { 0% { transform: scale(0.9); opacity: 0.7; } 70%, 100% { transform: scale(1.55); opacity: 0; } }
+@keyframes ai-dot { 0%, 100% { fill: #2374D5; transform: scale(1); } 50% { fill: #7DBBFF; transform: scale(1.18); } }
+@media (prefers-reduced-motion: reduce) { .ai-fab-ring, .ai-fab-pulse, .ai-fab-dot { animation: none; } .ai-fab-pulse { display: none; } }
