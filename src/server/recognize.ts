@@ -47,15 +47,17 @@ const DOC_KIND_HINTS: Record<string, string> = {
 export async function lookupCompany(name: string, nameLocal?: string): Promise<Record<string, string>> {
   if (process.env.COMPANY_LOOKUP === "off" || !process.env.ANTHROPIC_API_KEY) return {};
   const res = await callClaude({
-    max_tokens: 1200,
+    max_tokens: 4000,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
     system: "You find official registration data of a company for a supplier/customer master record. Search the web (for Thai companies: DBD DataWarehouse, the company's website, creden.co, dataforthai; otherwise the national registry or the company's site). Return only JSON: {\"taxId\": string, \"branchCode\": string, \"addressEn\": string, \"addressLocal\": string, \"phone\": string, \"email\": string, \"sources\": [url]}. Include a field only when a source states it for exactly this legal entity; a Thai tax ID has 13 digits; branchCode 00000 for a head office. Never guess or build a value from a similar company. If you cannot confirm anything, return {}.",
-    messages: [{ role: "user", content: `Company: ${name}${nameLocal && nameLocal !== name ? ` (${nameLocal})` : ""}` }],
+    messages: [{ role: "user", content: `Company: ${name}${nameLocal && nameLocal !== name ? ` (${nameLocal})` : ""}\nFinish with the JSON object only, starting with {"taxId".` }],
   });
-  if (!res.ok) return {};
-  const data = (await res.json()) as { content: { type: string; text?: string }[] };
+  if (!res.ok) { console.warn(`[lookup] ${res.status} ${(await res.text()).slice(0, 300)}`); return {}; }
+  const data = (await res.json()) as { stop_reason?: string; content: { type: string; text?: string }[] };
   const text = data.content.filter((c) => c.type === "text").map((c) => c.text).join("");
-  const r = json<Record<string, unknown>>(text);
+  let r: Record<string, unknown>;
+  try { r = json<Record<string, unknown>>(text.slice(text.lastIndexOf("{\"taxId\"") >= 0 ? text.lastIndexOf("{\"taxId\"") : 0)); }
+  catch { console.warn(`[lookup] no JSON for ${name} (${data.stop_reason}): ${text.slice(-300)}`); return {}; }
   return Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== "sources" && typeof v === "string" && v.trim()).map(([k, v]) => [k, String(v)]));
 }
 
