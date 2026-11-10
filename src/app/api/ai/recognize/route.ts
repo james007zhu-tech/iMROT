@@ -6,7 +6,7 @@ import { recognizeDocuments } from "@/server/recognize";
 import { RECOGNIZE, type RecognizeKind } from "@/lib/recognize";
 
 function liveFields(raw: FormDataEntryValue | null) {
-  try { const a = JSON.parse(String(raw ?? "[]")); return Array.isArray(a) ? a.slice(0, 140).map((f) => ({ name: String(f.name), label: f.label ? String(f.label).slice(0, 80) : undefined, value: f.value ? String(f.value).slice(0, 200) : undefined, options: Array.isArray(f.options) ? f.options.map(String).slice(0, 20) : undefined, type: f.type ? String(f.type) : undefined })) : []; } catch { return []; }
+  try { const a = JSON.parse(String(raw ?? "[]")); return Array.isArray(a) ? a.slice(0, 140).map((f) => ({ name: String(f.name), label: f.label ? String(f.label).slice(0, 80) : undefined, value: f.value ? String(f.value).slice(0, 200) : undefined, options: Array.isArray(f.options) ? f.options.map((o: unknown) => String(o).slice(0, 90)).slice(0, 40) : undefined, type: f.type ? String(f.type) : undefined })) : []; } catch { return []; }
 }
 
 /** POST multipart: kind, text?, file* → saved attachments + fields to fill. Staff or portal contact. */

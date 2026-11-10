@@ -62,7 +62,9 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
       setAtts((a) => [...a, ...(j.attachments as Att[])]);
       const uncertain = new Set<string>((j.uncertain as string[] | undefined) ?? []);
       let n = fill(formId, j.fields as Record<string, string>, uncertain);
-      if (lineFields && Array.isArray(j.lines)) n += fillLines(formId, j.lines as Record<string, string>[], lineFields);
+      // dictated rows arrive as row fields (d0, q0 …); a document's printed items arrive as lines — never both into the same rows
+      const rowsWritten = lineFields ? Object.keys(j.fields as object).some((k) => Object.values(lineFields).some((p) => new RegExp(`^${p}\\d+$`).test(k))) : false;
+      if (lineFields && Array.isArray(j.lines) && !rowsWritten) n += fillLines(formId, j.lines as Record<string, string>[], lineFields);
       numberPhotos(formId, [...atts, ...(j.attachments as Att[])]);
       const checks = uncertain.size;
       const looked = Array.isArray(j.lookedUp) ? (j.lookedUp as string[]).length : 0; // company data found on the web, not on the paper

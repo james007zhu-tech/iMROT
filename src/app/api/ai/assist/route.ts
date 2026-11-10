@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     }
     const locale = await getLocale();
     const { messages, path, fields } = body;
-    const form = scope.kind === "staff" && body.form && Array.isArray(body.form.fields) ? { title: String(body.form.title ?? "").slice(0, 120), context: body.form.context ? String(body.form.context) : undefined, fields: body.form.fields.slice(0, 140).map((f) => ({ name: String(f.name), label: f.label ? String(f.label).slice(0, 80) : undefined, value: f.value ? String(f.value) : undefined, options: Array.isArray(f.options) ? f.options.map(String).slice(0, 20) : undefined, type: f.type ? String(f.type) : undefined })) } : undefined;
+    const form = scope.kind === "staff" && body.form && Array.isArray(body.form.fields) ? { title: String(body.form.title ?? "").slice(0, 120), context: body.form.context ? String(body.form.context) : undefined, fields: body.form.fields.slice(0, 140).map((f) => ({ name: String(f.name), label: f.label ? String(f.label).slice(0, 80) : undefined, value: f.value ? String(f.value) : undefined, options: Array.isArray(f.options) ? f.options.map((o) => String(o).slice(0, 90)).slice(0, 40) : undefined, type: f.type ? String(f.type) : undefined })) } : undefined;
     const out = await assist(messages, scope.kind === "staff"
       ? { employeeCode: scope.employeeCode, locale, path, fields, form }
       : { contactId: scope.contactId, customerId: scope.customerId, locale, path, fields }, files);

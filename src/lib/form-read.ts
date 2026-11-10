@@ -17,7 +17,8 @@ export function describeForm(form: HTMLFormElement): FormField[] {
     const value = el instanceof HTMLInputElement && el.type === "checkbox" ? (el.checked ? "yes" : "") : el.value;
     const idx = /(\d+)$/.exec(el.name)?.[1];
     if (idx && Number(idx) > 5 && !value.trim()) continue; // far-down empty rows of a repeating table
-    fields.push({ name: el.name, label, value: value || undefined, type: el instanceof HTMLSelectElement ? undefined : el instanceof HTMLTextAreaElement ? "long text" : (el as HTMLInputElement).type, options: el instanceof HTMLSelectElement ? Array.from(el.options).map((o) => o.value).filter(Boolean) : undefined });
+    fields.push({ name: el.name, label, value: value || undefined, type: el instanceof HTMLSelectElement ? undefined : el instanceof HTMLTextAreaElement ? "long text" : (el as HTMLInputElement).type, // a choice is sent as "value = what the person sees", so the model can match a name to an id — or see that it cannot
+      options: el instanceof HTMLSelectElement ? Array.from(el.options).filter((o) => o.value).slice(0, 40).map((o) => (o.text.trim() && o.text.trim() !== o.value ? `${o.value} = ${o.text.trim().slice(0, 40)}` : o.value)) : undefined });
     if (fields.length >= 140) break;
   }
   return fields;
