@@ -12,6 +12,8 @@ import { FormMemory } from "@/components/FormMemory";
 import { AssetTriple, FaultText, PageHeader, Tag, btnGhost, btnPrimary } from "@/components/ui";
 import { OrderStatusBadge } from "@/components/StatusBadge";
 import type { RecognizeKind } from "@/lib/recognize";
+import { assetBriefing, orderContext } from "@/server/briefing";
+import { AssetBrief } from "@/components/AssetBrief";
 
 export type Order = NonNullable<Awaited<ReturnType<typeof getServiceOrder>>>;
 
@@ -33,11 +35,14 @@ export async function OrderBrief({ order }: { order: Order }) {
   );
 }
 
-export async function StepPage({ order, title, badge, formId = "f", kind, uploadTitle, uploadHint, lineFields, context, dictate, saveLabel, extraActions, ok, error, notice, children }: {
-  order: Order; title: React.ReactNode; badge?: React.ReactNode; formId?: string; kind?: RecognizeKind; uploadTitle?: string; uploadHint?: string; lineFields?: Record<string, string>; context?: string; dictate?: boolean;
+export async function StepPage({ order, title, badge, formId = "f", kind, uploadTitle, uploadHint, lineFields, context, dictate, brief, saveLabel, extraActions, ok, error, notice, children }: {
+  order: Order; title: React.ReactNode; badge?: React.ReactNode; formId?: string; kind?: RecognizeKind; uploadTitle?: string; uploadHint?: string; lineFields?: Record<string, string>; context?: string; dictate?: boolean; /** show 这台设备的底细 for the first machine (field forms) */ brief?: boolean;
   saveLabel: string; extraActions?: React.ReactNode; ok?: string; error?: string; notice?: string; children: React.ReactNode;
 }) {
   const t = await getTranslations("common"); // error codes and field names are translated by Flash
+  // every step knows what the order already holds: the upload box and the i assistant both get it (no retyping)
+  const ctx = context ?? (await orderContext(order).catch(() => undefined));
+  const card = brief && order.assets[0] ? await assetBriefing(order.assets[0].asset.code, { symptom: order.reportedSymptom, alarm: order.reportedAlarm, orderId: order.id }).catch(() => null) : null;
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: `/service-orders/${order.no}`, label: order.no }} title={title} badge={badge ?? <OrderStatusBadge status={order.status} />}
@@ -46,7 +51,9 @@ export async function StepPage({ order, title, badge, formId = "f", kind, upload
       {notice && <div className="rounded-lg border border-alert bg-alert/10 px-4 py-2 text-sm text-alert-ink">{notice}</div>}
       <OrderBrief order={order} />
       <FormMemory formId={formId} />
-      {kind && uploadTitle && <UploadRecognize kind={kind} formId={formId} title={uploadTitle} hint={uploadHint ?? ""} lineFields={lineFields} context={context} dictate={dictate} />}
+      {kind && uploadTitle && <UploadRecognize kind={kind} formId={formId} title={uploadTitle} hint={uploadHint ?? ""} lineFields={lineFields} context={ctx} dictate={dictate} />}
+      {!(kind && uploadTitle) && ctx && <div data-ai-context hidden>{ctx}</div>}
+      {card && <AssetBrief brief={card} open={false} />}
       {children}
     </div>
   );

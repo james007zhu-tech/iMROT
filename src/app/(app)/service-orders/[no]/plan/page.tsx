@@ -1,3 +1,4 @@
+import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -24,7 +25,7 @@ export default async function Plan({ params, searchParams }: { params: Promise<{
   if (order.mode !== "AUTOMATION_PROJECT") notFound();
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [parts, milestones] = await Promise.all([
-    prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { sku: true, name: true, lastCost: true } }),
+    prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { sku: true, name: true, lastCost: true, vendorPartNo: true, unit: true } }),
     prisma.projectMilestone.findMany({ where: { serviceOrderId: order.id }, orderBy: { seq: "asc" } }),
   ]);
   const info = (order.project as unknown as ProjectInfo | null) ?? { name: order.no };
@@ -73,7 +74,7 @@ export default async function Plan({ params, searchParams }: { params: Promise<{
         </Card>
 
         <Card title={u("projectBom")}>
-          <datalist id="bom-parts">{parts.map((p) => <option key={p.sku} value={p.sku}>{p.name}{p.lastCost != null ? ` · ${Number(p.lastCost).toFixed(2)}` : ""}</option>)}</datalist>
+          <PartDropdown formId="f" sku="bs" name="bd" unit="bu" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, unit: p.unit }))} />
           <div className="hidden grid-cols-[170px_2fr_90px_70px_150px] gap-2 text-xs text-navy/70 md:grid"><span>{u("partSku")}</span><span>{t("description")}</span><span>{t("qty")}</span><span>{u("unitShort")}</span><span>{u("neededBy")}</span></div>
           <RevealRows initial={Math.max(3, bom.length)} addLabel={u("addLine")}>
             {Array.from({ length: BOM_ROWS }, (_, i) => { const l = bom[i]; return (

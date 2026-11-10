@@ -1,3 +1,4 @@
+import { PartDropdown } from "@/components/PartDropdown";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -20,7 +21,7 @@ export default async function NewPurchaseOrder({ searchParams }: { searchParams:
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [suppliers, parts, orders] = await Promise.all([
     prisma.supplier.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-    prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500, select: { sku: true, name: true, vendorPartNo: true } }),
+    prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500, select: { sku: true, name: true, vendorPartNo: true, unit: true } }),
     prisma.serviceOrder.findMany({ where: { lockedAt: null, status: { notIn: ["CLOSED", "CANCELLED"] } }, orderBy: { createdAt: "desc" }, take: 100, select: { no: true, customer: { select: { name: true } } } }),
   ]);
   async function save(f: FormData) {
@@ -65,7 +66,7 @@ export default async function NewPurchaseOrder({ searchParams }: { searchParams:
                 <input name={`p${i}`} type="number" step="0.01" className={inputCls} />
               </div>))}
           </RevealRows>
-          <datalist id="parts">{parts.map((p) => <option key={p.sku} value={p.sku}>{p.vendorPartNo} · {p.name}</option>)}</datalist>
+          <PartDropdown formId="f" sku="s" name="d" unit="u" vendor="v" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, unit: p.unit }))} />
           <p className="text-xs text-navy/70">{u("poSkuNote")}</p>
         </Card>
       </form>

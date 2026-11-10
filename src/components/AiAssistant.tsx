@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
+import { readForm, type FormInfo } from "@/lib/form-read";
 
 type Msg = { role: "user" | "assistant"; content: string; actions?: Action[] };
 type Action = { type: "navigate" | "fill_form" | "dashboard" | "confirm" | "done"; href?: string; fields?: Record<string, string>; id?: string; summary?: string; state?: "done" | "cancelled" | "failed"; note?: string };
@@ -244,31 +245,6 @@ function Md({ text }: { text: string }) {
     else blocks.push(<div key={i}>{inline(l, i)}</div>);
   }
   return <div className="space-y-0.5 leading-relaxed">{blocks}</div>;
-}
-
-type FormField = { name: string; label?: string; value?: string; options?: string[]; type?: string };
-type FormInfo = { title: string; context?: string; fields: FormField[] };
-
-/** The form on the current page as the assistant sees it: every named field with its label, kind and present value. */
-function readForm(): FormInfo | null {
-  const forms = Array.from(document.querySelectorAll<HTMLFormElement>("main form")).filter((f) => f.querySelectorAll("input:not([type=hidden]),textarea,select").length >= 3);
-  const form = forms.sort((a, b) => b.elements.length - a.elements.length)[0];
-  if (!form) return null;
-  const fields: FormField[] = [];
-  const seen = new Set<string>();
-  for (const el of Array.from(form.elements) as (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[]) {
-    if (!el.name || seen.has(el.name) || el.name.startsWith("$") || (el instanceof HTMLInputElement && ["hidden", "file", "submit", "button", "password"].includes(el.type))) continue;
-    if (el instanceof HTMLButtonElement) continue;
-    seen.add(el.name);
-    const lab = el.closest("label")?.querySelector("span")?.textContent?.replace(/\*/g, "").trim() || (el as HTMLInputElement).placeholder || el.getAttribute("aria-label") || undefined;
-    const value = el instanceof HTMLInputElement && el.type === "checkbox" ? (el.checked ? "yes" : "") : el.value;
-    // repeating rows: empty rows beyond the first few are not worth sending
-    const idx = /(\d+)$/.exec(el.name)?.[1];
-    if (idx && Number(idx) > 5 && !value.trim()) continue;
-    fields.push({ name: el.name, label: lab, value: value || undefined, type: el instanceof HTMLSelectElement ? undefined : el instanceof HTMLTextAreaElement ? "long text" : (el as HTMLInputElement).type, options: el instanceof HTMLSelectElement ? Array.from(el.options).map((o) => o.value).filter(Boolean) : undefined });
-    if (fields.length >= 140) break;
-  }
-  return { title: document.querySelector("main h1")?.textContent?.trim() ?? document.title, context: document.querySelector("[data-ai-context]")?.textContent ?? undefined, fields };
 }
 
 interface SpeechRecognitionLike { lang: string; interimResults: boolean; continuous: boolean; onresult: ((ev: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void }

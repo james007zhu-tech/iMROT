@@ -22,7 +22,7 @@ export default async function Receive({ params, searchParams }: { params: Promis
     }, `/service-orders/${no}/receive`);
   }
   return (
-    <StepPage order={order} title={u("step_receive")} error={error} kind="receive" uploadTitle={u("upReceiveTitle")} uploadHint={u("upReceiveHint")} saveLabel={u("saveAndReport")}>
+    <StepPage order={order} title={u("step_receive")} error={error} kind="receive" brief uploadTitle={u("upReceiveTitle")} uploadHint={u("upReceiveHint")} saveLabel={u("saveAndReport")}>
       <form id="f" action={save}>
         <Card title={u("receiving")}>
           <Grid>
