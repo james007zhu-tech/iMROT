@@ -2,19 +2,50 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { businessClosureOn } from "@/lib/closure";
 import { prisma } from "@/lib/db";
-import { PageHeader } from "@/components/ui";
+import { PageHeader, Table } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-/** Phase 1 slice: the invoices and payments that belong to service orders. Full module in Phase 2. */
-export default async function Page() {
+const day = (d?: Date | null) => d?.toISOString().slice(0, 10) ?? "";
+const money = (n: unknown) => Number(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** 税务运营: 请款单 (IVTH / PFTH), 收据 (RCTH), 税务发票 (TITH) — one list each (menu 2026-11-10), newest first. */
+export default async function Page({ searchParams }: { searchParams: Promise<{ doc?: string }> }) {
+  const { doc: d } = await searchParams;
+  const doc = d === "rc" || d === "ti" ? d : "iv";
   const t = await getTranslations("common");
-  const invoices = await prisma.invoice.findMany({ orderBy: { issuedAt: "desc" }, take: 100, include: { serviceOrder: { include: { customer: true } }, taxInvoice: true } });
+  const n = await getTranslations("nav");
+  const order = (no: string) => <Link href={`/service-orders/${no}`} className="font-mono text-blue hover:underline">{no}</Link>;
+  let body: React.ReactNode;
+  if (doc === "iv") {
+    const rows = await prisma.invoice.findMany({ orderBy: { issuedAt: "desc" }, take: 200, include: { serviceOrder: { include: { customer: true } }, taxInvoice: true } });
+    body = (
+      <Table head={[n("billing"), "TITH", "QTTH", t("customer"), t("due"), <span key="a" className="block text-right">{t("amount")}</span>, <span key="p" className="block text-right">{t("paid")}</span>, <span key="w" className="block text-right">{t("wht")}</span>]}>
+        {rows.map((i) => <tr key={i.id} className={i.cancelledAt ? "text-navy/40 line-through" : ""}><td className="font-mono">{i.no}</td><td className="font-mono">{i.taxInvoice?.no ?? ""}</td><td>{order(i.serviceOrder.no)}</td><td>{i.serviceOrder.customer.name}</td><td className="whitespace-nowrap">{day(i.dueAt)}</td><td className="text-right">{i.currency} {money(i.amountDue)}</td><td className="text-right">{money(i.paidAmount)}</td><td className="text-right">{money(i.whtAmount)}</td></tr>)}
+        {rows.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-navy/60">{t("noInvoices")}</td></tr>}
+      </Table>
+    );
+  } else if (doc === "rc") {
+    const rows = await prisma.receipt.findMany({ orderBy: { receivedAt: "desc" }, take: 200, include: { invoice: { include: { serviceOrder: { include: { customer: true } } } } } });
+    body = (
+      <Table head={[n("receipts"), "IVTH", "TITH", "QTTH", t("customer"), t("date"), <span key="a" className="block text-right">{t("amount")}</span>, <span key="w" className="block text-right">{t("wht")}</span>]}>
+        {rows.map((r) => <tr key={r.id}><td className="font-mono">{r.no}</td><td className="font-mono">{r.invoice.no}</td><td className="font-mono">{r.taxInvoiceNo ?? ""}</td><td>{order(r.invoice.serviceOrder.no)}</td><td>{r.invoice.serviceOrder.customer.name}</td><td className="whitespace-nowrap">{day(r.receivedAt)}</td><td className="text-right">{r.currency} {money(r.cashAmount)}</td><td className="text-right">{money(r.whtAmount)}</td></tr>)}
+        {rows.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-navy/60">{t("noInvoices")}</td></tr>}
+      </Table>
+    );
+  } else {
+    const rows = await prisma.taxInvoice.findMany({ orderBy: { issuedAt: "desc" }, take: 200, include: { serviceOrder: { include: { customer: true } } } });
+    body = (
+      <Table head={[n("taxInvoices"), "QTTH", t("customer"), t("date"), <span key="s" className="block text-right">{t("subtotal")}</span>, <span key="v" className="block text-right">VAT</span>, <span key="a" className="block text-right">{t("amount")}</span>, <span key="c" className="block text-right">CNY</span>]}>
+        {rows.map((x) => <tr key={x.id} className={x.voidedAt ? "text-navy/40 line-through" : ""}><td className="font-mono">{x.no}</td><td>{order(x.serviceOrder.no)}</td><td>{x.serviceOrder.customer.name}</td><td className="whitespace-nowrap">{day(x.issuedAt)}</td><td className="text-right">{x.currency} {money(x.subtotal)}</td><td className="text-right">{money(x.vatAmount)}</td><td className="text-right">{money(x.total)}</td><td className="text-right">{money(x.totalCny)}</td></tr>)}
+        {rows.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-navy/60">{t("noInvoices")}</td></tr>}
+      </Table>
+    );
+  }
   return (
     <div className="space-y-4">
-      <PageHeader title={`${t("nav_to")} · ${t("invoices")}`} newHref={businessClosureOn() ? "/service-orders?status=ACCEPTED" : undefined} newLabel={t("newInvoiceFromOrder")} />
-      <div className="rounded-lg border bg-white"><table className="w-full text-sm"><thead className="bg-blue/8 text-left"><tr><th className="px-3 py-2">IVTH</th><th className="px-3 py-2">TITH</th><th className="px-3 py-2">QTTH</th><th className="px-3 py-2">{t("customer")}</th><th className="px-3 py-2">{t("due")}</th><th className="px-3 py-2 text-right">{t("amount")}</th><th className="px-3 py-2 text-right">{t("paid")}</th><th className="px-3 py-2 text-right">{t("wht")}</th><th className="px-3 py-2 text-right">CNY</th></tr></thead>
-        <tbody>{invoices.map((i) => <tr key={i.id} className="border-t"><td className="px-3 py-2 font-mono">{i.no}</td><td className="px-3 py-2 font-mono">{i.taxInvoice?.no ?? ""}</td><td className="px-3 py-2 font-mono"><Link href={`/service-orders/${i.serviceOrder.no}`} className="text-blue underline">{i.serviceOrder.no}</Link></td><td className="px-3 py-2">{i.serviceOrder.customer.name}</td><td className="px-3 py-2">{i.dueAt?.toISOString().slice(0, 10) ?? ""}</td><td className="px-3 py-2 text-right">{i.currency} {Number(i.amountDue).toFixed(2)}</td><td className="px-3 py-2 text-right">{Number(i.paidAmount ?? 0).toFixed(2)}</td><td className="px-3 py-2 text-right">{Number(i.whtAmount ?? 0).toFixed(2)}</td><td className="px-3 py-2 text-right">{i.taxInvoice ? Number(i.taxInvoice.totalCny).toFixed(2) : ""}</td></tr>)}{invoices.length === 0 && <tr><td colSpan={9} className="px-3 py-4 text-navy/70">{t("noInvoices")}</td></tr>}</tbody></table></div>
+      <PageHeader title={n(doc === "iv" ? "billing" : doc === "rc" ? "receipts" : "taxInvoices")} newHref={doc !== "rc" && businessClosureOn() ? "/service-orders?status=ACCEPTED" : undefined} newLabel={t("newInvoiceFromOrder")} />
+      {body}
     </div>
   );
 }

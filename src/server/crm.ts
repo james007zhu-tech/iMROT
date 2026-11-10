@@ -4,6 +4,7 @@
  * DBD data is stored with the record and fields a person changed afterwards are listed in `editedFields`.
  */
 import { z } from "zod";
+import { cleanBirthday } from "@/lib/notify";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -12,7 +13,7 @@ import { audit } from "@/server/audit";
 import { isClosedStatus } from "@/server/dbd";
 
 const Plant = z.object({ code: z.string().min(1), name: z.string().min(1), address: z.string().optional(), accessNotes: z.string().optional() });
-const Contact = z.object({ name: z.string().min(1), title: z.string().optional(), plantCode: z.string().optional(), phone: z.string().optional(), lineId: z.string().optional(), email: z.string().optional(), portalLogin: z.string().optional(), portalPassword: z.string().optional() });
+const Contact = z.object({ name: z.string().min(1), title: z.string().optional(), plantCode: z.string().optional(), phone: z.string().optional(), lineId: z.string().optional(), email: z.string().optional(), portalLogin: z.string().optional(), portalPassword: z.string().optional(), birthday: z.string().optional() });
 const File = z.object({ name: z.string(), url: z.string(), kind: z.string() });
 
 export const CustomerInput = z.object({
@@ -83,7 +84,7 @@ export async function addPlant(customerCode: string, p: z.input<typeof Plant>) {
 export async function addContact(customerCode: string, k: z.input<typeof Contact>) {
   const c = await prisma.customer.findUniqueOrThrow({ where: { code: customerCode }, include: { plants: true } });
   const d = Contact.parse(k);
-  return prisma.contact.create({ data: { customerId: c.id, plantId: c.plants.find((p) => p.code === d.plantCode)?.id, name: d.name, title: d.title, phone: d.phone, lineId: d.lineId, email: d.email, portalLogin: d.portalLogin || undefined, portalPasswordHash: d.portalLogin && d.portalPassword ? hashPassword(d.portalPassword) : undefined } });
+  return prisma.contact.create({ data: { customerId: c.id, plantId: c.plants.find((p) => p.code === d.plantCode)?.id, name: d.name, title: d.title, phone: d.phone, lineId: d.lineId, email: d.email, birthday: cleanBirthday(d.birthday), portalLogin: d.portalLogin || undefined, portalPasswordHash: d.portalLogin && d.portalPassword ? hashPassword(d.portalPassword) : undefined } });
 }
 
 /** Reset a portal contact's password (used by the trial-account script; audited). */

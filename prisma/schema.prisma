@@ -98,6 +98,7 @@ model Employee {
   email        String?      @unique
   phone        String?
   passwordHash String?
+  shortcuts    Json? /// 常用功能: the entry keys this person pinned (src/lib/nav.ts SHORTCUTS); null = the role's default
   locale       String       @default("th") /// th | zh | en — UI language, switchable any time
   active       Boolean      @default(true)
   createdAt    DateTime     @default(now())
@@ -363,6 +364,7 @@ model Contact {
   phone              String?
   email              String?
   lineId             String?
+  birthday           String? /// "MM-DD" — the message centre reminds the account owner a week ahead (朱总 2026-11-10)
   portalLogin        String?  @unique
   portalPasswordHash String?
   locale             String   @default("th")
