@@ -1646,3 +1646,19 @@ model OvertimePayLine {
 
   @@unique([monthId, employeeId])
 }
+
+/// AI 动作 (朱总 2026-11-10): what the assistant did or proposes to do for a person. Most actions run at once
+/// (status DONE, also in AuditLog as AI:<tool>); irreversible ones wait as PENDING until that person confirms.
+model AiAction {
+  id         String    @id @default(cuid())
+  employeeId String
+  tool       String
+  input      Json
+  summary    String
+  status     String    @default("PENDING") /// PENDING | DONE | FAILED | CANCELLED
+  result     Json?
+  createdAt  DateTime  @default(now())
+  decidedAt  DateTime?
+
+  @@index([employeeId, status])
+}

@@ -386,8 +386,8 @@
   },
   "ai": {
     "title": "AI 助手",
-    "placeholder": "提问、口述或下指令…",
-    "hintStaff": "问设备或服务单的任何事；口述检测记录后一键填表；拍铭牌建档；或说\"做一个本月维修看板\"",
+    "placeholder": "说要办的事，或把文件拖进来…",
+    "hintStaff": "把询价单、PO、铭牌照片直接丢进来，我来建客户、建单、报价、发货；开税票和收款会先让你确认。",
     "hintPortal": "询问报修进度、报告，或您设备的维护周期",
     "fillForm": "填入表单",
     "filled": "已填入 {n} 个字段，保存前请核对",
@@ -403,7 +403,11 @@
     "offlineNotFound": "没有找到 {code}",
     "offlineCounts": "设备 {assets} 台 · 服务单 {orders} 张",
     "offlineFilled": "已填入，请核对后保存：{fields}",
-    "offlineOpenForm": "已打开新增设备页，请在该页再说一遍以便填入：{fields}"
+    "offlineOpenForm": "已打开新增设备页，请在该页再说一遍以便填入：{fields}",
+    "confirm": "确认",
+    "cancel": "取消",
+    "cancelled": "已取消",
+    "attach": "添加文件"
   },
   "ui": {
     "chooseFile": "选择文件",
@@ -1981,7 +1985,12 @@
     "nameLocalOptional": "本地语言名称（选填）",
     "err_CUSTOMER_NOT_PICKED": "还没有选定客户：{detail}。请从列表选择，或先新增客户",
     "birthdayMmDd": "生日 月-日（如 11-25）",
-    "err_BAD_BIRTHDAY": "生日格式不对：{detail}，请写成 月-日，如 11-25"
+    "err_BAD_BIRTHDAY": "生日格式不对：{detail}，请写成 月-日，如 11-25",
+    "err_AI_ACTION_NOT_FOUND": "找不到这项待确认的操作",
+    "err_AI_ACTION_DONE": "这项操作已经执行过了",
+    "err_AI_ACTION_CANCELLED": "这项操作已取消",
+    "err_AI_ACTION_RUNNING": "这项操作正在执行",
+    "err_AI_ACTION_FAILED": "这项操作上次执行失败，请重新发起"
   },
   "role": {
     "MD": "董事总经理 MD",
@@ -2052,7 +2061,7 @@
     "evening": "晚上好，{name}。还有什么要收尾？",
     "s1": "今天我有哪些事要处理？",
     "s2": "哪些业务单卡在报价？",
-    "s3": "新建一张维修业务单",
+    "s3": "帮我给客户建一张维修单",
     "s4": "哪些客户还有应收未回款？",
     "s5": "F30001 是什么故障，怎么处理？",
     "s6": "做一个本月维修看板",

@@ -386,8 +386,8 @@
   },
   "ai": {
     "title": "AI assistant",
-    "placeholder": "Ask, dictate or instruct…",
-    "hintStaff": "Ask about any asset or order; dictate inspection notes and fill the form; photograph a nameplate to onboard; or say \"build a repairs dashboard\"",
+    "placeholder": "Say what you need, or drop a file here…",
+    "hintStaff": "Drop an inquiry, a PO or a nameplate photo: I create the customer, the order, the quote, the delivery; tax invoices and payments wait for your confirmation.",
     "hintPortal": "Ask about repair progress, reports, or your equipment's maintenance schedule",
     "fillForm": "Fill the form",
     "filled": "Filled {n} fields — review before saving",
@@ -403,7 +403,11 @@
     "offlineNotFound": "{code} not found",
     "offlineCounts": "{assets} assets · {orders} service orders",
     "offlineFilled": "Filled in — check before saving: {fields}",
-    "offlineOpenForm": "Opened the new-asset page; say it again there to fill it in: {fields}"
+    "offlineOpenForm": "Opened the new-asset page; say it again there to fill it in: {fields}",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "cancelled": "Cancelled",
+    "attach": "Attach files"
   },
   "ui": {
     "chooseFile": "Choose file",
@@ -1981,7 +1985,12 @@
     "nameLocalOptional": "Name in local language (optional)",
     "err_CUSTOMER_NOT_PICKED": "No customer picked for \"{detail}\" — choose one from the list or add it first",
     "birthdayMmDd": "Birthday MM-DD",
-    "err_BAD_BIRTHDAY": "Birthday not understood: {detail} — write MM-DD, e.g. 11-25"
+    "err_BAD_BIRTHDAY": "Birthday not understood: {detail} — write MM-DD, e.g. 11-25",
+    "err_AI_ACTION_NOT_FOUND": "This pending action was not found",
+    "err_AI_ACTION_DONE": "This action was already carried out",
+    "err_AI_ACTION_CANCELLED": "This action was cancelled",
+    "err_AI_ACTION_RUNNING": "This action is already running",
+    "err_AI_ACTION_FAILED": "This action failed earlier — ask again"
   },
   "role": {
     "MD": "Managing Director",
@@ -2052,7 +2061,7 @@
     "evening": "Good evening, {name}. Anything to wrap up?",
     "s1": "What needs me today?",
     "s2": "Which orders are stuck at the quote?",
-    "s3": "Start a repair order",
+    "s3": "Open a repair order for a customer",
     "s4": "Who still owes us money?",
     "s5": "What is F30001 and how to deal with it?",
     "s6": "Build this month's repair dashboard",
