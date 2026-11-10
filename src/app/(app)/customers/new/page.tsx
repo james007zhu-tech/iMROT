@@ -22,6 +22,7 @@ export default async function NewCustomer({ searchParams }: { searchParams: Prom
   const overseas = ov === "1"; // 海外客户: no Thai tax ID, no DBD — for 国际贸易
   const backTo = back && back.startsWith("/") ? back : undefined; // e.g. the new-order form that sent the person here
   const self = (o: boolean) => `/customers/new?${new URLSearchParams({ ...(o ? { overseas: "1" } : {}), ...(askedName ? { name: askedName } : {}), ...(backTo ? { back: backTo } : {}) })}`;
+  const here = self(overseas); // a string: the save action below may capture values, never functions
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [entities, viewer] = await Promise.all([prisma.legalEntity.findMany({ orderBy: { createdAt: "asc" } }), currentEmployee()]);
 
@@ -42,7 +43,7 @@ export default async function NewCustomer({ searchParams }: { searchParams: Prom
         files: JSON.parse(s("attachments") ?? "[]"), plants, contacts,
       });
       return { ok: c.code, to: backTo ? `${backTo}${backTo.includes("?") ? "&" : "?"}customer=${c.code}` : `/customers/${c.code}` };
-    }, self(overseas));
+    }, here);
   }
   const [code, a1, a2] = (error ?? "").split(":");
   const known = ["CUSTOMER_EXISTS", "DBD_CLOSED"].includes(code);
