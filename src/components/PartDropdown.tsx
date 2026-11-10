@@ -7,10 +7,10 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export interface PartOption { sku: string; vendorPartNo: string; name: string; nameLocal?: string | null; unit: string; onHand?: number; own?: boolean }
+export interface PartOption { sku: string; vendorPartNo?: string | null; name: string; nameLocal?: string | null; unit?: string | null; onHand?: number; own?: boolean }
 
-export function PartDropdown({ formId, parts, sku, name, local, unit, labels }: {
-  formId: string; parts: PartOption[]; sku: string; name?: string; local?: string; unit?: string; labels: { none: string; onHand: string; own: string };
+export function PartDropdown({ formId, parts, sku, name, local, unit, vendor, labels }: {
+  formId: string; parts: PartOption[]; sku: string; name?: string; local?: string; unit?: string; vendor?: string; labels: { none: string; onHand: string; own: string };
 }) {
   const [at, setAt] = useState<{ el: HTMLInputElement; i: string; top: number; left: number; width: number } | null>(null);
   const [q, setQ] = useState("");
@@ -34,7 +34,7 @@ export function PartDropdown({ formId, parts, sku, name, local, unit, labels }: 
 
   const found = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-    const hit = (p: PartOption) => { const h = `${p.sku} ${p.vendorPartNo} ${p.name} ${p.nameLocal ?? ""}`.toLowerCase(); return words.every((w) => h.includes(w)); };
+    const hit = (p: PartOption) => { const h = `${p.sku} ${p.vendorPartNo ?? ""} ${p.name} ${p.nameLocal ?? ""}`.toLowerCase(); return words.every((w) => h.includes(w)); };
     return parts.filter(hit).slice(0, 30);
   }, [q, parts]);
 
@@ -47,7 +47,7 @@ export function PartDropdown({ formId, parts, sku, name, local, unit, labels }: 
       el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
     };
     setAt(null); // close first: the writes below fire `input`, which would reopen the list
-    setTimeout(() => { set(sku, p.sku); set(name, p.name); set(local, p.nameLocal ?? "", true); set(unit, p.unit); setAt(null); }, 0);
+    setTimeout(() => { set(sku, p.sku); set(name, p.name); set(local, p.nameLocal ?? "", true); set(unit, p.unit); set(vendor, p.vendorPartNo); setAt(null); }, 0);
   }
 
   if (!at) return null;

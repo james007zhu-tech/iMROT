@@ -1,3 +1,4 @@
+import { PartDropdown } from "@/components/PartDropdown";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -40,7 +41,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
   const plants = proj ? await prisma.plant.findMany({ orderBy: { code: "asc" }, include: { customer: { select: { name: true } } } }) : [];
   const [customers, parts, stock] = noAsset ? await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" }, select: { id: true, code: true, name: true, nameLocal: true } }),
-    prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { id: true, sku: true, name: true } }),
+    prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { id: true, sku: true, name: true, vendorPartNo: true, unit: true } }),
     prisma.stockMovement.groupBy({ by: ["partId", "direction"], where: { partId: { not: null } }, _sum: { qty: true } }),
   ]) : [[], [], []];
   const onHand = new Map<string, number>();
@@ -132,7 +133,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           <p className="text-xs text-navy/70">{u("tradeTermsHint")}</p>
         </Card>}
         {!proj && <Card title={u("itemLines")}>
-          <datalist id="trade-parts">{parts.map((p) => <option key={p.id} value={p.sku}>{p.name} · {u("onHand", { n: onHand.get(p.id) ?? 0 })}</option>)}</datalist>
+          <PartDropdown formId="f" sku="ls" name="ld" unit="lu" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, unit: p.unit, onHand: onHand.get(p.id) ?? 0 }))} />
           <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy"), ...(intl ? [u("hsCode"), u("origin")] : [])]}>
             {Array.from({ length: TRADE_ROWS }, (_, i) => (
               <tr key={i}>

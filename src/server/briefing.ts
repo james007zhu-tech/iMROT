@@ -59,3 +59,26 @@ export function briefingText(b: Briefing, report: { symptom?: string | null; ala
     b.parts.length ? `Parts of this model (use only these SKUs in "needs"; otherwise leave sku empty):\n${b.parts.map((p) => `- ${p.sku} ${p.name}${p.position ? ` (${p.position})` : ""}, on hand ${p.onHand}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
 }
+
+type FullOrder = NonNullable<Awaited<ReturnType<typeof import("@/server/slm").getServiceOrder>>>;
+
+/**
+ * Everything upstream of the form in hand, as text for the model: the machines with their briefing, what was
+ * reported, and what the earlier documents of this order already say — so no step asks for it again.
+ */
+export async function orderContext(order: FullOrder): Promise<string> {
+  const report = { symptom: order.reportedSymptom, alarm: order.reportedAlarm, orderId: order.id };
+  const briefs = await Promise.all(order.assets.slice(0, 3).map((l) => assetBriefing(l.asset.code, report)));
+  const insp = order.inspections.at(-1);
+  const needs = ((insp?.needs as { kind?: string; partSku?: string; description?: string; qty?: number; unit?: string }[] | null) ?? []).map((n) => `${n.kind ?? "PART"} ${n.partSku ?? ""} ${n.description ?? ""} × ${n.qty ?? ""} ${n.unit ?? ""}`.replace(/\s+/g, " ").trim());
+  const jobs = order.repairJobs.filter((j) => j.finishedAt);
+  return [
+    `Order ${order.no} (${order.mode}, ${order.status}) for ${order.customer.name}${order.plant ? `, plant ${order.plant.code}` : ""}${order.customerRef ? `, customer ref ${order.customerRef}` : ""}.`,
+    ...briefs.filter((b): b is Briefing => !!b).map((b) => briefingText(b, report)),
+    !order.assets.length && order.reportedSymptom ? `Request: ${order.reportedSymptom}` : "",
+    insp ? `Inspection ${insp.no}: findings: ${one(insp.findings, 500) ?? "—"}; probable cause: ${one(insp.probableCause, 300) ?? "—"}; recommendation: ${one(insp.recommendation, 300) ?? "—"}${needs.length ? `; needs: ${needs.join("; ")}` : ""}` : "",
+    jobs.length ? `Work done: ${jobs.map((j) => `${j.no}: ${one(j.rootCause ?? j.hazards, 200) ?? ""} / ${one(j.workPerformed ?? j.handled, 300) ?? ""}`).join(" | ")}` : "",
+    order.lines.length ? `Quote lines: ${order.lines.map((l) => `${l.lineNo}. ${l.description} × ${Number(l.qty)} ${l.unit}`).join("; ")}` : "",
+    order.stockMovements.filter((m) => m.direction === "OUT" && m.part).length ? `Parts issued from stock: ${order.stockMovements.filter((m) => m.direction === "OUT" && m.part).map((m) => `${m.part!.sku} ${m.part!.name} × ${Number(m.qty)} (${m.no})`).join("; ")}` : "",
+  ].filter(Boolean).join("\n");
+}

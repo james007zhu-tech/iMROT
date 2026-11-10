@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import type { RecognizeKind } from "@/lib/recognize";
+import { describeForm } from "@/lib/form-read";
 
 type Att = { name: string; url: string; kind: string };
 
@@ -14,7 +15,7 @@ type Att = { name: string; url: string; kind: string };
  * `lineFields` maps a recognised line column to the input-name prefix of the form's row inputs, e.g.
  * { description: "d", qty: "q", unitPrice: "p" } fills d0/q0/p0, d1/q1/p1 … from the document's line items.
  */
-export function UploadRecognize({ kind, formId, title, hint, initial = [], lineFields, context, dictate }: { kind: RecognizeKind; formId: string; title: string; hint: string; initial?: Att[]; lineFields?: Record<string, string>; context?: string; dictate?: boolean }) {
+export function UploadRecognize({ kind, formId, title, hint, initial = [], lineFields, context, dictate = true }: { kind: RecognizeKind; formId: string; title: string; hint: string; initial?: Att[]; lineFields?: Record<string, string>; context?: string; dictate?: boolean }) {
   const t = useTranslations("ui");
   const [busy, setBusy] = useState(false);
   const [atts, setAtts] = useState<Att[]>(initial);
@@ -51,6 +52,8 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
       fd.set("kind", kind);
       if (text) fd.set("text", text);
       if (context) fd.set("context", context);
+      const live = document.getElementById(formId);
+      if (live instanceof HTMLFormElement) fd.set("form", JSON.stringify(describeForm(live))); // the form itself: any field can be filled by name
       files.forEach((f) => fd.append("file", f));
       const r = await fetch("/api/ai/recognize", { method: "POST", body: fd });
       const j = await r.json();
@@ -59,7 +62,9 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
       setAtts((a) => [...a, ...(j.attachments as Att[])]);
       const uncertain = new Set<string>((j.uncertain as string[] | undefined) ?? []);
       let n = fill(formId, j.fields as Record<string, string>, uncertain);
-      if (lineFields && Array.isArray(j.lines)) n += fillLines(formId, j.lines as Record<string, string>[], lineFields);
+      // dictated rows arrive as row fields (d0, q0 …); a document's printed items arrive as lines — never both into the same rows
+      const rowsWritten = lineFields ? Object.keys(j.fields as object).some((k) => Object.values(lineFields).some((p) => new RegExp(`^${p}\\d+$`).test(k))) : false;
+      if (lineFields && Array.isArray(j.lines) && !rowsWritten) n += fillLines(formId, j.lines as Record<string, string>[], lineFields);
       numberPhotos(formId, [...atts, ...(j.attachments as Att[])]);
       const checks = uncertain.size;
       const looked = Array.isArray(j.lookedUp) ? (j.lookedUp as string[]).length : 0; // company data found on the web, not on the paper

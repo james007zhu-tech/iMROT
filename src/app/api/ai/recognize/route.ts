@@ -5,6 +5,10 @@ import { sessionContactId, sessionEmployeeCode } from "@/server/auth";
 import { recognizeDocuments } from "@/server/recognize";
 import { RECOGNIZE, type RecognizeKind } from "@/lib/recognize";
 
+function liveFields(raw: FormDataEntryValue | null) {
+  try { const a = JSON.parse(String(raw ?? "[]")); return Array.isArray(a) ? a.slice(0, 140).map((f) => ({ name: String(f.name), label: f.label ? String(f.label).slice(0, 80) : undefined, value: f.value ? String(f.value).slice(0, 200) : undefined, options: Array.isArray(f.options) ? f.options.map((o: unknown) => String(o).slice(0, 90)).slice(0, 40) : undefined, type: f.type ? String(f.type) : undefined })) : []; } catch { return []; }
+}
+
 /** POST multipart: kind, text?, file* → saved attachments + fields to fill. Staff or portal contact. */
 export async function POST(req: Request) {
   if (!(await sessionEmployeeCode()) && !(await sessionContactId())) return NextResponse.json({ error: "not signed in" }, { status: 401 });
@@ -18,7 +22,7 @@ export async function POST(req: Request) {
       const saved = await saveUpload(f, RECOGNIZE[kind].attachKind.toLowerCase());
       files.push({ ...saved, original: f.name, mediaType: f.type || "application/octet-stream", bytes: Buffer.from(await f.arrayBuffer()) });
     }
-    const r = await recognizeDocuments(kind, files.map((f) => ({ name: f.original, url: f.url, mediaType: f.mediaType, bytes: f.bytes })), String(form.get("text") || "") || undefined, String(form.get("context") || "") || undefined);
+    const r = await recognizeDocuments(kind, files.map((f) => ({ name: f.original, url: f.url, mediaType: f.mediaType, bytes: f.bytes })), String(form.get("text") || "") || undefined, String(form.get("context") || "") || undefined, liveFields(form.get("form")));
     const kindLabel = r.docKind && RECOGNIZE[kind].accept?.includes(r.docKind.toUpperCase()) ? r.docKind.toUpperCase() : RECOGNIZE[kind].attachKind;
     return NextResponse.json({ ...r, attachments: files.map((f) => ({ name: f.original, url: f.url, kind: kindLabel })) });
   } catch (e) {

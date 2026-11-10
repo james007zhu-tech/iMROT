@@ -74,7 +74,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
   ];
   const outs = [...new Map(order.stockMovements.filter((m) => m.direction === "OUT" && m.part).map((m) => [m.id, `${m.part!.sku} ${m.part!.name ?? ""} ×${Number(m.qty)}`])).values()].join("; ");
   return (
-    <StepPage order={order} title={u("step_maintain")} badge={draft ? <Tag><span className="font-mono">{draft.no}</span> · {u("dn_DRAFT")}</Tag> : undefined} error={error} kind="maintenance" uploadTitle={u("upMaintTitle")} uploadHint={u("upMaintHint")} saveLabel={u("finishToAcceptance")}
+    <StepPage order={order} title={u("step_maintain")} badge={draft ? <Tag><span className="font-mono">{draft.no}</span> · {u("dn_DRAFT")}</Tag> : undefined} error={error} kind="maintenance" brief uploadTitle={u("upMaintTitle")} uploadHint={u("upMaintHint")} saveLabel={u("finishToAcceptance")}
       extraActions={<button form="f" name="draft" value="1" formNoValidate className="inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold">{u("saveDraft")}</button>}>
       <form id="f" action={save} className="space-y-4">
         <Card title={u("basicInfo")}>

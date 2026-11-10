@@ -1,3 +1,4 @@
+import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { advanceServiceOrder } from "@/server/slm";
@@ -19,6 +20,7 @@ export default async function Repair({ params, searchParams }: { params: Promise
   const order = await loadOrder(no);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const engineers = await prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+  const catalogue = await prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500, select: { sku: true, name: true, vendorPartNo: true, unit: true } });
   const outs = order.stockMovements.filter((m) => m.direction === "OUT" && m.kind === "PART" && m.part).map((m) => ({ ...m, part: m.part! }));
   const insp = order.inspections.at(-1);
   // An unfinished RPTH (saved as draft) is reopened here and saved onto the same number.
@@ -42,7 +44,7 @@ export default async function Repair({ params, searchParams }: { params: Promise
   }
   const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   return (
-    <StepPage order={order} title={u("step_repair")} badge={draft ? <Tag><span className="font-mono">{draft.no}</span> · {u("dn_DRAFT")}</Tag> : undefined} error={error} kind="repair" uploadTitle={u("upRepairTitle")} uploadHint={u("upRepairHint")} saveLabel={u("finishToAcceptance")}
+    <StepPage order={order} title={u("step_repair")} badge={draft ? <Tag><span className="font-mono">{draft.no}</span> · {u("dn_DRAFT")}</Tag> : undefined} error={error} kind="repair" brief uploadTitle={u("upRepairTitle")} uploadHint={u("upRepairHint")} saveLabel={u("finishToAcceptance")}
       extraActions={<button form="f" name="draft" value="1" formNoValidate className="inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold">{u("saveDraft")}</button>}>
       <form id="f" action={save} className="space-y-4">
         <Card title={u("basicInfo")}>
@@ -62,6 +64,7 @@ export default async function Repair({ params, searchParams }: { params: Promise
           </Grid>
           <Field label={u("workPerformed")} required><textarea name="workPerformed" required rows={3} defaultValue={draft?.workPerformed ?? ""} className={inputCls} /></Field>
           <div className="text-[13px] text-navy/80">{u("partsReplaced")}</div>
+          <PartDropdown formId="f" sku="ps" name="pn" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={catalogue} />
           <RevealRows initial={Math.max(partRows.length, 1)} addLabel={u("addPart")}>
             {Array.from({ length: PARTS }, (_, i) => { const dp = partRows[i]; return (
               <div key={i} className="grid grid-cols-2 gap-2 md:grid-cols-[1.4fr_1.4fr_70px_1fr_1fr_1.2fr_1fr]">

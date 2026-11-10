@@ -1,3 +1,4 @@
+import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
@@ -83,7 +84,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
                 <input name={`c${i}`} type="number" step="0.01" defaultValue={l?.unitCost != null ? Number(l.unitCost) : l?.costRef != null ? Number(l.costRef) : ""} placeholder={u("costPh")} className={inputCls} />
               </div>); })}
           </RevealRows>
-          <datalist id="parts">{parts.map((p) => <option key={p.id} value={p.sku}>{p.name}</option>)}</datalist>
+          <PartDropdown formId="f" sku="s" name="d" local="l" unit="u" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, nameLocal: p.nameLocal, unit: p.unit }))} />
           <p className="text-xs text-navy/70">{u("quoteVatNote")} {u("marginRuleNote", { floor: Math.round(floor * 100) })}</p>
           <div className="mt-2 max-w-xs"><Field label={u("customerWarrantyDays")}><input name="warrantyDays" type="number" min="0" defaultValue={order.warrantyDays ?? ""} placeholder={partner ? u("warrantyBackToBack") : ""} className={inputCls} /></Field></div>
           {!rate ? (
