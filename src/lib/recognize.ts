@@ -61,7 +61,7 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
       t_extra1: "name of a further test that was done (e.g. insulation resistance)", c_extra1: "its criterion", r_extra1: "its result with units", p_extra1: "yes or no",
       t_extra2: "name of another further test", c_extra2: "its criterion", r_extra2: "its result with units", p_extra2: "yes or no",
     },
-    lines: { kind: "PART or LABOUR", sku: "part SKU, only from the list in the context", description: "part or work needed, in English", descriptionLocal: "the same in Thai if you can", qty: "quantity (hours for labour)", unit: "pcs, set, h" } },
+    lines: { kind: "PART or LABOUR", sku: "part SKU, only from the list in the context", description: "part or work needed, in English", descriptionLocal: "the same description written in Thai script (ภาษาไทย) — never Chinese; leave empty if you cannot", qty: "quantity (hours for labour)", unit: "pcs, set, h" } },
   receive: { attachKind: "RECEIVING", fields: { sender: "who delivered the equipment", condition: "condition on arrival", fault: "fault reported with it", accessories: "accessories received, one per line as 'item × qty'" } },
   repair: { attachKind: "REPAIR", fields: { confirmedFault: "confirmed fault", rootCause: "root cause", workPerformed: "work done, step by step", configBackupRef: "parameter backup file name", laborHours: "labour hours" } },
   maintenance: { attachKind: "MAINTENANCE", fields: { runHours: "cumulative running hours", hazards: "hazards found and not yet fixed", handled: "what was fixed during this visit", recommendation: "recommended next steps" } },
