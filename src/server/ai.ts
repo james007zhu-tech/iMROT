@@ -4,6 +4,7 @@
  * Every output carries the record numbers it was built from, so a person can check before saving.
  */
 import { prisma } from "@/lib/db";
+import { ACTION_TOOLS, documentChain, runAction } from "@/server/ai-actions";
 import { offlineAssist } from "./ai-offline";
 import { maskNamesInText } from "@/lib/mask";
 
@@ -148,7 +149,8 @@ export async function buildDashboardFromPrompt(prompt: string, employeeCode: str
 type ToolResult = object | unknown[] | string;
 interface Tool { name: string; description: string; input_schema: Record<string, unknown>; run: (input: Record<string, unknown>, ctx: AssistContext) => Promise<ToolResult> }
 export interface AssistContext { employeeCode?: string; contactId?: string; customerId?: string; locale: string; path?: string; fields?: string[] }
-export interface AssistAction { type: "navigate" | "fill_form" | "dashboard"; href?: string; fields?: Record<string, string>; id?: string }
+export interface AssistAction { type: "navigate" | "fill_form" | "dashboard" | "confirm" | "done"; href?: string; fields?: Record<string, string>; id?: string; summary?: string }
+export interface AssistFile { name: string; url: string; mediaType: string; bytes: Buffer }
 
 const TOOLS: Tool[] = [
   { name: "get_asset", description: "Full record of one asset by DCiT code (ATH…): header, events timeline, linked orders, model knowledge.", input_schema: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
@@ -169,28 +171,43 @@ const TOOLS: Tool[] = [
     run: async ({ id }) => { const m = METRICS.find((x) => x.id === String(id)); return m ? await m.run(prisma, {}) : "unknown metric"; } },
 ];
 
+const CHAIN_TOOL: Tool = { name: "order_chain", description: "The document chain of one order: every numbered document (quote, inspection, delivery note, invoice, tax invoice, receipt …) with dates, plus supplier inquiries and purchase orders.", input_schema: { type: "object", properties: { no: { type: "string" } }, required: ["no"] }, run: async ({ no }) => documentChain(String(no)) };
+
 export const PORTAL_TOOLS = new Set(["get_asset", "search_assets", "get_order", "list_orders"]);
 
-const SYSTEM = (ctx: AssistContext) => `You are the DCiT OS assistant inside an equipment-service system (ALM assets, SLM service orders, CRM, SCM, FIN). Answer in ${ctx.locale === "th" ? "Thai" : ctx.locale === "en" ? "English" : "Chinese"}, briefly, with the record numbers (ATH…, QTTH…, INTH…) you relied on. Use tools to look things up; never guess numbers. ${ctx.customerId ? "The user is a customer contact: only their own assets and orders are visible; do not discuss costs, margins or other customers." : "The user is DCiT staff."} The user is on page ${ctx.path ?? "/"}.${ctx.fields?.length ? ` The form on this page has these field names: ${ctx.fields.join(", ")}.` : ""} When the user dictates or asks you to fill in a record, draft the values and finish with a line 'FORM:' followed by a JSON object of field name → value (only names from the list) so the app can fill the form; the user reviews and saves. When you create a dashboard, finish with 'GOTO:' and its href. ${ctx.customerId ? "" : "When the user wants to start a piece of work that has a page, take them there: finish with 'GOTO:' and the path. Pages: /assets/new (new machine), /customers/new (new customer; add ?overseas=1 for a foreign company), /service-orders/new?mode=REPAIR | PARTNER_REPAIR | MAINTENANCE | AUTOMATION_PROJECT | DOMESTIC_TRADE | INTERNATIONAL_TRADE (new business order of that type), /service-orders/<QTTH no> (one order: quote, inspection, repair, delivery, invoice and payment are steps on it), /service-orders?status=<STATUS> (list), /suppliers/new, /purchasing/inquiries/new, /purchasing/orders/new, /parts (stock), /parts/movement (stock in / out), /fault-codes (knowledge base, ?q= searches), /series (brands and models), /finance, /finance/payables, /tax?doc=iv|rc|ti (invoices, receipts, tax invoices), /people/overtime, /dashboard. Say in one line what the user should do on that page. You cannot yet create or change records yourself; never say you did."}`;
+const SYSTEM = (ctx: AssistContext) => `You are the DCiT OS assistant inside an equipment-service system (ALM assets, SLM service orders, CRM, SCM, FIN). Answer in ${ctx.locale === "th" ? "Thai" : ctx.locale === "en" ? "English" : "Chinese"}, briefly, with the record numbers (ATH…, QTTH…, INTH…) you relied on. Use tools to look things up; never guess numbers. ${ctx.customerId ? "The user is a customer contact: only their own assets and orders are visible; do not discuss costs, margins or other customers." : "The user is DCiT staff."} The user is on page ${ctx.path ?? "/"}.${ctx.fields?.length ? ` The form on this page has these field names: ${ctx.fields.join(", ")}.` : ""} When the user dictates or asks you to fill in a record, draft the values and finish with a line 'FORM:' followed by a JSON object of field name → value (only names from the list) so the app can fill the form; the user reviews and saves. When you create a dashboard, finish with 'GOTO:' and its href. ${ctx.customerId ? "" : "When the user wants to start a piece of work that has a page, take them there: finish with 'GOTO:' and the path. Pages: /assets/new (new machine), /customers/new (new customer; add ?overseas=1 for a foreign company), /service-orders/new?mode=REPAIR | PARTNER_REPAIR | MAINTENANCE | AUTOMATION_PROJECT | DOMESTIC_TRADE | INTERNATIONAL_TRADE (new business order of that type), /service-orders/<QTTH no> (one order: quote, inspection, repair, delivery, invoice and payment are steps on it), /service-orders?status=<STATUS> (list), /suppliers/new, /purchasing/inquiries/new, /purchasing/orders/new, /parts (stock), /parts/movement (stock in / out), /fault-codes (knowledge base, ?q= searches), /series (brands and models), /finance, /finance/payables, /tax?doc=iv|rc|ti (invoices, receipts, tax invoices), /people/overtime, /dashboard. You can also DO the work with the action tools (create_customer, add_contact, create_asset, create_order, assign_order, set_quote, confirm_customer_po, request_supplier_quotes, issue_delivery, sign_delivery, issue_proforma, issue_tax_invoice, record_payment). House style (the MD's decision): act, do not ask for permission — when the user states what they want or hands you a document, carry it through as far as the facts allow, several actions in a row (e.g. inquiry PDF → find or create the customer → create the order with all lines and terms → request supplier quotes), then report what you did with the record numbers. Ask only for facts you cannot find and must not invent: prices, quantities, tax IDs, serial numbers, who signed. Never invent a number, a name or a date; copy document numbers and part numbers verbatim. issue_tax_invoice and record_payment are not executed by you: they produce a confirmation card the user presses, so say 'please confirm below', never that it is done. If an action returns an error, say so plainly and what is missing. Use order_chain to show an order's document chain. Attached files are saved; pass their {name, url, kind} in create_order.attachments."}`;
 
 /** Tool-use loop against the Anthropic Messages API. Returns the final text and any UI actions parsed from it. */
-export async function assist(messages: { role: "user" | "assistant"; content: string }[], ctx: AssistContext): Promise<{ text: string; actions: AssistAction[]; toolsUsed: string[] }> {
+export async function assist(messages: { role: "user" | "assistant"; content: string }[], ctx: AssistContext, files: AssistFile[] = []): Promise<{ text: string; actions: AssistAction[]; toolsUsed: string[] }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return offlineAssist(messages, ctx); // keyword fallback: look-ups by record number, history, dictated new asset
   // Portal contacts get only the four customer-filtered read tools; similar_cases and metric read across all customers.
   if (!ctx.employeeCode && !ctx.customerId) throw new Error("assistant needs a staff or customer scope");
-  const allowed = ctx.employeeCode ? TOOLS : TOOLS.filter((t) => PORTAL_TOOLS.has(t.name));
+  const actionTools: Tool[] = ctx.employeeCode ? ACTION_TOOLS.map((a) => ({ name: a.name, description: a.description, input_schema: a.input_schema, run: async (input) => runAction(a.name, input, { employeeCode: ctx.employeeCode! }) })) : [];
+  const allowed = ctx.employeeCode ? [...TOOLS, CHAIN_TOOL, ...actionTools] : TOOLS.filter((t) => PORTAL_TOOLS.has(t.name));
+  const cards: AssistAction[] = [];
   const tools = allowed.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
   const convo: unknown[] = messages.map((m) => ({ role: m.role, content: m.content }));
+  if (files.length && messages.at(-1)?.role === "user") {
+    // the person's files go to the model as they are (PDF, picture, text); anything else is named only
+    const blocks: unknown[] = [];
+    for (const f of files) {
+      if (f.mediaType === "application/pdf") blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.bytes.toString("base64") } });
+      else if (["image/jpeg", "image/png", "image/webp", "image/gif"].includes(f.mediaType)) blocks.push({ type: "image", source: { type: "base64", media_type: f.mediaType, data: f.bytes.toString("base64") } });
+      else if (f.mediaType.startsWith("text/") || /\.(txt|csv|eml|md)$/i.test(f.name)) blocks.push({ type: "text", text: `--- ${f.name} ---\n${f.bytes.toString("utf8").slice(0, 30000)}` });
+    }
+    blocks.push({ type: "text", text: `${messages.at(-1)!.content || "(no message — work out what this document is and do what it calls for)"}\n\nAttached files (saved): ${JSON.stringify(files.map((f) => ({ name: f.name, url: f.url })))}` });
+    convo[convo.length - 1] = { role: "user", content: blocks };
+  }
   const used: string[] = [];
-  for (let round = 0; round < 8; round++) {
-    const res = await callClaude({ max_tokens: 2000, system: SYSTEM(ctx), tools, messages: convo });
+  for (let round = 0; round < 14; round++) {
+    const res = await callClaude({ max_tokens: 3000, system: SYSTEM(ctx), tools, messages: convo });
     if (!res.ok) throw new Error(`LLM call failed: ${res.status} ${await res.text()}`);
     const data = (await res.json()) as { stop_reason: string; content: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[] };
     convo.push({ role: "assistant", content: data.content });
     if (data.stop_reason !== "tool_use") {
       const text = data.content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
-      return { text: text.replace(/\n?(FORM|GOTO):[\s\S]*$/, "").trim(), actions: parseActions(text), toolsUsed: used };
+      return { text: text.replace(/\n?(FORM|GOTO):[\s\S]*$/, "").trim(), actions: [...cards, ...parseActions(text)], toolsUsed: used };
     }
     const results: { type: "tool_result"; tool_use_id: string | undefined; content: string }[] = [];
     const names = await personNames(); // customer people are masked for the model too, so it cannot repeat full names (rule 13)
@@ -200,6 +217,9 @@ export async function assist(messages: { role: "user" | "assistant"; content: st
       used.push(c.name!);
       let out: ToolResult;
       try { out = tool ? await tool.run(c.input ?? {}, ctx) : "unknown tool"; } catch (e) { out = `error: ${(e as Error).message}`; }
+      const r = out as { ok?: boolean; pending?: string; summary?: string; href?: string };
+      if (r && typeof r === "object" && r.pending) cards.push({ type: "confirm", id: r.pending, summary: r.summary });
+      else if (r && typeof r === "object" && r.ok && r.summary && ACTION_TOOLS.some((a) => a.name === c.name)) cards.push({ type: "done", summary: r.summary, href: r.href });
       results.push({ type: "tool_result", tool_use_id: c.id, content: maskNamesInText(JSON.stringify(out, (_, v) => (typeof v === "bigint" ? Number(v) : v)), names).slice(0, 20000) });
     }
     convo.push({ role: "user", content: results });

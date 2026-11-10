@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 
 type Msg = { role: "user" | "assistant"; content: string; actions?: Action[] };
-type Action = { type: "navigate" | "fill_form" | "dashboard"; href?: string; fields?: Record<string, string> };
+type Action = { type: "navigate" | "fill_form" | "dashboard" | "confirm" | "done"; href?: string; fields?: Record<string, string>; id?: string; summary?: string; state?: "done" | "cancelled" | "failed"; note?: string };
 
 /**
  * Floating assistant available on every page: type, dictate (Web Speech API), or attach a nameplate photo.
@@ -20,6 +20,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
   const recRef = useRef<{ stop: () => void } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { if (msgs.length) bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, open]);
@@ -28,11 +29,16 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   }, [seed]);
 
   async function send(text: string) {
-    if (!text.trim() || busy) return;
-    const next = [...msgs, { role: "user" as const, content: text }];
-    setMsgs(next); setInput(""); setBusy(true);
+    if ((!text.trim() && !files.length) || busy) return;
+    const sent = files;
+    const shown = [text.trim(), ...sent.map((f) => `📎 ${f.name}`)].filter(Boolean).join("\n");
+    const next = [...msgs, { role: "user" as const, content: shown }];
+    setMsgs(next); setInput(""); setFiles([]); setBusy(true);
     try {
-      const r = await fetch("/api/ai/assist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })), path, fields: Array.from(document.querySelectorAll<HTMLElement>("form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && a.indexOf(n) === i).slice(0, 80) }) });
+      const payload = { messages: next.map(({ role, content }) => ({ role, content })), path, fields: Array.from(document.querySelectorAll<HTMLElement>("form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && a.indexOf(n) === i).slice(0, 80) };
+      let r: Response;
+      if (sent.length) { const fd = new FormData(); fd.append("payload", JSON.stringify(payload)); for (const f of sent) fd.append("file", f); r = await fetch("/api/ai/assist", { method: "POST", body: fd }); }
+      else r = await fetch("/api/ai/assist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? r.statusText);
       setMsgs([...next, { role: "assistant", content: j.text, actions: j.actions }]);
@@ -41,6 +47,19 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
     } catch (e) {
       setMsgs([...next, { role: "assistant", content: `⚠ ${(e as Error).message}` }]);
     } finally { setBusy(false); }
+  }
+
+  /** The person presses confirm / cancel on a card the assistant prepared (tax invoice, payment). */
+  async function decide(mi: number, ai: number, go: boolean) {
+    const a = msgs[mi]?.actions?.[ai];
+    if (!a?.id || a.state) return;
+    const patch = (p: Partial<Action>) => setMsgs((m) => m.map((x, i) => (i === mi ? { ...x, actions: x.actions?.map((y, k) => (k === ai ? { ...y, ...p } : y)) } : x)));
+    try {
+      const r = await fetch("/api/ai/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: a.id, go }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? r.statusText);
+      patch({ state: go ? "done" : "cancelled", note: go ? j.summary : undefined, href: j.href });
+    } catch (e) { patch({ state: "failed", note: (e as Error).message }); }
   }
 
   function fillForm(fields: Record<string, string>) {
@@ -86,15 +105,29 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   const bubble = (m: Msg, i: number) => (
     <div key={i} className={m.role === "user" ? "ml-auto max-w-[85%] rounded-2xl bg-blue/10 px-3 py-2" : "mr-auto max-w-[95%] rounded-2xl bg-[#F4F7FB] px-3 py-2"}>
       {m.role === "user" ? <div className="whitespace-pre-wrap">{m.content}</div> : <Md text={m.content} />}
-      {m.actions?.map((a, j) => a.type === "fill_form" && a.fields ? <button key={j} onClick={() => fillForm(a.fields!)} className="mt-2 rounded bg-navy px-2 py-1 text-xs text-white">{t("fillForm")}</button> : a.type === "navigate" ? <a key={j} href={a.href} className="mt-2 inline-block text-xs text-blue underline">{a.href}</a> : null)}
+      {m.actions?.map((a, j) =>
+        a.type === "fill_form" && a.fields ? <button key={j} onClick={() => fillForm(a.fields!)} className="mt-2 rounded bg-navy px-2 py-1 text-xs text-white">{t("fillForm")}</button>
+        : a.type === "navigate" ? <a key={j} href={a.href} className="mt-2 inline-block text-xs text-blue underline">{a.href}</a>
+        : a.type === "done" ? <a key={j} href={a.href ?? "#"} className="mt-2 flex items-center gap-2 rounded-lg border border-[#BFE3CB] bg-white px-3 py-2 text-[13px] text-navy hover:border-blue"><span className="font-bold text-[#1F8A4C]">✓</span><span className="flex-1">{a.summary}</span>{a.href && <span className="text-blue">→</span>}</a>
+        : a.type === "confirm" ? (
+          <div key={j} className="mt-2 rounded-lg border border-[#F2C36B] bg-[#FFF9EC] px-3 py-2 text-[13px] text-navy">
+            <div className="font-semibold">{a.summary}</div>
+            {!a.state && <div className="mt-2 flex gap-2"><button type="button" onClick={() => void decide(i, j, true)} className="rounded-lg bg-navy px-3 py-1.5 text-xs font-bold text-white">{t("confirm")}</button><button type="button" onClick={() => void decide(i, j, false)} className="rounded-lg border border-navy/40 bg-white px-3 py-1.5 text-xs font-semibold">{t("cancel")}</button></div>}
+            {a.state === "done" && <a href={a.href ?? "#"} className="mt-1 block text-[#1F8A4C]">✓ {a.note}</a>}
+            {a.state === "cancelled" && <div className="mt-1 text-navy/60">{t("cancelled")}</div>}
+            {a.state === "failed" && <div className="mt-1 text-alert-ink">⚠ {a.note}</div>}
+          </div>
+        ) : null)}
     </div>
   );
   const composer = (big: boolean) => (
-    <form onSubmit={(e) => { e.preventDefault(); void send(input); }} className={big ? "flex items-end gap-2 rounded-2xl border border-navy/25 bg-white p-2.5 shadow-sm focus-within:border-blue" : "flex items-end gap-1 border-t p-2"}>
+    <form onSubmit={(e) => { e.preventDefault(); void send(input); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (scope !== "staff" || !e.dataTransfer.files.length) return; e.preventDefault(); setFiles((f) => [...f, ...Array.from(e.dataTransfer.files)].slice(0, 5)); }} className={big ? "flex flex-wrap items-end gap-2 rounded-2xl border border-navy/25 bg-white p-2.5 shadow-sm focus-within:border-blue" : "flex flex-wrap items-end gap-1 border-t p-2"}>
       <button type="button" onClick={toggleVoice} title={t("voice")} className={`h-10 w-10 shrink-0 rounded-full ${listening ? "bg-alert/100 text-white" : "bg-blue/8"}`}>🎤</button>
+      {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("attach")}>📎<input type="file" multiple accept="application/pdf,image/*,.txt,.csv,.eml" className="hidden" onChange={(e) => { setFiles((f) => [...f, ...Array.from(e.target.files ?? [])].slice(0, 5)); e.target.value = ""; }} /></label>}
       {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("photo")}>📷<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && void attachPhoto(e.target.files[0])} /></label>}
-      <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(input); } }} rows={big ? 2 : 1} autoFocus={big} placeholder={t("placeholder")} className={`flex-1 resize-none px-3 py-2 ${big ? "max-h-48 border-0 text-[15px] outline-none" : "max-h-24 rounded border text-sm"}`} />
+      <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(input); } }} rows={big ? 2 : 1} autoFocus={big} placeholder={t("placeholder")} className={`min-w-0 flex-1 resize-none px-3 py-2 ${big ? "max-h-48 border-0 text-[15px] outline-none" : "max-h-24 rounded border text-sm"}`} />
       <button disabled={busy} className="h-10 shrink-0 rounded-full bg-blue px-4 font-bold text-white disabled:opacity-50">↑</button>
+      {files.length > 0 && <div className="order-first flex w-full basis-full flex-wrap gap-1.5 pb-1">{files.map((f, k) => <span key={k} className="flex items-center gap-1 rounded-full bg-blue/10 px-2.5 py-1 text-xs text-navy">📎 {f.name}<button type="button" onClick={() => setFiles((x) => x.filter((_, n) => n !== k))} className="text-navy/60">✕</button></span>)}</div>}
     </form>
   );
 
