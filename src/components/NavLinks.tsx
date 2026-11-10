@@ -23,32 +23,43 @@ const ICONS: Record<string, React.ReactNode> = {
  * Side navigation on white (decisions 2026-11-07, two levels 2026-11-10): each module opens its second level; the
  * module of the current page is open on arrival. On a phone the modules scroll sideways and the open one drops below.
  */
-export function NavLinks({ groups }: { groups: { key: string; label: string; items: { key: string; href: string; label: string; soon?: boolean }[] }[] }) {
+export function NavLinks({ groups }: { groups: { key: string; label: string; href?: string; items: { key: string; href: string; label: string; soon?: boolean }[] }[] }) {
   const path = usePathname();
   const query = useSearchParams();
   let best = { g: "", i: "", score: 0 };
+  for (const g of groups) { const own = g.href ? navMatch(g.href, path, query) : 0; if (own > best.score) best = { g: g.key, i: "", score: own }; }
   for (const g of groups) for (const it of g.items) { const sc = navMatch(it.href, path, query); if (sc > best.score) best = { g: g.key, i: it.key, score: sc }; }
   const [open, setOpen] = useState<string>(best.g || groups[0]?.key);
   useEffect(() => { if (best.g) setOpen(best.g); }, [best.g]);
+  // phone: the drawer closes when a page is chosen
+  useEffect(() => { const box = document.getElementById("navtoggle") as HTMLInputElement | null; if (box) box.checked = false; }, [path, query]);
   return (
-    <nav className="flex flex-wrap gap-1 px-2 pb-2 md:flex-col md:flex-nowrap md:gap-0.5 md:overflow-y-auto">
+    <nav className="flex flex-col gap-0.5 px-2 pb-2 md:overflow-y-auto">
       {groups.map((g) => {
         const on = g.key === best.g;
         return (
-          <div key={g.key} className={open === g.key ? "w-full md:w-auto" : ""}>
-            <button type="button" onClick={() => setOpen(open === g.key ? "" : g.key)} aria-expanded={open === g.key}
-              className={`relative flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2.5 text-left text-[14.5px] tracking-wide ${on ? "font-bold text-navy" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
-              <svg viewBox="0 0 24 24" aria-hidden className="h-[18px] w-[18px] shrink-0 fill-none stroke-current" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">{ICONS[g.key]}</svg>
-              <span className="flex-1">{g.label}</span>
-              <svg viewBox="0 0 24 24" aria-hidden className={`hidden h-3.5 w-3.5 fill-none stroke-current opacity-50 transition-transform md:block ${open === g.key ? "rotate-90" : ""}`} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
-            </button>
+          <div key={g.key}>
+            {(() => {
+              const cls = `relative flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2.5 text-left text-[14.5px] tracking-wide ${on ? "font-bold text-navy" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"} ${on && !best.i ? "bg-[#EEF3F9]" : ""}`;
+              const inside = (
+                <>
+                  <svg viewBox="0 0 24 24" aria-hidden className="h-[18px] w-[18px] shrink-0 fill-none stroke-current" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">{ICONS[g.key]}</svg>
+                  <span className="flex-1">{g.label}</span>
+                  <svg viewBox="0 0 24 24" aria-hidden className={`h-3.5 w-3.5 fill-none stroke-current opacity-50 transition-transform ${open === g.key ? "rotate-90" : ""}`} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+                </>
+              );
+              // a module with a page of its own (首页 = the conversation) opens it; the others just unfold
+              return g.href
+                ? <Link href={g.href} onClick={() => setOpen(g.key)} aria-current={on && !best.i ? "page" : undefined} className={cls}>{inside}</Link>
+                : <button type="button" onClick={() => setOpen(open === g.key ? "" : g.key)} aria-expanded={open === g.key} className={cls}>{inside}</button>;
+            })()}
             {open === g.key && (
-              <div className="mb-1 flex flex-wrap gap-0.5 md:ml-[21px] md:flex-col md:border-l md:border-hair md:pl-2">
+              <div className="mb-1 ml-[21px] flex flex-col gap-0.5 border-l border-hair pl-2">
                 {g.items.map((it) => {
                   const cur = on && it.key === best.i;
                   return (
                     <Link key={it.key} href={it.href} aria-current={cur ? "page" : undefined}
-                      className={`relative rounded-md px-3 py-1.5 text-[13.5px] ${cur ? "bg-[#EEF3F9] font-bold text-navy md:before:absolute md:before:inset-y-1.5 md:before:-left-[9px] md:before:w-[3px] md:before:rounded md:before:bg-blue" : it.soon ? "text-[#4A5A6E]/60 hover:bg-[#F4F7FB]" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
+                      className={`relative rounded-md px-3 py-2 text-[14px] md:py-1.5 md:text-[13.5px] ${cur ? "bg-[#EEF3F9] font-bold text-navy before:absolute before:inset-y-1.5 before:-left-[9px] before:w-[3px] before:rounded before:bg-blue" : it.soon ? "text-[#4A5A6E]/60 hover:bg-[#F4F7FB]" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
                       {it.label}
                     </Link>
                   );

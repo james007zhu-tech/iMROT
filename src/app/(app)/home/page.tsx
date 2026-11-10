@@ -24,7 +24,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
     <div>
       <AiAssistant key={ask ?? ""} scope="staff" variant="page" greeting={hello} suggestions={suggestions} seed={ask} />
       {!ask && (
-        <div className="mx-auto mt-10 max-w-3xl">
+        <div className="mx-auto mt-10 hidden max-w-3xl md:block">
           <div className="mb-2 flex items-baseline justify-between"><b className="text-sm text-navy/70">{t("pinned")}</b><Link href="/shortcuts" className="text-xs text-blue hover:underline">{t("editPinned")}</Link></div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{pins.map((p) => <Link key={p.key} href={p.href} className="rounded-xl border border-hair bg-white px-4 py-3 text-sm font-semibold text-navy hover:border-blue hover:text-blue">{s(p.key)}</Link>)}</div>
         </div>

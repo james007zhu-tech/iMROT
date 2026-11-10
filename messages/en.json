@@ -17,29 +17,39 @@
     "assets": "Equipment files",
     "knowledge": "Knowledge base",
     "customers": "Customer files",
-    "opportunities": "Opportunities",
+    "opportunities": "Opportunities QTTH",
     "lean": "Lean service",
-    "inspectionReports": "Inspection reports",
-    "repairReports": "Repair reports",
-    "maintenanceReports": "Maintenance reports",
+    "inspectionReports": "Inspection reports INTH",
+    "repairReports": "Repair reports RPTH",
+    "maintenanceReports": "Maintenance reports PMTH",
     "projects": "Projects",
     "suppliers": "Suppliers",
-    "inquiries": "Inquiries",
-    "purchaseOrders": "Purchase orders",
+    "inquiries": "Inquiries PRTH",
+    "purchaseOrders": "Purchase orders POTH",
     "stock": "Stock",
     "movements": "Stock in / out",
     "ledger": "Ledger",
     "finReports": "Reports",
     "expenses": "Expense claims",
-    "billing": "Invoices",
-    "receipts": "Receipts",
-    "taxInvoices": "Tax invoices",
+    "billing": "Invoices IVTH",
+    "receipts": "Receipts RCTH",
+    "taxInvoices": "Tax invoices TITH",
     "talent": "Talent pool",
     "training": "Training",
     "payroll": "Payroll",
     "permissions": "Permissions",
     "dictionary": "Data dictionary",
-    "entities": "Legal entities"
+    "entities": "Legal entities",
+    "documents": "Document centre",
+    "receiving": "Equipment receiving ERTH",
+    "deliveryNotes": "Delivery notes DNTH",
+    "acceptance": "Acceptance",
+    "stockIn": "Stock in IBTH",
+    "stockOut": "Stock out OBTH",
+    "paymentVouchers": "Payment vouchers PVTH",
+    "statements": "Monthly statements BLTH",
+    "proforma": "Pro-forma PFTH",
+    "overtime": "Overtime"
   },
   "assetStatus": {
     "ONBOARDED": "Onboarded",
@@ -2089,7 +2099,10 @@
     "stockMovement": "Stock in / out",
     "newInvoice": "New invoice",
     "payables": "Payables",
-    "overtime": "Overtime"
+    "overtime": "Overtime",
+    "newReceiving": "Receive a machine (ERTH)",
+    "newDelivery": "Delivery note (DNTH)",
+    "allDocuments": "Document centre"
   },
   "soon": {
     "badge": "Not built yet",
@@ -2098,7 +2111,8 @@
     "expenses": "Staff expense claims: photograph the receipt, AI reads amount, date and category, the manager approves, finance pays and books it.",
     "training": "The T of iMROT: courses, competence assessment, and teaching cases taken from real repairs; each person's record goes into their talent-pool file.",
     "permissions": "Who may see and do what by role (including what the AI may do on their behalf). Today the rules follow the role in the employee file.",
-    "dictionary": "All codes and option lists in one place: brands, equipment categories, units, business types, document prefixes. Brands and series are kept under Product series for now."
+    "dictionary": "All codes and option lists in one place: brands, equipment categories, units, business types, document prefixes. Brands and series are kept under Product series for now.",
+    "payroll": "Monthly payroll computed automatically: pay terms, the month's overtime and the performance result give gross pay; social security (SSO) and withholding tax (PND1) are deducted; the MD approves; payslips and filing summaries follow. Pay terms are in the employee files and overtime under Overtime for now."
   },
   "msg": {
     "title": "Messages",
@@ -2137,5 +2151,21 @@
     "gistMaintenance": "Hazards found",
     "draft": "draft",
     "none": "No reports yet"
+  },
+  "docs": {
+    "new": "New: {name}",
+    "pickOrder": "Which order is this {name} for?",
+    "noReady": "No order has reached this step yet.",
+    "none": "Nothing yet",
+    "searchPh": "Number, customer, order",
+    "no": "No.",
+    "kind": "Type",
+    "date": "Date",
+    "order": "Order",
+    "by": "By",
+    "signedBy": "Signed by",
+    "ac_ACCEPTED": "Accepted",
+    "ac_CONDITIONAL": "Conditional",
+    "ac_REJECTED": "Rejected"
   }
 }

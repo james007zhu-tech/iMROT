@@ -49,6 +49,13 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
   const park2 = await runAction("record_payment", { invoiceNo: "IVTH00000000", paidAt: "2026-11-10", paidAmount: 100 }, ctx);
   await decideAction(park2.pending!, ctx.employeeCode, false);
   check("cancel leaves it cancelled", (await prisma.aiAction.findUniqueOrThrow({ where: { id: park2.pending! } })).status === "CANCELLED");
+  // 人才池: facts and a document into the signed-in person's own file
+  const prof = await runAction("update_employee_profile", { taxNo: "0991000000000" }, ctx);
+  const doc = await runAction("add_employee_document", { kind: "OTHER", title: "Taxpayer ID card", number: "0991000000000", file: { name: "TAX ID.pdf", url: "/api/uploads/chat-1-abcd.pdf" } }, ctx);
+  const me = await prisma.employee.findUniqueOrThrow({ where: { code: ctx.employeeCode }, include: { credentials: { orderBy: { id: "desc" }, take: 1 } } });
+  check("own file: tax number written, the document filed with its attachment", me.taxNo === "0991000000000" && me.credentials[0]?.title === "Taxpayer ID card" && !!(me.credentials[0]?.file as { url?: string } | null)?.url, `${prof.summary} · ${doc.summary}`);
+  const evil = await runAction("add_employee_document", { kind: "OTHER", title: "x", file: { name: "x", url: "https://example.com/x.pdf" } }, ctx).catch((e) => String(e.message));
+  check("a file that was not attached here is refused", /file\.url/.test(String(evil)));
   const logs = await prisma.auditLog.count({ where: { action: { startsWith: "AI:" }, actor: { code: ctx.employeeCode } } });
   check("every executed action is in the audit log", logs >= 5, `${logs} entries`);
   console.log(failed ? `\n${failed} FAILED` : "\nall passed");
