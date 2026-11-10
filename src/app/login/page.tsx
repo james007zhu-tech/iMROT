@@ -9,7 +9,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
   async function login(form: FormData) {
     "use server";
     const ok = await signInEmployee(String(form.get("email")), String(form.get("password")));
-    redirect(ok ? "/assets" : "/login?e=1");
+    redirect(ok ? "/home" : "/login?e=1");
   }
   return (
     <div className="flex min-h-screen items-center justify-center bg-navy p-4">

@@ -40,7 +40,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   async function contact(f: FormData) {
     "use server";
     const s = (k: string) => String(f.get(k) ?? "").trim() || undefined;
-    await guarded(async () => { await addContact(code, { name: s("name") ?? "", title: s("title"), plantCode: s("plant"), phone: s("phone"), lineId: s("line"), email: s("email"), portalLogin: s("login"), portalPassword: s("pw") }); }, `/customers/${code}`);
+    await guarded(async () => { await addContact(code, { name: s("name") ?? "", title: s("title"), plantCode: s("plant"), phone: s("phone"), lineId: s("line"), email: s("email"), birthday: s("birthday"), portalLogin: s("login"), portalPassword: s("pw") }); }, `/customers/${code}`);
   }
   async function statement() {
     "use server";
@@ -86,7 +86,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
         <Table head={[t("name"), u("jobTitle"), t("plant"), u("phoneLine"), t("email"), u("portalLogin")]}>
           {c.contacts.map((k) => <tr key={k.id}><td>{show(k.name, maskName)}</td><td>{k.title ?? ""}</td><td>{k.plant?.code ?? ""}</td><td>{show(k.phone, maskPhone)}{k.lineId ? ` · ${show(k.lineId, maskLogin)}` : ""}</td><td>{show(k.email, maskEmail)}</td><td>{k.portalLogin ? show(k.portalLogin, maskLogin) : "—"}</td></tr>)}
         </Table>
-        <form action={contact} className="grid grid-cols-2 gap-2 md:grid-cols-9"><input name="name" required placeholder={t("name")} className={inputCls} /><input name="title" placeholder={u("jobTitle")} className={inputCls} /><select name="plant" className={inputCls}><option value="">{t("plant")}</option>{c.plants.map((p) => <option key={p.id} value={p.code}>{p.code}</option>)}</select><input name="phone" placeholder={t("phone")} className={inputCls} /><input name="line" placeholder="LINE" className={inputCls} /><input name="email" placeholder={t("email")} className={inputCls} /><input name="login" placeholder={u("portalLogin")} className={inputCls} /><input name="pw" type="password" placeholder={u("portalPassword")} className={inputCls} /><button className={btnGhost}>＋ {u("addContact")}</button></form>
+        <form action={contact} className="grid grid-cols-2 gap-2 md:grid-cols-5"><input name="name" required placeholder={t("name")} className={inputCls} /><input name="title" placeholder={u("jobTitle")} className={inputCls} /><select name="plant" className={inputCls}><option value="">{t("plant")}</option>{c.plants.map((p) => <option key={p.id} value={p.code}>{p.code}</option>)}</select><input name="phone" placeholder={t("phone")} className={inputCls} /><input name="line" placeholder="LINE" className={inputCls} /><input name="email" placeholder={t("email")} className={inputCls} /><input name="birthday" placeholder={u("birthdayMmDd")} className={inputCls} /><input name="login" placeholder={u("portalLogin")} className={inputCls} /><input name="pw" type="password" placeholder={u("portalPassword")} className={inputCls} /><button className={btnGhost}>＋ {u("addContact")}</button></form>
       </Card>
       <Card title={`${t("assets")} (${c.assets.length})`}>
         <Table head={[t("assetCode"), t("model"), t("serial"), t("plant"), t("location"), t("status")]}>

@@ -1,9 +1,13 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { navMatch } from "@/lib/nav";
 
 /** One line icon per module, so the menu reads as a tidy column whatever the label length. */
 const ICONS: Record<string, React.ReactNode> = {
+  home: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z" /><path d="M8.5 8h7M8.5 11.5h4.5" /></>,
+  lean: <><path d="M7 3h8l4 4v14H7z" /><path d="M15 3v4h4M10 12l1.8 1.8L15 10.5M10 17.5h5" /></>,
   dash: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
   alm: <><rect x="5" y="2.5" width="14" height="19" rx="2" /><rect x="8" y="5.5" width="8" height="4" rx="1" /><path d="M8 13h8M8 16.5h5" /></>,
   crm: <><path d="M3 21h18M5 21V7l7-4v18M12 9h7v12" /><path d="M8 10v.01M8 13.5v.01M8 17v.01M15.5 13v.01M15.5 16.5v.01" /></>,
@@ -15,19 +19,43 @@ const ICONS: Record<string, React.ReactNode> = {
   admin: <><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>,
 };
 
-/** Side navigation on white (decision 2026-11-07): icon + label, the current module on a light blue ground with a blue bar. */
-export function NavLinks({ items }: { items: { key: string; href: string; label: string }[] }) {
+/**
+ * Side navigation on white (decisions 2026-11-07, two levels 2026-11-10): each module opens its second level; the
+ * module of the current page is open on arrival. On a phone the modules scroll sideways and the open one drops below.
+ */
+export function NavLinks({ groups }: { groups: { key: string; label: string; items: { key: string; href: string; label: string; soon?: boolean }[] }[] }) {
   const path = usePathname();
+  const query = useSearchParams();
+  let best = { g: "", i: "", score: 0 };
+  for (const g of groups) for (const it of g.items) { const sc = navMatch(it.href, path, query); if (sc > best.score) best = { g: g.key, i: it.key, score: sc }; }
+  const [open, setOpen] = useState<string>(best.g || groups[0]?.key);
+  useEffect(() => { if (best.g) setOpen(best.g); }, [best.g]);
   return (
-    <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:gap-0.5">
-      {items.map((n) => {
-        const on = path === n.href || path.startsWith(`${n.href}/`);
+    <nav className="flex flex-wrap gap-1 px-2 pb-2 md:flex-col md:flex-nowrap md:gap-0.5 md:overflow-y-auto">
+      {groups.map((g) => {
+        const on = g.key === best.g;
         return (
-          <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined}
-            className={`relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2.5 text-[14.5px] tracking-wide ${on ? "bg-[#EEF3F9] font-bold text-navy before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded before:bg-blue" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
-            <svg viewBox="0 0 24 24" aria-hidden className="h-[18px] w-[18px] shrink-0 fill-none stroke-current" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">{ICONS[n.key]}</svg>
-            <span>{n.label}</span>
-          </Link>
+          <div key={g.key} className={open === g.key ? "w-full md:w-auto" : ""}>
+            <button type="button" onClick={() => setOpen(open === g.key ? "" : g.key)} aria-expanded={open === g.key}
+              className={`relative flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2.5 text-left text-[14.5px] tracking-wide ${on ? "font-bold text-navy" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
+              <svg viewBox="0 0 24 24" aria-hidden className="h-[18px] w-[18px] shrink-0 fill-none stroke-current" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">{ICONS[g.key]}</svg>
+              <span className="flex-1">{g.label}</span>
+              <svg viewBox="0 0 24 24" aria-hidden className={`hidden h-3.5 w-3.5 fill-none stroke-current opacity-50 transition-transform md:block ${open === g.key ? "rotate-90" : ""}`} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+            </button>
+            {open === g.key && (
+              <div className="mb-1 flex flex-wrap gap-0.5 md:ml-[21px] md:flex-col md:border-l md:border-hair md:pl-2">
+                {g.items.map((it) => {
+                  const cur = on && it.key === best.i;
+                  return (
+                    <Link key={it.key} href={it.href} aria-current={cur ? "page" : undefined}
+                      className={`relative rounded-md px-3 py-1.5 text-[13.5px] ${cur ? "bg-[#EEF3F9] font-bold text-navy md:before:absolute md:before:inset-y-1.5 md:before:-left-[9px] md:before:w-[3px] md:before:rounded md:before:bg-blue" : it.soon ? "text-[#4A5A6E]/60 hover:bg-[#F4F7FB]" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
+                      {it.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         );
       })}
     </nav>
