@@ -31,7 +31,7 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
   return (
     <div className="space-y-4">
       <PageHeader title={t("assets")} badge={<Tag>{ts("IN_SERVICE")} {count("IN_SERVICE")} · {u("underService")} {count("REPAIR") + count("MAINTENANCE") + count("OVERHAUL") + count("ACCEPTANCE")} · {ts("SPARE")} {count("SPARE")}</Tag>}
-        actions={<Link href="/models" className={btnGhost}>{u("modelLibrary")}</Link>} newHref="/assets/new" newLabel={u("newAsset")} />
+        actions={<><Link href="/series" className={btnGhost}>{u("kbSeriesTitle")}</Link><Link href="/fault-codes" className={btnGhost}>{u("kbLibrary")}</Link><Link href="/models" className={btnGhost}>{u("modelLibrary")}</Link></>} newHref="/assets/new" newLabel={u("newAsset")} />
       <form className="flex flex-wrap gap-2">
         <input name="q" defaultValue={q} placeholder={u("searchAssetsLong")} className={`${inputCls} max-w-sm`} />
         <select name="customerId" defaultValue={customerId ?? ""} className={filterCls}><option value="">{t("customer")} ▾</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>

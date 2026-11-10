@@ -10,6 +10,7 @@ class Schema<T = unknown> {
   constructor(check: Check, opts: { optional?: boolean; def?: unknown } = {}) { this.check = check; this.opts = opts; }
   optional(): Schema<T | undefined> { return new Schema(this.check, { ...this.opts, optional: true }); }
   default(def: unknown): Schema<T> { return new Schema(this.check, { ...this.opts, optional: true, def }); }
+  nullable(): Schema<T | null> { return new Schema((v, p) => (v === null ? null : this.check(v, p)), this.opts); }
   min(n: number, msg?: string): Schema<T> { return new Schema((v, p) => { const x = this.check(v, p); if (typeof x === "string" ? x.length < n : Number(x) < n) throw new Error(msg ?? `${p}: min ${n}`); return x; }, this.opts); }
   max(n: number): Schema<T> { return new Schema((v, p) => { const x = this.check(v, p); if (Number(x) > n) throw new Error(`${p}: max ${n}`); return x; }, this.opts); }
   positive(): Schema<T> { return new Schema((v, p) => { const x = this.check(v, p); if (!(Number(x) > 0)) throw new Error(`${p}: must be positive`); return x; }, this.opts); }

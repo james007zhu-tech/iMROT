@@ -142,25 +142,28 @@ model Employee {
   overtimeDecided OvertimeRequest[]    @relation("OvertimeApprover")
   overtimeLines   OvertimePayLine[]
 
-  assetsResponsible Asset[]                @relation("AssetResponsible")
-  events            AssetEvent[]
-  ordersAssigned    ServiceOrder[]         @relation("OrderAssignee")
-  ordersCreated     ServiceOrder[]         @relation("OrderCreator")
-  quoteDeclines     QuoteDecline[]
-  inspections       Inspection[]
-  repairJobs        RepairJob[]
-  documents         Document[]
-  dashboards        Dashboard[]
-  auditLogs         AuditLog[]
-  deliveries        DeliveryNote[]
-  marginApprovals   ServiceOrder[]         @relation("MarginApprover")
-  inquiries         PurchaseInquiry[]      @relation("InquiryRequester")
-  purchaseOrders    PurchaseOrder[]        @relation("PoCreator")
-  milestones        SubcontractMilestone[] @relation("MilestoneBy")
-  supplierRatings   SupplierRating[]       @relation("RatingBy")
-  salariesApproved  SalaryRecord[]         @relation("SalaryApprover")
-  salariesCreated   SalaryRecord[]         @relation("SalaryCreator")
-  reviewsGiven      PerformanceReview[]    @relation("Reviewer")
+  assetsResponsible  Asset[]                @relation("AssetResponsible")
+  events             AssetEvent[]
+  ordersAssigned     ServiceOrder[]         @relation("OrderAssignee")
+  ordersCreated      ServiceOrder[]         @relation("OrderCreator")
+  quoteDeclines      QuoteDecline[]
+  inspections        Inspection[]
+  repairJobs         RepairJob[]
+  documents          Document[]
+  dashboards         Dashboard[]
+  auditLogs          AuditLog[]
+  deliveries         DeliveryNote[]
+  marginApprovals    ServiceOrder[]         @relation("MarginApprover")
+  inquiries          PurchaseInquiry[]      @relation("InquiryRequester")
+  purchaseOrders     PurchaseOrder[]        @relation("PoCreator")
+  milestones         SubcontractMilestone[] @relation("MilestoneBy")
+  supplierRatings    SupplierRating[]       @relation("RatingBy")
+  salariesApproved   SalaryRecord[]         @relation("SalaryApprover")
+  salariesCreated    SalaryRecord[]         @relation("SalaryCreator")
+  reviewsGiven       PerformanceReview[]    @relation("Reviewer")
+  faultCodesReviewed FaultCode[]            @relation("FaultCodeReviewer")
+  faultCodeImports   FaultCodeImport[]
+  publishRuns        PublishRun[]
 }
 
 enum ContractType {
@@ -371,27 +374,57 @@ model Contact {
 
 // ───────────────────────── ALM — product knowledge: brand → series → model ─────────────────────────
 
+/// Data dictionary (朱总 2026-11-09/10, docs/mockups/equipment-knowledge-v0.1.html): brands and series are edited on
+/// /series; a brand or series is hidden (active=false), never deleted — machines on file keep showing it.
 model Brand {
-  id     String   @id @default(cuid())
-  code   String   @unique /// SIE
-  name   String /// SIEMENS
-  series Series[]
-  parts  Part[]
+  id        String   @id @default(cuid())
+  code      String   @unique /// SIE
+  name      String /// SIEMENS
+  slug      String?  @unique /// public URL part: siemens
+  website   String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(100)
+  series    Series[]
+  parts     Part[]
+}
+
+/// 产品类别 — dictionary: VFD, PLC, SERVO_DRIVE, SERVO_MOTOR, MOTOR, HMI, SOFT_STARTER, OTHER (editable).
+model ProductCategory {
+  code      String   @id
+  nameTh    String
+  nameZh    String
+  nameEn    String
+  sortOrder Int      @default(100)
+  series    Series[]
 }
 
 model Series {
-  id      String  @id @default(cuid())
-  brandId String
-  brand   Brand   @relation(fields: [brandId], references: [id])
-  code    String /// S120
-  name    String /// SINAMICS S120
-  notes   String? /// structure, shared fault-code system, shared maintenance standards live here
+  id            String           @id @default(cuid())
+  brandId       String
+  brand         Brand            @relation(fields: [brandId], references: [id])
+  code          String /// S120
+  name          String /// SINAMICS S120
+  notes         String? /// structure, shared fault-code system, shared maintenance standards live here
+  slug          String? /// public URL part, unique per brand: sinamics-s120
+  categoryCode  String?
+  category      ProductCategory? @relation(fields: [categoryCode], references: [code])
+  lifecycle     LifecycleStatus  @default(ACTIVE)
+  successorId   String? /// the series that replaces a discontinued one
+  successor     Series?          @relation("SeriesSuccessor", fields: [successorId], references: [id])
+  predecessors  Series[]         @relation("SeriesSuccessor")
+  aliases       String[]         @default([])
+  codePattern   String? /// regex the series' fault codes follow, e.g. ^[FA]\d{5}$ (S120), ^[0-9A-F]{4}$ (ACS880)
+  codeRule      String? /// the same in words, for people and the AI
+  documents     Json? /// manuals: [{title, docId, revision, date, url, sha256}]
+  publicVisible Boolean          @default(true) /// shown on the public site when it has published codes
+  active        Boolean          @default(true)
 
   models               Model[]
   faultCodes           FaultCode[]
   maintenanceStandards MaintenanceStandard[]
 
   @@unique([brandId, code])
+  @@unique([brandId, slug])
 }
 
 enum LifecycleStatus {
@@ -437,19 +470,115 @@ model ModelPart {
 }
 
 /// Fault codes live at series level; a model-level row overrides the series row for that model only.
+enum FaultKind {
+  FAULT /// the drive trips
+  WARNING /// the manual's warning — whether it stops is NOT implied (mustStop)
+  EVENT /// pure event / event warning
+  INFO
+}
+
+enum MustStop {
+  YES
+  NO
+  UNVERIFIED /// never shown as "does not stop"
+}
+
+enum FaultCodeStatus {
+  DRAFT
+  REVIEW /// 待审核
+  APPROVED
+  RETIRED
+}
+
+/// One fault/alarm code of a series (朱总 2026-11-10: per-series library, public read-only query).
+/// publicText = OUR words per language (what may go out); manualText = the manufacturer's text and its translations —
+/// internal reference only, never published (copyright). Internal fields never leave DCiT OS.
 model FaultCode {
-  id          String  @id @default(cuid())
-  seriesId    String
-  series      Series  @relation(fields: [seriesId], references: [id])
-  modelId     String?
-  model       Model?  @relation(fields: [modelId], references: [id])
-  code        String /// F30001
-  title       String
-  meaning     String?
-  firstChecks String? /// what an engineer checks first — reviewed by the technical lead
-  reviewed    Boolean @default(false)
+  id            String              @id @default(cuid())
+  seriesId      String
+  series        Series              @relation(fields: [seriesId], references: [id])
+  modelId       String?
+  model         Model?              @relation(fields: [modelId], references: [id])
+  code          String /// verbatim, leading zeros kept: F30001, 0001, A2B3
+  title         String /// display title (Chinese when known)
+  meaning       String? /// legacy free text (case archive)
+  firstChecks   String? /// legacy free text (case archive)
+  reviewed      Boolean             @default(false) /// = status APPROVED; kept for older pages
+  kind          FaultKind           @default(FAULT)
+  mustStop      MustStop            @default(UNVERIFIED)
+  appliesTo     String? /// scope words: "Primary control program Rev V"
+  publicText    Json? /// {zh|en|th: {title, meaning, causes[], checks[], remedy, safety, prepare}}
+  manualText    Json? /// {en|zh|th: {meaning, actions}} — manufacturer text, internal
+  source        Json? /// {title, docId, revision, date, page, url, sha256}
+  related       String[]            @default([])
+  keywords      String[]            @default([]) /// words people search by besides the title: 过流, OC, กระแสเกิน
+  internalNotes String?
+  commonParts   String?
+  status        FaultCodeStatus     @default(DRAFT)
+  isPublic      Boolean             @default(false)
+  reviewNote    String?
+  reviewedById  String?
+  reviewedBy    Employee?           @relation("FaultCodeReviewer", fields: [reviewedById], references: [id])
+  reviewedAt    DateTime?
+  version       Int                 @default(1)
+  origin        String              @default("MANUAL") /// MANUAL | IMPORT | CASE
+  importId      String?
+  import        FaultCodeImport?    @relation(fields: [importId], references: [id])
+  searchText    String              @default("") /// lower-cased internal search text
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @default(now()) @updatedAt
+  published     PublishedFaultCode?
 
   @@index([seriesId, code])
+  @@index([status])
+}
+
+/// One import run: file name, who, when, what happened.
+model FaultCodeImport {
+  id        String      @id @default(cuid())
+  fileName  String
+  format    String /// GROK_JSON | CSV
+  actorId   String
+  actor     Employee    @relation(fields: [actorId], references: [id])
+  createdAt DateTime    @default(now())
+  counts    Json /// {created, updated, skipped, flagged}
+  codes     FaultCode[]
+}
+
+/// The only table the public API reads: a copy of approved + public codes, public fields only, made by "publish".
+model PublishedFaultCode {
+  id          String    @id @default(cuid())
+  faultCodeId String    @unique
+  faultCode   FaultCode @relation(fields: [faultCodeId], references: [id], onDelete: Cascade)
+  brandSlug   String
+  brandName   String
+  seriesSlug  String
+  seriesName  String
+  category    String?
+  code        String
+  codeKey     String /// lower-cased code for lookups
+  kind        FaultKind
+  mustStop    MustStop
+  appliesTo   String?
+  content     Json /// {zh|en|th: {title, meaning, causes[], checks[], remedy, safety, prepare}}
+  source      Json?
+  related     String[]  @default([])
+  searchText  String /// public fields only
+  publishedAt DateTime
+  version     Int
+
+  @@unique([brandSlug, seriesSlug, codeKey])
+  @@index([codeKey])
+}
+
+model PublishRun {
+  id        String   @id @default(cuid())
+  actorId   String
+  actor     Employee @relation(fields: [actorId], references: [id])
+  createdAt DateTime @default(now())
+  added     Int
+  updated   Int
+  removed   Int
 }
 
 model MaintenanceStandard {

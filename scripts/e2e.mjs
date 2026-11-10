@@ -17,7 +17,7 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const page = await ctx.newPage();
 const errors = [];
-page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+page.on("pageerror", (e) => errors.push(`pageerror at ${page.url()}: ${e.message.slice(0, 120)}`));
 page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) errors.push(`console: ${m.text()}`); });
 let n = 0;
 async function step(name, fn) {
@@ -52,7 +52,7 @@ await step("models-add", async () => {
 });
 await step("model-detail-knowledge", async () => {
   await page.click(`text=ACS880-01-145A-3-${stamp}`); await page.waitForURL(/\/models\//);
-  const f = page.locator("form").filter({ has: page.locator('[name=firstChecks]') }); await f.locator('[name=code]').fill("F0001"); await f.locator('[name=title]').fill("Overcurrent"); await f.locator('[name=firstChecks]').fill("check motor cable insulation"); await submit(f); await noFlashError(); await expectText("F0001");
+  const f = page.locator("form").filter({ has: page.locator('[name=firstChecks]') }); await f.locator('[name=code]').fill("F0001"); await f.locator('[name=title]').fill("Overcurrent"); await f.locator('[name=firstChecks]').fill("check motor cable insulation"); await f.locator('[name=level]').selectOption("model"); await submit(f); await noFlashError(); await expectText("F0001");
   const b = page.locator("form").filter({ has: page.locator('[name=sku]') }); await b.locator('[name=sku]').fill(`ABB-FAN-${stamp}`); await b.locator('[name=vendorPartNo]').fill("3AUA0000074016"); await b.locator('[name=name]').fill("Cooling fan"); await submit(b); await noFlashError(); await expectText(`ABB-FAN-${stamp}`);
 });
 
@@ -107,9 +107,9 @@ let orderNo;
 await step("report-issue-and-assign", async () => {
   await page.goto(`${BASE}/service-orders/new?asset=${assetCode}`);
   // business modes (2026-11-09): six cards, repair preselected, floors shown, modes not open yet disabled
-  await expectText("Margin floor 50%"); await expectText("Margin floor 33%"); await expectText("Coming in the next release");
+  await expectText("Margin floor 50%"); await expectText("Margin floor 33%"); // all six modes are open since 2026-11-10 (OPEN_MODES), so no "coming in the next release" card
   if (!(await page.locator("input[name=mode][value=REPAIR]").isChecked())) throw new Error("repair should be preselected");
-  if (!(await page.locator("input[name=mode][value=INTERNATIONAL_TRADE]").isDisabled())) throw new Error("international trade is not open yet");
+  if (await page.locator("input[name=mode][value=INTERNATIONAL_TRADE]").isDisabled()) throw new Error("international trade is open since 2026-11-10");
   await page.fill("[name=reportedSymptom]", "F0001 overcurrent on start"); await page.fill("[name=reportedAlarm]", "F0001"); await page.fill("[name=customerRef]", "PO-E2E-001");
   await page.selectOption("[name=assigneeCode]", { index: 1 });
   await page.locator("button[name=assign]").click(); await page.waitForURL(/\/service-orders\/QTTH/); orderNo = page.url().split("/").pop().split("?")[0];
@@ -415,6 +415,27 @@ await step("blth-detail-and-ti-void-ui", async () => {
   await page.goto(`${BASE}/service-orders/${orderNo}/invoice`); await expectText("Tax invoices issued"); await expectText("valid"); await expectText("already has the valid tax invoice");
   await page.fill("input[name=reason]", "test void"); await page.click("button:has-text('Request void')"); await page.waitForTimeout(900); await page.waitForLoadState("networkidle");
   await expectText("already has payments"); // paid TITH cannot be voided — the rule shows as a flash error
+});
+await step("knowledge-base", async () => {
+  // 2026-11-10: a code is written in our words, approved, made public and published; the public page and API show
+  // it and nothing internal
+  const code = `K${stamp}`.slice(0, 12), title = `过电流 ${stamp}`;
+  await page.goto(`${BASE}/fault-codes/new`);
+  const f = page.locator("form#f"); await f.locator("[name=seriesId]").selectOption({ label: "ABB ACS880" }); await f.locator("[name=code]").fill(code);
+  await f.locator("[name=title_zh]").fill(title); await f.locator("[name=meaning_zh]").fill("输出电流超过跳闸限值"); await f.locator("[name=internalNotes]").fill(`INTERNAL ${stamp}`);
+  await submit(f); await noFlashError(); await page.waitForURL(/\/fault-codes\/c/);
+  await page.locator("aside button").filter({ hasText: /^(Approve|审核通过|อนุมัติ)$/ }).click(); await page.waitForURL(/ok=1/); await noFlashError();
+  await page.locator("aside button").filter({ hasText: /^(Make public|设为对外|ตั้งเป็นสาธารณะ)$/ }).click(); await page.locator("aside button").filter({ hasText: /^(Make internal|设为仅内部|ตั้งเป็นภายใน)$/ }).waitFor(); await noFlashError();
+  const back = page.url().split("?")[0];
+  await page.goto(`${BASE}/fault-codes`); await submit(page.locator("form#publish")); await page.waitForURL(/ok=/); await page.waitForLoadState("networkidle"); await noFlashError();
+  await page.goto(back); const href = await page.locator("a[href^='/faults/']").first().getAttribute("href");
+  if (!href) throw new Error("no public link after publishing");
+  await page.goto(`${BASE}${href}?lang=zh`); await expectText(title); await expectText("输出电流超过跳闸限值");
+  if ((await page.locator("body").innerText()).includes(`INTERNAL ${stamp}`)) throw new Error("internal notes on the public page");
+  const api = await (await page.request.get(`${BASE}/api/public/v1/codes/${href.replace("/faults/", "")}?lang=zh`)).json();
+  if (api.title !== title || JSON.stringify(api).includes("INTERNAL")) throw new Error(`public API: ${JSON.stringify(api).slice(0, 200)}`);
+  await page.goto(`${BASE}/faults?q=${encodeURIComponent(code)}`); await expectText(title);
+  await page.goto(`${BASE}/fault-codes`); // back inside the app for the next step
 });
 await step("sign-out", async () => { await page.click("text=Sign out"); await page.waitForURL(/\/login/); });
 

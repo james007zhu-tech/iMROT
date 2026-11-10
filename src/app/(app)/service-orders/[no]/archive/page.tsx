@@ -1,7 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { appendAssetEvent } from "@/server/alm";
-import { addFaultCode, addMaintenanceStandard } from "@/server/models";
+import { addMaintenanceStandard, caseToFaultCode } from "@/server/models";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Card, Field, Grid, inputCls } from "@/components/ui";
@@ -25,7 +25,7 @@ export default async function Archive({ params, searchParams }: { params: Promis
       for (const l of o.assets) {
         await appendAssetEvent({ assetCode: l.asset.code, type: "CASE_ARCHIVED", actorEmployeeCode: me.code, serviceOrderNo: no, sourceDocNo: no, summary: rootCause || lesson, payload: { rootCause, lesson, checks: str(f, "checks") } });
         const m = l.asset.model;
-        if (m && f.get("toFaultCode") === "on" && o.reportedAlarm) await addFaultCode(m.seriesId, undefined, o.reportedAlarm, rootCause.slice(0, 80), lesson, str(f, "checks"));
+        if (m && f.get("toFaultCode") === "on" && o.reportedAlarm) await caseToFaultCode(m.seriesId, o.reportedAlarm, rootCause.slice(0, 80), lesson, str(f, "checks"), no);
         if (m && f.get("toMaintenance") === "on" && str(f, "maintItem")) await addMaintenanceStandard(m.seriesId, undefined, str(f, "maintItem")!, num(f, "maintMonths"), undefined, lesson);
       }
       return { ok: "archived", to: `/service-orders/${no}` };
