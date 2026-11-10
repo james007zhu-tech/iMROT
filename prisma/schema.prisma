@@ -511,6 +511,7 @@ model FaultCode {
   manualText    Json? /// {en|zh|th: {meaning, actions}} — manufacturer text, internal
   source        Json? /// {title, docId, revision, date, page, url, sha256}
   related       String[]            @default([])
+  keywords      String[]            @default([]) /// words people search by besides the title: 过流, OC, กระแสเกิน
   internalNotes String?
   commonParts   String?
   status        FaultCodeStatus     @default(DRAFT)

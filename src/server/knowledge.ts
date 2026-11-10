@@ -8,7 +8,8 @@ import { audit } from "@/server/audit";
 import {
   LANGS, canApprove, canEditDictionary, canPublish, codeFits, codeKey, kindFrom, lines, manualParts, mustStopFrom, patternError, pdfPage,
   pickLang, publicBlocker, publicOnly, publicSearchText, rankHits, searchTextOf, slugify, splitName, statusAfterEdit,
-  type FaultStatus, type ManualText, type PublicText, type Source,
+  REQUIRED_WIDE, isBlocking, splitList, wordingIssues,
+  type FaultStatus, type ManualText, type PublicEntry, type PublicText, type Source,
 } from "@/lib/knowledge";
 
 async function actor(code: string) { return prisma.employee.findUniqueOrThrow({ where: { code } }); }
@@ -109,15 +110,15 @@ export async function getFaultCode(id: string) {
   return { ...c, cases };
 }
 
-function internalSearch(c: { code: string; title: string; appliesTo?: string | null; publicText?: unknown; manualText?: unknown; internalNotes?: string | null; commonParts?: string | null; meaning?: string | null; firstChecks?: string | null }) {
+function internalSearch(c: { code: string; title: string; appliesTo?: string | null; publicText?: unknown; manualText?: unknown; internalNotes?: string | null; commonParts?: string | null; meaning?: string | null; firstChecks?: string | null; keywords?: string[] }) {
   const p = (c.publicText ?? {}) as PublicText, m = (c.manualText ?? {}) as ManualText;
-  return searchTextOf([c.code, c.title, c.appliesTo, c.meaning, c.firstChecks, c.internalNotes, c.commonParts,
+  return searchTextOf([c.code, c.title, c.appliesTo, c.meaning, c.firstChecks, c.internalNotes, c.commonParts, c.keywords,
     ...LANGS.flatMap((l) => [p[l]?.title, p[l]?.meaning, p[l]?.causes, p[l]?.checks, p[l]?.remedy, m[l]?.meaning, m[l]?.actions])]);
 }
 
 export interface CodeInput {
   seriesId: string; code: string; kind?: string; mustStop?: string; appliesTo?: string; modelId?: string;
-  publicText: PublicText; manualText?: ManualText; source?: Source; related?: string[]; internalNotes?: string; commonParts?: string;
+  publicText: PublicText; manualText?: ManualText; source?: Source; related?: string[]; keywords?: string[]; internalNotes?: string; commonParts?: string;
 }
 
 export async function saveFaultCode(id: string | null, d: CodeInput, actorCode: string) {
@@ -129,7 +130,7 @@ export async function saveFaultCode(id: string | null, d: CodeInput, actorCode: 
     seriesId: d.seriesId, code: d.code.trim(), title, kind: (d.kind ?? "FAULT") as never, mustStop: (d.mustStop ?? "UNVERIFIED") as never,
     appliesTo: d.appliesTo?.trim() || null, modelId: d.modelId || null, publicText: pub as Prisma.InputJsonValue,
     ...(d.manualText ? { manualText: d.manualText as Prisma.InputJsonValue } : {}), ...(d.source ? { source: d.source as Prisma.InputJsonValue } : {}),
-    related: (d.related ?? []).map((r) => r.trim()).filter(Boolean), internalNotes: d.internalNotes?.trim() || null, commonParts: d.commonParts?.trim() || null,
+    related: (d.related ?? []).map((r) => r.trim()).filter(Boolean), keywords: (d.keywords ?? []).map((r) => r.trim()).filter(Boolean), internalNotes: d.internalNotes?.trim() || null, commonParts: d.commonParts?.trim() || null,
   };
   // one entry per code per series (or per model): a second one would fight for the same public address
   const twin = await prisma.faultCode.findFirst({ where: { seriesId: base.seriesId, modelId: base.modelId, code: { equals: base.code, mode: "insensitive" }, status: { not: "RETIRED" }, ...(id ? { id: { not: id } } : {}) }, select: { id: true } });
@@ -178,8 +179,9 @@ export async function reviewCodes(input: { ids: string[]; action: "submit" | "ap
 export type ImportRow = {
   brand: string; series: string; code: string; kind: string; mustStop: string; appliesTo?: string;
   publicText: PublicText; manualText: ManualText; source: Source; internalNotes?: string; commonParts?: string;
+  related?: string[]; keywords?: string[];
 };
-export type ImportPreview = { format: "GROK_JSON" | "CSV"; rows: (ImportRow & { action: "create" | "update" | "skip"; issues: string[] })[]; missing: { brand?: string; series?: string }[]; manual?: Source };
+export type ImportPreview = { format: "GROK_JSON" | "CSV" | "WIDE"; rows: (ImportRow & { action: "create" | "update" | "skip"; issues: string[] })[]; missing: { brand?: string; series?: string }[]; manual?: Source };
 
 /** Grok's export (2026-11-10, ACS880): {meta:{brand, series, manual, manual_sha256, official_url}, codes:[{code, name_zh, …}]} */
 function parseGrokJson(text: string): { rows: ImportRow[]; manual?: Source } {
@@ -210,6 +212,7 @@ function parseCsv(text: string): { rows: ImportRow[] } {
     const codes = recs.filter((r) => r.length > 1).map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ""])));
     throw Object.assign(new Error("IMPORT_GROK_CSV"), { codes });
   }
+  if (head.some((h) => /^title_(zh|en|th)$/.test(h))) throw Object.assign(new Error("WIDE"), { wide: parseWide(head, recs) });
   for (const k of ["brand", "series", "code", "lang", "title"]) if (!head.includes(k)) throw new Error(`IMPORT_FORMAT:${k}`);
   const at = (r: string[], k: string) => (r[head.indexOf(k)] ?? "").trim();
   const by = new Map<string, ImportRow>();
@@ -223,6 +226,30 @@ function parseCsv(text: string): { rows: ImportRow[] } {
   return { rows: [...by.values()] };
 }
 
+/** The wide table (docs/knowledge/fault-code-writing-guide.md): one row per code, a column per field and language. */
+function parseWide(head: string[], recs: string[][]): ImportRow[] {
+  const missing = REQUIRED_WIDE.filter((k) => !head.includes(k));
+  if (missing.length) throw new Error(`IMPORT_FORMAT:${missing.join(", ")}`);
+  const at = (r: string[], k: string) => (head.includes(k) ? (r[head.indexOf(k)] ?? "").trim() : "");
+  return recs.filter((r) => r.some((c) => c.trim())).map((r): ImportRow => {
+    const publicText: PublicText = {};
+    for (const l of LANGS) {
+      const e: PublicEntry = { title: at(r, `title_${l}`) || undefined, meaning: at(r, `meaning_${l}`) || undefined, causes: splitList(at(r, `causes_${l}`)), checks: splitList(at(r, `checks_${l}`)), remedy: at(r, `remedy_${l}`) || undefined, safety: at(r, `safety_${l}`) || undefined, prepare: splitList(at(r, `prepare_${l}`)).join("\n") || undefined };
+      if (Object.values(e).some((v) => (Array.isArray(v) ? v.length : v))) publicText[l] = e;
+    }
+    const manualText: ManualText = {};
+    for (const l of LANGS) if (at(r, `manual_meaning_${l}`) || at(r, `manual_actions_${l}`)) manualText[l] = { meaning: at(r, `manual_meaning_${l}`) || undefined, actions: at(r, `manual_actions_${l}`) || undefined };
+    const check = at(r, "check_status");
+    return {
+      brand: at(r, "brand"), series: at(r, "series"), code: at(r, "code"), kind: kindFrom(at(r, "kind"), at(r, "kind")), mustStop: mustStopFrom(at(r, "must_stop")), appliesTo: at(r, "applies_to") || undefined,
+      publicText, manualText,
+      source: { title: at(r, "source_title") || undefined, docId: at(r, "source_doc_id") || undefined, revision: at(r, "source_revision") || undefined, date: at(r, "source_date") || undefined, page: Number(at(r, "source_page")) || undefined, url: at(r, "source_url") || undefined, sha256: at(r, "source_sha256") || undefined },
+      internalNotes: [at(r, "internal_notes"), check ? `来源核对：${check}` : ""].filter(Boolean).join("\n") || undefined,
+      commonParts: at(r, "common_parts") || undefined, related: splitList(at(r, "related")), keywords: splitList(at(r, "keywords")),
+    };
+  });
+}
+
 function csvRecords(text: string): string[][] {
   const out: string[][] = []; let row: string[] = [], cell = "", q = false;
   for (let i = 0; i < text.length; i++) {
@@ -234,9 +261,11 @@ function csvRecords(text: string): string[][] {
   return out;
 }
 
-function parseImport(fileName: string, text: string): { format: "GROK_JSON" | "CSV"; rows: ImportRow[]; manual?: Source } {
+function parseImport(fileName: string, text: string): { format: "GROK_JSON" | "CSV" | "WIDE"; rows: ImportRow[]; manual?: Source } {
   if (/\.json$/i.test(fileName) || text.trimStart().startsWith("{")) return { format: "GROK_JSON", ...parseGrokJson(text) };
   try { return { format: "CSV", ...parseCsv(text) }; } catch (e) {
+    const wide = (e as { wide?: ImportRow[] }).wide;
+    if (wide) { const m = wide.find((r) => r.source.title)?.source; return { format: "WIDE", rows: wide, manual: m ? { ...m, page: undefined } : undefined }; }
     const codes = (e as { codes?: Record<string, string>[] }).codes;
     if (!codes) throw e;
     // a Grok CSV has no meta block: brand/series must come from the series picked on the page — returned as "?"
@@ -292,13 +321,16 @@ export async function importFaultCodes(input: { fileName: string; text: string; 
     if (!b || !s) { preview.missing.push({ brand: b ? undefined : brand, series }); seriesIds.set(key, null); }
     else seriesIds.set(key, s.id);
     const existing = s ? await prisma.faultCode.findMany({ where: { seriesId: s.id, modelId: null, code: { in: rows.map((r) => r.code) } } }) : [];
+    const seen = new Set<string>();
     for (const r of rows) {
       const issues: string[] = [];
       if (!r.code) issues.push("NO_CODE");
+      if (r.code && seen.has(codeKey(r.code))) issues.push("DUPLICATE_IN_FILE"); else seen.add(codeKey(r.code));
+      issues.push(...wordingIssues(r));
       if (s && !codeFits(s.codePattern, r.code)) issues.push("CODE_PATTERN");
       if (r.mustStop === "UNVERIFIED") issues.push("MUST_STOP_UNVERIFIED");
       const old = existing.find((e) => e.code.toLowerCase() === r.code.toLowerCase());
-      const action = !r.code || !s && !input.createMissing ? "skip" : old ? (old.status === "APPROVED" ? "skip" : "update") : "create";
+      const action = !r.code || !s && !input.createMissing || issues.some(isBlocking) ? "skip" : old ? (old.status === "APPROVED" ? "skip" : "update") : "create";
       if (old?.status === "APPROVED") issues.push("APPROVED_NOT_OVERWRITTEN");
       preview.rows.push({ ...r, action, issues });
     }
@@ -314,8 +346,9 @@ export async function importFaultCodes(input: { fileName: string; text: string; 
     const data = {
       title, kind: r.kind as never, mustStop: r.mustStop as never, appliesTo: r.appliesTo ?? null, publicText: publicOnly(r.publicText) as Prisma.InputJsonValue,
       manualText: r.manualText as Prisma.InputJsonValue, source: r.source as Prisma.InputJsonValue, internalNotes: r.internalNotes ?? null, commonParts: r.commonParts ?? null,
+      ...(r.related ? { related: r.related } : {}), ...(r.keywords ? { keywords: r.keywords } : {}),
       status: "REVIEW" as const, origin: "IMPORT", importId: imp.id,
-      searchText: internalSearch({ code: r.code, title, appliesTo: r.appliesTo, publicText: r.publicText, manualText: r.manualText, internalNotes: r.internalNotes, commonParts: r.commonParts }),
+      searchText: internalSearch({ code: r.code, title, appliesTo: r.appliesTo, publicText: r.publicText, manualText: r.manualText, internalNotes: r.internalNotes, commonParts: r.commonParts, keywords: r.keywords }),
     };
     if (r.action === "update") {
       await prisma.faultCode.updateMany({ where: { seriesId: sid, modelId: null, code: { equals: r.code, mode: "insensitive" }, status: { not: "APPROVED" } }, data });
@@ -355,7 +388,7 @@ export async function publishKnowledge(actorCode: string) {
         kind: c.kind, mustStop: c.mustStop, appliesTo: c.appliesTo, content: content as Prisma.InputJsonValue,
         // the manual reference goes out without our local file path or checksum
         source: src ? ({ title: src.title, docId: src.docId, revision: src.revision, date: src.date, page: src.page, url: src.url } as Prisma.InputJsonValue) : undefined,
-        related: c.related, searchText: publicSearchText(c.code, c.series.brand.name, c.series.name, content), version: c.version, publishedAt: now,
+        related: c.related, searchText: publicSearchText(c.code, c.series.brand.name, c.series.name, content, c.keywords), version: c.version, publishedAt: now,
       };
       const was = before.find((b) => b.faultCodeId === c.id);
       if (!was) added++; else if (was.version !== c.version) updated++;

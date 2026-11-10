@@ -20,7 +20,8 @@
     "fx:fetch": "tsx src/jobs/fetch-boc-rates.ts",
     "smoke": "tsx scripts/smoke.ts",
     "smoke:mem": "bash scripts/dev/run-inmemory.sh",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "kb:import": "tsx scripts/kb-import.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",

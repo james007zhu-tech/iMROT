@@ -58,6 +58,7 @@ export default async function FaultCodePage({ params, searchParams }: { params: 
               <Field label={u("kbMustStop")}><select name="mustStop" defaultValue={c?.mustStop ?? "UNVERIFIED"} className={inputCls}>{["UNVERIFIED", "YES", "NO"].map((k) => <option key={k} value={k}>{u(`kbMustStop_${k}`)}</option>)}</select></Field>
               <Field label={u("kbAppliesTo")}><input name="appliesTo" defaultValue={c?.appliesTo ?? ""} placeholder={u("kbAppliesToPh")} className={inputCls} /></Field>
               <Field label={u("kbRelated")}><input name="related" defaultValue={c?.related.join(", ")} className={`${inputCls} font-mono`} /></Field>
+              <Field label={u("kbKeywords")} className="md:col-span-2"><input name="keywords" defaultValue={c?.keywords.join(" | ")} placeholder={u("kbKeywordsPh")} className={inputCls} /></Field>
             </Grid>
           </Card>
 
@@ -73,7 +74,7 @@ export default async function FaultCodePage({ params, searchParams }: { params: 
                     <Field label={u("kbChecks")}><textarea name={`checks_${l}`} rows={rows(pub[l]?.checks)} defaultValue={pub[l]?.checks?.join("\n")} placeholder={u("kbOnePerLine")} className={inputCls} /></Field>
                     <Field label={u("kbRemedy")}><textarea name={`remedy_${l}`} defaultValue={pub[l]?.remedy} className={area} /></Field>
                     <Field label={u("kbSafety")}><textarea name={`safety_${l}`} defaultValue={pub[l]?.safety} className={area} /></Field>
-                    <Field label={u("kbPrepare")} className="md:col-span-2"><textarea name={`prepare_${l}`} defaultValue={pub[l]?.prepare} className={area} /></Field>
+                    <Field label={u("kbPrepare")} className="md:col-span-2"><textarea name={`prepare_${l}`} defaultValue={pub[l]?.prepare} placeholder={u("kbOnePerLine")} className={area} /></Field>
                   </div>
                 </details>
               ))}

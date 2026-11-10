@@ -17,7 +17,7 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const page = await ctx.newPage();
 const errors = [];
-page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+page.on("pageerror", (e) => errors.push(`pageerror at ${page.url()}: ${e.message.slice(0, 120)}`));
 page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) errors.push(`console: ${m.text()}`); });
 let n = 0;
 async function step(name, fn) {
@@ -427,7 +427,7 @@ await step("knowledge-base", async () => {
   await page.locator("aside button").filter({ hasText: /^(Approve|审核通过|อนุมัติ)$/ }).click(); await page.waitForURL(/ok=1/); await noFlashError();
   await page.locator("aside button").filter({ hasText: /^(Make public|设为对外|ตั้งเป็นสาธารณะ)$/ }).click(); await page.locator("aside button").filter({ hasText: /^(Make internal|设为仅内部|ตั้งเป็นภายใน)$/ }).waitFor(); await noFlashError();
   const back = page.url().split("?")[0];
-  await page.goto(`${BASE}/fault-codes`); await submit(page.locator("form#publish")); await page.waitForURL(/ok=/); await noFlashError();
+  await page.goto(`${BASE}/fault-codes`); await submit(page.locator("form#publish")); await page.waitForURL(/ok=/); await page.waitForLoadState("networkidle"); await noFlashError();
   await page.goto(back); const href = await page.locator("a[href^='/faults/']").first().getAttribute("href");
   if (!href) throw new Error("no public link after publishing");
   await page.goto(`${BASE}${href}?lang=zh`); await expectText(title); await expectText("输出电流超过跳闸限值");

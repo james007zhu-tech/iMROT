@@ -9,6 +9,8 @@
 #   .dev-ops/fx        -> fetch Bank of China rates
 #   .dev-ops/smoke     -> scripts/smoke.ts (output in .dev-ops/smoke.out)
 #   .dev-ops/cmd       -> runs the single shell line inside the file (output in .dev-ops/cmd.out)
+#   .dev-ops/kb-check  -> checks the fault-code tables in .dev-ops/kb-inbox/ (report in .dev-ops/kb-check.out)
+#   .dev-ops/kb-import -> imports them as 待审核 and moves them to kb-inbox/done/ (report in .dev-ops/kb-import.out)
 # Each trigger is deleted after it ran; .dev-ops/log holds the running log.
 set -uo pipefail
 cd /app
@@ -84,6 +86,14 @@ while true; do
   fi
   if [ -f "$OPS/smoke" ]; then
     rm -f "$OPS/smoke"; log "smoke"; npx tsx scripts/smoke.ts >"$OPS/smoke.out" 2>&1 && log "smoke PASSED" || log "smoke FAILED"
+  fi
+  if [ -f "$OPS/kb-check" ]; then
+    rm -f "$OPS/kb-check"; mkdir -p "$OPS/kb-inbox"; log "kb check"
+    npx tsx scripts/kb-import.ts "$OPS/kb-inbox" >"$OPS/kb-check.out" 2>&1; log "kb check done"
+  fi
+  if [ -f "$OPS/kb-import" ]; then
+    rm -f "$OPS/kb-import"; mkdir -p "$OPS/kb-inbox"; log "kb import"
+    npx tsx scripts/kb-import.ts "$OPS/kb-inbox" --commit >"$OPS/kb-import.out" 2>&1; log "kb import done"
   fi
   if [ -f "$OPS/cmd" ]; then
     CMD="$(head -1 "$OPS/cmd")"; rm -f "$OPS/cmd"; log "cmd: $CMD"

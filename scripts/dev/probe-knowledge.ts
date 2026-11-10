@@ -7,6 +7,7 @@
  * editing public words re-opens review while the last approved version stays online → retire takes it down.
  *   npx tsx scripts/dev/probe-knowledge.ts
  */
+import { readFileSync } from "node:fs";
 import { prisma } from "../../src/lib/db";
 import { importFaultCodes, publicCode, publicCodes, publicSearch, publishKnowledge, reviewCodes, saveFaultCode } from "../../src/server/knowledge";
 import type { PublicText } from "../../src/lib/knowledge";
@@ -88,8 +89,26 @@ async function main() {
   const r3 = await publishKnowledge(MD);
   check(r3.removed >= 1 && !(await publicCode(slugB, slugS, "2310", "zh")), "retired → taken down at the next publish");
 
+  // Grok's wide table (docs/knowledge/fault-code-wide-template.csv) into a second series of the same brand
+  const WIDE = `${SERIES}W`;
+  const tpl = readFileSync(new URL("../../docs/knowledge/fault-code-wide-template.csv", import.meta.url), "utf8").replace(/^ABB,ACS880,/gm, `${BRAND},${WIDE},`);
+  const wide = await importFaultCodes({ fileName: `${BRAND}_${WIDE}.csv`, text: tpl, actorCode: MD, dryRun: false, createMissing: true, categoryCode: "VFD" });
+  check(wide.preview.format === "WIDE" && wide.preview.rows.length === 3 && wide.preview.rows.every((r) => r.action === "create" && r.issues.every((i) => i === "MUST_STOP_UNVERIFIED")), "wide template: 3 rows, no wording issues");
+  const w2310 = await prisma.faultCode.findFirstOrThrow({ where: { code: "2310", series: { code: WIDE } } });
+  const wt = w2310.publicText as PublicText;
+  check(wt.th?.title === "กระแสเกิน" && wt.en?.checks?.length === 5 && (wt.zh?.prepare ?? "").split("\n").length === 3, "three languages, lists split, prepare one item per line");
+  check(w2310.keywords.includes("过流") && w2310.related.join() === "2330,2340" && w2310.status === "REVIEW", "keywords and related codes kept; lands in review");
+  check(!JSON.stringify(w2310.publicText).includes("copied word for word"), "manual columns stay out of the public text");
+  await reviewCodes({ ids: [w2310.id], action: "approve", actorCode: MD });
+  await reviewCodes({ ids: [w2310.id], action: "public", actorCode: MD });
+  await publishKnowledge(MD);
+  check((await publicSearch("过流", { lang: "zh", brand: slugB })).items.some((i) => i.code === "2310"), "public search finds a code by its keyword");
+  const bad = tpl.replace(/^(.*?,3210,)/m, "$1").replace("直流母线过电压,DC link overvoltage", "直流母线过电压 แรงดัน,DC link overvoltage");
+  const rej = await importFaultCodes({ fileName: "bad.csv", text: bad, actorCode: MD, dryRun: true });
+  check(rej.preview.rows.find((r) => r.code === "3210")?.action === "skip" && rej.preview.rows.find((r) => r.code === "3210")!.issues.includes("WRONG_LANG:zh.title"), "a Thai word in the Chinese title blocks the row");
+
   // a series hidden from the public site leaves it at the next publish — and the probe leaves nothing public behind
-  await prisma.series.update({ where: { id: series.id }, data: { publicVisible: false, active: false } });
+  await prisma.series.updateMany({ where: { brandId: series.brandId }, data: { publicVisible: false, active: false } });
   await prisma.brand.update({ where: { id: series.brandId }, data: { active: false } });
   await publishKnowledge(MD);
   check(!(await prisma.publishedFaultCode.count({ where: { brandSlug: slugB } })), "hidden series → its codes leave the public site");

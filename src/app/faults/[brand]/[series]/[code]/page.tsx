@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { publicCode } from "@/server/knowledge";
 import { publicLang, publicT } from "@/lib/kb-public";
-import { manualLabel, type Source } from "@/lib/knowledge";
+import { lines, manualLabel, type Source } from "@/lib/knowledge";
 import { ContactCta, PublicShell } from "../../../shell";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +44,7 @@ export default async function FaultsCode({ params, searchParams }: P) {
       {!c.meaning && !c.checks.length && src.title && section(t("meaningAndChecks"), <p>{t("seeManual")} {src.url ? <a href={src.url} target="_blank" rel="noreferrer" className="text-blue underline">{manualRef}</a> : manualRef}</p>)}
       {c.remedy && section(t("remedy"), <p>{c.remedy}</p>)}
       {c.safety && section(t("safety"), <p className="rounded-lg border border-alert/40 bg-alert/10 px-3 py-2">{c.safety}</p>)}
-      {c.prepare && section(t("prepare"), <p>{c.prepare}</p>)}
+      {c.prepare && section(t("prepare"), lines(c.prepare).length > 1 ? ol(lines(c.prepare)) : <p>{c.prepare}</p>)}
       {c.related.length > 0 && section(t("related"), <div className="flex flex-wrap gap-2">{c.related.map((r) => <Link key={r} href={`/faults/${brand}/${series}/${encodeURIComponent(r.toLowerCase())}?lang=${lang}`} className="rounded border border-navy/20 px-2 py-0.5 font-mono text-fault">{r}</Link>)}</div>)}
       <ContactCta lang={lang} code={`${c.brand} ${c.series} ${c.code}`} />
       {src.title && <p className="mt-4 text-xs text-navy/60">{t("source")}: {src.url ? <a href={src.url} target="_blank" rel="noreferrer" className="underline">{manualRef}</a> : manualRef} · {t("published", { date: c.publishedAt })}</p>}

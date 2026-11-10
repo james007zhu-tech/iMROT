@@ -82,7 +82,7 @@ export async function saveCodeAction(id: string, f: FormData) {
     const manualText = Object.fromEntries(LANGS.map((l) => [l, { meaning: str(f, `manual_${l}_meaning`), actions: str(f, `manual_${l}_actions`) }]));
     const c = await saveFaultCode(id || null, {
       seriesId: String(f.get("seriesId") ?? ""), code: String(f.get("code") ?? ""), kind: str(f, "kind"), mustStop: str(f, "mustStop"), appliesTo: str(f, "appliesTo"),
-      publicText, manualText, related: (str(f, "related") ?? "").split(/[,，\s]+/),
+      publicText, manualText, related: (str(f, "related") ?? "").split(/[,，\s]+/), keywords: (str(f, "keywords") ?? "").split(/[|｜,，]/),
       source: { title: str(f, "source_title"), docId: str(f, "source_docId"), revision: str(f, "source_revision"), date: str(f, "source_date"), page: Number(str(f, "source_page")) || undefined, url: str(f, "source_url") },
       internalNotes: str(f, "internalNotes"), commonParts: str(f, "commonParts"),
     }, me.code);
