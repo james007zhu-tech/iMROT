@@ -9,6 +9,9 @@ import { guarded } from "@/lib/action-result";
 import { inspectionGaps } from "@/lib/inspection-gaps";
 import { Alert, Card, Field, Grid, Table, Tag, btnGhost, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, str } from "../_shell";
+import Link from "next/link";
+import { assetBriefing, briefingText } from "@/server/briefing";
+import { NeedChips } from "@/components/NeedChips";
 
 export const dynamic = "force-dynamic";
 const TESTS = ["visual", "supply", "faultLog", "functional", "extra1", "extra2"] as const;
@@ -36,6 +39,10 @@ export default async function Inspect({ params, searchParams }: { params: Promis
   // Rows: what the draft measured first, then the standard test names it does not have yet.
   const standard = TESTS.slice(0, 4).map((k) => u(`test_${k}`));
   const rows: { test: string; criterion?: string; result?: string; recordId?: string; pass?: boolean }[] = [...dTests, ...standard.filter((n) => !dTests.some((x) => x.test === n)).map((test) => ({ test }))].slice(0, TESTS.length);
+  // 设备底细: what the system already knows about this machine — shown first, and given to the model as context
+  const briefCode = draft?.asset.code ?? order.assets[0]?.asset.code;
+  const report = { symptom: order.reportedSymptom, alarm: order.reportedAlarm, orderId: order.id };
+  const brief = briefCode ? await assetBriefing(briefCode, report) : null;
   const gaps = draft ? inspectionGaps({ ...draft, tests: dTests }) : [];
   const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -56,9 +63,28 @@ export default async function Inspect({ params, searchParams }: { params: Promis
     }, `/service-orders/${no}/inspect`);
   }
   return (
-    <StepPage order={order} title={u("step_inspect")} badge={draft ? <Tag><span className="font-mono">{draft.no}</span> · {u("dn_DRAFT")}</Tag> : undefined} error={error} ok={ok} kind="inspection" uploadTitle={u("upInspectTitle")} uploadHint={u("upInspectHint")} saveLabel={u("saveAndReport")}
+    <StepPage order={order} title={u("step_inspect")} badge={draft ? <Tag><span className="font-mono">{draft.no}</span> · {u("dn_DRAFT")}</Tag> : undefined} error={error} ok={ok} kind="inspection" uploadTitle={u("upInspectTitle")} uploadHint={u("upInspectHint")} dictate context={brief ? briefingText(brief, report) : undefined} lineFields={{ kind: "nk", sku: "ns", description: "nd", descriptionLocal: "nl", qty: "nq", unit: "nu" }} saveLabel={u("saveAndReport")}
       extraActions={<button form="f" name="draft" value="1" formNoValidate className={btnGhost}>{u("saveDraft")}</button>}>
       {gaps.length > 0 && <Alert>{u("gapsTitle")} {gaps.map((g) => u(g.key, { detail: g.detail ?? "" })).join("；")}</Alert>}
+      {brief && (
+        <details open className="rounded-xl border border-blue/40 bg-white">
+          <summary className="cursor-pointer list-none px-4 py-3 text-[15px] font-bold text-navy [&::-webkit-details-marker]:hidden">{u("briefTitle")} <span className="font-mono text-sm font-normal text-navy/60">{brief.asset.code} · {brief.asset.model}</span></summary>
+          <div className="grid gap-4 border-t border-hair px-4 py-3 text-[13.5px] md:grid-cols-2">
+            <div>
+              <b className="text-navy/70">{u("briefKnowledge")}</b>
+              {brief.codes.length === 0 && <p className="text-navy/60">{u("briefNoCode")}</p>}
+              {brief.codes.map((c) => <div key={c.id} className="mt-1.5"><Link href={`/fault-codes/${c.id}`} className="font-mono font-bold text-blue hover:underline">{c.code}</Link> <span className="font-semibold">{c.title}</span>{c.meaning && <p className="text-navy/80">{c.meaning}</p>}{c.checks && <p className="text-navy/80"><span className="text-navy/60">{u("briefChecks")}</span> {c.checks}</p>}{c.parts && <p className="text-navy/80"><span className="text-navy/60">{u("briefParts")}</span> {c.parts}</p>}</div>)}
+            </div>
+            <div>
+              <b className="text-navy/70">{u("briefHistory")}</b>
+              {brief.history.length === 0 && <p className="text-navy/60">{u("briefNoHistory")}</p>}
+              {brief.history.map((h) => <p key={h.no} className="mt-1"><span className="whitespace-nowrap text-navy/60">{h.date}</span> <span className="font-mono text-xs">{h.no}</span> {h.what}</p>)}
+              {brief.backup && <p className="mt-1 text-navy/80"><span className="text-navy/60">{u("briefBackup")}</span> {brief.backup.date} {brief.backup.name}</p>}
+              {brief.cases.length > 0 && <><b className="mt-3 block text-navy/70">{u("briefCases")}</b>{brief.cases.map((c) => <p key={c.no} className="mt-1"><Link href={`/service-orders/${c.no}`} className="font-mono text-xs text-blue hover:underline">{c.no}</Link> {c.symptom ? `${c.symptom} → ` : ""}{c.cause}</p>)}</>}
+            </div>
+          </div>
+        </details>
+      )}
       <form id="f" action={save} className="space-y-4">
         <Card title={u("basicInfo")}>
           <Grid>
@@ -92,6 +118,7 @@ export default async function Inspect({ params, searchParams }: { params: Promis
         </Card>
         <Card title={<>{u("needsTitle")} <Tag>{u("internalOnly")}</Tag></>}>
           <p className="text-xs text-navy/70">{u("needsHint")}</p>
+          {brief && <NeedChips formId="f" parts={brief.parts} label={u("briefModelParts")} onHandLabel={u("briefOnHand")} />}
           <datalist id="parts">{partOptions.map((p) => <option key={p.id} value={p.sku}>{p.vendorPartNo} · {p.name}</option>)}</datalist>
           <div className="hidden grid-cols-[90px_170px_2fr_2fr_70px_70px_110px] gap-2 text-xs text-navy/70 md:grid"><span>{t("type")}</span><span>{u("partSku")}</span><span>{u("descEn")}</span><span>{u("descTh")}</span><span>{t("qty")}</span><span>{u("uom")}</span><span>{u("stockCheck")}</span></div>
           <RevealRows initial={Math.max(dNeeds.length, 2)} addLabel={u("addLine")}>
