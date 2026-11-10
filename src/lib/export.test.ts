@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { incotermLine, shipmentProblems, shippedProblems, shipTotals, tradeTermsFrom, transportDoc } from "./export";
+import { exportCloseBlockers, missingExportDocs, incotermLine, shipmentProblems, shippedProblems, shipTotals, tradeTermsFrom, transportDoc } from "./export";
 
 const line = { key: "PO:1", lineNo: 1, description: "SINAMICS G120 PM240-2", hsCode: "8504.40.90", origin: "DE", qty: 4, unit: "pcs", packages: 2, netKg: 30, grossKg: 34, unitPrice: 900, amount: 3600 };
 
@@ -21,5 +21,11 @@ describe("international trade rules", () => {
     expect(shipTotals([line, { ...line, packages: 1, netKg: 0.5, grossKg: 0.75, amount: 10.5 }])).toEqual({ packages: 3, netKg: 30.5, grossKg: 34.75, amount: 3610.5 });
     expect(shippedProblems({ blNo: "", shippedAt: undefined })).toEqual(["BL_NO", "SHIPPED_AT"]);
     expect([transportDoc("SEA"), transportDoc("AIR"), transportDoc("ROAD")]).toEqual(["B/L", "AWB", "CMR"]);
+  });
+  it("an export order completes only when shipped, paid and documented; D-terms also need proof of delivery", () => {
+    expect(missingExportDocs("FOB", [{ kind: "EXPORT_BL" }])).toEqual(["EXPORT_PACKING_LIST", "EXPORT_ENTRY"]);
+    expect(missingExportDocs("DAP", [{ kind: "EXPORT_PACKING_LIST" }, { kind: "EXPORT_BL" }, { kind: "EXPORT_ENTRY" }])).toEqual(["EXPORT_POD"]);
+    expect(exportCloseBlockers({ incoterm: "CIF", shipped: false, unpaid: 1, attachments: [] })).toEqual(["NOT_SHIPPED", "UNPAID", "EXPORT_PACKING_LIST", "EXPORT_BL", "EXPORT_ENTRY"]);
+    expect(exportCloseBlockers({ incoterm: "CIF", shipped: true, unpaid: 0, attachments: [{ kind: "EXPORT_PACKING_LIST" }, { kind: "EXPORT_BL" }, { kind: "EXPORT_ENTRY" }] })).toEqual([]);
   });
 });

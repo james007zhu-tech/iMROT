@@ -169,6 +169,11 @@ export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, ac
     const shape = await declineShapeOf(no);
     const open = shape ? declineCloseBlockers(shape) : [];
     if (open.length) throw new Error(`DECLINE_OPEN:${open.join(",")}`);
+    // 国际贸易 (朱总 2026-11-10): delivered per Incoterm, every payment in, packing list + B/L + export entry uploaded
+    if (order.mode === "INTERNATIONAL_TRADE") {
+      const left = await (await import("@/server/export")).exportBlockersOf(no);
+      if (left.length) throw new Error(`EXPORT_CLOSE_BLOCKED:${left.join(",")}`);
+    }
   }
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorEmployeeCode } });
   const assignee = assigneeCode ? await prisma.employee.findUniqueOrThrow({ where: { code: assigneeCode } }) : null;
@@ -246,6 +251,8 @@ export async function confirmCustomerPo(input: { no: string; actorCode: string; 
   const started = await advanceServiceOrder(o.no, "IN_PROGRESS", input.actorCode, input.note ?? input.customerRef);
   // 自动化项目: the PO is the contract milestone (its instalment is then invoiced on the project page)
   if (o.mode === "AUTOMATION_PROJECT") await prisma.projectMilestone.updateMany({ where: { serviceOrderId: o.id, phase: "CONTRACT", doneAt: null }, data: { doneAt: new Date(), doneById: actor.id, note: input.customerRef ?? o.customerRef ?? null } });
+  // 国际贸易: the PO brings the proforma invoice PFTH — the export order's invoice (src/server/export.ts)
+  if (o.mode === "INTERNATIONAL_TRADE") await (await import("@/server/export")).issueProforma(o.no, input.actorCode);
   // 流程图: 客户回签 → 按 PRTH 生成 POTH (one draft PO per compared inquiry; purchasing confirms and sends it)
   await raisePurchaseOrdersForOrder(o.no, input.actorCode);
   return started;

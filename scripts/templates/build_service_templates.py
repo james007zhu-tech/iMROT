@@ -202,9 +202,11 @@ def shipment_kv(doc, last):
                          (["Transport", "การขนส่ง"], "[[TRANSPORT]]"), (["Departure", "วันออกเดินทาง"], "[[DEPARTURE]]"), (["Transport doc.", "เอกสารขนส่ง"], "[[TRANSPORT_DOC]]"),
                          (["Export entry", "ใบขนขาออก"], "[[EXPORT_ENTRY]]"), last]))
 
-def build_commercial_invoice():
+def export_invoice(file, th, en, zh, declaration, code):
+    """35 proforma invoice (the PFTH — the export order's invoice) and 33 commercial invoice (the same PFTH printed for
+    customs once the goods are packed): one layout, the title and the closing statement differ."""
     doc = Document(BASE); clear_body(doc)
-    title_block(doc, "ใบกำกับสินค้า", "COMMERCIAL INVOICE", "商业发票", "Invoice No.", "[[DOC_NO]]")
+    title_block(doc, th, en, zh, "Invoice No.", "[[DOC_NO]]")
     rule(doc)
     two_blocks(doc, ("Buyer / consignee", "ผู้ซื้อ / ผู้รับสินค้า"), ["[[CUSTOMER_NAME]]", "[[CUSTOMER_DETAILS]]"],
                [(["Invoice date", "วันที่"], "[[ISSUE_DATE]]"), (["Customer PO", "ใบสั่งซื้อลูกค้า"], "[[CUSTOMER_PO]]"),
@@ -214,13 +216,21 @@ def build_commercial_invoice():
     lines_table(doc, [("#", "ลำดับ"), ("Description", "รายการ"), ("SKU", "รหัสสินค้า"), ("HS code", "พิกัดศุลกากร"), ("Origin", "แหล่งกำเนิด"), ("Qty", "จำนวน"), ("Unit", "หน่วย"), ("Unit price", "ราคา/หน่วย"), ("Amount", "จำนวนเงิน")],
                 [560, 2306, 1300, 1050, 950, 650, 650, 1100, 1300], ["[[L_NO]]", "[[L_DESC]]", "[[L_SKU]]", "[[L_HS]]", "[[L_ORIGIN]]", "[[L_QTY]]", "[[L_UNIT]]", "[[L_PRICE]]", "[[L_AMOUNT]]"], [C, None, None, None, C, R, C, R, R], size=8.5)
     para(doc, after=3)
-    # the VAT basis sits in the VAT row label; the declaration closes the left column (no extra paragraph: one page)
+    # the VAT basis sits in the VAT row label; the statement closes the left column (no extra paragraph: one page)
     totals_block(doc, [(["Subtotal", "รวม"], "[[SUBTOTAL]]", False), (["VAT [[VAT_LABEL]]", "ภาษีมูลค่าเพิ่ม"], "[[VAT_AMOUNT]]", False), (["Total [[INCOTERM_CODE]]", "รวมทั้งสิ้น"], "[[CURRENCY]] [[TOTAL]]", True)],
                  left_lines=[[("[[TOTAL_WORDS_EN]]", 8.5, True, NAVY)], [("Bank transfer  โอนเงิน", 8, True, NAVY), ("[[BANK_LINES]]", 7.5, False, None)],
-                             [("We certify this invoice is true and correct and the goods are of the origin stated.", 7.5, False, GREY), ("ขอรับรองว่าใบกำกับสินค้านี้ถูกต้องตามความเป็นจริง และสินค้ามีแหล่งกำเนิดตามที่ระบุ", 7.5, False, GREY)]])
+                             [(declaration[0], 7.5, False, GREY), (declaration[1], 7.5, False, GREY)]])
     signature_block(doc, [("Prepared by", "ผู้จัดทำ", "[[PREPARED_BY]]"), ("Authorised by", "ผู้มีอำนาจลงนาม", "[[AUTHORISED_BY]]")])
-    footer(doc, "EXP-CI")
-    doc.save(TPL / "33_Commercial_Invoice.docx")
+    footer(doc, code)
+    doc.save(TPL / file)
+
+def build_commercial_invoice():
+    export_invoice("33_Commercial_Invoice.docx", "ใบกำกับสินค้า", "COMMERCIAL INVOICE", "商业发票",
+                   ("We certify this invoice is true and correct and the goods are of the origin stated.", "ขอรับรองว่าใบกำกับสินค้านี้ถูกต้องตามความเป็นจริง และสินค้ามีแหล่งกำเนิดตามที่ระบุ"), "EXP-CI")
+
+def build_proforma_invoice():
+    export_invoice("35_Proforma_Invoice.docx", "ใบแจ้งหนี้ล่วงหน้า", "PROFORMA INVOICE", "形式发票",
+                   ("Proforma invoice for the order above. This is not a tax invoice.", "ใบแจ้งหนี้ล่วงหน้าสำหรับคำสั่งซื้อข้างต้น ไม่ใช่ใบกำกับภาษี"), "EXP-PFI")
 
 def build_packing_list():
     doc = Document(BASE); clear_body(doc)
@@ -241,5 +251,5 @@ def build_packing_list():
 
 if __name__ == "__main__":
     build_proposal(); build_order_confirmation(); build_completion(); build_acceptance()
-    build_trade_quotation(); build_trade_order_confirmation(); build_commercial_invoice(); build_packing_list()
-    print("built 04, 06, 12, 13, 30, 31, 33, 34")
+    build_trade_quotation(); build_trade_order_confirmation(); build_commercial_invoice(); build_proforma_invoice(); build_packing_list()
+    print("built 04, 06, 12, 13, 30, 31, 33, 34, 35")

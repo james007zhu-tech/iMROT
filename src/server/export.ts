@@ -1,12 +1,13 @@
 /**
  * 国际贸易 — the shipment step (flow 国际贸易-流程图-v1, 2026-11-09). After the goods are issued from stock (OBTH):
- *  1. issueShipment: the packing data → one DNTH (packing list, template 34) and the commercial invoice → one IVTH
- *     (template 33, the order's currency, VAT 0 %) in one transaction. Customs and the forwarder work from these two,
- *     so the numbers exist before the export entry. Saving again before departure updates the same DNTH; the CI stays.
+ *  0. issueProforma (at the customer's PO): the PFTH proforma invoice (template 35) — the order's only invoice.
+ *  1. issueShipment: the packing data → one DNTH (packing list, template 34). For customs the same PFTH prints as a
+ *     commercial invoice (template 33, same number and amounts, now with HS codes, weights and transport). Saving
+ *     again before departure updates the same DNTH.
  *  2. confirmShipment: the B/L or AWB number and the actual departure. The carrier's document stands in for the
  *     customer's signature: the DNTH is signed, the order is accepted and locked (signDelivery, as for every trade
- *     order) and moves to INVOICED, because the CI already exists. Payment and "project complete" follow as usual.
- * No TITH for an export (src/lib/export.ts — the accountant confirms).
+ *     order) and moves to INVOICED, because the PFTH already exists. Payment and "project complete" follow as usual.
+ * No TITH and no IVTH for an export (src/lib/export.ts — the accountant confirms).
  */
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -15,7 +16,7 @@ import { allocateNumber } from "@/lib/numbering-db";
 import { audit } from "@/server/audit";
 import { deliveryPlan, signDelivery } from "@/server/delivery";
 import { assertNotLocked, progressOrder } from "@/server/slm";
-import { SHIP_MODES, shipmentProblems, shippedProblems, shipTotals, transportDoc, type ShipLine, type Shipping, type TradeTerms } from "@/lib/export";
+import { EXPORT_DOC_KINDS, exportCloseBlockers, SHIP_MODES, shipmentProblems, shippedProblems, shipTotals, transportDoc, type ShipLine, type Shipping, type TradeTerms } from "@/lib/export";
 import type { RequestLine } from "@/lib/modes";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -31,7 +32,7 @@ export async function shipmentFor(no: string): Promise<{ dn: { no: string; statu
   const o = await intlOrder(no);
   const terms = o.tradeTerms as unknown as TradeTerms;
   const dn = o.deliveries.find((d) => d.status !== "DRAFT" && d.shipping) ?? null;
-  const ci = o.documents.find((d) => d.type === "IV" && d.templateCode === "33" && !d.voidedAt);
+  const ci = o.documents.find((d) => d.type === "PF" && !d.voidedAt); // the proforma invoice issued with the customer's PO
   if (dn) return { dn: { no: dn.no, status: dn.status }, invoiceNo: ci?.no ?? null, shipping: dn.shipping as unknown as Shipping, terms };
   const { lines } = await deliveryPlan(no);
   const asked = (o.requestLines as RequestLine[] | null) ?? [];
@@ -42,7 +43,7 @@ export async function shipmentFor(no: string): Promise<{ dn: { no: string; statu
     const qty = Math.max(0, l.expected - l.deliveredBefore), unitPrice = Number(q?.unitPrice ?? 0);
     return { key: l.key, lineNo: l.poLineNo ?? i + 1, sku: l.partSku ?? q?.part?.sku, description: l.description, hsCode: r?.hsCode ?? "", origin: r?.origin ?? "", qty, unit: q?.unit ?? "pcs", packages: 0, netKg: 0, grossKg: 0, unitPrice, amount: r2(qty * unitPrice) };
   });
-  return { dn: null, invoiceNo: null, terms, shipping: { shipMode: terms?.shipMode ?? "SEA", portLoading: terms?.incoterm?.startsWith("F") || terms?.incoterm === "EXW" ? terms.place : "", portDischarge: terms?.destPort ?? "", packageKind: "carton", etd: "", lines: shipLines } };
+  return { dn: null, invoiceNo: ci?.no ?? null, terms, shipping: { shipMode: terms?.shipMode ?? "SEA", portLoading: terms?.incoterm?.startsWith("F") || terms?.incoterm === "EXW" ? terms.place : "", portDischarge: terms?.destPort ?? "", packageKind: "carton", etd: "", lines: shipLines } };
 }
 
 /** Packing data per line; a field left out keeps what the shipment (or the inquiry line) already says. */
@@ -54,7 +55,29 @@ export const ShipmentInput = z.object({
   etd: z.string(), eta: z.string().optional(), lines: z.array(LineIn),
 });
 
-/** CI (IVTH, template 33) + PL (DNTH, template 34) for the whole order, or an update of the packing data before departure. */
+/**
+ * 形式发票 PFI (朱总 2026-11-10): the export order's invoice is a proforma invoice, PFTH, issued when the customer's PO
+ * is confirmed — the whole quote in the order currency, VAT 0 %, due `paymentDays` later. The customer pays against it
+ * (advance T/T, L/C); payments and the receipt hang on it like on any invoice. Idempotent.
+ */
+export async function issueProforma(no: string, actorCode: string): Promise<string> {
+  const o = await intlOrder(no);
+  const had = o.documents.find((d) => d.type === "PF" && !d.voidedAt);
+  if (had) return had.no;
+  if (!o.lines.length || o.total == null) throw new Error("QUOTE_NEEDS_LINE");
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
+  const terms = o.tradeTerms as unknown as TradeTerms;
+  return prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const pfNo = await allocateNumber(tx, { prefix: "PF", createdByEmployeeCode: actor.code, entityId: o.entityId, date: now });
+    await tx.invoice.create({ data: { no: pfNo, serviceOrderId: o.id, issuedAt: now, dueAt: new Date(now.getTime() + (terms?.paymentDays ?? 0) * 86_400_000), currency: o.currency, amountDue: Number(o.total) } });
+    await tx.document.create({ data: { no: pfNo, type: "PF", entityId: o.entityId, countryCode: pfNo.slice(2, 4), customerId: o.customerId, serviceOrderId: o.id, createdById: actor.id, templateCode: "35", issuedAt: now } });
+    await audit(actor.id, "PROFORMA_ISSUE", pfNo, { order: o.no, total: Number(o.total), currency: o.currency }, tx);
+    return pfNo;
+  });
+}
+
+/** PL (DNTH, template 34) for the whole order, or an update of the packing data before departure. The invoice is the PFTH. */
 export async function issueShipment(input: z.input<typeof ShipmentInput>) {
   const d = ShipmentInput.parse(input);
   const o = await intlOrder(d.no);
@@ -91,14 +114,7 @@ export async function issueShipment(input: z.input<typeof ShipmentInput>) {
       shipping: shipping as unknown as Prisma.InputJsonValue,
     } });
     await tx.document.create({ data: { no: dnNo, type: "DN", entityId: o.entityId, countryCode: dnNo.slice(2, 4), customerId: o.customerId, serviceOrderId: o.id, createdById: actor.id, templateCode: "34" } });
-    // the commercial invoice: the whole quote (freight or insurance lines of a CIF/CIP quote included), VAT 0 %
-    let ivNo = current.invoiceNo;
-    if (!ivNo) {
-      const now = new Date();
-      ivNo = await allocateNumber(tx, { prefix: "IV", createdByEmployeeCode: actor.code, entityId: o.entityId, date: now });
-      await tx.invoice.create({ data: { no: ivNo, serviceOrderId: o.id, issuedAt: now, dueAt: new Date(now.getTime() + (terms.paymentDays ?? 0) * 86_400_000), currency: o.currency, amountDue: Number(o.total) } });
-      await tx.document.create({ data: { no: ivNo, type: "IV", entityId: o.entityId, countryCode: ivNo.slice(2, 4), customerId: o.customerId, serviceOrderId: o.id, createdById: actor.id, templateCode: "33", issuedAt: now } });
-    }
+    const ivNo = current.invoiceNo; // the PFTH — issued with the customer's PO, nothing new is invoiced at shipment
     await audit(actor.id, "SHIPMENT_ISSUE", dnNo, { invoiceNo: ivNo, totals: shipTotals(lines), incoterm: terms.incoterm }, tx);
     return { dnNo, invoiceNo: ivNo };
   });
@@ -127,4 +143,22 @@ export async function confirmShipment(input: z.input<typeof ShippedInput>) {
     await prisma.$transaction((tx) => progressOrder(tx, o, "INVOICED", actor.id, cur.dn!.no));
   }
   return { dnNo: cur.dn.no, blNo: shipping.blNo };
+}
+
+/** 出口单证: add the uploaded copies (packing list, B/L, export entry, proof of delivery) to the order. Allowed on a locked order — they are evidence, not terms. */
+export async function addExportDocs(input: { no: string; actorCode: string; kind: string; files: { name: string; url: string }[] }) {
+  if (!(EXPORT_DOC_KINDS as readonly string[]).includes(input.kind)) throw new Error(`BAD_EXPORT_DOC:${input.kind}`);
+  if (!input.files.length) throw new Error("FILE_REQUIRED");
+  const o = await intlOrder(input.no);
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  const merged = [...((o.attachments as { name: string; url: string; kind: string }[] | null) ?? []), ...input.files.map((f) => ({ ...f, kind: input.kind }))];
+  await prisma.serviceOrder.update({ where: { id: o.id }, data: { attachments: merged as unknown as Prisma.InputJsonValue } });
+  await audit(actor.id, "EXPORT_DOC_ADD", o.no, { kind: input.kind, files: input.files.map((f) => f.name) });
+  return merged.length;
+}
+
+/** What still stops "project complete" on this export order (src/lib/export.ts). */
+export async function exportBlockersOf(no: string): Promise<string[]> {
+  const o = await intlOrder(no);
+  return exportCloseBlockers({ incoterm: (o.tradeTerms as unknown as TradeTerms | null)?.incoterm, shipped: o.deliveries.some((d) => d.status === "SIGNED" && d.shipping), unpaid: o.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, attachments: o.attachments as { kind?: string }[] | null });
 }

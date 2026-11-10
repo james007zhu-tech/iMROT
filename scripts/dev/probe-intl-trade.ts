@@ -1,6 +1,6 @@
 /**
  * 国际贸易 against a real database (flow 国际贸易-流程图-v1, 2026-11-09): trade terms fixed on the order → USD quote at
- * VAT 0 % and the 10 % floor → customer PO → OBTH → shipment: CI (IVTH, 33) + PL (DNTH, 34) → B/L = accepted, locked,
+ * VAT 0 % and the 10 % floor → customer PO → OBTH → PFTH proforma invoice → shipment: PL (DNTH, 34) → B/L = accepted, locked,
  * INVOICED → USD payment → no TITH anywhere. Quotation, CI and PL render.
  *   npx tsx scripts/dev/probe-intl-trade.ts
  */
@@ -8,7 +8,8 @@ import { prisma } from "../../src/lib/db";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
 import { setQuoteLines } from "../../src/server/slm-docs";
 import { recordStockDoc } from "../../src/server/scm";
-import { confirmShipment, issueShipment, shipmentFor } from "../../src/server/export";
+import { addExportDocs, confirmShipment, issueShipment, shipmentFor } from "../../src/server/export";
+import { advanceServiceOrder } from "../../src/server/slm";
 import { issueTaxInvoice, recordPayment } from "../../src/server/to";
 import { buildFields } from "../../src/server/reports";
 import { allocateNumber } from "../../src/lib/numbering-db";
@@ -51,6 +52,10 @@ async function main() {
   assert(Number(q.vatAmount) === 0 && Number(q.total) === 5260 && q.marginApproval === "NOT_NEEDED", `USD ${Number(q.total)} without VAT; ${(Number(q.marginPct) * 100).toFixed(1)} % clears the 10 % floor`);
   await refused(() => issueShipment({ no: o.no, actorCode: md.code, shipMode: "SEA", portLoading: "Laem Chabang", portDischarge: "Jakarta", etd: "2026-12-01", lines: [] }), /SHIPMENT_TOO_EARLY/, "no shipment before the customer PO");
   await confirmCustomerPo({ no: o.no, actorCode: md.code, customerRef: `SE-PO-${stamp}`, poLines: await poLinesFromQuote(o.no) });
+  const pf = await prisma.invoice.findFirstOrThrow({ where: { serviceOrderId: o.id } });
+  assert(/^PFTH/.test(pf.no) && pf.currency === "USD" && Number(pf.amountDue) === 5260 && !pf.taxInvoiceId && pf.dueAt!.getTime() - pf.issuedAt.getTime() === 30 * 86_400_000, `the PO brings the proforma invoice ${pf.no}: USD 5,260, no TITH, due 30 days`);
+  const pfi = await buildFields(pf.no);
+  assert(pfi.template === "35" && (pfi.values.L_HS as string[])[0] === "8504.40.90" && pfi.values.PACKING_LIST_NO === "—", "PFI prints before any shipment, HS codes from the inquiry");
   await recordStockDoc({ actorCode: md.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: a.sku, qty: 4 }, { partSku: b.sku, qty: 4 }] });
 
   console.log("3. shipment: CI + PL; customs data required");
@@ -60,11 +65,9 @@ async function main() {
   await refused(() => issueShipment({ no: o.no, actorCode: md.code, shipMode: "SEA", portLoading: "Laem Chabang", portDischarge: "Jakarta", etd: "2026-12-01", lines: [{ key: keys[0], packages: 2, netKg: 60, grossKg: 50 }] }), /SHIPMENT_INCOMPLETE:.*WEIGHT:1.*PACKAGES:2/, "gross below net and missing packages refused");
   const packing = [{ key: keys[0], packages: 2, netKg: 60, grossKg: 68 }, { key: keys[1], packages: 1, netKg: 4, grossKg: 5.5 }];
   const s1 = await issueShipment({ no: o.no, actorCode: md.code, shipMode: "SEA", portLoading: "Laem Chabang", portDischarge: "Jakarta", packageKind: "carton", marks: `SINAR\nJAKARTA\nC/NO. 1-3`, cbm: 0.42, etd: "2026-12-01", lines: packing });
-  assert(/^IVTH/.test(s1.invoiceNo ?? "") && /^DNTH/.test(s1.dnNo), `CI ${s1.invoiceNo} and PL ${s1.dnNo}`);
-  const iv = await prisma.invoice.findUniqueOrThrow({ where: { no: s1.invoiceNo! } });
-  assert(iv.currency === "USD" && Number(iv.amountDue) === 5260 && !iv.taxInvoiceId && iv.dueAt!.getTime() - iv.issuedAt.getTime() === 30 * 86_400_000, "CI: USD 5,260, no TITH, due 30 days");
+  assert(s1.invoiceNo === pf.no && /^DNTH/.test(s1.dnNo) && (await prisma.document.count({ where: { serviceOrderId: o.id, type: "IV" } })) === 0, `PL ${s1.dnNo}; the invoice stays ${pf.no} — no IVTH`);
   const s2 = await issueShipment({ no: o.no, actorCode: md.code, shipMode: "SEA", portLoading: "Laem Chabang", portDischarge: "Tanjung Priok", etd: "2026-12-02", vessel: "WAN HAI 305 / 112S", lines: packing });
-  assert(s2.dnNo === s1.dnNo && s2.invoiceNo === s1.invoiceNo && (await prisma.invoice.count({ where: { serviceOrderId: o.id } })) === 1, "saving again updates the same DNTH; one CI");
+  assert(s2.dnNo === s1.dnNo && s2.invoiceNo === s1.invoiceNo && (await prisma.invoice.count({ where: { serviceOrderId: o.id } })) === 1, "saving again updates the same DNTH; one invoice");
   assert((await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } })).status === "IN_PROGRESS", "not accepted before the goods leave");
 
   console.log("4. B/L → accepted, locked, invoiced; USD payment; no TITH");
@@ -76,10 +79,15 @@ async function main() {
   const pay = await recordPayment({ invoiceNo: s1.invoiceNo!, actorCode: md.code, paidAt: new Date(), paidAmount: 5260, bankRef: `TT-${stamp}` });
   assert(pay.settled && /^RCTH/.test(pay.receiptNo), `USD paid, receipt ${pay.receiptNo}`);
 
-  console.log("5. documents");
+  console.log("5. completion: shipped, paid and the export documents uploaded");
+  await refused(() => advanceServiceOrder(o.no, "CLOSED", md.code), /EXPORT_CLOSE_BLOCKED:EXPORT_PACKING_LIST,EXPORT_BL,EXPORT_ENTRY/, "cannot complete without packing list, B/L and export entry");
+  for (const kind of ["EXPORT_PACKING_LIST", "EXPORT_BL", "EXPORT_ENTRY"]) await addExportDocs({ no: o.no, actorCode: md.code, kind, files: [{ name: `${kind}.pdf`, url: `/uploads/probe-${kind}.pdf` }] });
+  assert((await advanceServiceOrder(o.no, "CLOSED", md.code)).status === "CLOSED", "all three uploaded → project complete");
+
+  console.log("6. documents");
   const qt = await buildFields(o.no, "30");
   assert(String(qt.values.DELIVERY_TERMS).startsWith("FOB Laem Chabang") && qt.values.VAT_LABEL === "0%" && qt.values.CURRENCY === "USD", "quotation: FOB Laem Chabang, VAT 0 %, USD");
-  const ci = await buildFields(s1.invoiceNo!);
+  const ci = await buildFields(s1.invoiceNo!, "33");
   assert(ci.template === "33" && (ci.values.L_HS as string[])[0] === "8504.40.90" && String(ci.values.TRANSPORT_DOC).includes("B/L WHLC0") && String(ci.values.TOTAL_WORDS_EN).length > 10, "commercial invoice: HS codes, B/L, amount in words");
   const pl = await buildFields(s1.dnNo);
   assert(pl.template === "34" && pl.values.TOTAL_PACKAGES === "3 carton" && pl.values.TOTAL_GROSS === "73.5 kg" && pl.values.INVOICE_NO === s1.invoiceNo, "packing list: 3 cartons, 73.5 kg gross, CI number");

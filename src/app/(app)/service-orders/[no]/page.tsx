@@ -15,10 +15,10 @@ import { businessClosureOn } from "@/lib/closure";
 import { pdfAvailable } from "@/server/office";
 import { marginFloor } from "@/server/modes";
 import { isTradeMode, quoteJustCancels, reopenBlocker } from "@/lib/modes";
-import { incotermLine, type TradeTerms } from "@/lib/export";
+import { exportCloseBlockers, incotermLine, requiredExportDocs, type TradeTerms } from "@/lib/export";
 import { invoiceDue, nextMilestone, type ProjectInfo } from "@/lib/project";
 import { declineCloseBlockers, feeTotal, undoDeclineBlocker, type DeclineFee } from "@/lib/decline";
-import { closeDeclinedAction, reopenAsPartnerAction, undoDeclineAction } from "./actions";
+import { closeDeclinedAction, exportDocAction, reopenAsPartnerAction, undoDeclineAction } from "./actions";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
 
@@ -123,6 +123,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const timeline = order.events.filter((e) => { const k = `${e.type}|${e.sourceDocNo}|${e.occurredAt.toISOString().slice(0, 16)}`; if (seen.has(k)) return false; seen.add(k); return true; });
   const atts = (order.attachments as { name: string; url: string; kind: string }[] | null) ?? [];
   const terms = order.tradeTerms as TradeTerms | null; // 国际贸易 only
+  const exportLeft = terms ? exportCloseBlockers({ incoterm: terms.incoterm, shipped: order.deliveries.some((d) => d.status === "SIGNED" && d.shipping), unpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, attachments: atts }) : [];
 
   return (
     <div className="space-y-4">
@@ -185,6 +186,22 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {["INQUIRY", "PO", "MESSAGE", "PAYMENT", "CUSTOMER_DN"].includes(a.kind) ? `${u(`kind_${a.kind}`)} · ` : ""}{a.name}</a>)}</div>}
           </Card>}
 
+          {terms && <div id="export-docs"><Card title={u("exportDocs")}>
+            <p className="mb-2 text-xs text-navy/70">{u("exportDocsHint")}</p>
+            <div className="space-y-2">
+              {requiredExportDocs(terms.incoterm).map((k) => {
+                const files = atts.filter((a) => a.kind === k);
+                return (
+                  <div key={k} className="flex flex-wrap items-center gap-2 rounded-md border bg-white px-2.5 py-2 text-sm">
+                    <span className="w-44 font-semibold">{u(`kind_${k}`)}</span>
+                    <span className="flex flex-1 flex-wrap gap-2 text-xs">{files.length ? files.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 px-2.5 py-0.5 font-semibold">📄 {a.name}</a>) : <Tag hot>{u("exportDocMissing")}</Tag>}</span>
+                    {order.status !== "CLOSED" && order.status !== "CANCELLED" && <form action={exportDocAction.bind(null, no, k)} className="flex items-center gap-1"><input name="files" type="file" multiple required accept="image/*,application/pdf" className="w-52 text-xs" /><button className={btnGhost}>{u("upload")}</button></form>}
+                  </div>
+                );
+              })}
+            </div>
+            {exportLeft.length > 0 && order.status !== "CLOSED" && <p className="mt-2 text-xs text-alert-ink">{u("exportCloseNeeds")} {exportLeft.map((k) => u(`exportLeft_${k}`)).join(" / ")}</p>}
+          </Card></div>}
           <Card title={u("documentsDone")}>
             <Table head={[u("document"), t("type"), u("time"), u("executor"), u("summary"), u("reports")]}>
               {docs.map((d) => (

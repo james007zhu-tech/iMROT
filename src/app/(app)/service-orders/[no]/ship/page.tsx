@@ -1,6 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { confirmShipment, issueShipment, shipmentFor } from "@/server/export";
+import { addExportDocs, confirmShipment, issueShipment, shipmentFor } from "@/server/export";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { saveUpload } from "@/lib/uploads";
@@ -12,8 +12,8 @@ import { StepPage, loadOrder, num, str } from "../_shell";
 export const dynamic = "force-dynamic";
 
 /**
- * 出运 (国际贸易, flow 2026-11-09). Form 1: packing per line + ports and dates → commercial invoice (IVTH, 33) and
- * packing list (DNTH, 34), so customs and the forwarder have both numbers. Form 2, once the goods are on board:
+ * 出运 (国际贸易, flow 2026-11-09; PFI 2026-11-10). Form 1: packing per line + ports and dates → packing list (DNTH, 34);
+ * the PFTH from the PO then also prints as a commercial invoice (33) for customs. Form 2, once the goods are on board:
  * B/L or AWB, departure date, export entry → the order is accepted and locked.
  */
 export default async function Ship({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ error?: string; ok?: string }> }) {
@@ -43,6 +43,7 @@ export default async function Ship({ params, searchParams }: { params: Promise<{
       const files = [];
       for (const x of f.getAll("shipFiles")) if (x instanceof File && x.size > 0) files.push({ ...(await saveUpload(x, "ship")), name: x.name, kind: "SHIPPING" });
       const r = await confirmShipment({ no, actorCode: me.code, blNo: str(f, "blNo") ?? "", shippedAt: str(f, "shippedAt") ?? "", vessel: str(f, "vessel2"), exportEntryNo: str(f, "exportEntryNo"), eta: str(f, "eta2"), attachments: files });
+      if (files.length) await addExportDocs({ no, actorCode: me.code, kind: "EXPORT_BL", files }); // the B/L copy counts towards the order's export documents
       return { ok: `${r.dnNo} · ${r.blNo}`, to: `/service-orders/${no}` };
     }, `/service-orders/${no}/ship`);
   }
@@ -58,7 +59,7 @@ export default async function Ship({ params, searchParams }: { params: Promise<{
           <Field label={t("currency")}><span className="font-mono">{order.currency}</span></Field>
           <Field label={u("paymentTerms")}><span>{terms.paymentTerms}</span></Field>
         </Grid>
-        {(invoiceNo || dn) && <div className="mt-2 flex flex-wrap gap-4 text-sm">{invoiceNo && doc(invoiceNo, "33", "rpt33")}{dn && doc(dn.no, "34", "rpt34")}</div>}
+        {(invoiceNo || dn) && <div className="mt-2 flex flex-wrap gap-4 text-sm">{invoiceNo && doc(invoiceNo, "35", "rpt35")}{invoiceNo && dn && doc(invoiceNo, "33", "rpt33")}{dn && doc(dn.no, "34", "rpt34")}</div>}
         <p className="mt-2 text-xs text-navy/70">{u("exportVatNote")}</p>
       </Card>
 

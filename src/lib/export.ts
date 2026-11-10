@@ -83,3 +83,22 @@ export function shippedProblems(s: Pick<Shipping, "blNo" | "shippedAt">): string
 
 /** The carrier document's name by transport mode: bill of lading by sea, air waybill by air, CMR by road. */
 export const transportDoc = (m: ShipMode) => (m === "AIR" || m === "COURIER" ? "AWB" : m === "ROAD" ? "CMR" : "B/L");
+
+/**
+ * 出口单证 (朱总 2026-11-10): before an export order can be completed the signed/issued copies must be on the order —
+ * packing list, B/L (or AWB / CMR) and the export entry; under a D-term (DAP, DPU, DDP) delivery ends at destination,
+ * so the consignee's proof of delivery is needed too.
+ */
+export const EXPORT_DOC_KINDS = ["EXPORT_PACKING_LIST", "EXPORT_BL", "EXPORT_ENTRY", "EXPORT_POD"] as const;
+export type ExportDocKind = (typeof EXPORT_DOC_KINDS)[number];
+export function requiredExportDocs(incoterm: string | undefined): ExportDocKind[] {
+  return ["EXPORT_PACKING_LIST", "EXPORT_BL", "EXPORT_ENTRY", ...(incoterm?.startsWith("D") ? (["EXPORT_POD"] as ExportDocKind[]) : [])];
+}
+export function missingExportDocs(incoterm: string | undefined, attachments: { kind?: string }[] | null | undefined): ExportDocKind[] {
+  const have = new Set((attachments ?? []).map((a) => a.kind));
+  return requiredExportDocs(incoterm).filter((k) => !have.has(k));
+}
+/** What stops "project complete" on an export order: delivery per Incoterm, every payment in, every document uploaded. */
+export function exportCloseBlockers(o: { incoterm?: string; shipped: boolean; unpaid: number; attachments: { kind?: string }[] | null | undefined }): string[] {
+  return [...(o.shipped ? [] : ["NOT_SHIPPED"]), ...(o.unpaid > 0 ? ["UNPAID"] : []), ...missingExportDocs(o.incoterm, o.attachments)];
+}

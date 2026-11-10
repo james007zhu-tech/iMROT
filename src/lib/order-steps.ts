@@ -44,7 +44,7 @@ export function nextSteps(o: OrderShape): { primary: StepKey | null; also: StepK
     }
   }
   if (o.trade && o.intl) {
-    // 国际贸易 (2026-11-09): quote → customer PO → OBTH → shipment (CI IVTH + PL DNTH) → B/L → INVOICED → payment
+    // 国际贸易 (2026-11-09): quote → customer PO (PFTH proforma invoice) → OBTH → shipment (PL DNTH) → B/L → INVOICED → payment
     switch (o.status) {
       case "RECEIVED": case "ASSIGNED": case "DIAGNOSING": return { primary: "quote", also: [] };
       case "QUOTE_PENDING": return { primary: "confirm", also: ["quote"] };
@@ -105,7 +105,8 @@ export function reportsFor(doc: { type: string; templateCode: string | null }, h
     case "DN": return [{ key: doc.templateCode === "34" ? "rpt34" : "rpt19" }]; // 国际贸易: the shipment's packing list
 
     case "TI": return [{ key: "rpt20" }];
-    case "IV": return [{ key: doc.templateCode === "33" ? "rpt33" : "rpt21" }]; // 国际贸易: the commercial invoice
+    case "IV": return [{ key: "rpt21" }];
+    case "PF": return [{ key: "rpt35" }, { key: "rpt33", template: "33" }]; // 国际贸易: proforma invoice; the same PFTH as a commercial invoice for customs
     case "RC": return [{ key: "rpt22" }];
     case "BL": return [{ key: "rpt23" }];
     case "PR": return [{ key: "rpt24" }];

@@ -98,11 +98,11 @@ node("md", "SCM", 6.2, "MD 审批", "diamond", w=1.3, h=0.62)
 node("acc", "CUS", 7.4, "客户接受报价？", "diamond")
 node("cancel", "SAL", 7.4, "订单取消", "terminator", w=1.3)
 node("po", "CUS", 8.6, "客户 PO", "document")
-node("cpo", "SAL", 9.6, "确认客户 PO\n订单进入执行")
+node("cpo", "SAL", 9.6, "确认客户 PO\n开形式发票 PFTH（外币，VAT 0%）", "document", w=2.35, h=0.7)
 node("poth", "SCM", 10.6, "POTH 采购下单", "document")
 node("ibth", "SCM", 11.6, "IBTH 到货入库", "document")
 node("obth", "SCM", 12.6, "OBTH 出库、包装\n唛头、件数、毛净重", "document")
-node("ship", "SAL", 13.8, "出运单\n商业发票 IVTH（外币，VAT 0%，模板 33）\n装箱单 DNTH（模板 34）", "document", w=2.35, h=0.85)
+node("ship", "SAL", 13.8, "出运单\n装箱单 DNTH（模板 34）\n报关用商业发票：同一 PFTH 号打印", "document", w=2.35, h=0.85)
 node("book", "LOG", 15.0, "订舱\n出口报关（报关单号）")
 node("load", "LOG", 16.0, "装船 / 起飞")
 node("bl", "LOG", 17.0, "提单 B/L / 空运单 AWB", "document")
@@ -110,9 +110,9 @@ node("conf", "SAL", 18.0, "确认出运\n提单号、开航日")
 node("lock", "SAL", 19.0, "订单锁定\n（代替签收验收）")
 node("clear", "CUS", 18.0, "凭提单清关提货")
 node("tt", "CUS", 19.9, "客户 T/T 付款")
-node("pay", "FIN", 19.9, "外币收款\n核对 IVTH")
+node("pay", "FIN", 19.9, "外币收款\n核对 PFTH")
 node("rc", "FIN", 20.9, "RCTH 收据", "document")
-node("done", "SAL", 21.9, "项目完成", "terminator")
+node("done", "SAL", 21.9, "项目完成\n款项到齐，装箱单、提单、报关单已上传", "terminator", w=2.35, h=0.7)
 
 # ── connectors ───────────────────────────────────────────────────────────────────────────────────────────
 link("rfq", BOTTOM, "new", TOP)
@@ -147,7 +147,7 @@ link("rc", BOTTOM, "done", RIGHT, via=[(lane_x["FIN"], row_y(21.9))])
 
 # ── notes (empty upper part of the forwarder and finance lanes) ──────────────────────────────────────────
 page.box(lane_x["LOG"], row_y(3.6), LANE_W - 0.25, 2.6,
-         "说明\n1. 业务单号仍是 QTTH；不新增编号前缀：商业发票用 IVTH 号，装箱单用 DNTH 号。\n"
+         "说明\n1. 业务单号仍是 QTTH；出口发票是形式发票 PFTH（确认客户 PO 时开），装箱单用 DNTH 号；不开 IVTH。\n"
          "2. 只记物料号 SKU，不建 ATH。\n"
          "3. 毛利门槛 10%（系统管理里 MD 可改），低于门槛要 MD 审批。\n"
          "4. 出运确认（提单号、开航日）代替客户签收，锁定成本与价格。",

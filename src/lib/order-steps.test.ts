@@ -39,7 +39,7 @@ describe("next step", () => {
     expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 2 }).primary).toBe("ship");
     expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 2, deliveriesOpen: 1, invoicesUnpaid: 1 })).toEqual({ primary: "ship", also: ["payment", "stockOut"] });
     expect(nextSteps({ ...t, status: "INVOICED", invoicesUnpaid: 1 }).primary).toBe("payment");
-    expect(reportsFor({ type: "IV", templateCode: "33" }, false)[0].key).toBe("rpt33");
+    expect(reportsFor({ type: "PF", templateCode: "35" }, false).map((r) => r.key)).toEqual(["rpt35", "rpt33"]);
     expect(reportsFor({ type: "DN", templateCode: "34" }, false)[0].key).toBe("rpt34");
   });
   it("automation project: plan, quote, PO, then the project page; paying milestones before payment", () => {
