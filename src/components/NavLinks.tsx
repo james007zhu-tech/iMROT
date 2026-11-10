@@ -30,25 +30,27 @@ export function NavLinks({ groups }: { groups: { key: string; label: string; ite
   for (const g of groups) for (const it of g.items) { const sc = navMatch(it.href, path, query); if (sc > best.score) best = { g: g.key, i: it.key, score: sc }; }
   const [open, setOpen] = useState<string>(best.g || groups[0]?.key);
   useEffect(() => { if (best.g) setOpen(best.g); }, [best.g]);
+  // phone: the drawer closes when a page is chosen
+  useEffect(() => { const box = document.getElementById("navtoggle") as HTMLInputElement | null; if (box) box.checked = false; }, [path, query]);
   return (
-    <nav className="flex flex-wrap gap-1 px-2 pb-2 md:flex-col md:flex-nowrap md:gap-0.5 md:overflow-y-auto">
+    <nav className="flex flex-col gap-0.5 px-2 pb-2 md:overflow-y-auto">
       {groups.map((g) => {
         const on = g.key === best.g;
         return (
-          <div key={g.key} className={open === g.key ? "w-full md:w-auto" : ""}>
+          <div key={g.key}>
             <button type="button" onClick={() => setOpen(open === g.key ? "" : g.key)} aria-expanded={open === g.key}
               className={`relative flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2.5 text-left text-[14.5px] tracking-wide ${on ? "font-bold text-navy" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
               <svg viewBox="0 0 24 24" aria-hidden className="h-[18px] w-[18px] shrink-0 fill-none stroke-current" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">{ICONS[g.key]}</svg>
               <span className="flex-1">{g.label}</span>
-              <svg viewBox="0 0 24 24" aria-hidden className={`hidden h-3.5 w-3.5 fill-none stroke-current opacity-50 transition-transform md:block ${open === g.key ? "rotate-90" : ""}`} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+              <svg viewBox="0 0 24 24" aria-hidden className={`h-3.5 w-3.5 fill-none stroke-current opacity-50 transition-transform ${open === g.key ? "rotate-90" : ""}`} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
             </button>
             {open === g.key && (
-              <div className="mb-1 flex flex-wrap gap-0.5 md:ml-[21px] md:flex-col md:border-l md:border-hair md:pl-2">
+              <div className="mb-1 ml-[21px] flex flex-col gap-0.5 border-l border-hair pl-2">
                 {g.items.map((it) => {
                   const cur = on && it.key === best.i;
                   return (
                     <Link key={it.key} href={it.href} aria-current={cur ? "page" : undefined}
-                      className={`relative rounded-md px-3 py-1.5 text-[13.5px] ${cur ? "bg-[#EEF3F9] font-bold text-navy md:before:absolute md:before:inset-y-1.5 md:before:-left-[9px] md:before:w-[3px] md:before:rounded md:before:bg-blue" : it.soon ? "text-[#4A5A6E]/60 hover:bg-[#F4F7FB]" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
+                      className={`relative rounded-md px-3 py-2 text-[14px] md:py-1.5 md:text-[13.5px] ${cur ? "bg-[#EEF3F9] font-bold text-navy before:absolute before:inset-y-1.5 before:-left-[9px] before:w-[3px] before:rounded before:bg-blue" : it.soon ? "text-[#4A5A6E]/60 hover:bg-[#F4F7FB]" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
                       {it.label}
                     </Link>
                   );

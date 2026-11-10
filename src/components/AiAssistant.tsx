@@ -120,26 +120,47 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
         ) : null)}
     </div>
   );
-  const composer = (big: boolean) => (
-    <form onSubmit={(e) => { e.preventDefault(); void send(input); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (scope !== "staff" || !e.dataTransfer.files.length) return; e.preventDefault(); setFiles((f) => [...f, ...Array.from(e.dataTransfer.files)].slice(0, 5)); }} className={big ? "flex flex-wrap items-end gap-2 rounded-2xl border border-navy/25 bg-white p-2.5 shadow-sm focus-within:border-blue" : "flex flex-wrap items-end gap-1 border-t p-2"}>
+  const tools = (
+    <>
       <button type="button" onClick={toggleVoice} title={t("voice")} className={`h-10 w-10 shrink-0 rounded-full ${listening ? "bg-alert/100 text-white" : "bg-blue/8"}`}>🎤</button>
       {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("attach")}>📎<input type="file" multiple accept="application/pdf,image/*,.txt,.csv,.eml" className="hidden" onChange={(e) => { setFiles((f) => [...f, ...Array.from(e.target.files ?? [])].slice(0, 5)); e.target.value = ""; }} /></label>}
       {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("photo")}>📷<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && void attachPhoto(e.target.files[0])} /></label>}
-      <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(input); } }} rows={big ? 2 : 1} autoFocus={big} placeholder={t("placeholder")} className={`min-w-0 flex-1 resize-none px-3 py-2 ${big ? "max-h-48 border-0 text-[15px] outline-none" : "max-h-24 rounded border text-sm"}`} />
+    </>
+  );
+  const chips = files.length > 0 && <div className="flex w-full flex-wrap gap-1.5 pb-1">{files.map((f, k) => <span key={k} className="flex items-center gap-1 rounded-full bg-blue/10 px-2.5 py-1 text-xs text-navy">📎 {f.name}<button type="button" onClick={() => setFiles((x) => x.filter((_, n) => n !== k))} className="text-navy/60">✕</button></span>)}</div>;
+  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(input); } };
+  const drop = { onDragOver: (e: React.DragEvent) => e.preventDefault(), onDrop: (e: React.DragEvent) => { if (scope !== "staff" || !e.dataTransfer.files.length) return; e.preventDefault(); setFiles((f) => [...f, ...Array.from(e.dataTransfer.files)].slice(0, 5)); } };
+  /** big = the home page: the text on top across the full width, the tools in one row under it (as in the Claude app) */
+  const composer = (big: boolean) => big ? (
+    <form onSubmit={(e) => { e.preventDefault(); void send(input); }} {...drop} className="rounded-3xl border border-navy/20 bg-white px-3 pb-2.5 pt-3 shadow-sm focus-within:border-blue">
+      {chips}
+      <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} rows={2} placeholder={t("placeholder")} className="block max-h-48 w-full resize-none border-0 px-2 text-[16px] leading-relaxed outline-none placeholder:not-italic placeholder:text-navy/40" />
+      <div className="mt-1 flex items-center gap-2">{tools}<button disabled={busy} aria-label="send" className="ml-auto h-10 w-10 shrink-0 rounded-full bg-blue text-lg font-bold text-white disabled:opacity-50">↑</button></div>
+    </form>
+  ) : (
+    <form onSubmit={(e) => { e.preventDefault(); void send(input); }} {...drop} className="flex flex-wrap items-end gap-1 border-t p-2">
+      {chips}
+      {tools}
+      <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} rows={1} placeholder={t("placeholder")} className="max-h-24 min-w-0 flex-1 resize-none rounded border px-3 py-2 text-sm" />
       <button disabled={busy} className="h-10 shrink-0 rounded-full bg-blue px-4 font-bold text-white disabled:opacity-50">↑</button>
-      {files.length > 0 && <div className="order-first flex w-full basis-full flex-wrap gap-1.5 pb-1">{files.map((f, k) => <span key={k} className="flex items-center gap-1 rounded-full bg-blue/10 px-2.5 py-1 text-xs text-navy">📎 {f.name}<button type="button" onClick={() => setFiles((x) => x.filter((_, n) => n !== k))} className="text-navy/60">✕</button></span>)}</div>}
     </form>
   );
 
   if (variant === "page") {
     const empty = msgs.length === 0;
+    // phone: greeting in the middle, the box at the bottom edge; desktop: greeting, box, suggestions in a column
     return (
-      <div className={`mx-auto flex w-full max-w-3xl flex-col ${empty ? "pt-[8vh]" : "min-h-[calc(100vh-9rem)]"}`}>
-        {empty && greeting && <h1 className="mb-6 text-center text-2xl font-bold text-navy md:text-[28px]">{greeting}</h1>}
-        {!empty && <div className="flex flex-1 flex-col gap-3 pb-4 text-[14.5px]">{msgs.map(bubble)}{busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">…</div>}<div ref={bottom} /></div>}
-        <div className={empty ? "" : "sticky bottom-0 bg-gradient-to-t from-[#F4F7FB] from-70% pb-3 pt-2"}>{composer(true)}</div>
-        {empty && <p className="mt-2 text-center text-xs text-navy/60">{t("hintStaff")}</p>}
-        {empty && suggestions.length > 0 && <div className="mt-5 flex flex-wrap justify-center gap-2">{suggestions.map((sg) => <button key={sg} type="button" onClick={() => void send(sg)} className="rounded-full border border-navy/20 bg-white px-3.5 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{sg}</button>)}</div>}
+      <div className="mx-auto flex min-h-[calc(100dvh-6.5rem)] w-full max-w-3xl flex-col md:min-h-[calc(100vh-9rem)]">
+        {empty ? (
+          <div className="flex flex-1 flex-col justify-center md:flex-none md:pt-[8vh]">
+            {greeting && <h1 className="mb-5 text-center text-[22px] font-bold leading-snug text-navy md:mb-6 md:text-[28px]">{greeting}</h1>}
+            <div className="hidden md:block">{composer(true)}<p className="mt-2 text-center text-xs text-navy/60">{t("hintStaff")}</p></div>
+            {suggestions.length > 0 && <div className="flex flex-wrap justify-center gap-2 md:mt-5">{suggestions.map((sg) => <button key={sg} type="button" onClick={() => void send(sg)} className="rounded-full border border-navy/20 bg-white px-3.5 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{sg}</button>)}</div>}
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col gap-3 pb-4 text-[14.5px]">{msgs.map(bubble)}{busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">…</div>}<div ref={bottom} /></div>
+        )}
+        <div className={`sticky bottom-0 -mx-1 bg-gradient-to-t from-[#F4F7FB] from-80% px-1 pb-2 pt-3 ${empty ? "md:hidden" : ""}`}>{composer(true)}</div>
       </div>
     );
   }
