@@ -417,7 +417,10 @@
     "confirm": "Confirm",
     "cancel": "Cancel",
     "cancelled": "Cancelled",
-    "attach": "Attach files"
+    "attach": "Attach files",
+    "openPage": "Open this page",
+    "working": "Working…",
+    "newChat": "Start a new conversation"
   },
   "ui": {
     "chooseFile": "Choose file",
@@ -2017,7 +2020,13 @@
     "dictatePh": "Say what you measure and see, e.g. supply 398 V, DC link 540 V, fan not turning…",
     "dictateUse": "Draft into the form",
     "dictateClear": "Clear",
-    "dictateUnsupported": "This browser cannot dictate. Use the keyboard's microphone and paste the text instead."
+    "dictateUnsupported": "This browser cannot dictate. Use the keyboard's microphone and paste the text instead.",
+    "passUnset": "— not judged",
+    "passYes": "✓ Pass",
+    "passNo": "✗ Fail",
+    "pickPart": "Tap to choose",
+    "partNotListed": "Not in the list — keep typing",
+    "partOfModel": "this model"
   },
   "role": {
     "MD": "Managing Director",

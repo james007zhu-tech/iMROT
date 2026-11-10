@@ -417,7 +417,10 @@
     "confirm": "确认",
     "cancel": "取消",
     "cancelled": "已取消",
-    "attach": "添加文件"
+    "attach": "添加文件",
+    "openPage": "打开这个页面",
+    "working": "正在处理…",
+    "newChat": "开始新对话"
   },
   "ui": {
     "chooseFile": "选择文件",
@@ -2017,7 +2020,13 @@
     "dictatePh": "边测边说，例如：进线电压 398 伏，直流母线 540，风扇不转，散热器积灰严重…",
     "dictateUse": "起草进表单",
     "dictateClear": "清空",
-    "dictateUnsupported": "这个浏览器不支持口述。请用手机键盘上的麦克风说话，再点“粘贴”。"
+    "dictateUnsupported": "这个浏览器不支持口述。请用手机键盘上的麦克风说话，再点“粘贴”。",
+    "passUnset": "— 未判定",
+    "passYes": "✓ 合格",
+    "passNo": "✗ 不合格",
+    "pickPart": "点击选择",
+    "partNotListed": "列表里没有，可以直接输入",
+    "partOfModel": "本型号"
   },
   "role": {
     "MD": "董事总经理 MD",

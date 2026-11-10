@@ -25,6 +25,13 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   const recRef = useRef<{ stop: () => void } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { if (msgs.length) bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, open]);
+  // the home conversation survives opening a record and coming back (this tab only)
+  useEffect(() => {
+    if (variant !== "page" || seed) return;
+    try { const saved = JSON.parse(sessionStorage.getItem("dcit-chat") ?? "null"); if (saved?.msgs?.length) { setMsgs(saved.msgs); kept.current = saved.files ?? []; } } catch { /* storage unavailable: start empty */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => { if (variant !== "page") return; try { sessionStorage.setItem("dcit-chat", JSON.stringify({ msgs: msgs.slice(-40), files: kept.current })); } catch { /* ignore */ } }, [msgs, variant]);
   const seeded = useRef(false);
   useEffect(() => { if (seed && !seeded.current) { seeded.current = true; void send(seed); } /* a message-centre "ask" arrives as ?ask= */ // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed]);
@@ -45,7 +52,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
       if (Array.isArray(j.files)) kept.current = j.files;
       setMsgs([...next, { role: "assistant", content: j.text, actions: j.actions }]);
       const go = (j.actions as Action[] | undefined)?.find((a) => a.type === "navigate");
-      if (go?.href) { router.push(go.href); }
+      if (go?.href && variant !== "page") { router.push(go.href); } // on the home page the conversation stays; the answer carries a button instead
     } catch (e) {
       setMsgs([...next, { role: "assistant", content: `⚠ ${(e as Error).message}` }]);
     } finally { setBusy(false); }
@@ -109,7 +116,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
       {m.role === "user" ? <div className="whitespace-pre-wrap">{m.content}</div> : <Md text={m.content} />}
       {m.actions?.map((a, j) =>
         a.type === "fill_form" && a.fields ? <button key={j} onClick={() => fillForm(a.fields!)} className="mt-2 rounded bg-navy px-2 py-1 text-xs text-white">{t("fillForm")}</button>
-        : a.type === "navigate" ? <a key={j} href={a.href} className="mt-2 inline-block text-xs text-blue underline">{a.href}</a>
+        : a.type === "navigate" ? <a key={j} href={a.href} className="mt-2 flex items-center gap-2 rounded-lg border border-blue/40 bg-white px-3 py-2 text-[13px] font-semibold text-blue hover:bg-blue hover:text-white"><span className="flex-1">{t("openPage")}</span><span>→</span></a>
         : a.type === "done" ? <a key={j} href={a.href ?? "#"} className="mt-2 flex items-center gap-2 rounded-lg border border-[#BFE3CB] bg-white px-3 py-2 text-[13px] text-navy hover:border-blue"><span className="font-bold text-[#1F8A4C]">✓</span><span className="flex-1">{a.summary}</span>{a.href && <span className="text-blue">→</span>}</a>
         : a.type === "confirm" ? (
           <div key={j} className="mt-2 rounded-lg border border-[#F2C36B] bg-[#FFF9EC] px-3 py-2 text-[13px] text-navy">
@@ -150,26 +157,31 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
 
   if (variant === "page") {
     const empty = msgs.length === 0;
-    // phone: greeting in the middle, the box at the bottom edge; desktop: greeting, box, suggestions in a column
+    // 朱总 2026-11-10: nothing may jump when the first message is sent. The box is fixed to the bottom edge from the
+    // first screen on (phone and desk); only what is above it changes — greeting and suggestions, then the messages.
     return (
-      <div className="mx-auto flex min-h-[calc(100dvh-6.5rem)] w-full max-w-3xl flex-col md:min-h-[calc(100vh-9rem)]">
+      <div className="mx-auto flex w-full max-w-3xl flex-col pb-44">
         {empty ? (
-          <div className="flex flex-1 flex-col justify-center md:flex-none md:pt-[8vh]">
+          <div className="flex min-h-[calc(100dvh-20rem)] flex-col justify-center">
             {greeting && <h1 className="mb-5 text-center text-[22px] font-bold leading-snug text-navy md:mb-6 md:text-[28px]">{greeting}</h1>}
-            <div className="hidden md:block">{composer(true)}<p className="mt-2 text-center text-xs text-navy/60">{t("hintStaff")}</p></div>
-            {suggestions.length > 0 && <div className="flex flex-wrap justify-center gap-2 md:mt-5">{suggestions.map((sg) => <button key={sg} type="button" onClick={() => void send(sg)} className="rounded-full border border-navy/20 bg-white px-3.5 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{sg}</button>)}</div>}
+            {suggestions.length > 0 && <div className="flex flex-wrap justify-center gap-2">{suggestions.map((sg) => <button key={sg} type="button" onClick={() => void send(sg)} className="rounded-full border border-navy/20 bg-white px-3.5 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{sg}</button>)}</div>}
           </div>
         ) : (
-          <div className="flex flex-1 flex-col gap-3 pb-4 text-[14.5px]">{msgs.map(bubble)}{busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">…</div>}<div ref={bottom} /></div>
+          <div className="flex flex-col gap-3 text-[14.5px]">
+            {msgs.map(bubble)}{busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">{t("working")}</div>}<div ref={bottom} />
+            <button type="button" onClick={() => { setMsgs([]); kept.current = []; }} className="mx-auto mt-2 text-xs text-navy/50 hover:text-blue">{t("newChat")}</button>
+          </div>
         )}
-        <div className={`sticky bottom-0 -mx-1 bg-gradient-to-t from-[#F4F7FB] from-80% px-1 pb-2 pt-3 ${empty ? "md:hidden" : ""}`}>{composer(true)}</div>
+        <div className="fixed inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[#F4F7FB] from-75% px-4 pt-4 md:left-56 md:px-6" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom, 0px))" }}>
+          <div className="mx-auto max-w-3xl">{composer(true)}</div>
+        </div>
       </div>
     );
   }
   if (path === "/home") return null; // the home page is the conversation itself
   return (
     <>
-      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-blue text-xl font-bold text-white shadow-lg">AI</button>
+      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="fixed bottom-3 right-3 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-blue/90 text-sm font-bold text-white shadow-lg md:bottom-4 md:right-4 md:h-14 md:w-14 md:bg-blue md:text-xl">AI</button>
       {open && (
         <div className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] flex-col rounded-t-2xl border bg-white shadow-2xl md:inset-x-auto md:bottom-20 md:right-4 md:h-[32rem] md:w-96 md:rounded-2xl">
           <div className="flex items-center justify-between border-b px-4 py-2"><b className="text-navy">{t("title")}</b><button onClick={() => setOpen(false)} className="text-navy/70">✕</button></div>
