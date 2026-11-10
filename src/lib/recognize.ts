@@ -46,7 +46,22 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
     lines: { sku: "part / order number exactly as printed", description: "line description as printed", qty: "quantity", unit: "unit (pcs, set, job, h)", unitPrice: "unit price if printed", neededBy: "required delivery date YYYY-MM-DD if printed",
       hsCode: "HS code if printed; if not printed, your best 6-digit HS classification for this item (e.g. 8504.40 for a frequency inverter)", origin: "country of origin as a 2-letter code if printed or evident from the manufacturer" },
   },
-  inspection: { attachKind: "INSPECTION", fields: { conditions: "test conditions: ambient, supply voltage, isolation", findings: "what was found", probableCause: "most probable cause", recommendation: "recommended work and authorisation needed", instruments: "instrument and calibration", conclusion: "conclusion / restriction of use" } },
+  /**
+   * 检测单 (朱总 2026-11-10: the engineer speaks and photographs, the form is drafted — cause and conclusion included,
+   * for him to confirm). Field names are the form's own input names; the test rows are fixed keys.
+   */
+  inspection: { attachKind: "INSPECTION",
+    fields: {
+      conditions: "test conditions: ambient, supply voltage measured, isolation / lock-out state", findings: "what was found, in order, facts only", probableCause: "most probable cause — draft it from the evidence and the context", recommendation: "recommended work and what the customer must authorise",
+      instruments: "instruments used and their calibration, if mentioned", openIssues: "what could not be checked or is still unclear", conclusion: "conclusion and any restriction of use — draft it from the evidence",
+      r_visual: "visual inspection: what was seen", p_visual: "visual inspection passed? yes or no",
+      r_supply: "supply / DC link measurement with units", c_supply: "its acceptance criterion if known (e.g. 380–415 V)", p_supply: "yes or no",
+      r_faultLog: "fault log / alarm history read from the device", p_faultLog: "yes or no",
+      r_functional: "functional or run test result", p_functional: "yes or no",
+      t_extra1: "name of a further test that was done (e.g. insulation resistance)", c_extra1: "its criterion", r_extra1: "its result with units", p_extra1: "yes or no",
+      t_extra2: "name of another further test", c_extra2: "its criterion", r_extra2: "its result with units", p_extra2: "yes or no",
+    },
+    lines: { kind: "PART or LABOUR", sku: "part SKU, only from the list in the context", description: "part or work needed, in English", descriptionLocal: "the same description written in Thai script (ภาษาไทย) — never Chinese; leave empty if you cannot", qty: "quantity (hours for labour)", unit: "pcs, set, h" } },
   receive: { attachKind: "RECEIVING", fields: { sender: "who delivered the equipment", condition: "condition on arrival", fault: "fault reported with it", accessories: "accessories received, one per line as 'item × qty'" } },
   repair: { attachKind: "REPAIR", fields: { confirmedFault: "confirmed fault", rootCause: "root cause", workPerformed: "work done, step by step", configBackupRef: "parameter backup file name", laborHours: "labour hours" } },
   maintenance: { attachKind: "MAINTENANCE", fields: { runHours: "cumulative running hours", hazards: "hazards found and not yet fixed", handled: "what was fixed during this visit", recommendation: "recommended next steps" } },

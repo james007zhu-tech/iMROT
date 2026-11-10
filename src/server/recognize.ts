@@ -61,7 +61,10 @@ export async function lookupCompany(name: string, nameLocal?: string): Promise<R
   return Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== "sources" && typeof v === "string" && v.trim()).map(([k, v]) => [k, String(v)]));
 }
 
-export async function recognizeDocuments(kind: RecognizeKind, files: RecognizeFile[], text?: string): Promise<RecognizeResult> {
+/** Fields the model drafts from evidence rather than reads off a page — always shown for confirmation. */
+const DRAFTED: Partial<Record<RecognizeKind, string[]>> = { inspection: ["probableCause", "conclusion", "recommendation"] };
+
+export async function recognizeDocuments(kind: RecognizeKind, files: RecognizeFile[], text?: string, context?: string): Promise<RecognizeResult> {
   const spec = RECOGNIZE[kind];
   const textFiles = files.filter((f) => f.mediaType.startsWith("text/") || /\.(txt|csv|eml)$/i.test(f.name)).map((f) => f.bytes.toString("utf8"));
   const pdfTexts = await Promise.all(files.filter((f) => f.mediaType === "application/pdf").map((f) => pdfText(f.bytes)));
@@ -74,21 +77,23 @@ export async function recognizeDocuments(kind: RecognizeKind, files: RecognizeFi
       ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.bytes.toString("base64") } }
       : { type: "image", source: { type: "base64", media_type: f.mediaType, data: f.bytes.toString("base64") } });
     if (plain) content.push({ type: "text", text: plain.slice(0, 20000) });
-    content.push({ type: "text", text: "Extract the fields." });
+    if (context) content.push({ type: "text", text: `Context the system already holds (not to be copied into the fields as findings):\n${context.slice(0, 8000)}` });
+    content.push({ type: "text", text: kind === "inspection" ? "These are an engineer's dictated notes and photos (instrument readings, damage, the drive's display) from an inspection. Fill every field you can: put measured values with their units in the test results and judge pass yes/no against the criterion; then draft probableCause, recommendation and conclusion from this evidence, using the knowledge base, the machine's history and similar cases in the context — say plainly when the evidence does not settle the cause. List the parts and labour needed as lines. Write in the language the engineer used. Never invent a measurement." : "Extract the fields." });
     const accept = spec.accept
       ? `First decide docKind, one of ${spec.accept.join(", ")} or OTHER (${spec.accept.map((k) => DOC_KIND_HINTS[k]).filter(Boolean).join("; ")}). ${spec.strict ? "If OTHER, return empty fields." : "Extract the fields whatever the docKind is — the person chose to upload this document here."}`
       : "docKind: a short label for what the document is.";
     const linesSpec = spec.lines ? `, "lines": [{${Object.entries(spec.lines).map(([k, d]) => `"${k}": ${JSON.stringify(d)}`).join(", ")}}] (one object per printed line item, in order; omit the key when the document has no line items)` : "";
     const out = await complete(
       `You read documents for an industrial field-service system (VFDs, motors, PLCs) in Thailand. ${accept} Return only JSON: {"docKind": string, "fields": {${Object.entries(spec.fields).map(([k, d]) => `"${k}": ${JSON.stringify(d)}`).join(", ")}}, "confidence": {<field>: 0..1 for every field you filled}${linesSpec}, "notes": string}. Rules: copy codes, part numbers, serial numbers, document numbers and names exactly as printed, character for character — never reconstruct a code you cannot read fully (leave it out and say so in notes). Dates as YYYY-MM-DD (convert Thai Buddhist years by subtracting 543). Numbers without thousands separators or currency symbols. Leave a field out when it is not in the document — never guess. Confidence below 0.8 means a person must check that field.`,
-      [{ role: "user", content }], 2500,
+      [{ role: "user", content }], kind === "inspection" ? 4000 : 2500,
     );
     const r = json<{ docKind?: string; fields?: Record<string, unknown>; confidence?: Record<string, number>; lines?: unknown; notes?: string }>(out);
     const raw = Object.fromEntries(Object.entries(r.fields ?? {}).filter(([k, v]) => k in spec.fields && v != null && String(v).trim() !== "").map(([k, v]) => [k, String(v)]));
     const fields = normalizeFields(raw);
+    for (const k of Object.keys(fields)) if (/^p_/.test(k)) { const v = fields[k].trim().toLowerCase(); if (/^(yes|true|pass|ok|合格|是|ผ่าน)/.test(v)) fields[k] = "yes"; else if (/^(no|false|fail|不合格|否|ไม่ผ่าน)/.test(v)) fields[k] = "no"; else delete fields[k]; }
     const lines = normalizeLines(spec, r.lines);
     const rejected = !!spec.strict && !!spec.accept && !spec.accept.includes(String(r.docKind ?? "").toUpperCase());
-    const uncertain = rejected ? [] : uncertainFields(fields, r.confidence, docText || undefined);
+    const uncertain = rejected ? [] : [...uncertainFields(fields, r.confidence, docText || undefined), ...(DRAFTED[kind] ?? []).filter((k) => fields[k])];
     // 朱总 2026-11-10: a company form is completed from the name on the paper — what the document does not print
     // (tax ID, registered address, phone) is looked up on the web and filled orange, for a person to confirm.
     let looked: string[] = [];

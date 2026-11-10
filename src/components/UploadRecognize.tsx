@@ -5,7 +5,7 @@
  * The stored files travel with the form in a hidden `attachments` input (JSON), so the original is kept with the record.
  */
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import type { RecognizeKind } from "@/lib/recognize";
 
 type Att = { name: string; url: string; kind: string };
@@ -14,7 +14,7 @@ type Att = { name: string; url: string; kind: string };
  * `lineFields` maps a recognised line column to the input-name prefix of the form's row inputs, e.g.
  * { description: "d", qty: "q", unitPrice: "p" } fills d0/q0/p0, d1/q1/p1 … from the document's line items.
  */
-export function UploadRecognize({ kind, formId, title, hint, initial = [], lineFields }: { kind: RecognizeKind; formId: string; title: string; hint: string; initial?: Att[]; lineFields?: Record<string, string> }) {
+export function UploadRecognize({ kind, formId, title, hint, initial = [], lineFields, context, dictate }: { kind: RecognizeKind; formId: string; title: string; hint: string; initial?: Att[]; lineFields?: Record<string, string>; context?: string; dictate?: boolean }) {
   const t = useTranslations("ui");
   const [busy, setBusy] = useState(false);
   const [atts, setAtts] = useState<Att[]>(initial);
@@ -22,6 +22,26 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  const locale = useLocale();
+  const [heard, setHeard] = useState("");
+  const [listening, setListening] = useState(false);
+  const rec = useRef<{ stop: () => void } | null>(null);
+  const said = useRef("");
+
+  /** 口述: speak the findings; the text is shown while listening, can be corrected, then drafted into the form. */
+  function toggleDictation() {
+    if (listening) { rec.current?.stop(); return; }
+    type SR = { lang: string; interimResults: boolean; continuous: boolean; onresult: ((ev: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null; start: () => void; stop: () => void };
+    const w = window as unknown as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR };
+    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!Ctor) { setMsg({ tone: "warn", text: t("dictateUnsupported") }); return; }
+    const r = new Ctor();
+    r.lang = locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-US"; r.interimResults = true; r.continuous = true;
+    said.current = heard ? `${heard} ` : "";
+    r.onresult = (ev) => { let interim = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) { const x = ev.results[i]; if (x.isFinal) said.current += x[0].transcript; else interim += x[0].transcript; } setHeard(said.current + interim); };
+    r.onend = () => setListening(false); r.onerror = () => setListening(false);
+    r.start(); rec.current = r; setListening(true); setMsg(null);
+  }
 
   async function send(files: File[], text?: string) {
     if (!files.length && !text?.trim()) return;
@@ -30,6 +50,7 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
       const fd = new FormData();
       fd.set("kind", kind);
       if (text) fd.set("text", text);
+      if (context) fd.set("context", context);
       files.forEach((f) => fd.append("file", f));
       const r = await fetch("/api/ai/recognize", { method: "POST", body: fd });
       const j = await r.json();
@@ -39,6 +60,7 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
       const uncertain = new Set<string>((j.uncertain as string[] | undefined) ?? []);
       let n = fill(formId, j.fields as Record<string, string>, uncertain);
       if (lineFields && Array.isArray(j.lines)) n += fillLines(formId, j.lines as Record<string, string>[], lineFields);
+      numberPhotos(formId, [...atts, ...(j.attachments as Att[])]);
       const checks = uncertain.size;
       const looked = Array.isArray(j.lookedUp) ? (j.lookedUp as string[]).length : 0; // company data found on the web, not on the paper
       const base = (n > 0 ? (checks ? t("filledNCheck", { n, c: checks }) : t("filledN", { n })) : t("nothingFound")) + (looked ? ` ${t("lookedUpN", { n: looked })}` : "");
@@ -76,11 +98,18 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
           <p className="text-[13px] text-navy/75">{hint}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {dictate && <button type="button" disabled={busy} onClick={toggleDictation} className={`min-h-10 rounded-lg px-3 text-sm font-bold ${listening ? "bg-alert text-white" : "bg-blue text-white"}`}>{listening ? `■ ${t("dictateStop")}` : `🎤 ${t("dictate")}`}</button>}
           <button type="button" disabled={busy} onClick={() => fileRef.current?.click()} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm font-semibold">{t("chooseFile")}</button>
           <button type="button" disabled={busy} onClick={() => camRef.current?.click()} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm font-semibold">{t("takePhoto")}</button>
           <button type="button" disabled={busy} onClick={async () => { try { const items = await navigator.clipboard.read(); const files: File[] = []; let text = ""; for (const it of items) { for (const type of it.types) { const b = await it.getType(type); if (type.startsWith("text/")) text += await b.text(); else files.push(new File([b], `paste.${type.split("/")[1]}`, { type })); } } void send(files, text); } catch { setMsg({ tone: "warn", text: t("pasteHint") }); } }} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm font-semibold">{t("paste")}</button>
         </div>
       </div>
+      {dictate && (listening || heard) && (
+        <div className="mt-3 space-y-2">
+          <textarea value={heard} onChange={(e) => setHeard(e.target.value)} rows={3} placeholder={t("dictatePh")} className="w-full rounded-lg border border-navy/30 bg-white px-3 py-2 text-[15px]" />
+          {!listening && heard.trim() && <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => { const x = heard; setHeard(""); void send([], x); }} className="min-h-10 rounded-lg bg-navy px-4 text-sm font-bold text-white">{t("dictateUse")}</button><button type="button" onClick={() => setHeard("")} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm">{t("dictateClear")}</button></div>}
+        </div>
+      )}
       <input ref={fileRef} type="file" multiple hidden accept="image/*,application/pdf,.txt,.csv,.eml" onChange={(e) => { void send(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       <input ref={camRef} type="file" hidden accept="image/*" capture="environment" onChange={(e) => { void send(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       {(busy || msg || atts.length > 0) && (
@@ -91,6 +120,7 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
         </div>
       )}
       <AttachmentsField formId={formId} atts={atts} />
+      {context && <div data-ai-context hidden>{context}</div>}{/* the same briefing serves the assistant button on this page */}
     </div>
   );
 }
@@ -111,6 +141,13 @@ function setValue(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
   el.classList.add(uncertain ? "ai-uncertain" : "ai-filled");
   el.addEventListener("input", () => el.classList.remove("ai-filled", "ai-uncertain"), { once: true });
   return true;
+}
+
+/** Photos kept with the record are P1, P2 … in the order taken; the form's reference field is filled when still empty. */
+function numberPhotos(formId: string, atts: Att[]) {
+  const el = (document.getElementById(formId) as HTMLFormElement | null)?.elements.namedItem("attachmentRefs") as HTMLInputElement | null;
+  const n = atts.filter((a) => /\.(jpe?g|png|webp|heic|gif)$/i.test(a.name)).length;
+  if (el && n && (!el.value.trim() || /^P1(–P\d+)?$/.test(el.value.trim()))) setValue(el, n === 1 ? "P1" : `P1–P${n}`, false);
 }
 
 function fill(formId: string, fields: Record<string, string>, uncertain = new Set<string>()): number {

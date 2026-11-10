@@ -21,10 +21,21 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
-  const kept = useRef<{ name: string; url: string }[]>([]); // files already handed over in this conversation
+  const kept = useRef<{ name: string; url: string }[]>([]);
+  const [formInfo, setFormInfo] = useState<FormInfo | null>(null);
+  // opened on a page with a form, the assistant is that form's helper (朱总 2026-11-10); a new page starts afresh
+  useEffect(() => { if (variant === "float" && scope === "staff") { setFormInfo(open ? readForm() : null); } }, [open, path, variant, scope]);
+  useEffect(() => { if (variant === "float") { setMsgs([]); kept.current = []; } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [path]); // files already handed over in this conversation
   const recRef = useRef<{ stop: () => void } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { if (msgs.length) bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, open]);
+  // the home conversation survives opening a record and coming back (this tab only)
+  useEffect(() => {
+    if (variant !== "page" || seed) return;
+    try { const saved = JSON.parse(sessionStorage.getItem("dcit-chat") ?? "null"); if (saved?.msgs?.length) { setMsgs(saved.msgs); kept.current = saved.files ?? []; } } catch { /* storage unavailable: start empty */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => { if (variant !== "page") return; try { sessionStorage.setItem("dcit-chat", JSON.stringify({ msgs: msgs.slice(-40), files: kept.current })); } catch { /* ignore */ } }, [msgs, variant]);
   const seeded = useRef(false);
   useEffect(() => { if (seed && !seeded.current) { seeded.current = true; void send(seed); } /* a message-centre "ask" arrives as ?ask= */ // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed]);
@@ -36,16 +47,18 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
     const next = [...msgs, { role: "user" as const, content: shown }];
     setMsgs(next); setInput(""); setFiles([]); setBusy(true);
     try {
-      const payload = { messages: next.map(({ role, content }) => ({ role, content })), path, attachments: kept.current, fields: variant === "page" ? [] : Array.from(document.querySelectorAll<HTMLElement>("main form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && !n.startsWith("$") && a.indexOf(n) === i).slice(0, 80) };
+      const payload = { messages: next.map(({ role, content }) => ({ role, content })), path, attachments: kept.current, form: variant === "float" && scope === "staff" ? readForm() ?? undefined : undefined, fields: variant === "page" ? [] : Array.from(document.querySelectorAll<HTMLElement>("main form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && !n.startsWith("$") && a.indexOf(n) === i).slice(0, 80) };
       let r: Response;
       if (sent.length) { const fd = new FormData(); fd.append("payload", JSON.stringify(payload)); for (const f of sent) fd.append("file", f); r = await fetch("/api/ai/assist", { method: "POST", body: fd }); }
       else r = await fetch("/api/ai/assist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? r.statusText);
       if (Array.isArray(j.files)) kept.current = j.files;
-      setMsgs([...next, { role: "assistant", content: j.text, actions: j.actions }]);
+      const formFill = variant === "float" && payload.form ? (j.actions as Action[] | undefined)?.find((a) => a.type === "fill_form" && a.fields) : undefined;
+      const done = formFill ? applyToForm(formFill.fields!) : null; // form mode: written at once, marked for confirmation
+      setMsgs([...next, { role: "assistant", content: j.text + (done ? `\n\n${done.n ? t("formFilled", { n: done.n, list: done.labels.slice(0, 8).join("、") }) : t("formNothing")}` : ""), actions: (j.actions as Action[] | undefined)?.filter((a) => a !== formFill) }]);
       const go = (j.actions as Action[] | undefined)?.find((a) => a.type === "navigate");
-      if (go?.href) { router.push(go.href); }
+      if (go?.href && variant !== "page") { router.push(go.href); } // on the home page the conversation stays; the answer carries a button instead
     } catch (e) {
       setMsgs([...next, { role: "assistant", content: `⚠ ${(e as Error).message}` }]);
     } finally { setBusy(false); }
@@ -64,16 +77,29 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
     } catch (e) { patch({ state: "failed", note: (e as Error).message }); }
   }
 
-  function fillForm(fields: Record<string, string>) {
-    let n = 0;
+  /** Write values into the page's form; each written field turns orange until the person touches it. */
+  function applyToForm(fields: Record<string, string>): { n: number; labels: string[] } {
+    const labels: string[] = [];
     for (const [k, v] of Object.entries(fields)) {
-      const el = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${k}"]`);
+      const el = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`main form [name="${CSS.escape(k)}"]`) ?? document.querySelector<HTMLInputElement>(`[name="${CSS.escape(k)}"]`);
       if (!el) continue;
-      const setter = Object.getOwnPropertyDescriptor(el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype, "value")?.set;
-      setter ? setter.call(el, v) : (el.value = v);
+      if (el instanceof HTMLSelectElement && !Array.from(el.options).some((o) => o.value === v)) continue;
+      const row = el.closest("[data-row]") as HTMLElement | null;
+      if (row) row.hidden = false;
+      if (el instanceof HTMLInputElement && el.type === "checkbox") el.checked = /^(1|true|yes|y)$/i.test(v);
+      else {
+        const setter = Object.getOwnPropertyDescriptor(el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype, "value")?.set;
+        if (setter) setter.call(el, v); else el.value = v;
+      }
       el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
-      n++;
+      el.classList.add("ai-uncertain");
+      el.addEventListener("input", () => el.classList.remove("ai-uncertain", "ai-filled"), { once: true });
+      labels.push(el.closest("label")?.querySelector("span")?.textContent?.replace(/\*/g, "").trim() || k);
     }
+    return { n: labels.length, labels: [...new Set(labels)] };
+  }
+  function fillForm(fields: Record<string, string>) {
+    const { n } = applyToForm(fields);
     setMsgs((m) => [...m, { role: "assistant", content: t("filled", { n }) }]);
   }
 
@@ -109,7 +135,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
       {m.role === "user" ? <div className="whitespace-pre-wrap">{m.content}</div> : <Md text={m.content} />}
       {m.actions?.map((a, j) =>
         a.type === "fill_form" && a.fields ? <button key={j} onClick={() => fillForm(a.fields!)} className="mt-2 rounded bg-navy px-2 py-1 text-xs text-white">{t("fillForm")}</button>
-        : a.type === "navigate" ? <a key={j} href={a.href} className="mt-2 inline-block text-xs text-blue underline">{a.href}</a>
+        : a.type === "navigate" ? <a key={j} href={a.href} className="mt-2 flex items-center gap-2 rounded-lg border border-blue/40 bg-white px-3 py-2 text-[13px] font-semibold text-blue hover:bg-blue hover:text-white"><span className="flex-1">{t("openPage")}</span><span>→</span></a>
         : a.type === "done" ? <a key={j} href={a.href ?? "#"} className="mt-2 flex items-center gap-2 rounded-lg border border-[#BFE3CB] bg-white px-3 py-2 text-[13px] text-navy hover:border-blue"><span className="font-bold text-[#1F8A4C]">✓</span><span className="flex-1">{a.summary}</span>{a.href && <span className="text-blue">→</span>}</a>
         : a.type === "confirm" ? (
           <div key={j} className="mt-2 rounded-lg border border-[#F2C36B] bg-[#FFF9EC] px-3 py-2 text-[13px] text-navy">
@@ -150,31 +176,44 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
 
   if (variant === "page") {
     const empty = msgs.length === 0;
-    // phone: greeting in the middle, the box at the bottom edge; desktop: greeting, box, suggestions in a column
+    // 朱总 2026-11-10: nothing may jump when the first message is sent. The box is fixed to the bottom edge from the
+    // first screen on (phone and desk); only what is above it changes — greeting and suggestions, then the messages.
     return (
-      <div className="mx-auto flex min-h-[calc(100dvh-6.5rem)] w-full max-w-3xl flex-col md:min-h-[calc(100vh-9rem)]">
+      <div className="mx-auto flex w-full max-w-3xl flex-col pb-44">
         {empty ? (
-          <div className="flex flex-1 flex-col justify-center md:flex-none md:pt-[8vh]">
+          <div className="flex min-h-[calc(100dvh-20rem)] flex-col justify-center">
             {greeting && <h1 className="mb-5 text-center text-[22px] font-bold leading-snug text-navy md:mb-6 md:text-[28px]">{greeting}</h1>}
-            <div className="hidden md:block">{composer(true)}<p className="mt-2 text-center text-xs text-navy/60">{t("hintStaff")}</p></div>
-            {suggestions.length > 0 && <div className="flex flex-wrap justify-center gap-2 md:mt-5">{suggestions.map((sg) => <button key={sg} type="button" onClick={() => void send(sg)} className="rounded-full border border-navy/20 bg-white px-3.5 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{sg}</button>)}</div>}
+            {suggestions.length > 0 && <div className="flex flex-wrap justify-center gap-2">{suggestions.map((sg) => <button key={sg} type="button" onClick={() => void send(sg)} className="rounded-full border border-navy/20 bg-white px-3.5 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{sg}</button>)}</div>}
           </div>
         ) : (
-          <div className="flex flex-1 flex-col gap-3 pb-4 text-[14.5px]">{msgs.map(bubble)}{busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">…</div>}<div ref={bottom} /></div>
+          <div className="flex flex-col gap-3 text-[14.5px]">
+            {msgs.map(bubble)}{busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">{t("working")}</div>}<div ref={bottom} />
+            <button type="button" onClick={() => { setMsgs([]); kept.current = []; }} className="mx-auto mt-2 text-xs text-navy/50 hover:text-blue">{t("newChat")}</button>
+          </div>
         )}
-        <div className={`sticky bottom-0 -mx-1 bg-gradient-to-t from-[#F4F7FB] from-80% px-1 pb-2 pt-3 ${empty ? "md:hidden" : ""}`}>{composer(true)}</div>
+        <div className="fixed inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[#F4F7FB] from-75% px-4 pt-4 md:left-56 md:px-6" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom, 0px))" }}>
+          <div className="mx-auto max-w-3xl">{composer(true)}</div>
+        </div>
       </div>
     );
   }
   if (path === "/home") return null; // the home page is the conversation itself
   return (
     <>
-      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-blue text-xl font-bold text-white shadow-lg">AI</button>
+      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="ai-fab fixed bottom-3 right-3 z-40 h-12 w-12 md:bottom-4 md:right-4 md:h-14 md:w-14">
+        {/* the "i" of DCiT: white stem, blue square dot — the dot is the live part */}
+        <span className="ai-fab-pulse" aria-hidden /><span className="ai-fab-ring" aria-hidden />
+        <svg viewBox="0 0 48 48" aria-hidden className="relative h-full w-full"><rect x="20.5" y="20" width="7" height="16" fill="#fff" /><rect x="20.5" y="10.5" width="7" height="7" className="ai-fab-dot" /></svg>
+      </button>
       {open && (
         <div className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] flex-col rounded-t-2xl border bg-white shadow-2xl md:inset-x-auto md:bottom-20 md:right-4 md:h-[32rem] md:w-96 md:rounded-2xl">
-          <div className="flex items-center justify-between border-b px-4 py-2"><b className="text-navy">{t("title")}</b><button onClick={() => setOpen(false)} className="text-navy/70">✕</button></div>
+          <div className="flex items-center justify-between border-b px-4 py-2"><b className="min-w-0 truncate text-navy">{formInfo ? t("formTitle", { name: formInfo.title }) : t("title")}</b><button onClick={() => setOpen(false)} className="text-navy/70">✕</button></div>
           <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3 text-sm">
-            {msgs.length === 0 && <p className="text-navy/70">{scope === "portal" ? t("hintPortal") : t("hintStaff")}</p>}
+            {msgs.length === 0 && !formInfo && <p className="text-navy/70">{scope === "portal" ? t("hintPortal") : t("hintStaff")}</p>}
+            {msgs.length === 0 && formInfo && <>
+              <p className="text-navy/80">{t("formHint")}</p>
+              <div className="flex flex-wrap gap-2">{(["formAskFill", "formAskCheck", "formAskThai"] as const).map((k) => <button key={k} type="button" onClick={() => (k === "formAskFill" ? toggleVoice() : void send(t(k)))} className="rounded-full border border-blue/40 bg-white px-3 py-1.5 text-[13px] font-semibold text-blue hover:bg-blue hover:text-white">{k === "formAskFill" ? `🎤 ${t(k)}` : t(k)}</button>)}</div>
+            </>}
             {msgs.map(bubble)}
             {busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">…</div>}
             <div ref={bottom} />
@@ -205,6 +244,31 @@ function Md({ text }: { text: string }) {
     else blocks.push(<div key={i}>{inline(l, i)}</div>);
   }
   return <div className="space-y-0.5 leading-relaxed">{blocks}</div>;
+}
+
+type FormField = { name: string; label?: string; value?: string; options?: string[]; type?: string };
+type FormInfo = { title: string; context?: string; fields: FormField[] };
+
+/** The form on the current page as the assistant sees it: every named field with its label, kind and present value. */
+function readForm(): FormInfo | null {
+  const forms = Array.from(document.querySelectorAll<HTMLFormElement>("main form")).filter((f) => f.querySelectorAll("input:not([type=hidden]),textarea,select").length >= 3);
+  const form = forms.sort((a, b) => b.elements.length - a.elements.length)[0];
+  if (!form) return null;
+  const fields: FormField[] = [];
+  const seen = new Set<string>();
+  for (const el of Array.from(form.elements) as (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[]) {
+    if (!el.name || seen.has(el.name) || el.name.startsWith("$") || (el instanceof HTMLInputElement && ["hidden", "file", "submit", "button", "password"].includes(el.type))) continue;
+    if (el instanceof HTMLButtonElement) continue;
+    seen.add(el.name);
+    const lab = el.closest("label")?.querySelector("span")?.textContent?.replace(/\*/g, "").trim() || (el as HTMLInputElement).placeholder || el.getAttribute("aria-label") || undefined;
+    const value = el instanceof HTMLInputElement && el.type === "checkbox" ? (el.checked ? "yes" : "") : el.value;
+    // repeating rows: empty rows beyond the first few are not worth sending
+    const idx = /(\d+)$/.exec(el.name)?.[1];
+    if (idx && Number(idx) > 5 && !value.trim()) continue;
+    fields.push({ name: el.name, label: lab, value: value || undefined, type: el instanceof HTMLSelectElement ? undefined : el instanceof HTMLTextAreaElement ? "long text" : (el as HTMLInputElement).type, options: el instanceof HTMLSelectElement ? Array.from(el.options).map((o) => o.value).filter(Boolean) : undefined });
+    if (fields.length >= 140) break;
+  }
+  return { title: document.querySelector("main h1")?.textContent?.trim() ?? document.title, context: document.querySelector("[data-ai-context]")?.textContent ?? undefined, fields };
 }
 
 interface SpeechRecognitionLike { lang: string; interimResults: boolean; continuous: boolean; onresult: ((ev: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void }

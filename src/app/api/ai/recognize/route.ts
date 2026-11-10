@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       const saved = await saveUpload(f, RECOGNIZE[kind].attachKind.toLowerCase());
       files.push({ ...saved, original: f.name, mediaType: f.type || "application/octet-stream", bytes: Buffer.from(await f.arrayBuffer()) });
     }
-    const r = await recognizeDocuments(kind, files.map((f) => ({ name: f.original, url: f.url, mediaType: f.mediaType, bytes: f.bytes })), String(form.get("text") || "") || undefined);
+    const r = await recognizeDocuments(kind, files.map((f) => ({ name: f.original, url: f.url, mediaType: f.mediaType, bytes: f.bytes })), String(form.get("text") || "") || undefined, String(form.get("context") || "") || undefined);
     const kindLabel = r.docKind && RECOGNIZE[kind].accept?.includes(r.docKind.toUpperCase()) ? r.docKind.toUpperCase() : RECOGNIZE[kind].attachKind;
     return NextResponse.json({ ...r, attachments: files.map((f) => ({ name: f.original, url: f.url, kind: kindLabel })) });
   } catch (e) {
