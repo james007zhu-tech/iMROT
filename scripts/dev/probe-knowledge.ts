@@ -89,7 +89,8 @@ async function main() {
   check(r3.removed >= 1 && !(await publicCode(slugB, slugS, "2310", "zh")), "retired → taken down at the next publish");
 
   // a series hidden from the public site leaves it at the next publish — and the probe leaves nothing public behind
-  await prisma.series.update({ where: { id: series.id }, data: { publicVisible: false } });
+  await prisma.series.update({ where: { id: series.id }, data: { publicVisible: false, active: false } });
+  await prisma.brand.update({ where: { id: series.brandId }, data: { active: false } });
   await publishKnowledge(MD);
   check(!(await prisma.publishedFaultCode.count({ where: { brandSlug: slugB } })), "hidden series → its codes leave the public site");
 
