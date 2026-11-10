@@ -53,7 +53,7 @@ async function main() {
     for (const row of rows) for (const i of row.issues) {
       const [code, where] = i.split(":");
       const g = byCode.get(code) ?? { rows: [], where: new Set() };
-      g.rows.push(row.code); if (where) g.where.add(where); byCode.set(code, g);
+      if (!g.rows.includes(row.code)) g.rows.push(row.code); if (where) g.where.add(where); byCode.set(code, g);
     }
     for (const [code, g] of [...byCode].sort((a, b) => Number(isBlocking(b[0])) - Number(isBlocking(a[0])))) {
       const block = isBlocking(code);

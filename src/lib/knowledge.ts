@@ -166,7 +166,11 @@ export const BLOCKING_ISSUES = ["NO_CODE", "NO_TITLE", "COPIED_FROM_MANUAL", "WR
 const HAS = { zh: /[\u4e00-\u9fff]/, th: /[\u0e00-\u0e7f]/ };
 const LIMITS = { title: { zh: 16, en: 50, th: 50 }, meaning: { zh: 80, en: 260, th: 260 }, item: { zh: 40, en: 140, th: 140 } } as const;
 
-/** Long runs shared with the manufacturer's text: 8 words in English, 16 characters in Chinese or Thai. */
+/**
+ * Long runs shared with the manufacturer's text: 8 words in English; in Chinese 16 and in Thai 30 characters of the
+ * script itself — product names, parameter numbers and units are Latin and shared by any honest rewrite, so they
+ * are left out of the comparison (Grok's ACS880 file 2026-11-10: "Drive composer pro", "พารามิเตอร์ 96.08").
+ */
 export function copiedFrom(ours: string, theirs: string, lang: Lang): boolean {
   const norm = (x: string) => x.toLowerCase().replace(/\s+/g, " ").trim();
   const a = norm(ours), b = norm(theirs);
@@ -177,8 +181,9 @@ export function copiedFrom(ours: string, theirs: string, lang: Lang): boolean {
     for (let i = 0; i + 8 <= w.length; i++) if (set.has(w.slice(i, i + 8).join(" "))) return true;
     return false;
   }
-  const A = a.replace(/[\s，。；、,.;:：()（）]/g, ""), B = b.replace(/[\s，。；、,.;:：()（）]/g, "");
-  for (let i = 0; i + 16 <= A.length; i++) if (B.includes(A.slice(i, i + 16))) return true;
+  const only = lang === "zh" ? /[^\u4e00-\u9fff]/g : /[^\u0e00-\u0e7f]/g, n = lang === "zh" ? 16 : 30;
+  const A = a.replace(only, ""), B = b.replace(only, "");
+  for (let i = 0; i + n <= A.length; i++) if (B.includes(A.slice(i, i + n))) return true;
   return false;
 }
 

@@ -107,9 +107,9 @@ let orderNo;
 await step("report-issue-and-assign", async () => {
   await page.goto(`${BASE}/service-orders/new?asset=${assetCode}`);
   // business modes (2026-11-09): six cards, repair preselected, floors shown, modes not open yet disabled
-  await expectText("Margin floor 50%"); await expectText("Margin floor 33%"); await expectText("Coming in the next release");
+  await expectText("Margin floor 50%"); await expectText("Margin floor 33%"); // all six modes are open since 2026-11-10 (OPEN_MODES), so no "coming in the next release" card
   if (!(await page.locator("input[name=mode][value=REPAIR]").isChecked())) throw new Error("repair should be preselected");
-  if (!(await page.locator("input[name=mode][value=INTERNATIONAL_TRADE]").isDisabled())) throw new Error("international trade is not open yet");
+  if (await page.locator("input[name=mode][value=INTERNATIONAL_TRADE]").isDisabled()) throw new Error("international trade is open since 2026-11-10");
   await page.fill("[name=reportedSymptom]", "F0001 overcurrent on start"); await page.fill("[name=reportedAlarm]", "F0001"); await page.fill("[name=customerRef]", "PO-E2E-001");
   await page.selectOption("[name=assigneeCode]", { index: 1 });
   await page.locator("button[name=assign]").click(); await page.waitForURL(/\/service-orders\/QTTH/); orderNo = page.url().split("/").pop().split("?")[0];

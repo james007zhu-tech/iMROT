@@ -69,6 +69,10 @@ describe("设备知识库 (2026-11-10)", () => {
     const copied = { ...good, en: { title: "Overcurrent", checks: ["Check acceleration times in parameter group 23 Speed reference ramp"] } };
     expect(wordingIssues({ code: "2310", kind: "FAULT", publicText: copied, manualText: manual })).toContain("COPIED_FROM_MANUAL:en.checks");
     expect(copiedFrom("加速时间太短，或负载在运行中突然卡住", "电机过载", "zh")).toBe(false);
+    // shared product names and parameter numbers are not copying
+    expect(copiedFrom("在 Drive composer pro 中查看时间戳", "使用 Drive composer pro 工具查看", "zh")).toBe(false);
+    expect(copiedFrom("ใช้พารามิเตอร์ 96.08 สั่งให้ชุดควบคุมเริ่มระบบอีกครั้ง", "เริ่มชุดควบคุมใหม่โดยใช้พารามิเตอร์ 96.08 Control board boot", "th")).toBe(false);
+    expect(copiedFrom("检查变频器控制单元与功率单元之间的连接是否牢固可靠", "检查变频器控制单元与功率单元之间的连接是否牢固可靠。", "zh")).toBe(true);
     const bad = { zh: { title: "2310 过电流 กระแส", remedy: "总述见PDF497", prepare: "①完整代码" }, en: { title: "Overcurrent", checks: ["Contact your local ABB representative"] } };
     const issues = wordingIssues({ code: "2310", kind: "FAULT", publicText: bad });
     for (const i of ["WRONG_LANG:zh.title", "TITLE_HAS_CODE:zh", "PAGE_REF:zh.remedy", "CIRCLED_NUMBERS:zh.prepare", "CONTACT_VENDOR:en.checks", "MISSING_LANG:th", "LIST_MISMATCH:checks"]) expect(issues).toContain(i);
