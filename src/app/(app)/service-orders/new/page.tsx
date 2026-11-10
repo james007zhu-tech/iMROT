@@ -8,6 +8,7 @@ import { guarded } from "@/lib/action-result";
 import { maskName } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
+import { CustomerPicker } from "@/components/CustomerPicker";
 import { FormMemory } from "@/components/FormMemory";
 import { AssetPicker } from "@/components/AssetPicker";
 import { ScanButton } from "@/components/ScanButton";
@@ -38,13 +39,13 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
   // 贸易: customer + SKU lines; the datalist shows what is on the shelf
   const plants = proj ? await prisma.plant.findMany({ orderBy: { code: "asc" }, include: { customer: { select: { name: true } } } }) : [];
   const [customers, parts, stock] = noAsset ? await Promise.all([
-    prisma.customer.findMany({ orderBy: { name: "asc" }, select: { id: true, code: true, name: true } }),
+    prisma.customer.findMany({ orderBy: { name: "asc" }, select: { id: true, code: true, name: true, nameLocal: true } }),
     prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { id: true, sku: true, name: true } }),
     prisma.stockMovement.groupBy({ by: ["partId", "direction"], where: { partId: { not: null } }, _sum: { qty: true } }),
   ]) : [[], [], []];
   const onHand = new Map<string, number>();
   for (const g of stock) onHand.set(g.partId!, (onHand.get(g.partId!) ?? 0) + (g.direction === "IN" ? 1 : -1) * Number(g._sum.qty ?? 0));
-  const TRADE_ROWS = 8;
+  const TRADE_ROWS = 12;
 
   async function submit(form: FormData) {
     "use server";
@@ -56,7 +57,13 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       if (modeNeedsAsset(mode) && !codes.length) throw new Error("ASSET_REQUIRED");
       const first = codes.length ? await prisma.asset.findUniqueOrThrow({ where: { code: codes[0] } }) : null;
       const customerId = first?.customerId ?? s("customerId");
-      if (!customerId) throw new Error("INVALID_INPUT:customer");
+      if (!customerId) throw new Error(s("customerName") ? `CUSTOMER_NOT_PICKED:${s("customerName")}` : "INVALID_INPUT:customer");
+      // 朱总 2026-11-10: a contact typed here (or read from the inquiry) who is not on the customer yet is added to it
+      let contactId = s("reportedById");
+      if (!contactId && s("contactName")) {
+        const known = await prisma.contact.findFirst({ where: { customerId, name: { equals: s("contactName")!, mode: "insensitive" } } });
+        contactId = (known ?? await prisma.contact.create({ data: { customerId, name: s("contactName")!, phone: s("contactPhone"), email: s("contactEmail") } })).id;
+      }
       const boxed = JSON.parse(s("attachments") ?? "[]") as { name: string; url: string; kind: string }[];
       const po = [];
       for (const f of form.getAll("poFiles")) if (f instanceof File && f.size > 0) po.push({ ...(await saveUpload(f, "po")), name: f.name, kind: "PO" });
@@ -66,7 +73,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         project: mode === "AUTOMATION_PROJECT" ? { name: s("projectName") ?? "", dueDate: s("projectDue"), scope: s("projectScope") } : undefined,
         tradeTerms: mode === "INTERNATIONAL_TRADE" ? { currency: s("tCurrency"), incoterm: s("tIncoterm"), place: s("tPlace"), destCountry: s("tDestCountry"), destPort: s("tDestPort"), shipMode: s("tShipMode"), paymentTerms: s("tPaymentTerms"), paymentDays: Number(s("tPaymentDays") ?? 0) } : undefined,
         mode, kind: s("kind") as "REPAIR" | undefined, partnerReason: s("partnerReason"), reportedSymptom: s("reportedSymptom"), reportedAlarm: s("reportedAlarm"), productionImpact: s("productionImpact"),
-        customerRef: s("customerRef"), reportedByContactId: s("reportedById"), reportedAt: s("reportedAt") ? new Date(s("reportedAt")!) : undefined,
+        customerRef: s("customerRef"), reportedByContactId: contactId, reportedAt: s("reportedAt") ? new Date(s("reportedAt")!) : undefined,
         currency: "THB", attachments: [...boxed, ...po],
       });
       if (form.get("assign") && s("assigneeCode")) {
@@ -89,17 +96,18 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           kinds={MODE_KINDS.MAINTENANCE.map((k) => ({ value: k, label: t(k) }))}
           labels={{ kind: u("maintenanceKind"), reason: u("partnerReason"), reasonPh: u("partnerReasonPh"), soon: u("modeComingSoon") }} />
       </Card>
-      <UploadRecognize kind={proj ? "project" : "service"} formId="f" title={u(trade ? "upTradeTitle" : proj ? "upProjectTitle" : "upServiceTitle")} hint={u(trade ? "upTradeHint" : proj ? "upProjectHint" : "upServiceHint")} />
+      <UploadRecognize kind={proj ? "project" : "service"} formId="f" lineFields={trade ? { sku: "ls", description: "ld", qty: "lq", unit: "lu", neededBy: "ln", hsCode: "lh", origin: "lo" } : undefined} title={u(trade ? "upTradeTitle" : proj ? "upProjectTitle" : "upServiceTitle")} hint={u(trade ? "upTradeHint" : proj ? "upProjectHint" : "upServiceHint")} />
       <form id="f" action={submit} className="space-y-4">
 {noAsset ? (<>
         <Card title={u("customerAndInquiry")}>
           <Grid>
-            <Field label={t("customer")} required><select name="customerId" required defaultValue={customers.find((c) => c.code === customer)?.id ?? ""} className={inputCls}><option value="">—</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select></Field>
-            <Field label={u("inquiryContact")}><select name="reportedById" className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)} · {c.customer.name}</option>)}</select></Field>
+            <CustomerPicker customers={customers} contacts={contacts.map((c) => ({ id: c.id, customerId: c.customerId, label: maskName(c.name) }))} initialId={customers.find((c) => c.code === customer)?.id}
+              newHref={`/customers/new?back=${encodeURIComponent(`/service-orders/new?mode=${initialMode}`)}${intl ? "&overseas=1" : ""}`} inputCls={inputCls}
+              labels={{ customer: t("customer"), searchPh: u("customerSearchPh"), contact: u("inquiryContact"), none: "—", newCustomer: u("newCustomer"), notFound: u("customerNotFound"), newContact: u("newContactInline"), contactName: t("name"), phone: t("phone"), email: t("email"), newContactHint: u("newContactHint"), pickFirst: u("customerPickFirst") }} />
             <Field label={u("customerInquiryRef")}><input name="customerRef" className={`${inputCls} font-mono`} /></Field>
             <Field label={u("inquiryDate")}><input name="reportedAt" type="datetime-local" defaultValue={now} className={inputCls} /></Field>
           </Grid>
-          <Field label={u("inquiryFiles")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>
+          <p className="text-xs text-navy/70">{u("inquiryFilesInBox")}</p>
         </Card>
         {proj && <Card title={u("projectCard")}>
           <Grid>

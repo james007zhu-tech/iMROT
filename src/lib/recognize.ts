@@ -16,25 +16,35 @@ export type RecognizeKind =
   | "asset" | "customer" | "service" | "inspection" | "receive" | "repair" | "maintenance"
   | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline" | "shipment" | "project" | "faultcode" | "series";
 
-export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<string, string>; accept?: string[]; attachKind: string }
+/** `strict`: a document outside `accept` is refused (customer onboarding, HR papers). Without it `accept` only names the attachment; whatever the person uploads is read. */
+export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<string, string>; accept?: string[]; strict?: boolean; attachKind: string }
 
 export const CONFIDENCE_FLOOR = 0.8;
 
 /** Fields that must appear verbatim in the document (no paraphrase, no guessing). */
 export const VERBATIM_FIELDS = new Set(["serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo", "passportNo", "idCardNo", "workPermitNo", "swift", "blNo", "exportEntryNo", "acc_THB", "acc_USD", "acc_CNY", "acc_EUR"]);
-const DATE_FIELDS = new Set(["projectDue", "shippedAt", "etd", "eta", "toldAt", "signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
-const NUMBER_FIELDS = new Set(["ratedPowerKw", "ratedVoltageV", "ratedCurrentA", "laborHours", "runHours", "paidAmount", "whtAmount", "qty", "unitPrice", "amount", "total", "vatRate", "vatAmount", "subtotal"]);
-const ENUM_FIELDS: Record<string, string[]> = { productionImpact: ["STOPPED", "DEGRADED", "NONE"], status: ["ACCEPTED", "CONDITIONAL", "REJECTED"], currency: ["THB", "USD", "CNY", "EUR", "JPY"] };
+const DATE_FIELDS = new Set(["reportedAt", "neededBy", "projectDue", "shippedAt", "etd", "eta", "toldAt", "signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
+const NUMBER_FIELDS = new Set(["tPaymentDays", "ratedPowerKw", "ratedVoltageV", "ratedCurrentA", "laborHours", "runHours", "paidAmount", "whtAmount", "qty", "unitPrice", "amount", "total", "vatRate", "vatAmount", "subtotal"]);
+const ENUM_FIELDS: Record<string, string[]> = { productionImpact: ["STOPPED", "DEGRADED", "NONE"], status: ["ACCEPTED", "CONDITIONAL", "REJECTED"], currency: ["THB", "USD", "CNY", "EUR", "JPY"], tCurrency: ["THB", "USD", "CNY", "EUR", "JPY"],
+  tIncoterm: ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"], tShipMode: ["SEA", "AIR", "ROAD", "COURIER"] };
 
 export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
   asset: { attachKind: "NAMEPLATE", fields: { brand: "manufacturer, e.g. SIEMENS", series: "product series, e.g. SINAMICS S120", modelCode: "model / order number exactly as printed", serialNumber: "serial number exactly as printed", ratedPowerKw: "rated power kW", ratedVoltageV: "rated voltage V", ratedCurrentA: "rated current A", customerAssetNo: "customer's own asset tag if visible" } },
-  customer: { attachKind: "COMPANY_DOC", accept: ["DBD", "PP20", "BILLING"], fields: { taxId: "13-digit Thai tax ID", branchCode: "5-digit branch code, 00000 = head office" } },
+  customer: { attachKind: "COMPANY_DOC", accept: ["DBD", "PP20", "BILLING"], strict: true, fields: { taxId: "13-digit Thai tax ID", branchCode: "5-digit branch code, 00000 = head office" } },
   /** The customer's inquiry (RFQ / e-mail / LINE message), purchase order or fault report: filed under its own kind (rule: inquiry files are found on the QTTH and in the customer's "historical inquiries"). */
   service: {
     attachKind: "INQUIRY",
     accept: ["INQUIRY", "PO", "MESSAGE"],
-    fields: { serialNumber: "equipment serial number mentioned", location: "machine / line / position mentioned", reportedSymptom: "what the customer says is wrong, in their words", reportedAlarm: "alarm or fault code shown on the drive, e.g. F30001", customerRef: "customer's PO or work-order number, verbatim", poDate: "PO date YYYY-MM-DD", productionImpact: "STOPPED if the line is down, DEGRADED if running slower, NONE otherwise" },
-    lines: { description: "PO line description as printed", qty: "quantity", unit: "unit (pcs, set, job, h)", unitPrice: "unit price if printed" },
+    fields: {
+      serialNumber: "equipment serial number mentioned", location: "machine / line / position mentioned", reportedSymptom: "what the customer says is wrong, in their words", reportedAlarm: "alarm or fault code shown on the drive, e.g. F30001",
+      customerRef: "the document's own number (inquiry, PO or work-order number), verbatim", reportedAt: "date of the inquiry or PO, YYYY-MM-DD", productionImpact: "STOPPED if the line is down, DEGRADED if running slower, NONE otherwise",
+      // 朱总 2026-11-10: the order form is filled from the customer's paper — who asks, and on which trade terms
+      customerName: "name of the company that sends this inquiry or PO (the buyer), as printed", contactName: "name of the person who sends it (buyer's contact)", contactPhone: "that person's phone", contactEmail: "that person's e-mail",
+      tCurrency: "currency of the prices: THB, USD, CNY, EUR or JPY", tIncoterm: "Incoterm code only: EXW FCA FAS FOB CFR CIF CPT CIP DAP DPU DDP", tPlace: "named place or port of the Incoterm", tShipMode: "SEA, AIR, ROAD or COURIER",
+      tDestCountry: "country the goods go to", tDestPort: "port or city of destination", tPaymentTerms: "payment terms as written", tPaymentDays: "credit days as a number, 0 if payment in advance",
+    },
+    lines: { sku: "part / order number exactly as printed", description: "line description as printed", qty: "quantity", unit: "unit (pcs, set, job, h)", unitPrice: "unit price if printed", neededBy: "required delivery date YYYY-MM-DD if printed",
+      hsCode: "HS code if printed; if not printed, your best 6-digit HS classification for this item (e.g. 8504.40 for a frequency inverter)", origin: "country of origin as a 2-letter code if printed or evident from the manufacturer" },
   },
   inspection: { attachKind: "INSPECTION", fields: { conditions: "test conditions: ambient, supply voltage, isolation", findings: "what was found", probableCause: "most probable cause", recommendation: "recommended work and authorisation needed", instruments: "instrument and calibration", conclusion: "conclusion / restriction of use" } },
   receive: { attachKind: "RECEIVING", fields: { sender: "who delivered the equipment", condition: "condition on arrival", fault: "fault reported with it", accessories: "accessories received, one per line as 'item × qty'" } },
@@ -52,7 +62,7 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
   stock: { attachKind: "STOCK", fields: { vendorPartNo: "vendor part number", qty: "quantity", batch: "batch / lot" } },
   /** CV, passport / ID card, visa, work permit, labour contract, degree: header fields + work-history lines (rule ④). */
   employee: {
-    attachKind: "ID_DOC",
+    attachKind: "ID_DOC", strict: true,
     accept: ["CV", "PASSPORT", "ID_CARD", "VISA", "WORK_PERMIT", "CONTRACT", "DEGREE", "CERTIFICATE"],
     fields: {
       name: "full name in Latin letters as on the passport or CV", nameLocal: "name in Thai or Chinese characters if written", nationality: "nationality", birthDate: "date of birth YYYY-MM-DD", gender: "M or F if stated",

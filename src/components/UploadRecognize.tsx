@@ -34,13 +34,14 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
       const r = await fetch("/api/ai/recognize", { method: "POST", body: fd });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? r.statusText);
-      if (j.rejected) { setMsg({ tone: "warn", text: t("rejectedDoc", { kind: j.docKind || "?" }) }); return; }
+      if (j.rejected) { setMsg({ tone: "warn", text: t(kind === "customer" ? "rejectedDoc" : "rejectedDocGeneric", { kind: j.docKind || "?" }) }); return; }
       setAtts((a) => [...a, ...(j.attachments as Att[])]);
       const uncertain = new Set<string>((j.uncertain as string[] | undefined) ?? []);
       let n = fill(formId, j.fields as Record<string, string>, uncertain);
       if (lineFields && Array.isArray(j.lines)) n += fillLines(formId, j.lines as Record<string, string>[], lineFields);
       const checks = uncertain.size;
-      const base = n > 0 ? (checks ? t("filledNCheck", { n, c: checks }) : t("filledN", { n })) : t("nothingFound");
+      const looked = Array.isArray(j.lookedUp) ? (j.lookedUp as string[]).length : 0; // company data found on the web, not on the paper
+      const base = (n > 0 ? (checks ? t("filledNCheck", { n, c: checks }) : t("filledN", { n })) : t("nothingFound")) + (looked ? ` ${t("lookedUpN", { n: looked })}` : "");
       setMsg(j.notes === "no-model" ? { tone: "warn", text: `${n > 0 ? `${base} — ` : ""}${t("noModel")}` } : n > 0 ? { tone: checks ? "warn" : "ok", text: base } : { tone: "warn", text: base });
     } catch (e) {
       setMsg({ tone: "warn", text: (e as Error).message });
@@ -102,6 +103,7 @@ function AttachmentsField({ formId, atts }: { formId: string; atts: Att[] }) {
 function setValue(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string, uncertain: boolean): boolean {
   if (el instanceof HTMLSelectElement && !Array.from(el.options).some((o) => o.value === value)) return false;
   if (el instanceof HTMLInputElement && el.type === "checkbox") { el.checked = /^(1|true|yes|y)$/i.test(value); }
+  else if (el instanceof HTMLInputElement && el.type === "datetime-local" && /^\d{4}-\d{2}-\d{2}$/.test(value)) el.value = `${value}T09:00`; // the paper gives a date, the field wants a time too
   else el.value = value;
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
@@ -136,7 +138,7 @@ function fillLines(formId: string, lines: Record<string, string>[], map: Record<
       if (!el || !("value" in el)) continue;
       const row = el.closest("[data-row]") as HTMLElement | null;
       if (row) row.hidden = false;
-      if (setValue(el, value, false)) n++;
+      if (setValue(el, value, col === "hsCode")) n++; // an HS code may be the model's own classification: always for a person to check
     }
   });
   return n;

@@ -14,7 +14,7 @@ const ASSET_TYPES = ["MOTOR", "VFD", "PLC", "PANEL", "DRIVE_TRAIN", "SENSOR", "O
 /** Supplier file: partner profile (合作维修 — what it repairs, payment terms), ratings, purchase orders, payables. */
 export default async function SupplierPage({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const [{ code }, { ok, error }] = await Promise.all([params, searchParams]);
-  const [t, u, tPo, ta] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("poStatus"), getTranslations("assetType")]);
+  const [t, u, tPo] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("poStatus")]);
   const s = await prisma.supplier.findUnique({ where: { code }, include: { ratings: { orderBy: { createdAt: "desc" }, include: { purchaseOrder: { select: { no: true } }, by: { select: { name: true } } } }, orders: { orderBy: { createdAt: "desc" }, take: 30, include: { serviceOrder: { select: { no: true } } } }, invoices: { orderBy: { dueDate: "asc" }, include: { purchaseOrder: { select: { no: true } } } } } });
   if (!s) notFound();
   const avg = averageScore(s.ratings);
@@ -27,7 +27,7 @@ export default async function SupplierPage({ params, searchParams }: { params: P
       <Card title={u("partnerProfile")}>
         <form action={savePartnerAction.bind(null, code)} className="space-y-3">
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="isPartner" defaultChecked={s.isPartner} /> {u("isPartner")}</label>
-          <Field label={u("capabilities")}><div className="flex flex-wrap gap-3 text-sm">{ASSET_TYPES.map((x) => <label key={x} className="flex items-center gap-1"><input type="checkbox" name="cap" value={x} defaultChecked={s.capabilities.includes(x)} /> {ta(x)}</label>)}</div></Field>
+          <Field label={u("capabilities")}><div className="flex flex-wrap gap-3 text-sm">{ASSET_TYPES.map((x) => <label key={x} className="flex items-center gap-1"><input type="checkbox" name="cap" value={x} defaultChecked={s.capabilities.includes(x)} /> {t(x)}</label>)}</div></Field>
           <Grid cols={4}>
             <Field label={u("capabilitiesExtra")}><input name="extraCapabilities" defaultValue={extra} placeholder="CNC, SERVO" className={inputCls} /></Field>
             <Field label={u("countryCode")}><input name="countryCode" defaultValue={s.countryCode} maxLength={2} className={`${inputCls} font-mono uppercase`} /></Field>
