@@ -14,7 +14,7 @@
  */
 export type RecognizeKind =
   | "asset" | "customer" | "service" | "inspection" | "receive" | "repair" | "maintenance"
-  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline";
+  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline" | "faultcode" | "series";
 
 export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<string, string>; accept?: string[]; attachKind: string }
 
@@ -41,6 +41,10 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
   repair: { attachKind: "REPAIR", fields: { confirmedFault: "confirmed fault", rootCause: "root cause", workPerformed: "work done, step by step", configBackupRef: "parameter backup file name", laborHours: "labour hours" } },
   maintenance: { attachKind: "MAINTENANCE", fields: { runHours: "cumulative running hours", hazards: "hazards found and not yet fixed", handled: "what was fixed during this visit", recommendation: "recommended next steps" } },
   /** 客户拒绝报价: the customer's reply in any form (e-mail, LINE, letter) — never rejected, kept on the order as DECLINE; fills the note and the date. */
+  /** 故障代码: a manual page or a photo of the drive's display — the code and the manufacturer's words (kept internal). */
+  faultcode: { attachKind: "KNOWLEDGE", fields: { code: "the fault/alarm code exactly as shown, leading zeros kept", title_en: "the code's name as the manual prints it", manual_en_meaning: "the manual's cause text, verbatim", manual_en_actions: "the manual's action text, verbatim", source_page: "manual page number" } },
+  /** 产品系列: a catalogue or manual cover — series name and code. */
+  series: { attachKind: "KNOWLEDGE", fields: { name: "product series name as the manufacturer writes it", code: "short series code", codeRule: "how the series' fault codes look, if the document says" } },
   decline: { attachKind: "DECLINE", fields: { declineNote: "why the customer does not go ahead, in their words", toldAt: "date of the reply YYYY-MM-DD" } },
   delivery: { attachKind: "DELIVERY", fields: { signedBy: "name of person who signed for the goods", signedAt: "date signed, YYYY-MM-DD", remark: "remarks written on the signed copy" } },
   acceptance: { attachKind: "ACCEPTANCE", fields: { customerSignatory: "who signed", punchList: "open items written on the form", status: "ACCEPTED, CONDITIONAL or REJECTED" } },

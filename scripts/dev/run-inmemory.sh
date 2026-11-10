@@ -23,6 +23,7 @@ find "$OUT/src" "$OUT/scripts" -name '*.ts' | while read -r f; do
     -e "s#from \"\./([a-zA-Z0-9_-]+)\"#from \"./\1.ts\"#g" \
     -e "s#from \"\.\./fx/([a-zA-Z0-9_-]+)\"#from \"../fx/\1.ts\"#g" \
     -e "s#import \{ PrismaClient \} from \"@prisma/client\"#import { PrismaClient } from \"$rel/lib/fake-prisma.ts\"#g" \
+    -e "s#^import \{ Prisma \} from \"@prisma/client\"#import { Prisma } from \"$rel/lib/fake-prisma.ts\"#" \
     -e "s#from \"zod\"#from \"$rel/lib/zod-shim.ts\"#g" \
     -e "s#import \{ z \} from \"$rel/lib/zod-shim.ts\"#import { z } from \"$rel/lib/zod-shim.ts\"#" \
     "$f"

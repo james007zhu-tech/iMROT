@@ -326,4 +326,4 @@ export class FakePrisma {
 export class PrismaClient extends FakePrisma {
   constructor() { super(process.env.FAKE_PRISMA_SCHEMA ?? new URL("../../prisma/schema.prisma", import.meta.url).pathname); }
 }
-export const Prisma = { TransactionClient: undefined };
+export const Prisma = { TransactionClient: undefined, JsonNull: null, DbNull: null };
