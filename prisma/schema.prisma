@@ -714,7 +714,9 @@ model ServiceOrder {
   createdBy          Employee           @relation("OrderCreator", fields: [createdById], references: [id])
   customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
-  requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?}] — the quote starts from it, shortages raise a PRTH
+  requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH
+  project            Json? /// 自动化项目 (2026-11-09): {name, dueDate?, scope?, solution?, deliverables?: [{name, qty}], labour?: [{description, hours, costPerHour?}]} — BOM in requestLines, milestones in ProjectMilestone
+  tradeTerms         Json? /// 国际贸易 (2026-11-09): {currency, incoterm, place, destCountry, destPort?, shipMode, paymentTerms, paymentDays} — src/lib/export.ts
   attachments        Json? /// [{name, url, kind: PO | REPORT_MSG | PHOTO}] — originals kept for later comparison
   currency           String             @default("THB")
   fxRateToCny        Decimal?           @db.Decimal(18, 8)
@@ -753,9 +755,30 @@ model ServiceOrder {
   deliveries     DeliveryNote[]
   inquiries      PurchaseInquiry[]
   purchaseOrders PurchaseOrder[]
+  milestones     ProjectMilestone[]
 
   @@index([customerId, status])
   @@index([mode, status])
+}
+
+/// 自动化项目 milestone (flow 自动化项目-流程图-v1, 2026-11-09): nine per project, completed in order (src/lib/project.ts).
+/// A milestone with payPct is invoiced (TITH + IVTH) for that share of the contract once done; FAT/SAT keep their test record.
+model ProjectMilestone {
+  id             String       @id @default(cuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id])
+  seq            Int
+  phase          String /// CONTRACT DESIGN PROCUREMENT BUILD FAT DELIVERY COMMISSIONING SAT HANDOVER
+  payPct         Decimal?     @db.Decimal(5, 4) /// share of the contract invoiced at this milestone
+  plannedOn      DateTime?
+  doneAt         DateTime?
+  doneById       String? /// employee id
+  note           String?
+  attachments    Json? /// test record, signed protocol, photos: [{name, url, kind}]
+  taxInvoiceNo   String? /// the TITH issued for this instalment
+  invoiceNo      String? /// the IVTH issued with it
+
+  @@unique([serviceOrderId, seq])
 }
 
 model ServiceOrderAsset {
@@ -1368,6 +1391,7 @@ model DeliveryNote {
   signatureUrl   String?
   attachments    Json? /// archived with the DN: our signed copy (DELIVERY) and, when the customer insists on their own form, their delivery note (CUSTOMER_DN, optional)
   remark         String?
+  shipping       Json? /// 国际贸易: the shipment behind this DNTH — packing per line (HS, origin, packages, kg), ports, vessel, B/L, export entry (src/lib/export.ts); prints as 34 Packing List
   createdAt      DateTime       @default(now())
 }
 

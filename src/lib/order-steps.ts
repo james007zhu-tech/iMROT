@@ -2,7 +2,7 @@
  * What an order needs next, and which report each document produces. Pure, shared by the order page and tests.
  * Report names are shown to people; template numbers (04…19) stay internal.
  */
-export type StepKey = "assign" | "inspect" | "quote" | "confirm" | "decline" | "receive" | "repair" | "maintain" | "stockOut" | "deliver" | "accept" | "invoice" | "payment" | "archive" | "contractDirect" | "partner";
+export type StepKey = "assign" | "inspect" | "quote" | "confirm" | "decline" | "receive" | "repair" | "maintain" | "stockOut" | "deliver" | "accept" | "invoice" | "payment" | "archive" | "contractDirect" | "partner" | "ship" | "plan" | "project";
 
 export interface OrderShape {
   status: string; kind: string;
@@ -11,6 +11,8 @@ export interface OrderShape {
   partner?: boolean; /// 合作维修: a partner repairs it — the partner page replaces the RPTH step
   trade?: boolean; /// 贸易: no machine — quote, customer PO, stock out, DNTH; the signed DNTH stands in for acceptance
   stockOuts?: number; /// OBTH lines issued against the order
+  project?: { planned: boolean; invoiceDue: number }; /// 自动化项目: plan saved? done instalments not yet invoiced
+  intl?: boolean; /// 国际贸易: after the OBTH comes the shipment (CI + PL), then the B/L — no customer signature, no TITH
   declineOpen?: string[]; /// 客户拒绝报价: what still blocks closing (declineCloseBlockers) — present only on a declined order
 }
 
@@ -28,6 +30,28 @@ export function nextSteps(o: OrderShape): { primary: StepKey | null; also: StepK
     if (o.status === "DECLINED") return ret ? { primary: "deliver", also: fee ? ["invoice"] : [] } : fee ? { primary: "invoice", also: [] } : { primary: null, also: ["archive"] };
     if (o.status === "INVOICED") return { primary: o.invoicesUnpaid > 0 ? "payment" : ret ? "deliver" : "archive", also: ret && o.invoicesUnpaid > 0 ? ["deliver"] : ["archive"] };
     if (o.status === "CLOSED") return { primary: null, also: ["archive"] };
+  }
+  if (o.project) {
+    // 自动化项目 (2026-11-09): plan (solution, BOM, split) → quote → PO → milestones on the project page (FAT, DNTH, SAT
+    // locks) with an instalment TITH + IVTH at each paying milestone → payment
+    const p = o.project;
+    switch (o.status) {
+      case "RECEIVED": case "ASSIGNED": case "DIAGNOSING": return p.planned ? { primary: "quote", also: ["plan"] } : { primary: "plan", also: [] };
+      case "QUOTE_PENDING": return { primary: "confirm", also: ["quote", "plan"] };
+      case "IN_PROGRESS": case "ACCEPTANCE_PENDING": return { primary: "project", also: ["deliver", "stockOut", ...(o.invoicesUnpaid ? (["payment"] as StepKey[]) : []), "plan"] };
+      case "ACCEPTED": case "INVOICED": return p.invoiceDue ? { primary: "project", also: o.invoicesUnpaid ? ["payment"] : [] } : o.invoicesUnpaid ? { primary: "payment", also: ["project"] } : { primary: "archive", also: ["project"] };
+      default: break;
+    }
+  }
+  if (o.trade && o.intl) {
+    // 国际贸易 (2026-11-09): quote → customer PO (PFTH proforma invoice) → OBTH → shipment (PL DNTH) → B/L → INVOICED → payment
+    switch (o.status) {
+      case "RECEIVED": case "ASSIGNED": case "DIAGNOSING": return { primary: "quote", also: [] };
+      case "QUOTE_PENDING": return { primary: "confirm", also: ["quote"] };
+      case "IN_PROGRESS": case "ACCEPTANCE_PENDING": return o.stockOuts || o.deliveriesOpen ? { primary: "ship", also: [...(o.invoicesUnpaid ? (["payment"] as StepKey[]) : []), "stockOut"] } : { primary: "stockOut", also: ["ship"] };
+      case "ACCEPTED": case "INVOICED": return { primary: o.invoicesUnpaid > 0 ? "payment" : "archive", also: o.invoicesUnpaid > 0 ? ["ship", "archive"] : ["ship"] };
+      default: break;
+    }
   }
   if (o.trade) {
     // 贸易 (2026-11-09): quote → customer PO → OBTH → DNTH; signing the DNTH accepts and locks the order (delivery.ts)
@@ -78,9 +102,11 @@ export function reportsFor(doc: { type: string; templateCode: string | null }, h
     case "RP": return [{ key: doc.templateCode === "10" ? "rpt10" : "rpt09" }];
     case "PM": return [{ key: "rpt11" }];
     case "ER": return [{ key: "rpt07" }];
-    case "DN": return [{ key: "rpt19" }];
+    case "DN": return [{ key: doc.templateCode === "34" ? "rpt34" : "rpt19" }]; // 国际贸易: the shipment's packing list
+
     case "TI": return [{ key: "rpt20" }];
     case "IV": return [{ key: "rpt21" }];
+    case "PF": return [{ key: "rpt35" }, { key: "rpt33", template: "33" }]; // 国际贸易: proforma invoice; the same PFTH as a commercial invoice for customs
     case "RC": return [{ key: "rpt22" }];
     case "BL": return [{ key: "rpt23" }];
     case "PR": return [{ key: "rpt24" }];

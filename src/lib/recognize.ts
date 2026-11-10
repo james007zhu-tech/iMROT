@@ -14,15 +14,15 @@
  */
 export type RecognizeKind =
   | "asset" | "customer" | "service" | "inspection" | "receive" | "repair" | "maintenance"
-  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline";
+  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline" | "shipment" | "project";
 
 export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<string, string>; accept?: string[]; attachKind: string }
 
 export const CONFIDENCE_FLOOR = 0.8;
 
 /** Fields that must appear verbatim in the document (no paraphrase, no guessing). */
-export const VERBATIM_FIELDS = new Set(["serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo", "passportNo", "idCardNo", "workPermitNo", "swift", "acc_THB", "acc_USD", "acc_CNY", "acc_EUR"]);
-const DATE_FIELDS = new Set(["toldAt", "signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
+export const VERBATIM_FIELDS = new Set(["serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo", "passportNo", "idCardNo", "workPermitNo", "swift", "blNo", "exportEntryNo", "acc_THB", "acc_USD", "acc_CNY", "acc_EUR"]);
+const DATE_FIELDS = new Set(["projectDue", "shippedAt", "etd", "eta", "toldAt", "signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
 const NUMBER_FIELDS = new Set(["ratedPowerKw", "ratedVoltageV", "ratedCurrentA", "laborHours", "runHours", "paidAmount", "whtAmount", "qty", "unitPrice", "amount", "total", "vatRate", "vatAmount", "subtotal"]);
 const ENUM_FIELDS: Record<string, string[]> = { productionImpact: ["STOPPED", "DEGRADED", "NONE"], status: ["ACCEPTED", "CONDITIONAL", "REJECTED"], currency: ["THB", "USD", "CNY", "EUR", "JPY"] };
 
@@ -60,6 +60,11 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
     },
     lines: { fromYm: "start of the job, YYYY-MM", toYm: "end of the job, YYYY-MM (empty if current)", company: "employer name", title: "job title", summary: "main duties and skills in one line" },
   },
+  // 自动化项目: the customer's URS, a drawing list or a BOM — fills the plan page (solution text and BOM rows)
+  project: { attachKind: "INQUIRY", fields: { projectName: "project or line name", projectScope: "what the customer wants done, in their words, one paragraph", projectDue: "required completion date YYYY-MM-DD", solution: "proposed solution if the document states one", customerRef: "customer's inquiry or PO number, verbatim" },
+    lines: { sku: "part / order number exactly as printed", description: "item description", qty: "quantity", unit: "unit" } },
+  // 国际贸易 shipment: the booking confirmation, B/L / AWB or export entry the forwarder sends back
+  shipment: { attachKind: "SHIPPING", fields: { blNo: "bill of lading or air waybill number exactly as printed", vessel: "vessel and voyage, or flight number", shippedAt: "shipped on board / flight date YYYY-MM-DD", etd: "estimated departure YYYY-MM-DD", eta: "estimated arrival YYYY-MM-DD", portLoading: "port or airport of loading", portDischarge: "port or airport of discharge", exportEntryNo: "Thai export entry (ใบขนสินค้าขาออก) number exactly as printed", forwarder: "freight forwarder or carrier name" } },
   entity: { attachKind: "COMPANY_DOC", fields: { nameEn: "company name in English", nameLocal: "company name in the local language", taxId: "tax ID", branchCode: "branch code", addressEn: "registered address in English", addressLocal: "registered address in the local language", phone: "phone", email: "email", signatoryName: "authorised signatory", bank: "receiving bank name, e.g. BANK OF CHINA (THAI) PCL", bankBranch: "bank branch", bankCode: "bank code", bankBranchCode: "bank branch code", accountName: "bank account name", swift: "SWIFT / BIC code", acc_THB: "THB account number exactly as printed", acc_USD: "USD account number exactly as printed", acc_CNY: "CNY / RMB account number exactly as printed", acc_EUR: "EUR account number exactly as printed" } },
   /** A supplier's quotation pasted into our own quote: header + priced lines (costs for the margin). */
   quote: {

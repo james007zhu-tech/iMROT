@@ -14,10 +14,12 @@ export function ModeCards({ form, cards, initial, kinds, labels, inputCls }: {
 }) {
   const [mode, setMode] = useState(initial);
   // Machine modes and trade modes ask for different fields (asset + fault vs customer + SKU lines): the server renders those,
-  // so switching between the two families reloads with ?mode=; inside a family only the small extra fields change.
-  const trade = (m: string) => m.endsWith("_TRADE");
+  // so switching to a mode with another form reloads with ?mode=; between machine modes only the small extra fields change.
+  // Each non-machine mode has a form of its own (国内贸易, 国际贸易 with trade terms, 自动化项目 with the project card).
+  const layout = (m: string) => (["REPAIR", "PARTNER_REPAIR", "MAINTENANCE"].includes(m) ? "MACHINE" : m);
+  const trade = (m: string) => layout(m) !== "MACHINE";
   const pick = (m: string) => {
-    if (trade(m) === trade(initial)) return setMode(m);
+    if (layout(m) === layout(initial)) return setMode(m);
     const q = new URLSearchParams(window.location.search);
     q.set("mode", m); q.delete("error"); if (trade(m)) q.delete("asset");
     window.location.search = q.toString();
