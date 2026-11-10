@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { businessClosureOn } from "@/lib/closure";
 import { prisma } from "@/lib/db";
 import { PageHeader, Table } from "@/components/ui";
+import { ReadyOrders } from "@/components/ReadyOrders";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +11,13 @@ const day = (d?: Date | null) => d?.toISOString().slice(0, 10) ?? "";
 const money = (n: unknown) => Number(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** 税务运营: 请款单 (IVTH / PFTH), 收据 (RCTH), 税务发票 (TITH) — one list each (menu 2026-11-10), newest first. */
-export default async function Page({ searchParams }: { searchParams: Promise<{ doc?: string }> }) {
-  const { doc: d } = await searchParams;
+export default async function Page({ searchParams }: { searchParams: Promise<{ doc?: string; new?: string }> }) {
+  const { doc: d, new: isNew } = await searchParams;
   const doc = d === "rc" || d === "ti" ? d : "iv";
   const t = await getTranslations("common");
   const n = await getTranslations("nav");
+  const dn = await getTranslations("docs");
+  const title = n(doc === "iv" ? "billing" : doc === "rc" ? "receipts" : "taxInvoices");
   const order = (no: string) => <Link href={`/service-orders/${no}`} className="font-mono text-blue hover:underline">{no}</Link>;
   let body: React.ReactNode;
   if (doc === "iv") {
@@ -44,7 +47,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ d
   }
   return (
     <div className="space-y-4">
-      <PageHeader title={n(doc === "iv" ? "billing" : doc === "rc" ? "receipts" : "taxInvoices")} newHref={doc !== "rc" && businessClosureOn() ? "/service-orders?status=ACCEPTED" : undefined} newLabel={t("newInvoiceFromOrder")} />
+      <PageHeader title={title} newHref={businessClosureOn() ? `/tax?doc=${doc}&new=1` : undefined} newLabel={dn("new", { name: title })} />
+      {isNew && <ReadyOrders type={doc === "iv" ? "IV" : doc === "rc" ? "RC" : "TI"} title={title} />}
       {body}
     </div>
   );

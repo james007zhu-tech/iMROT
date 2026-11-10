@@ -5,7 +5,7 @@ import { NAV } from "@/lib/nav";
 import { PageHeader, Card } from "@/components/ui";
 
 /** A menu entry whose page is not built yet: says so, says what it will hold, and points at what exists today. */
-const TODAY: Record<string, string[]> = { finReports: ["/finance", "/dashboard"], expenses: [], training: ["/fault-codes"], permissions: ["/people"], dictionary: ["/series", "/admin"] };
+const TODAY: Record<string, string[]> = { finReports: ["/finance", "/dashboard"], expenses: [], training: ["/fault-codes"], payroll: ["/people", "/people/overtime"], permissions: ["/people"], dictionary: ["/series", "/admin"] };
 
 export default async function Soon({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;

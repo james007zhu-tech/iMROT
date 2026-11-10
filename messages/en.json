@@ -48,7 +48,8 @@
     "stockOut": "Stock out OBTH",
     "paymentVouchers": "Payment vouchers PVTH",
     "statements": "Monthly statements BLTH",
-    "proforma": "Pro-forma PFTH"
+    "proforma": "Pro-forma PFTH",
+    "overtime": "Overtime"
   },
   "assetStatus": {
     "ONBOARDED": "Onboarded",
@@ -2110,7 +2111,8 @@
     "expenses": "Staff expense claims: photograph the receipt, AI reads amount, date and category, the manager approves, finance pays and books it.",
     "training": "The T of iMROT: courses, competence assessment, and teaching cases taken from real repairs; each person's record goes into their talent-pool file.",
     "permissions": "Who may see and do what by role (including what the AI may do on their behalf). Today the rules follow the role in the employee file.",
-    "dictionary": "All codes and option lists in one place: brands, equipment categories, units, business types, document prefixes. Brands and series are kept under Product series for now."
+    "dictionary": "All codes and option lists in one place: brands, equipment categories, units, business types, document prefixes. Brands and series are kept under Product series for now.",
+    "payroll": "Monthly payroll computed automatically: pay terms, the month's overtime and the performance result give gross pay; social security (SSO) and withholding tax (PND1) are deducted; the MD approves; payslips and filing summaries follow. Pay terms are in the employee files and overtime under Overtime for now."
   },
   "msg": {
     "title": "Messages",

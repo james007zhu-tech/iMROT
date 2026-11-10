@@ -4,7 +4,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { maskName } from "@/lib/mask";
 import { DOC_PLACES, DOC_TYPES } from "@/lib/doc-center";
-import { PageHeader, Table, Pager, PAGE_SIZE, Card, btnBlue } from "@/components/ui";
+import { PageHeader, Table, Pager, PAGE_SIZE, btnBlue } from "@/components/ui";
+import { ReadyOrders, newStep } from "@/components/ReadyOrders";
 
 export const dynamic = "force-dynamic";
 
@@ -21,15 +22,13 @@ export default async function Documents({ searchParams }: { searchParams: Promis
   const type = sp.type === "AC" || DOC_TYPES.includes(sp.type ?? "") ? sp.type! : undefined;
   const q = sp.q?.trim();
   const page = Math.max(1, Number(sp.page) || 1);
-  const [t, n, d, u, ts] = await Promise.all([getTranslations("common"), getTranslations("nav"), getTranslations("docs"), getTranslations("ui"), getTranslations("orderStatus")]);
+  const [t, n, d, u] = await Promise.all([getTranslations("common"), getTranslations("nav"), getTranslations("docs"), getTranslations("ui")]);
   const place = type && type !== "AC" ? DOC_PLACES[type] : undefined;
   const title = type === "AC" ? n("acceptance") : place ? n(place.nav) : n("documents");
   const href = (o: { type?: string; page?: number; new?: boolean }) => `/documents?${new URLSearchParams({ ...((o.type ?? type) ? { type: (o.type ?? type)! } : {}), ...(q ? { q } : {}), ...(o.page ? { page: String(o.page) } : {}), ...(o.new ? { new: "1" } : {}) })}`;
   const like = (v: string) => ({ contains: v, mode: "insensitive" as const });
 
-  // ── where a new one starts ──
-  const step = type === "AC" ? { path: "accept", statuses: ["ACCEPTANCE_PENDING", "IN_PROGRESS"], modes: undefined as string[] | undefined } : place?.step;
-  const ready = sp.new && step ? await prisma.serviceOrder.findMany({ where: { status: { in: step.statuses as never }, ...(step.modes ? { mode: { in: step.modes as never } } : {}) }, orderBy: { reportedAt: "desc" }, take: 40, select: { no: true, status: true, customer: { select: { name: true } }, reportedSymptom: true, project: true } }) : null;
+  const step = type ? newStep(type) : undefined;
   const newButton = place?.newHref ? <Link href={place.newHref} className={btnBlue}>＋ {d("new", { name: title })}</Link> : step ? <Link href={href({ new: true })} className={btnBlue}>＋ {d("new", { name: title })}</Link> : null;
 
   let total = 0;
@@ -78,15 +77,7 @@ export default async function Documents({ searchParams }: { searchParams: Promis
           <Link href={href({ type: "AC" })} className="rounded-full border border-navy/20 bg-white px-3 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{n("acceptance")}</Link>
         </div>
       )}
-      {ready && (
-        <Card title={d("pickOrder", { name: title })} accent>
-          {ready.length === 0 ? <p className="text-sm text-navy/70">{d("noReady")}</p> : (
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              {ready.map((o) => <Link key={o.no} href={`/service-orders/${o.no}/${step!.path}`} className="rounded-lg border border-hair bg-white px-3 py-2 text-sm hover:border-blue"><span className="font-mono text-blue">{o.no}</span> <span className="text-navy">{o.customer.name}</span><span className="block truncate text-xs text-navy/60">{ts(o.status)}{o.reportedSymptom ? ` · ${o.reportedSymptom}` : (o.project as { name?: string } | null)?.name ? ` · ${(o.project as { name?: string }).name}` : ""}</span></Link>)}
-            </div>
-          )}
-        </Card>
-      )}
+      {sp.new && type && step && <ReadyOrders type={type} title={title} />}
       <form className="flex max-w-md gap-2">{type && <input type="hidden" name="type" value={type} />}<input name="q" defaultValue={q} placeholder={d("searchPh")} className="w-full rounded-lg border px-3 py-2 text-sm" /><button className="whitespace-nowrap rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy">{t("search")}</button></form>
       {body}
       <Pager page={page} total={total} href={(p) => href({ page: p })} prev={u("prevPage")} next={u("nextPage")} />

@@ -17,7 +17,7 @@ export default async function Parts({ searchParams }: { searchParams: Promise<{ 
   const mvHref = `/parts/movement${movement || order ? `?${new URLSearchParams({ ...(movement ? { direction: movement } : {}), ...(order ? { order } : {}) })}` : ""}`;
   return (
     <div className="space-y-4">
-      <PageHeader title={t("parts")} badge={<Tag>{total}</Tag>} actions={<><Link href="/purchasing/inquiries" className="text-sm text-blue hover:underline">PRTH →</Link><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link><Link href="/parts/new" className={btnGhost}>＋ {u("newPart")}</Link></>} newHref={mvHref} newLabel={u("newMovement")} />
+      <PageHeader title={t("parts")} badge={<Tag>{total}</Tag>} actions={<><Link href="/purchasing/inquiries" className="text-sm text-blue hover:underline">PRTH →</Link><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link><Link href={mvHref} className={btnGhost}>{u("newMovement")}</Link></>} newHref="/parts/new" newLabel={u("newPart")} />
       <form className="flex gap-2"><input name="q" defaultValue={q} placeholder={u("searchParts")} className={`${inputCls} max-w-sm`} /><button className={btnGhost}>{t("search")}</button></form>
       <div className="rounded-xl border bg-white p-2">
         <Table head={[t("sku"), t("name"), t("brand"), u("onHand"), t("inBoms"), t("lastCost")]}>

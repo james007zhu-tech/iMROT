@@ -21,7 +21,7 @@ export const NAV: NavGroup[] = [
   { key: "scm", items: [{ key: "suppliers", href: "/suppliers" }, { key: "inquiries", href: "/purchasing/inquiries" }, { key: "purchaseOrders", href: "/purchasing/orders" }, { key: "stock", href: "/parts" }, doc("stockIn", "IB"), doc("stockOut", "OB")] },
   { key: "fin", items: [{ key: "ledger", href: "/finance" }, doc("paymentVouchers", "PV"), doc("statements", "BL"), soon("finReports"), soon("expenses")] },
   { key: "to", items: [doc("proforma", "PF"), { key: "billing", href: "/tax?doc=iv" }, { key: "taxInvoices", href: "/tax?doc=ti" }, { key: "receipts", href: "/tax?doc=rc" }] },
-  { key: "opd", items: [{ key: "talent", href: "/people" }, soon("training"), { key: "payroll", href: "/people/overtime", mdOnly: true }] },
+  { key: "opd", items: [{ key: "talent", href: "/people" }, { key: "overtime", href: "/people/overtime" }, { ...soon("payroll"), mdOnly: true }, soon("training")] },
   { key: "admin", items: [soon("permissions"), soon("dictionary"), { key: "entities", href: "/admin" }] },
 ];
 
