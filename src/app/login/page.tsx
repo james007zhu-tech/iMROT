@@ -14,7 +14,8 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
   return (
     <div className="flex min-h-screen items-center justify-center bg-navy p-4">
       <form action={login} className="w-full max-w-sm space-y-3 rounded-lg bg-white p-6">
-        <div className="flex items-center justify-between"><h1 className="text-xl font-bold text-navy">{t("appName")}</h1><div className="rounded bg-navy px-1"><LanguageSwitcher /></div></div>
+        <div className="flex items-center justify-between">{/* eslint-disable-next-line @next/next/no-img-element */}
+          <h1><img src="/brand/dcit-logo.png" alt={t("appName")} className="h-12 w-auto" /></h1><LanguageSwitcher tone="light" /></div>
         <p className="text-xs text-navy/70">DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</p>
         <input name="email" type="email" placeholder={t("email")} className="w-full rounded border px-3 py-2" required />
         <input name="password" type="password" placeholder={t("password")} className="w-full rounded border px-3 py-2" required />
