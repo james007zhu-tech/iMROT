@@ -21,6 +21,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const kept = useRef<{ name: string; url: string }[]>([]); // files already handed over in this conversation
   const recRef = useRef<{ stop: () => void } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { if (msgs.length) bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, open]);
@@ -35,12 +36,13 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
     const next = [...msgs, { role: "user" as const, content: shown }];
     setMsgs(next); setInput(""); setFiles([]); setBusy(true);
     try {
-      const payload = { messages: next.map(({ role, content }) => ({ role, content })), path, fields: Array.from(document.querySelectorAll<HTMLElement>("form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && a.indexOf(n) === i).slice(0, 80) };
+      const payload = { messages: next.map(({ role, content }) => ({ role, content })), path, attachments: kept.current, fields: variant === "page" ? [] : Array.from(document.querySelectorAll<HTMLElement>("main form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && !n.startsWith("$") && a.indexOf(n) === i).slice(0, 80) };
       let r: Response;
       if (sent.length) { const fd = new FormData(); fd.append("payload", JSON.stringify(payload)); for (const f of sent) fd.append("file", f); r = await fetch("/api/ai/assist", { method: "POST", body: fd }); }
       else r = await fetch("/api/ai/assist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? r.statusText);
+      if (Array.isArray(j.files)) kept.current = j.files;
       setMsgs([...next, { role: "assistant", content: j.text, actions: j.actions }]);
       const go = (j.actions as Action[] | undefined)?.find((a) => a.type === "navigate");
       if (go?.href) { router.push(go.href); }

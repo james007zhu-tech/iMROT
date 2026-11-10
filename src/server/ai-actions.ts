@@ -20,6 +20,7 @@ import { deliveryPlan, issueDelivery, signDelivery } from "@/server/delivery";
 import { issueProforma } from "@/server/export";
 import { issueInvoice, issueTaxInvoice, recordPayment } from "@/server/to";
 import { MODES } from "@/lib/modes";
+import { addCredential, updateEmployee, updateOwnContacts } from "@/server/opd";
 
 type In = Record<string, unknown>;
 export interface ActionCtx { employeeCode: string }
@@ -42,6 +43,15 @@ async function customerBy(q: unknown) {
   if (hits.length === 1) return hits[0];
   if (!hits.length) throw new Error(`no customer matches "${s}" — create it first with create_customer (ask for missing data)`);
   throw new Error(`several customers match "${s}": ${hits.map((h) => `${h.code} ${h.name}`).join("; ")} — ask which one`);
+}
+
+/** An employee from a code or (part of) a name; empty = the signed-in person. */
+async function employeeBy(q: unknown, selfCode: string) {
+  const s = str(q);
+  if (!s || /^(me|self|我|本人|自己)$/i.test(s)) return prisma.employee.findUniqueOrThrow({ where: { code: selfCode } });
+  const hits = await prisma.employee.findMany({ where: { OR: [{ code: s.toUpperCase() }, { name: { contains: s, mode: "insensitive" } }, { nameLocal: { contains: s, mode: "insensitive" } }] }, take: 5 });
+  if (hits.length === 1) return hits[0];
+  throw new Error(hits.length ? `several employees match "${s}": ${hits.map((h) => `${h.code} ${h.name}`).join("; ")} — ask which one` : `no employee matches "${s}"`);
 }
 
 const TOOLS: ActionTool[] = [
@@ -111,6 +121,30 @@ const TOOLS: ActionTool[] = [
     run: async (i, ctx) => { const dn = await signDelivery({ no: str(i.dn)!, actorCode: ctx.employeeCode, signedBy: str(i.signedBy)!, signedAt: str(i.signedAt) ? new Date(str(i.signedAt)!) : undefined }); return { ok: true, summary: `${dn.no} signed by the customer` }; } },
   { name: "issue_proforma", tier: "auto", description: "International trade: issue the pro-forma invoice (PFTH) for an order whose PO is confirmed.", input_schema: obj({ no: S }, ["no"]),
     run: async (i, ctx) => { const pf = await issueProforma(str(i.no)!, ctx.employeeCode); return { ok: true, summary: `${pf} for ${str(i.no)}`, href: `/service-orders/${str(i.no)}/ship` }; } },
+  { name: "update_employee_profile", tier: "auto",
+    description: "Write facts into an employee file (人才池). employee = code ETH… or name; leave empty for the signed-in person's own file. Fields: taxNo (personal tax ID), ssoNo, bankName, bankAccount, nationality, birthDate (YYYY-MM-DD), position, workLocation, phone, phone2, lineId, wechatId, personalEmail, address, emergencyName, emergencyRelation, emergencyPhone. Only the MD may change another person's file or the non-contact fields; everyone may change their own contact details.",
+    input_schema: obj({ employee: S, taxNo: S, ssoNo: S, bankName: S, bankAccount: S, nationality: S, birthDate: S, position: S, workLocation: S, phone: S, phone2: S, lineId: S, wechatId: S, personalEmail: S, address: S, emergencyName: S, emergencyRelation: S, emergencyPhone: S }),
+    run: async (i, ctx) => {
+      const actor = await prisma.employee.findUniqueOrThrow({ where: { code: ctx.employeeCode } });
+      const e = await employeeBy(i.employee, actor.code);
+      const fields = Object.fromEntries(Object.entries(i).filter(([k, v]) => k !== "employee" && str(v))) as Record<string, string>;
+      if (!Object.keys(fields).length) throw new Error("nothing to write");
+      const CONTACT = ["phone", "phone2", "lineId", "wechatId", "personalEmail", "address", "emergencyName", "emergencyRelation", "emergencyPhone"];
+      if (actor.role === "MD") await updateEmployee({ actorCode: actor.code, code: e.code, ...fields });
+      else if (e.code === actor.code && Object.keys(fields).every((k) => CONTACT.includes(k))) await updateOwnContacts(actor.code, fields);
+      else throw new Error("only the MD may change these fields; a person may change their own contact details");
+      return { ok: true, summary: `${e.code} ${e.name}: ${Object.keys(fields).join(", ")}`, href: `/people/${e.code}` };
+    } },
+  { name: "add_employee_document", tier: "auto",
+    description: "File a document in an employee file with its number, dates and the attached file: PASSPORT, ID_CARD, VISA, WORK_PERMIT, REPORT_90, CONTRACT, DEGREE, CERTIFICATE, DRIVING_LICENCE, OTHER (give a title, e.g. 'Taxpayer ID card'). employee empty = the signed-in person. file = {name, url} of an attached file. The expiry date feeds the message centre. MD only.",
+    input_schema: obj({ employee: S, kind: { type: "string", enum: ["PASSPORT", "ID_CARD", "VISA", "WORK_PERMIT", "REPORT_90", "CONTRACT", "DEGREE", "CERTIFICATE", "DRIVING_LICENCE", "OTHER"] }, title: S, number: S, issuedAt: S, expiresAt: S, note: S, file: obj({ name: S, url: S }, ["name", "url"]) }, ["kind"]),
+    run: async (i, ctx) => {
+      const e = await employeeBy(i.employee, ctx.employeeCode);
+      const f = i.file as { name?: string; url?: string } | undefined;
+      if (f?.url && !/^\/api\/uploads\/[A-Za-z0-9._-]+$/.test(f.url)) throw new Error("file.url must be the url of a file attached in this conversation");
+      await addCredential(ctx.employeeCode, e.code, { kind: str(i.kind) as "OTHER", title: str(i.title), number: str(i.number), issuedAt: str(i.issuedAt), expiresAt: str(i.expiresAt), note: str(i.note), file: f?.url ? { name: f.name ?? "file", url: f.url } : undefined });
+      return { ok: true, summary: `${e.code} ${e.name}: ${str(i.title) ?? str(i.kind)}${str(i.number) ? ` ${str(i.number)}` : ""}${f?.url ? " + file" : ""}`, href: `/people/${e.code}` };
+    } },
   { name: "issue_tax_invoice", tier: "confirm", description: "Issue the tax invoice (TITH) and the invoice (IVTH) for an accepted order. A tax invoice number cannot be taken back, so the person confirms first.", input_schema: obj({ no: S }, ["no"]),
     summarize: (i) => `Issue tax invoice + invoice for ${str(i.no)}`,
     run: async (i, ctx) => { const ti = await issueTaxInvoice({ serviceOrderNo: str(i.no)!, actorCode: ctx.employeeCode }); const iv = await issueInvoice({ serviceOrderNo: str(i.no)!, actorCode: ctx.employeeCode, taxInvoiceNo: ti.no }); return { ok: true, summary: `${ti.no} + ${iv.no} · ${ti.currency} ${Number(ti.total).toFixed(2)}`, href: `/service-orders/${str(i.no)}/invoice` }; } },
