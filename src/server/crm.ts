@@ -18,9 +18,11 @@ const File = z.object({ name: z.string(), url: z.string(), kind: z.string() });
 export const CustomerInput = z.object({
   actorCode: z.string(),
   entityCode: z.string(),
-  taxId: z.string().regex(/^\d{13}$/, "tax ID must be 13 digits"),
+  /** 海外客户 (国际贸易, 2026-11-10): no Thai tax ID or DBD record — the registration number is free text and optional. */
+  overseas: z.boolean().default(false),
+  taxId: z.string().default(""),
   branchCode: z.string().regex(/^\d{5}$/).default("00000"),
-  nameLocal: z.string().min(1),
+  nameLocal: z.string().default(""),
   name: z.string().min(1),
   shortName: z.string().optional(),
   phone: z.string().optional(),
@@ -37,6 +39,9 @@ export const CustomerInput = z.object({
   files: z.array(File).default([]),
   plants: z.array(Plant).min(1, "at least one plant"),
   contacts: z.array(Contact).default([]),
+}).superRefine((d, ctx) => {
+  if (!d.overseas && !/^\d{13}$/.test(d.taxId)) ctx.addIssue({ code: "custom", path: ["taxId"], message: "tax ID must be 13 digits" });
+  if (!d.overseas && !d.nameLocal.trim()) ctx.addIssue({ code: "custom", path: ["nameLocal"], message: "required" });
 });
 
 export async function createCustomer(input: z.input<typeof CustomerInput>) {
@@ -44,7 +49,7 @@ export async function createCustomer(input: z.input<typeof CustomerInput>) {
   if (isClosedStatus(d.dbd?.status)) throw new Error(`DBD_CLOSED:${d.dbd?.status}`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const entity = await prisma.legalEntity.findUniqueOrThrow({ where: { code: d.entityCode } });
-  const dupe = await prisma.customer.findFirst({ where: { taxId: d.taxId, branchCode: d.branchCode } });
+  const dupe = d.taxId ? await prisma.customer.findFirst({ where: { taxId: d.taxId, branchCode: d.branchCode } }) : await prisma.customer.findFirst({ where: { name: { equals: d.name, mode: "insensitive" } } });
   if (dupe) throw new Error(`CUSTOMER_EXISTS:${dupe.code}:${dupe.name}`);
   // Which DBD-derived fields did a person change before saving?
   const edited = d.dbd ? Object.entries(d.dbd.values).filter(([k, v]) => (d as Record<string, unknown>)[k] !== undefined && String((d as Record<string, unknown>)[k]) !== v).map(([k]) => k) : [];
@@ -52,10 +57,10 @@ export async function createCustomer(input: z.input<typeof CustomerInput>) {
     const code = await allocateNumber(tx, { prefix: "C", createdByEmployeeCode: actor.code, entityId: entity.id });
     const c = await tx.customer.create({
       data: {
-        code, entityId: entity.id, name: d.name, nameLocal: d.nameLocal, taxId: d.taxId, branchCode: d.branchCode, phone: d.phone,
+        code, entityId: entity.id, name: d.name, nameLocal: d.nameLocal || (d.overseas ? null : d.name), taxId: d.taxId || null, branchCode: d.overseas ? null : d.branchCode, phone: d.phone,
         addressLocal: d.addressLocal, addressEn: d.addressEn, billingAddress: d.billingAddress, registeredCapital: d.registeredCapital, foundedAt: d.foundedAt,
         defaultCurrency: d.defaultCurrency, paymentTermDays: d.paymentTermDays, monthlyStatement: d.monthlyStatement,
-        notes: [d.shortName ? `short: ${d.shortName}` : "", d.source ? `source: ${d.source}` : ""].filter(Boolean).join("\n") || undefined,
+        notes: [d.overseas ? "overseas customer" : "", d.shortName ? `short: ${d.shortName}` : "", d.source ? `source: ${d.source}` : ""].filter(Boolean).join("\n") || undefined,
         dbdStatus: d.dbd?.status, dbdFetchedAt: d.dbd?.fetchedAt, dbdData: d.dbd?.data as Prisma.InputJsonValue | undefined, editedFields: edited.length ? edited : undefined,
         files: d.files as Prisma.InputJsonValue,
       },

@@ -17,8 +17,11 @@ const PLANTS = 6;
 const CONTACTS = 8;
 
 /** 新增客户 — wireframe 3. Only DBD / ภ.พ.20 / billing documents are accepted; the rest comes from DBD by tax ID. */
-export default async function NewCustomer({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const { error } = await searchParams;
+export default async function NewCustomer({ searchParams }: { searchParams: Promise<{ error?: string; name?: string; back?: string; overseas?: string }> }) {
+  const { error, name: askedName, back, overseas: ov } = await searchParams;
+  const overseas = ov === "1"; // 海外客户: no Thai tax ID, no DBD — for 国际贸易
+  const backTo = back && back.startsWith("/") ? back : undefined; // e.g. the new-order form that sent the person here
+  const self = (o: boolean) => `/customers/new?${new URLSearchParams({ ...(o ? { overseas: "1" } : {}), ...(askedName ? { name: askedName } : {}), ...(backTo ? { back: backTo } : {}) })}`;
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [entities, viewer] = await Promise.all([prisma.legalEntity.findMany({ orderBy: { createdAt: "asc" } }), currentEmployee()]);
 
@@ -31,15 +34,15 @@ export default async function NewCustomer({ searchParams }: { searchParams: Prom
       const contacts = Array.from({ length: CONTACTS }, (_, i) => ({ name: s(`c${i}_name`) ?? "", title: s(`c${i}_title`), plantCode: s(`c${i}_plant`), phone: s(`c${i}_phone`), lineId: s(`c${i}_line`), email: s(`c${i}_email`), portalLogin: s(`c${i}_login`), portalPassword: s(`c${i}_pw`) })).filter((k) => k.name);
       const fetched = s("dbdFetchedAt");
       const c = await createCustomer({
-        actorCode: me.code, entityCode: String(f.get("entityCode")), taxId: (s("taxId") ?? "").replace(/\D/g, ""), branchCode: s("branchCode") ?? "00000",
+        actorCode: me.code, entityCode: String(f.get("entityCode")), overseas, taxId: overseas ? s("taxId") ?? "" : (s("taxId") ?? "").replace(/\D/g, ""), branchCode: s("branchCode") ?? "00000",
         nameLocal: s("nameLocal") ?? "", name: s("name") ?? "", shortName: s("shortName"), phone: s("phone"), addressLocal: s("addressLocal"), addressEn: s("addressEn"), billingAddress: s("billingAddress"),
         registeredCapital: s("registeredCapital") ? Number(s("registeredCapital")!.replace(/[^\d.]/g, "")) : undefined, foundedAt: s("foundedAt") ? new Date(s("foundedAt")!) : undefined,
         defaultCurrency: s("defaultCurrency") ?? "THB", paymentTermDays: Number(s("paymentTermDays") ?? 30), monthlyStatement: f.get("monthlyStatement") === "on", source: s("source"),
         dbd: fetched ? { status: s("dbdStatus"), fetchedAt: new Date(fetched), data: JSON.parse(s("dbdData") ?? "null"), values: JSON.parse(s("dbdValues") ?? "{}") } : undefined,
         files: JSON.parse(s("attachments") ?? "[]"), plants, contacts,
       });
-      return { ok: c.code, to: `/customers/${c.code}` };
-    }, "/customers/new");
+      return { ok: c.code, to: backTo ? `${backTo}${backTo.includes("?") ? "&" : "?"}customer=${c.code}` : `/customers/${c.code}` };
+    }, self(overseas));
   }
   const [code, a1, a2] = (error ?? "").split(":");
   const known = ["CUSTOMER_EXISTS", "DBD_CLOSED"].includes(code);
@@ -52,21 +55,26 @@ export default async function NewCustomer({ searchParams }: { searchParams: Prom
       {code === "CUSTOMER_EXISTS" && <Alert>{u("customerExists", { code: a1, name: a2 })} <Link className="underline" href={`/customers/${a1}`}>{a1}</Link></Alert>}
       {code === "DBD_CLOSED" && <Alert>{u("dbdClosed", { status: a1 })}</Alert>}
       <FormMemory formId="f" />
-      <UploadRecognize kind="customer" formId="f" title={u("upCustomerTitle")} hint={u("upCustomerHint")} />
+      <div className="flex gap-2 text-sm">
+        <Link href={self(false)} className={`rounded-full border px-3 py-1 ${overseas ? "border-navy/30 bg-white text-blue" : "border-blue bg-blue font-bold text-white"}`}>{u("customerThai")}</Link>
+        <Link href={self(true)} className={`rounded-full border px-3 py-1 ${overseas ? "border-blue bg-blue font-bold text-white" : "border-navy/30 bg-white text-blue"}`}>{u("customerOverseas")}</Link>
+      </div>
+      <UploadRecognize kind={overseas ? "entity" : "customer"} formId="f" title={u(overseas ? "upOverseasTitle" : "upCustomerTitle")} hint={u(overseas ? "upOverseasHint" : "upCustomerHint")} />
       <form id="f" action={save} className="space-y-4">
         <Card title={u("company")}>
           <div className="flex flex-wrap items-end gap-3">
+            {overseas ? <Field label={u("registrationNo")} className="w-64"><input name="taxId" maxLength={30} className={`${inputCls} font-mono`} /></Field> : <>
             <Field label={t("taxId")} required className="w-64"><input name="taxId" required inputMode="numeric" maxLength={17} className={`${inputCls} font-mono`} /></Field>
             <Field label={t("branch")} className="w-32"><input name="branchCode" defaultValue="00000" maxLength={5} className={`${inputCls} font-mono`} /></Field>
-            <DbdLookup formId="f" />
+            <DbdLookup formId="f" /></>}
           </div>
           <Grid>
-            <Field label={<>{u("nameTh")}{dbdTag}</>} required><input name="nameLocal" required className={inputCls} /></Field>
-            <Field label={<>{u("nameEnLabel")}{dbdTag}</>} required><input name="name" required className={inputCls} /></Field>
+            {overseas ? <Field label={u("nameLocalOptional")}><input name="nameLocal" className={inputCls} /></Field> : <Field label={<>{u("nameTh")}{dbdTag}</>} required><input name="nameLocal" required className={inputCls} /></Field>}
+            <Field label={<>{u("nameEnLabel")}{!overseas && dbdTag}</>} required><input name="name" required defaultValue={askedName ?? ""} className={inputCls} /></Field>
             <Field label={u("shortName")}><input name="shortName" className={inputCls} /></Field>
             <Field label={<>{u("capitalFounded")}{dbdTag}</>}><div className="flex gap-2"><input name="registeredCapital" placeholder="THB" className={inputCls} /><input name="foundedAt" type="date" className={inputCls} /></div></Field>
             <Field label={<>{t("phone")}{dbdTag}</>}><input name="phone" className={inputCls} /></Field>
-            <Field label={u("defaultCurrency")}><select name="defaultCurrency" className={inputCls}><option>THB</option><option>USD</option><option>CNY</option><option>VND</option></select></Field>
+            <Field label={u("defaultCurrency")}><select name="defaultCurrency" defaultValue={overseas ? "USD" : "THB"} className={inputCls}><option>THB</option><option>USD</option><option>CNY</option><option>VND</option></select></Field>
             <Field label={<>{u("addressTh")}{dbdTag}</>}><textarea name="addressLocal" rows={2} className={inputCls} /></Field>
             <Field label={<>{u("addressEnLabel")}{dbdTag}</>}><textarea name="addressEn" rows={2} className={inputCls} /></Field>
             <Field label={u("billingAddress")}><textarea name="billingAddress" rows={2} className={inputCls} /></Field>
