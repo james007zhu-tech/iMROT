@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import type { RecognizeKind } from "@/lib/recognize";
 import { describeForm } from "@/lib/form-read";
+import { useDictation } from "@/lib/dictation";
 
 type Att = { name: string; url: string; kind: string };
 
@@ -25,23 +26,19 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
   const boxRef = useRef<HTMLDivElement>(null);
   const locale = useLocale();
   const [heard, setHeard] = useState("");
-  const [listening, setListening] = useState(false);
-  const rec = useRef<{ stop: () => void } | null>(null);
-  const said = useRef("");
-
-  /** 口述: speak the findings; the text is shown while listening, can be corrected, then drafted into the form. */
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  const [noteOpen, setNoteOpen] = useState(false);
+  /** 口述: recorded and transcribed, or the browser's recognition, or the keyboard's microphone — see src/lib/dictation.ts */
+  const voice = useDictation(locale, {
+    base: () => heard.trim(),
+    onText: (text) => setHeard(text),
+    onError: (code) => { setNoteOpen(true); setMsg({ tone: "warn", text: t(code === "denied" ? "dictateDenied" : "dictateFailed") }); setTimeout(() => noteRef.current?.focus(), 50); },
+  });
+  const listening = voice.state === "listening";
   function toggleDictation() {
-    if (listening) { rec.current?.stop(); return; }
-    type SR = { lang: string; interimResults: boolean; continuous: boolean; onresult: ((ev: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null; start: () => void; stop: () => void };
-    const w = window as unknown as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR };
-    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-    if (!Ctor) { setMsg({ tone: "warn", text: t("dictateUnsupported") }); return; }
-    const r = new Ctor();
-    r.lang = locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-US"; r.interimResults = true; r.continuous = true;
-    said.current = heard ? `${heard} ` : "";
-    r.onresult = (ev) => { let interim = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) { const x = ev.results[i]; if (x.isFinal) said.current += x[0].transcript; else interim += x[0].transcript; } setHeard(said.current + interim); };
-    r.onend = () => setListening(false); r.onerror = () => setListening(false);
-    r.start(); rec.current = r; setListening(true); setMsg(null);
+    setMsg(null); setNoteOpen(true);
+    if (voice.mode === "keyboard") { setTimeout(() => noteRef.current?.focus(), 50); return; } // the keyboard's microphone does the listening
+    voice.toggle();
   }
 
   async function send(files: File[], text?: string) {
@@ -109,10 +106,12 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
           <button type="button" disabled={busy} onClick={async () => { try { const items = await navigator.clipboard.read(); const files: File[] = []; let text = ""; for (const it of items) { for (const type of it.types) { const b = await it.getType(type); if (type.startsWith("text/")) text += await b.text(); else files.push(new File([b], `paste.${type.split("/")[1]}`, { type })); } } void send(files, text); } catch { setMsg({ tone: "warn", text: t("pasteHint") }); } }} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm font-semibold">{t("paste")}</button>
         </div>
       </div>
-      {dictate && (listening || heard) && (
+      {dictate && (noteOpen || listening || heard) && (
         <div className="mt-3 space-y-2">
-          <textarea value={heard} onChange={(e) => setHeard(e.target.value)} rows={3} placeholder={t("dictatePh")} className="w-full rounded-lg border border-navy/30 bg-white px-3 py-2 text-[15px]" />
-          {!listening && heard.trim() && <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => { const x = heard; setHeard(""); void send([], x); }} className="min-h-10 rounded-lg bg-navy px-4 text-sm font-bold text-white">{t("dictateUse")}</button><button type="button" onClick={() => setHeard("")} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm">{t("dictateClear")}</button></div>}
+          <textarea ref={noteRef} value={heard} onChange={(e) => setHeard(e.target.value)} rows={3} placeholder={t(voice.mode === "keyboard" ? "dictateKeyboardPh" : "dictatePh")} className="w-full rounded-lg border border-navy/30 bg-white px-3 py-2 text-[16px]" />
+          {voice.state === "transcribing" && <p className="text-xs text-blue">{t("dictateTranscribing")}</p>}
+          {voice.mode === "keyboard" && !heard.trim() && <p className="text-xs text-navy/70">{t("dictateKeyboardHint")}</p>}
+          {!listening && voice.state !== "transcribing" && heard.trim() && <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => { const x = heard; setHeard(""); setNoteOpen(false); void send([], x); }} className="min-h-10 rounded-lg bg-navy px-4 text-sm font-bold text-white">{t("dictateUse")}</button><button type="button" onClick={() => setHeard("")} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm">{t("dictateClear")}</button></div>}
         </div>
       )}
       <input ref={fileRef} type="file" multiple hidden accept="image/*,application/pdf,.txt,.csv,.eml" onChange={(e) => { void send(Array.from(e.target.files ?? [])); e.target.value = ""; }} />

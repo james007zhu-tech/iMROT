@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { readForm, type FormInfo } from "@/lib/form-read";
+import { useDictation } from "@/lib/dictation";
 
 type Msg = { role: "user" | "assistant"; content: string; actions?: Action[] };
 type Action = { type: "navigate" | "fill_form" | "dashboard" | "confirm" | "done"; href?: string; fields?: Record<string, string>; id?: string; summary?: string; state?: "done" | "cancelled" | "failed"; note?: string };
@@ -20,14 +21,13 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [listening, setListening] = useState(false);
+  const [voiceHint, setVoiceHint] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const kept = useRef<{ name: string; url: string }[]>([]);
   const [formInfo, setFormInfo] = useState<FormInfo | null>(null);
   // opened on a page with a form, the assistant is that form's helper (朱总 2026-11-10); a new page starts afresh
   useEffect(() => { if (variant === "float" && scope === "staff") { setFormInfo(open ? readForm() : null); } }, [open, path, variant, scope]);
   useEffect(() => { if (variant === "float") { setMsgs([]); kept.current = []; } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [path]); // files already handed over in this conversation
-  const recRef = useRef<{ stop: () => void } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { if (msgs.length) bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, open]);
   // the home conversation survives opening a record and coming back (this tab only)
@@ -104,17 +104,16 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
     setMsgs((m) => [...m, { role: "assistant", content: t("filled", { n }) }]);
   }
 
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const voice = useDictation(locale, {
+    base: () => input.trim(),
+    onText: (text) => setInput(text),
+    onError: (code) => { setMsgs((m) => [...m, { role: "assistant", content: t(code === "denied" ? "voiceDenied" : "voiceFailed") }]); inputRef.current?.focus(); },
+  });
+  const listening = voice.state === "listening";
   function toggleVoice() {
-    if (listening) { recRef.current?.stop(); setListening(false); return; }
-    const SR = (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike; SpeechRecognition?: new () => SpeechRecognitionLike }).SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition;
-    if (!SR) { setMsgs((m) => [...m, { role: "assistant", content: t("noVoice") }]); return; }
-    const rec = new SR();
-    rec.lang = locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-US";
-    rec.interimResults = true; rec.continuous = true;
-    let finalText = "";
-    rec.onresult = (ev) => { let interim = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) { const r = ev.results[i]; if (r.isFinal) finalText += r[0].transcript; else interim += r[0].transcript; } setInput(finalText + interim); };
-    rec.onend = () => setListening(false);
-    rec.start(); recRef.current = rec; setListening(true);
+    if (voice.mode === "keyboard") { inputRef.current?.focus(); setVoiceHint(true); return; } // no speech in this browser: the keyboard's microphone
+    voice.toggle();
   }
 
   async function attachPhoto(file: File) {
@@ -163,14 +162,14 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   const composer = (big: boolean) => big ? (
     <form onSubmit={(e) => { e.preventDefault(); void send(input); }} {...drop} className="rounded-3xl border border-navy/20 bg-white px-3 pb-2.5 pt-3 shadow-sm focus-within:border-blue">
       {chips}
-      <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} rows={2} placeholder={t("placeholder")} className="block max-h-48 w-full resize-none border-0 px-2 text-[16px] leading-relaxed outline-none placeholder:not-italic placeholder:text-navy/40" />
+      <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} rows={2} placeholder={t(voiceHint ? "voiceKeyboard" : voice.state === "transcribing" ? "voiceTranscribing" : "placeholder")} className="block max-h-48 w-full resize-none border-0 px-2 text-[16px] leading-relaxed outline-none placeholder:not-italic placeholder:text-navy/40" />
       <div className="mt-1 flex items-center gap-2">{tools}<button disabled={busy} aria-label="send" className="ml-auto h-10 w-10 shrink-0 rounded-full bg-blue text-lg font-bold text-white disabled:opacity-50">↑</button></div>
     </form>
   ) : (
     <form onSubmit={(e) => { e.preventDefault(); void send(input); }} {...drop} className="flex flex-wrap items-end gap-1 border-t p-2">
       {chips}
       {tools}
-      <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} rows={1} placeholder={t("placeholder")} className="max-h-24 min-w-0 flex-1 resize-none rounded border px-3 py-2 text-sm" />
+      <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} rows={1} placeholder={t(voiceHint ? "voiceKeyboard" : voice.state === "transcribing" ? "voiceTranscribing" : "placeholder")} className="max-h-24 min-w-0 flex-1 resize-none rounded border px-3 py-2 text-sm" />
       <button disabled={busy} className="h-10 shrink-0 rounded-full bg-blue px-4 font-bold text-white disabled:opacity-50">↑</button>
     </form>
   );
@@ -247,4 +246,3 @@ function Md({ text }: { text: string }) {
   return <div className="space-y-0.5 leading-relaxed">{blocks}</div>;
 }
 
-interface SpeechRecognitionLike { lang: string; interimResults: boolean; continuous: boolean; onresult: ((ev: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void }
