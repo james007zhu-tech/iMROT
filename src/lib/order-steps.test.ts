@@ -42,4 +42,12 @@ describe("next step", () => {
     expect(reportsFor({ type: "IV", templateCode: "33" }, false)[0].key).toBe("rpt33");
     expect(reportsFor({ type: "DN", templateCode: "34" }, false)[0].key).toBe("rpt34");
   });
+  it("automation project: plan, quote, PO, then the project page; paying milestones before payment", () => {
+    const p = { kind: "REPAIR", hasInspection: false, hasQuote: false, hasJob: false, jobFinished: false, workshop: false, deliveriesSigned: 0, deliveriesOpen: 0, invoicesUnpaid: 0, hasAcceptance: false };
+    expect(nextSteps({ ...p, status: "RECEIVED", project: { planned: false, invoiceDue: 0 } }).primary).toBe("plan");
+    expect(nextSteps({ ...p, status: "DIAGNOSING", project: { planned: true, invoiceDue: 0 } }).primary).toBe("quote");
+    expect(nextSteps({ ...p, status: "IN_PROGRESS", project: { planned: true, invoiceDue: 1 } }).primary).toBe("project");
+    expect(nextSteps({ ...p, status: "ACCEPTED", project: { planned: true, invoiceDue: 1 } }).primary).toBe("project");
+    expect(nextSteps({ ...p, status: "INVOICED", invoicesUnpaid: 2, project: { planned: true, invoiceDue: 0 } }).primary).toBe("payment");
+  });
 });

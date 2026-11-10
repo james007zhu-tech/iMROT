@@ -11,7 +11,7 @@ import { assertBusinessClosure } from "@/lib/closure";
 import { audit } from "@/server/audit";
 import { declineInvoiceLines } from "@/server/decline";
 
-async function bocRate(currency: string, onOrBefore: Date): Promise<number> {
+export async function bocRate(currency: string, onOrBefore: Date): Promise<number> {
   if (currency === "CNY") return 1;
   const r = await prisma.fxRate.findFirst({ where: { currency, rateDate: { lte: onOrBefore } }, orderBy: { rateDate: "desc" } });
   if (!r) throw new Error(`No Bank of China rate for ${currency} on or before ${onOrBefore.toISOString().slice(0, 10)} — run npm run fx:fetch`);
@@ -39,6 +39,8 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   const reissue = order.status === "INVOICED" && order.taxInvoices.length > 0 && order.taxInvoices.every((t) => t.voidedAt);
   // 国际贸易: an export carries no TITH — the commercial invoice (IVTH 33) and the export entry stand in (src/lib/export.ts)
   if (order.mode === "INTERNATIONAL_TRADE") throw new Error(`EXPORT_NO_TAX_INVOICE:${order.no}`);
+  // 自动化项目: invoiced per milestone on the project page (src/server/project.ts)
+  if (order.mode === "AUTOMATION_PROJECT") throw new Error(`USE_MILESTONE_INVOICE:${order.no}`);
   const feeLines = order.decline ? await declineInvoiceLines(order.no) : null;
   if (order.decline && !feeLines?.length) throw new Error(`FEE_WAIVED:${order.no}`);
   const first = order.decline ? order.status === "DECLINED" : order.status === "ACCEPTED";
@@ -57,29 +59,45 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   const fx = await bocRate(currency, issuedAt);
 
   return prisma.$transaction(async (tx) => {
-    const no = await allocateNumber(tx, { prefix: "TI", createdByEmployeeCode: actor.code, entityId: order.entityId, date: issuedAt });
-    // เล่มที่ / เลขที่ในเล่ม (朱总 2026-11-08): one running sequence per legal entity, books of `taxInvoiceBookSize`; a voided
-    // tax invoice keeps its place in the book, exactly as a torn page in a paper book would.
-    const last = await tx.taxInvoice.findFirst({ where: { serviceOrder: { entityId: order.entityId }, seq: { not: null } }, orderBy: { seq: "desc" }, select: { seq: true } });
-    const seq = (last?.seq ?? 0) + 1;
-    const bookSize = Math.max(1, order.entity.taxInvoiceBookSize);
-    const bookNo = String(Math.ceil(seq / bookSize)).padStart(3, "0");
-    const bookSeq = ((seq - 1) % bookSize) + 1;
-    const ti = await tx.taxInvoice.create({
-      data: {
-        no, serviceOrderId: order.id, issuedAt, currency, seq, bookNo, bookSeq,
-        lines: lines.map((l) => ({ ...l, amount: round2(l.qty * l.unitPrice) })) as Prisma.InputJsonValue,
-        subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx, totalCny: round2(t.total * fx),
-        buyerTaxId: d.buyerTaxId ?? order.customer.taxId, buyerBranch: d.buyerBranch ?? order.customer.branchCode,
-      },
-    });
-    await tx.document.create({ data: { no, type: "TI", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, issuedAt } });
+    const ti = await writeTaxInvoice(tx, { order, actor, issuedAt, currency, lines, vatRate, fx, buyerTaxId: d.buyerTaxId, buyerBranch: d.buyerBranch });
+    const no = ti.no;
     await tx.serviceOrder.update({ where: { id: order.id }, data: { status: "INVOICED" } });
     for (const a of order.assets) {
       await tx.assetEvent.create({ data: { assetId: a.assetId, type: "INVOICED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: issuedAt, summary: `${currency} ${t.total.toFixed(2)} incl. VAT ${(vatRate * 100).toFixed(0)}%`, payload: { ...t, totalCny: round2(t.total * fx), fx } as Prisma.InputJsonValue } });
     }
     return ti;
   });
+}
+
+type TiLineIn = { descriptionLocal: string; descriptionEn?: string; qty: number; unit?: string; unitPrice: number };
+/**
+ * The TITH itself: number, เล่มที่ / เลขที่ในเล่ม, lines, totals, Document. Shared by the order's tax invoice and the
+ * instalments of an automation project (src/server/project.ts). Status changes and events stay with the caller.
+ */
+export async function writeTaxInvoice(tx: Prisma.TransactionClient, a: {
+  order: { id: string; entityId: string; customerId: string; entity: { taxInvoiceBookSize: number }; customer: { taxId: string | null; branchCode: string | null } };
+  actor: { id: string; code: string }; issuedAt: Date; currency: string; lines: TiLineIn[]; vatRate: number; fx: number; buyerTaxId?: string; buyerBranch?: string;
+}) {
+  const { order, actor, issuedAt, currency, lines, vatRate, fx } = a;
+  const t = totals(lines, vatRate);
+  const no = await allocateNumber(tx, { prefix: "TI", createdByEmployeeCode: actor.code, entityId: order.entityId, date: issuedAt });
+  // เล่มที่ / เลขที่ในเล่ม (朱总 2026-11-08): one running sequence per legal entity, books of `taxInvoiceBookSize`; a voided
+  // tax invoice keeps its place in the book, exactly as a torn page in a paper book would.
+  const last = await tx.taxInvoice.findFirst({ where: { serviceOrder: { entityId: order.entityId }, seq: { not: null } }, orderBy: { seq: "desc" }, select: { seq: true } });
+  const seq = (last?.seq ?? 0) + 1;
+  const bookSize = Math.max(1, order.entity.taxInvoiceBookSize);
+  const bookNo = String(Math.ceil(seq / bookSize)).padStart(3, "0");
+  const bookSeq = ((seq - 1) % bookSize) + 1;
+  const ti = await tx.taxInvoice.create({
+    data: {
+      no, serviceOrderId: order.id, issuedAt, currency, seq, bookNo, bookSeq,
+      lines: lines.map((l) => ({ ...l, amount: round2(l.qty * l.unitPrice) })) as Prisma.InputJsonValue,
+      subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx, totalCny: round2(t.total * fx),
+      buyerTaxId: a.buyerTaxId ?? order.customer.taxId, buyerBranch: a.buyerBranch ?? order.customer.branchCode,
+    },
+  });
+  await tx.document.create({ data: { no, type: "TI", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, issuedAt } });
+  return ti;
 }
 
 export const InvoiceInput = z.object({

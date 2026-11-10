@@ -31,6 +31,10 @@ export default async function Quote({ params, searchParams }: { params: Promise<
       lines.push({ partSku: r.sku, description: r.description || part?.name || "", descriptionLocal: part?.nameLocal, qty: r.qty, unit: r.unit, unitCost: part?.lastCost ?? null });
     }
   }
+  if (order.mode === "AUTOMATION_PROJECT" && !order.lines.length) {
+    // 自动化项目: the BOM above, then the labour from the plan (hours × internal cost per hour)
+    for (const l of ((order.project as { labour?: { description: string; hours: number; costPerHour?: number }[] } | null)?.labour ?? [])) lines.push({ description: l.description, descriptionLocal: "ค่าแรงงานวิศวกรรม", qty: l.hours, unit: "h", unitCost: l.costPerHour ?? null });
+  }
   if (!lines.length) {
     const insps = await prisma.inspection.findMany({ where: { serviceOrderId: order.id, draft: false }, orderBy: { no: "asc" }, include: { asset: { select: { code: true } } } });
     for (const insp of insps) for (const n of ((insp.needs as { kind: string; partSku?: string; description: string; descriptionLocal?: string; qty: number; unit?: string }[] | null) ?? [])) {

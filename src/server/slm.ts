@@ -1,6 +1,7 @@
 /**
  * SLM service layer. One service = one QTTH created at report time; everything else hangs below it.
  */
+import { createMilestones } from "@/server/project";
 import { tradeTermsFrom } from "@/lib/export";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -10,7 +11,7 @@ import type { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { canTransitionOrder } from "@/lib/lifecycle";
 import { quoteMayGoOut } from "@/lib/margin";
 import { autoInquiryForOrder, raisePurchaseOrdersForOrder } from "@/server/purchasing";
-import { MODES, OPEN_MODES, TRADE_QUOTE_TEMPLATE, isTradeMode, kindFor, modeFromKind, modeNeedsAsset, requestLinesFrom } from "@/lib/modes";
+import { MODES, OPEN_MODES, TRADE_QUOTE_TEMPLATE, isTradeMode, quoteJustCancels, kindFor, modeFromKind, modeNeedsAsset, requestLinesFrom } from "@/lib/modes";
 import { declineCloseBlockers } from "@/lib/decline";
 import { declineShapeOf } from "@/server/decline";
 
@@ -71,6 +72,8 @@ export const CreateServiceOrderInput = z.object({
   requestLines: z.array(z.object({ sku: z.string().optional(), description: z.string().optional(), qty: z.coerce.number().optional(), unit: z.string().optional(), neededBy: z.string().optional(), hsCode: z.string().optional(), origin: z.string().optional() })).optional(),
   /** 国际贸易: currency, Incoterms and place, destination, payment terms (src/lib/export.ts) — required for that mode */
   tradeTerms: z.record(z.unknown()).optional(),
+  /** 自动化项目: {name, dueDate?, scope?} — the name is required for that mode */
+  project: z.object({ name: z.string(), dueDate: z.string().optional(), scope: z.string().optional() }).optional(),
   reportedSymptom: z.string().optional(),
   reportedAlarm: z.string().optional(),
   productionImpact: z.string().optional(),
@@ -93,6 +96,10 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
   if (trade && data.assetCodes.length) throw new Error("TRADE_HAS_NO_ASSET"); // decided 2026-11-09: SKUs only
   // 国际贸易 (2026-11-09): quoted in the terms' currency on Incoterms; the terms are fixed with the order
   const terms = mode === "INTERNATIONAL_TRADE" ? tradeTermsFrom(data.tradeTerms ?? {}) : undefined;
+  // 自动化项目 (2026-11-09): a name and scope now; solution, BOM and milestones on the plan page
+  const project = mode === "AUTOMATION_PROJECT" ? { name: data.project?.name.trim() ?? "", dueDate: data.project?.dueDate || undefined, scope: data.project?.scope?.trim() || undefined } : undefined;
+  if (project && !project.name) throw new Error("PROJECT_NAME_REQUIRED");
+  if (project && data.assetCodes.length) throw new Error("PROJECT_HAS_NO_ASSET");
   const kind = kindFor(mode, data.kind);
   const creator = await prisma.employee.findUniqueOrThrow({ where: { code: data.createdByEmployeeCode } });
   const assets = await prisma.asset.findMany({ where: { code: { in: data.assetCodes } } });
@@ -118,13 +125,15 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
         customerRef: keepCustomerRef(data.customerRef),
         currency: terms?.currency ?? data.currency,
         tradeTerms: terms as Prisma.InputJsonValue | undefined,
+        project: project as Prisma.InputJsonValue | undefined,
         reportedAt: data.reportedAt,
         attachments: data.attachments as Prisma.InputJsonValue | undefined,
         requestLines: trade ? (requestLines as Prisma.InputJsonValue) : undefined,
         assets: { create: assets.map((a, i) => ({ assetId: a.id, isPrimary: i === 0 })) },
       },
     });
-    await tx.document.create({ data: { no, type: "QT", entityId: creator.entityId, countryCode: no.slice(2, 4), customerId: data.customerId, serviceOrderId: order.id, createdById: creator.id, templateCode: trade ? TRADE_QUOTE_TEMPLATE : undefined } });
+    await tx.document.create({ data: { no, type: "QT", entityId: creator.entityId, countryCode: no.slice(2, 4), customerId: data.customerId, serviceOrderId: order.id, createdById: creator.id, templateCode: trade || project ? TRADE_QUOTE_TEMPLATE : undefined } });
+    if (project) await createMilestones(tx, order.id);
     for (const a of assets) {
       await tx.assetEvent.create({
         data: {
@@ -155,7 +164,7 @@ export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, ac
   // on a DNTH and the inspection fee is invoiced or waived; undo goes through undoDecline.
   if (to === "DECLINED") throw new Error(`USE_DECLINE:${no}`);
   if (order.status === "DECLINED" && to === "QUOTE_PENDING") throw new Error(`USE_UNDO_DECLINE:${no}`);
-  if (to === "CANCELLED" && order.status === "QUOTE_PENDING" && !isTradeMode(order.mode)) throw new Error(`USE_DECLINE:${no}`);
+  if (to === "CANCELLED" && order.status === "QUOTE_PENDING" && !quoteJustCancels(order.mode)) throw new Error(`USE_DECLINE:${no}`);
   if (to === "CLOSED") {
     const shape = await declineShapeOf(no);
     const open = shape ? declineCloseBlockers(shape) : [];
@@ -208,6 +217,7 @@ export async function getServiceOrder(no: string) {
       reportedBy: true,
       events: { orderBy: { occurredAt: "desc" }, include: { actor: { select: { name: true } } } },
       stockMovements: { include: { part: true } },
+      milestones: { orderBy: { seq: "asc" } },
     },
   });
 }
@@ -234,6 +244,8 @@ export async function confirmCustomerPo(input: { no: string; actorCode: string; 
     for (const l of o.assets) await tx.assetEvent.create({ data: { assetId: l.assetId, type: "ORDER_CONFIRMED", actorId: actor.id, serviceOrderId: o.id, sourceDocNo: o.no, summary: input.customerRef ?? o.customerRef ?? "", payload: { customerRef: input.customerRef, lines: input.poLines.length } as Prisma.InputJsonValue, attachments: (input.attachments ?? []) as Prisma.InputJsonValue } });
   });
   const started = await advanceServiceOrder(o.no, "IN_PROGRESS", input.actorCode, input.note ?? input.customerRef);
+  // 自动化项目: the PO is the contract milestone (its instalment is then invoiced on the project page)
+  if (o.mode === "AUTOMATION_PROJECT") await prisma.projectMilestone.updateMany({ where: { serviceOrderId: o.id, phase: "CONTRACT", doneAt: null }, data: { doneAt: new Date(), doneById: actor.id, note: input.customerRef ?? o.customerRef ?? null } });
   // 流程图: 客户回签 → 按 PRTH 生成 POTH (one draft PO per compared inquiry; purchasing confirms and sends it)
   await raisePurchaseOrdersForOrder(o.no, input.actorCode);
   return started;

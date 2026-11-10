@@ -2,7 +2,7 @@
  * What an order needs next, and which report each document produces. Pure, shared by the order page and tests.
  * Report names are shown to people; template numbers (04…19) stay internal.
  */
-export type StepKey = "assign" | "inspect" | "quote" | "confirm" | "decline" | "receive" | "repair" | "maintain" | "stockOut" | "deliver" | "accept" | "invoice" | "payment" | "archive" | "contractDirect" | "partner" | "ship";
+export type StepKey = "assign" | "inspect" | "quote" | "confirm" | "decline" | "receive" | "repair" | "maintain" | "stockOut" | "deliver" | "accept" | "invoice" | "payment" | "archive" | "contractDirect" | "partner" | "ship" | "plan" | "project";
 
 export interface OrderShape {
   status: string; kind: string;
@@ -11,6 +11,7 @@ export interface OrderShape {
   partner?: boolean; /// 合作维修: a partner repairs it — the partner page replaces the RPTH step
   trade?: boolean; /// 贸易: no machine — quote, customer PO, stock out, DNTH; the signed DNTH stands in for acceptance
   stockOuts?: number; /// OBTH lines issued against the order
+  project?: { planned: boolean; invoiceDue: number }; /// 自动化项目: plan saved? done instalments not yet invoiced
   intl?: boolean; /// 国际贸易: after the OBTH comes the shipment (CI + PL), then the B/L — no customer signature, no TITH
   declineOpen?: string[]; /// 客户拒绝报价: what still blocks closing (declineCloseBlockers) — present only on a declined order
 }
@@ -29,6 +30,18 @@ export function nextSteps(o: OrderShape): { primary: StepKey | null; also: StepK
     if (o.status === "DECLINED") return ret ? { primary: "deliver", also: fee ? ["invoice"] : [] } : fee ? { primary: "invoice", also: [] } : { primary: null, also: ["archive"] };
     if (o.status === "INVOICED") return { primary: o.invoicesUnpaid > 0 ? "payment" : ret ? "deliver" : "archive", also: ret && o.invoicesUnpaid > 0 ? ["deliver"] : ["archive"] };
     if (o.status === "CLOSED") return { primary: null, also: ["archive"] };
+  }
+  if (o.project) {
+    // 自动化项目 (2026-11-09): plan (solution, BOM, split) → quote → PO → milestones on the project page (FAT, DNTH, SAT
+    // locks) with an instalment TITH + IVTH at each paying milestone → payment
+    const p = o.project;
+    switch (o.status) {
+      case "RECEIVED": case "ASSIGNED": case "DIAGNOSING": return p.planned ? { primary: "quote", also: ["plan"] } : { primary: "plan", also: [] };
+      case "QUOTE_PENDING": return { primary: "confirm", also: ["quote", "plan"] };
+      case "IN_PROGRESS": case "ACCEPTANCE_PENDING": return { primary: "project", also: ["deliver", "stockOut", ...(o.invoicesUnpaid ? (["payment"] as StepKey[]) : []), "plan"] };
+      case "ACCEPTED": case "INVOICED": return p.invoiceDue ? { primary: "project", also: o.invoicesUnpaid ? ["payment"] : [] } : o.invoicesUnpaid ? { primary: "payment", also: ["project"] } : { primary: "archive", also: ["project"] };
+      default: break;
+    }
   }
   if (o.trade && o.intl) {
     // 国际贸易 (2026-11-09): quote → customer PO → OBTH → shipment (CI IVTH + PL DNTH) → B/L → INVOICED → payment
