@@ -3,7 +3,6 @@ node_modules
 .env
 *.log
 /uploads
-uploads/
 e2e-shots/
 .dev-ops/
 tsconfig.tsbuildinfo

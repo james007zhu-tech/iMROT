@@ -12,6 +12,13 @@
 #   .dev-ops/kb-check  -> checks the fault-code tables in .dev-ops/kb-inbox/ (report in .dev-ops/kb-check.out)
 #   .dev-ops/kb-import -> imports them as 待审核 and moves them to kb-inbox/done/ (report in .dev-ops/kb-import.out)
 # Each trigger is deleted after it ran; .dev-ops/log holds the running log.
+#
+# Two files (not triggers; they stay) decide how the app is served:
+#   .dev-ops/mode          containing "prod" -> `next build` + `next start` instead of `next dev` (the system is on the
+#                          internet at os.i-mrot.com: no dev overlay, no source maps, no dev login bypass). A restart
+#                          rebuilds. If the build fails the previous build keeps serving, or next dev when there is none.
+#   .dev-ops/tunnel-token  the Cloudflare Tunnel token (one line) -> cloudflared runs inside this container and
+#                          publishes http://localhost:3000. The token is read from the file and never logged.
 set -uo pipefail
 cd /app
 OPS=.dev-ops
@@ -39,16 +46,51 @@ setup() {
   npx tsx scripts/dev/backfill.ts >>"$OPS/log" 2>&1 || log "backfill FAILED"
 }
 
-start_app() {
-  log "starting next dev"
-  # Values from .env were fixed when the container was created (env_file), so a key added to .env later never
-  # arrived. Drop them for next dev, which then reads the current .env on every restart; DATABASE_URL stays
-  # because compose points it at the db container.
-  local unset_args=()
+prod_mode() { [ "$(tr -d '[:space:]' <"$OPS/mode" 2>/dev/null)" = "prod" ]; }
+
+start_tunnel() {
+  [ -s "$OPS/tunnel-token" ] || return 0
+  if [ -n "${TUNNEL_PID:-}" ] && kill -0 "$TUNNEL_PID" 2>/dev/null; then return 0; fi
+  local bin="$OPS/bin/cloudflared" arch
+  if [ ! -x "$bin" ]; then
+    arch=$(dpkg --print-architecture 2>/dev/null || echo amd64)
+    log "downloading cloudflared ($arch)"
+    mkdir -p "$OPS/bin"
+    curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$arch" -o "$bin.tmp" && chmod +x "$bin.tmp" && mv "$bin.tmp" "$bin" || { log "cloudflared download FAILED"; return 0; }
+  fi
+  log "starting cloudflared tunnel"
+  TUNNEL_TOKEN="$(tr -d '[:space:]' <"$OPS/tunnel-token")" "$bin" tunnel --no-autoupdate run >>"$OPS/tunnel.log" 2>&1 &
+  TUNNEL_PID=$!
+}
+
+# Values from .env were fixed when the container was created (env_file), so a key added or changed in .env later never
+# arrived. They are dropped for the app, which then reads the current .env itself; DATABASE_URL stays because compose
+# points it at the db container.
+env_reset() {
+  unset_env=()
   for k in $(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' .env 2>/dev/null | tr -d '='); do
-    [ "$k" != DATABASE_URL ] && unset_args+=(-u "$k")
+    [ "$k" != DATABASE_URL ] && unset_env+=(-u "$k")
   done
-  env "${unset_args[@]}" npx next dev -H 0.0.0.0 -p "${PORT:-3000}" >>"$OPS/app.log" 2>&1 &
+}
+
+start_app() {
+  env_reset
+  if prod_mode; then
+    log "production build"
+    if env "${unset_env[@]}" NODE_ENV=production npx next build --no-lint >"$OPS/build.log" 2>&1; then
+      log "starting next start (production)"
+      env "${unset_env[@]}" NODE_ENV=production npx next start -H 0.0.0.0 -p "${PORT:-3000}" >>"$OPS/app.log" 2>&1 &
+      APP_PID=$!; return
+    fi
+    log "production build FAILED (see .dev-ops/build.log)"
+    if [ -f .next/BUILD_ID ]; then
+      log "serving the previous build"
+      env "${unset_env[@]}" NODE_ENV=production npx next start -H 0.0.0.0 -p "${PORT:-3000}" >>"$OPS/app.log" 2>&1 &
+      APP_PID=$!; return
+    fi
+  fi
+  log "starting next dev"
+  env "${unset_env[@]}" npx next dev -H 0.0.0.0 -p "${PORT:-3000}" >>"$OPS/app.log" 2>&1 &
   APP_PID=$!
 }
 
@@ -58,9 +100,11 @@ stop_app() {
     kill "$APP_PID" 2>/dev/null; wait "$APP_PID" 2>/dev/null
   fi
   pkill -f "next dev" 2>/dev/null || true
+  pkill -f "next start" 2>/dev/null || true
+  pkill -f "next-server" 2>/dev/null || true
 }
 
-trap 'stop_app; exit 0' TERM INT
+trap 'stop_app; [ -n "${TUNNEL_PID:-}" ] && kill "$TUNNEL_PID" 2>/dev/null; exit 0' TERM INT
 
 setup
 # seed once on an empty database
@@ -69,9 +113,11 @@ if [ "$(npx tsx -e 'import {prisma} from "./src/lib/db"; prisma.legalEntity.coun
   npx tsx prisma/seed.ts >>"$OPS/log" 2>&1 || log "seed FAILED"
 fi
 start_app
+start_tunnel
 
 while true; do
   sleep 5
+  start_tunnel # picks the token up as soon as the file appears, and restarts the tunnel if it died
   if [ -f "$OPS/restart" ]; then
     rm -f "$OPS/restart"; stop_app; setup; start_app; log "restart done"
   fi
@@ -100,6 +146,6 @@ while true; do
     bash -c "$CMD" >"$OPS/cmd.out" 2>&1; echo "exit=$?" >>"$OPS/cmd.out"; log "cmd done"
   fi
   if [ -n "${APP_PID:-}" ] && ! kill -0 "$APP_PID" 2>/dev/null; then
-    log "next dev exited; restarting"; start_app
+    log "app exited; restarting"; start_app
   fi
 done

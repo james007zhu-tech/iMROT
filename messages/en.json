@@ -396,7 +396,8 @@
     "noAccess": "Your role may not open this page. Ask the MD if you need it.",
     "yes": "Yes",
     "no": "No",
-    "open": "Open"
+    "open": "Open",
+    "loginWait": "Too many wrong tries. Wait 15 minutes and try again."
   },
   "ai": {
     "title": "AI assistant",
