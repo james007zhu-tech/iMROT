@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { confirmSerial, looseDocsOf, relinkDoc } from "@/server/asset-first";
 import { maskName } from "@/lib/mask";
 import { PageHeader, btnGhost } from "@/components/ui";
 import { reportsFor } from "@/lib/order-steps";
@@ -37,6 +38,19 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
     prisma.asset.findMany({ where: { customerId: asset.customerId ?? undefined, NOT: { code } }, select: { code: true, type: true, location: true }, orderBy: { code: "asc" }, take: 200 }),
   ]);
   const back = `/assets/${code}`;
+  // 设备优先: what this machine holds that no QTTH has claimed, and the open orders it could belong to
+  const [loose, openOrders] = await Promise.all([
+    looseDocsOf(asset.id),
+    prisma.serviceOrder.findMany({ where: { assets: { some: { assetId: asset.id } }, status: { notIn: ["CLOSED", "CANCELLED"] } }, orderBy: { createdAt: "desc" }, select: { no: true } }),
+  ]);
+  async function verify() {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await confirmSerial({ assetCode: code, actorCode: me.code }); }, back);
+  }
+  async function relink(docNo: string, f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await relinkDoc({ docNo, orderNo: String(f.get("order") || "") || null, actorCode: me.code }); return docNo; }, back);
+  }
   async function transfer(f: FormData) {
     "use server";
     await guarded(async () => { const me = await currentEmployee(); await transferAsset({ assetCode: code, actorEmployeeCode: me.code, customerId: String(f.get("customerId") || "") || undefined, plantId: String(f.get("plantId") || "") || undefined, location: String(f.get("location") || "") || undefined, note: String(f.get("note") || "") || undefined }); return "transferred"; }, back);
@@ -77,9 +91,24 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/assets", label: u("backToAssets") }} title={<span className="font-mono">{asset.code}</span>} badge={<><AssetStatusBadge status={asset.status} /><span className="text-navy/70">{t(asset.type)} · S/N <span className="font-mono">{asset.serialNumber}</span></span></>}
-        actions={<><Link href={`/assets/${asset.code}/label?n=6`} className={btnGhost}>{u("printDcitLabel")}</Link>{asset.model && <Link href={`/models/${asset.model.id}`} className={btnGhost}>{t("knowledge")}</Link>}</>}
+        actions={<><Link href={`/receiving/new?a=${asset.code}`} className={btnGhost}>＋ ERTH</Link><Link href={`/inspections/new?asset=${asset.code}`} className={btnGhost}>＋ INTH</Link><Link href={`/assets/${asset.code}/label?n=6`} className={btnGhost}>{u("printDcitLabel")}</Link>{asset.model && <Link href={`/models/${asset.model.id}`} className={btnGhost}>{t("knowledge")}</Link>}</>}
         newHref={`/service-orders/new?asset=${asset.code}`} newLabel={u("newServiceOrder")} />
       <Flash ok={ok} error={error} />
+      <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2 text-sm ${asset.serialVerifiedAt ? "border-navy/20 bg-white" : "border-[#E6A23C] bg-[#FFF4E5]"}`}>
+        <span className="min-w-0 flex-1">{asset.serialVerifiedAt ? u("serialVerified", { date: asset.serialVerifiedAt.toISOString().slice(0, 10) }) : u(asset.serialSource === "INTERNAL" ? "serialInternalWaiting" : "serialNotVerified")} <b className="font-mono">{asset.serialNumber}</b>{asset.serialSource === "INTERNAL" ? ` · ${u("serialInternal")}` : ""}</span>
+        {!asset.serialVerifiedAt && <form action={verify}><button className={btnGhost}>{u("serialVerifyNow")}</button></form>}
+      </div>
+      {loose.length > 0 && <Section title={u("looseDocs")}>
+        <p className="mb-2 text-xs text-navy/70">{u("looseDocsHint")}</p>
+        <ul className="space-y-1.5 text-sm">
+          {loose.map((d) => <li key={d.no} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5"><span className="font-mono font-semibold text-navy">{d.no}</span><span className="text-xs text-navy/70">{d.at.toISOString().slice(0, 10)}{d.draft ? ` · ${u("dn_DRAFT")}` : ""}</span><span className="min-w-0 flex-1 truncate text-xs">{d.summary}</span>
+            {d.draft ? <Link href={`/inspections/new?asset=${asset.code}`} className="text-blue hover:underline">{t("open")}</Link>
+              : openOrders.length > 0 ? <form action={relink.bind(null, d.no)} className="flex items-center gap-2"><select name="order" aria-label={u("looseAttach")} className="rounded-md border px-2 py-1 text-xs">{openOrders.map((o) => <option key={o.no} value={o.no}>{o.no}</option>)}</select><button className="text-blue hover:underline">{u("looseAttach")}</button></form>
+              : <span className="text-xs text-navy/60">{u("looseWaiting")}</span>}
+          </li>)}
+          {loose.length === 0 && <li className="text-xs text-navy/60">{u("looseNone")}</li>}
+        </ul>
+      </Section>}
 
       <Section title={t("asset")}>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

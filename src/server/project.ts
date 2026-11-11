@@ -82,6 +82,8 @@ export async function completeMilestone(input: z.input<typeof MilestoneInput>) {
   const shape = o.milestones.map((x) => ({ seq: x.seq, phase: x.phase, payPct: x.payPct == null ? null : Number(x.payPct), doneAt: x.doneAt, taxInvoiceNo: x.taxInvoiceNo }));
   const blockers = milestoneBlockers(shape.find((x) => x.seq === m.seq)!, shape, { files: d.attachments.length, signedDeliveries: o.deliveries.filter((x) => x.status === "SIGNED").length, orderStatus: o.status });
   if (blockers.length) throw new Error(`MILESTONE_${blockers[0]}:${m.phase}`); // one clear reason at a time
+  // 朱总 2026-11-11 "项目交付时建 ATH": what we deliver is on file as equipment before the delivery is ticked off
+  if (m.phase === "DELIVERY" && !(await prisma.serviceOrderAsset.count({ where: { serviceOrderId: o.id } }))) throw new Error(`MILESTONE_NEEDS_ATH:${m.phase}`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const at = d.doneAt ? new Date(`${d.doneAt}T00:00:00Z`) : new Date();
   await prisma.$transaction(async (tx) => {

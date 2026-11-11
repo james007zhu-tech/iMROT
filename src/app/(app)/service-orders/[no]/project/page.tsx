@@ -98,10 +98,14 @@ export default async function Project({ params, searchParams }: { params: Promis
         </Card>
       </form>}
 
-      {satDone && (info.deliverables ?? []).length > 0 && <Card title={u("registerDeliverables")}>
-        <p className="mb-2 text-xs text-navy/70">{u("registerDeliverablesHint")}</p>
-        <div className="flex flex-wrap gap-2">{(info.deliverables ?? []).map((d) => <Link key={d.name} href={`/assets/new?customerId=${order.customerId}`} className={btnGhost}>＋ {d.name}</Link>)}</div>
-      </Card>}
+      <Card title={u("projectAssets")}>
+        <p className="mb-2 text-xs text-navy/70">{u("projectAssetsHint")}</p>
+        {order.assets.length > 0 && <ul className="mb-2 space-y-1 text-sm">{order.assets.map((l) => <li key={l.assetId} className="flex flex-wrap items-baseline gap-2"><Link href={`/assets/${l.asset.code}`} className="font-mono font-semibold text-blue hover:underline">{l.asset.code}</Link><span className="font-mono text-xs">S/N {l.asset.serialNumber}</span><span className="text-xs text-navy/70">{l.asset.model ? `${l.asset.model.series.brand.name} ${l.asset.model.code}` : l.asset.type}</span></li>)}</ul>}
+        <div className="flex flex-wrap gap-2">
+          {(info.deliverables ?? []).map((d) => <Link key={d.name} href={`/assets/new?customerId=${order.customerId}&order=${order.no}`} className={btnGhost}>＋ {d.name}</Link>)}
+          <Link href={`/assets/new?customerId=${order.customerId}&order=${order.no}`} className={btnGhost}>＋ {u("pickNewAsset")}</Link>
+        </div>
+      </Card>
     </StepPage>
   );
 }

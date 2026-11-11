@@ -30,9 +30,9 @@ export default async function ServiceReports({ searchParams }: { searchParams: P
   let total = 0;
   let rows: { no: string; date: string; asset: { code: string; serialNumber: string }; customer: string; order: string; engineer: string; gist: string; href: string; draft?: boolean }[] = [];
   if (kind === "inspection") {
-    const [list, c] = await Promise.all([prisma.inspection.findMany({ where: scope, include: inc, orderBy: { inspectedAt: "desc" }, ...paging }), prisma.inspection.count({ where: scope })]);
+    const [list, c] = await Promise.all([prisma.inspection.findMany({ where: scope, include: { ...inc, asset: { select: { code: true, serialNumber: true, customer: { select: { name: true } } } } }, orderBy: { inspectedAt: "desc" }, ...paging }), prisma.inspection.count({ where: scope })]);
     total = c;
-    rows = list.map((i) => ({ no: i.no, date: day(i.inspectedAt), asset: i.asset, customer: i.serviceOrder.customer.name, order: i.serviceOrder.no, engineer: i.engineer.name, gist: cut(i.conclusion || i.probableCause || i.findings), href: `/service-orders/${i.serviceOrder.no}`, draft: i.draft }));
+    rows = list.map((i) => ({ no: i.no, date: day(i.inspectedAt), asset: i.asset, customer: i.serviceOrder?.customer.name ?? i.asset.customer?.name ?? "—", order: i.serviceOrder?.no ?? "", engineer: i.engineer.name, gist: cut(i.conclusion || i.probableCause || i.findings), href: i.serviceOrder ? `/service-orders/${i.serviceOrder.no}` : i.draft ? `/inspections/new?asset=${i.asset.code}` : `/assets/${i.asset.code}`, draft: i.draft }));
   } else {
     const where = { ...scope, kind: kind === "maintenance" ? ("MAINTENANCE" as const) : { in: ["REPAIR" as const, "OVERHAUL" as const] } };
     const [list, c] = await Promise.all([prisma.repairJob.findMany({ where, include: inc, orderBy: [{ finishedAt: "desc" }, { no: "desc" }], ...paging }), prisma.repairJob.count({ where })]);
@@ -42,7 +42,7 @@ export default async function ServiceReports({ searchParams }: { searchParams: P
   const href = (p: number) => `/service-reports?kind=${kind}${q ? `&q=${encodeURIComponent(q)}` : ""}&page=${p}`;
   return (
     <div className="space-y-4">
-      <PageHeader title={n(NAVKEY[kind])} badge={<span className="text-sm text-navy/60">{total}</span>} newHref={`/service-reports?kind=${kind}&new=1`} newLabel={d("new", { name: n(NAVKEY[kind]) })} />
+      <PageHeader title={n(NAVKEY[kind])} badge={<span className="text-sm text-navy/60">{total}</span>} newHref={kind === "inspection" ? "/inspections/new" : `/service-reports?kind=${kind}&new=1`} newLabel={d("new", { name: n(NAVKEY[kind]) })} />
       {sp.new && <ReadyOrders type={DOC[kind]} title={n(NAVKEY[kind])} />}
       <form className="flex max-w-md gap-2"><input type="hidden" name="kind" value={kind} /><input name="q" defaultValue={q} placeholder={r("searchPh")} className="w-full rounded-lg border px-3 py-2 text-sm" /><button className="whitespace-nowrap rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy">{t("search")}</button></form>
       <Table head={[r("reportNo"), r("date"), t("assetCode"), t("customer"), r("order"), r("engineer"), r(kind === "inspection" ? "gistInspection" : kind === "repair" ? "gistRepair" : "gistMaintenance")]}>

@@ -14,6 +14,8 @@ import { issueTaxInvoice, recordPayment } from "../../src/server/to";
 import { buildFields } from "../../src/server/reports";
 import { allocateNumber } from "../../src/lib/numbering-db";
 import { PHASES } from "../../src/lib/project";
+import { onboardAsset } from "../../src/server/alm";
+import { attachProjectAsset } from "../../src/server/asset-first";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`PROJECT FAIL: ${m}`); console.log("  ok  " + m); };
 async function refused(f: () => Promise<unknown>, re: RegExp, m: string) {
@@ -77,6 +79,10 @@ async function main() {
   const dn = await issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: Object.fromEntries(dp.lines.map((l) => [l.key, l.isService ? 0 : l.expected - l.deliveredBefore])) });
   await signDelivery({ no: dn.no, actorCode: md.code, signedBy: "Khun Somchai" });
   assert(!(await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } })).lockedAt, `${dn.no} signed — a project is not accepted by the delivery note`);
+  // 朱总 2026-11-11 "项目交付时建 ATH": the delivery cannot be ticked off until what was delivered is on file as equipment
+  await refused(() => completeMilestone({ no: o.no, actorCode: md.code, seq: 6 }), /MILESTONE_NEEDS_ATH/, "delivery without an ATH for the delivered equipment refused");
+  const cab = await onboardAsset({ createdByEmployeeCode: md.code, type: "PANEL", serialNumber: `PRJ-${Date.now().toString().slice(-7)}`, customerId: o.customerId, origin: "NEW_INSTALL" });
+  await attachProjectAsset({ orderNo: o.no, assetCode: cab.code, actorCode: md.code });
   await completeMilestone({ no: o.no, actorCode: md.code, seq: 6 });
   const i2 = await invoiceMilestone({ no: o.no, actorCode: md.code, seq: 6 });
   assert(i2.amount === 322800, `instalment 2: 60 % = 322,800 → ${i2.taxInvoiceNo}`);

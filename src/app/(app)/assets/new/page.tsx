@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { assetBySerial, attachProjectAsset } from "@/server/asset-first";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { findModelByCode, onboardAsset, relateAssets } from "@/server/alm";
@@ -14,8 +15,11 @@ import { Alert, Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } 
 export const dynamic = "force-dynamic";
 
 /** 新增设备 (建档 / 接管) — wireframe 2. Six required items; ATH is allocated by the server. */
-export default async function NewAsset({ searchParams }: { searchParams: Promise<{ error?: string; customerId?: string }> }) {
-  const { error, customerId } = await searchParams;
+export default async function NewAsset({ searchParams }: { searchParams: Promise<{ error?: string; customerId?: string; next?: string; param?: string; serial?: string; order?: string }> }) {
+  const { error, customerId, next, param, serial: serial0, order: orderNo } = await searchParams;
+  // 设备优先: opened from the machine picker of a QTTH, ERTH or INTH (`next`), or to file what a project delivers (`order`)
+  const safeNext = next && /^\/(receiving|inspections|service-orders)\/new(\?[\w=&,%.-]*)?$/.test(next) ? next : undefined;
+  const here = `/assets/new?${new URLSearchParams({ ...(customerId ? { customerId } : {}), ...(safeNext ? { next: safeNext, param: param === "asset" ? "asset" : "a" } : {}), ...(orderNo ? { order: orderNo } : {}) })}`;
   const [t, u, ts] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("assetStatus")]);
   const [customers, models, employees, others] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" }, include: { plants: true } }),
@@ -28,11 +32,13 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
     "use server";
     await guarded(async () => {
       const me = await currentEmployee();
-      const serial = String(form.get("serialNumber") ?? "").trim();
+      const noSerial = form.get("noSerial") === "on";
+      const serial = noSerial ? "" : String(form.get("serialNumber") ?? "").trim();
       const modelCode = String(form.get("modelCode") ?? "").trim();
       const model = modelCode ? await findModelByCode(modelCode) : null;
       if (modelCode && !model) throw new Error(`MODEL_UNKNOWN:${modelCode}`);
-      const dup = await prisma.asset.findFirst({ where: { serialNumber: { equals: serial, mode: "insensitive" } }, include: { customer: { select: { name: true } }, plant: { select: { code: true } } } });
+      const twin = serial ? await assetBySerial(prisma, serial) : null;
+      const dup = twin && await prisma.asset.findFirst({ where: { id: twin.id }, include: { customer: { select: { name: true } }, plant: { select: { code: true } } } });
       if (dup) throw new Error(`SERIAL_EXISTS:${serial}:${dup.code}:${dup.customer?.name ?? ""}${dup.plant ? ` · ${dup.plant.code}` : ""}`);
       const atts = JSON.parse(String(form.get("attachments") || "[]")) as { name: string; url: string; kind: string }[];
       const num = (k: string) => (form.get(k) ? Number(form.get(k)) : undefined);
@@ -42,7 +48,7 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
         type: form.get("type") as "VFD",
         origin: form.get("origin") as "TAKEOVER",
         initialStatus: form.get("initialStatus") as "IN_SERVICE",
-        serialNumber: serial,
+        serialNumber: serial || undefined, noSerial,
         modelId: model?.id,
         customerId: String(form.get("customerId")),
         plantId: txt("plantId"),
@@ -58,8 +64,11 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
         const to = txt(`rel_${rel}`);
         if (to) await relateAssets({ fromCode: asset.code, toCode: to, relation: rel, actorEmployeeCode: me.code });
       }
-      return { ok: asset.code, to: form.get("print") ? `/assets/${asset.code}/label` : `/assets/${asset.code}` };
-    }, "/assets/new");
+      if (orderNo) await attachProjectAsset({ orderNo, assetCode: asset.code, actorCode: me.code });
+      // an internal serial number means a label must go on the machine: straight to the label
+      const to = form.get("print") || noSerial ? `/assets/${asset.code}/label` : orderNo ? `/service-orders/${orderNo}/project` : safeNext ? `${safeNext}${safeNext.includes("?") ? "&" : "?"}${param === "asset" ? "asset" : "a"}=${asset.code}` : `/assets/${asset.code}`;
+      return { ok: asset.code, to };
+    }, here);
   }
 
   // Server errors come back as codes so the warning can be shown in the viewer's language.
@@ -79,7 +88,7 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
             <Field label={t("origin")} required><select name="origin" className={inputCls}><option value="TAKEOVER">{t("TAKEOVER")}</option><option value="NEW_INSTALL">{t("NEW_INSTALL")}</option></select></Field>
             <Field label={u("initialStatus")} required><select name="initialStatus" className={inputCls}><option value="IN_SERVICE">{ts("IN_SERVICE")}</option><option value="ONBOARDED">{ts("ONBOARDED")}</option><option value="SPARE">{ts("SPARE")}</option></select></Field>
             <ModelPicker models={models.map((m) => ({ brand: m.series.brand.name, series: m.series.name, code: m.code }))} inputCls={inputCls} labels={{ brand: u("brand"), series: u("series"), model: u("modelCodeLabel"), unknown: u("modelNotInLibrary") }} />
-            <Field label={u("serialLabel")} required><SerialInput inputCls={inputCls} text={u("serialExists", { serial: "{serial}", code: "{code}", where: "{where}" })} /></Field>
+            <Field label={u("serialLabel")} required><SerialInput inputCls={inputCls} initial={serial0 ?? ""} noSerialLabel={u("noSerial")} noSerialHint={u("noSerialHint")} text={u("serialExists", { serial: "{serial}", code: "{code}", where: "{where}" })} /></Field>
             <Field label={t("customer")} required><select name="customerId" required defaultValue={customerId ?? ""} className={inputCls}><option value="">—</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
             <Field label={u("plantWorkshop")}><select name="plantId" className={inputCls}><option value="">—</option>{customers.flatMap((c) => c.plants.map((p) => <option key={p.id} value={p.id}>{c.name} · {p.code} {p.name}</option>))}</select></Field>
             <Field label={u("locationPosition")} required><input name="location" required className={inputCls} /></Field>
