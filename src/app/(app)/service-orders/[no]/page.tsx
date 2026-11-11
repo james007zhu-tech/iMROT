@@ -21,6 +21,8 @@ import { declineCloseBlockers, feeTotal, undoDeclineBlocker, type DeclineFee } f
 import { closeDeclinedAction, exportDocAction, reopenAsPartnerAction, undoDeclineAction } from "./actions";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
+import { DocChain } from "@/components/DocChain";
+import { chainOf } from "@/lib/doc-chain";
 
 export const dynamic = "force-dynamic";
 const atts0 = (o: { attachments: unknown }) => (o.attachments as { name: string; url: string; kind: string }[] | null) ?? [];
@@ -125,6 +127,12 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const terms = order.tradeTerms as TradeTerms | null; // 国际贸易 only
   const exportLeft = terms ? exportCloseBlockers({ incoterm: terms.incoterm, shipped: order.deliveries.some((d) => d.status === "SIGNED" && d.shipping), unpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, attachments: atts }) : [];
 
+  // 单据链: the numbered documents of this order in sequence, with the customer's PO and the acceptance in their places
+  const chain = chainOf(order.mode, docs.map((d) => ({ no: d.no, type: d.type, date: d.issuedAt?.toISOString().slice(0, 10) })), {
+    customerPo: order.quoteConfirmedAt ? order.customerRef || custFiles.find((a) => a.kind === "PO")?.name || u("poConfirmed") : null,
+    acceptance: order.acceptance ? (order.acceptance.acceptedAt?.toISOString().slice(0, 10) ?? u(`step_accept`)) : null,
+  });
+
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={<span className="font-mono">{order.no}</span>}
@@ -149,11 +157,12 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           {primary && primary !== "assign" && primary !== "contractDirect" && <Link href={stepHref(order.no, primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
+      <DocChain order={order.no} slots={chain} />
       <Flash ok={ok} error={error} />
       {dec && <Alert>{u("declinedBanner", { date: dec.toldAt.toISOString().slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="min-w-0 space-y-4 lg:col-span-2">
           {order.mode === "AUTOMATION_PROJECT" ? <Card title={(order.project as ProjectInfo | null)?.name ?? u("projectCard")}>
             <Grid>
               <Field label={t("customer")}><Value>{order.customer.name}{order.plant ? ` · ${order.plant.code} ${order.plant.name}` : ""}</Value></Field>

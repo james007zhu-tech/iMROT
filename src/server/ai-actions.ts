@@ -21,6 +21,9 @@ import { issueProforma } from "@/server/export";
 import { issueInvoice, issueTaxInvoice, recordPayment } from "@/server/to";
 import { MODES } from "@/lib/modes";
 import { addCredential, updateEmployee, updateOwnContacts } from "@/server/opd";
+import { fileExpense } from "@/server/expense";
+import { recordTraining } from "@/server/training";
+import { dictItems } from "@/server/dict";
 
 type In = Record<string, unknown>;
 export interface ActionCtx { employeeCode: string }
@@ -144,6 +147,29 @@ const TOOLS: ActionTool[] = [
       if (f?.url && !/^\/api\/uploads\/[A-Za-z0-9._-]+$/.test(f.url)) throw new Error("file.url must be the url of a file attached in this conversation");
       await addCredential(ctx.employeeCode, e.code, { kind: str(i.kind) as "OTHER", title: str(i.title), number: str(i.number), issuedAt: str(i.issuedAt), expiresAt: str(i.expiresAt), note: str(i.note), file: f?.url ? { name: f.name ?? "file", url: f.url } : undefined });
       return { ok: true, summary: `${e.code} ${e.name}: ${str(i.title) ?? str(i.kind)}${str(i.number) ? ` ${str(i.number)}` : ""}${f?.url ? " + file" : ""}`, href: `/people/${e.code}` };
+    } },
+  { name: "file_expense", tier: "auto",
+    description: "File an expense claim (费用报销) from a receipt photo or what the person says: one receipt, one claim. category is one of TRAVEL, FUEL, TOLL, MEAL, LODGING, TOOLS, MATERIAL, COURIER, OFFICE, COMMS, ENTERTAIN, OTHER (or another active code of the expense dictionary). amount is the total paid incl. VAT; vatAmount only when the paper is a full tax invoice in the company's name. paidBy: SELF (default, reimbursed with payroll), PETTY_CASH, COMPANY. no = the QTTH order the cost belongs to, if any. file = {name, url} of the attached receipt. The manager or the MD approves it afterwards.",
+    input_schema: obj({ spentOn: { type: "string", description: "YYYY-MM-DD" }, category: S, description: S, amount: N, vatAmount: N, vendor: S, vendorTaxId: S, receiptNo: S, paidBy: { type: "string", enum: ["SELF", "PETTY_CASH", "COMPANY"] }, no: S, file: obj({ name: S, url: S }, ["name", "url"]) }, ["spentOn", "category", "description", "amount"]),
+    run: async (i, ctx) => {
+      const f = i.file as { name?: string; url?: string } | undefined;
+      if (f?.url && !/^\/api\/uploads\/[A-Za-z0-9._-]+$/.test(f.url)) throw new Error("file.url must be the url of a file attached in this conversation");
+      const cats = (await dictItems("expenseCategory")).map((c) => c.code);
+      const category = str(i.category)?.toUpperCase() ?? "";
+      if (!cats.includes(category)) throw new Error(`category must be one of ${cats.join(", ")}`);
+      const c = await fileExpense({ actorCode: ctx.employeeCode, spentOn: new Date(str(i.spentOn)!), category, description: str(i.description)!, amount: num(i.amount)!, vatAmount: num(i.vatAmount), vendor: str(i.vendor), vendorTaxId: str(i.vendorTaxId), receiptNo: str(i.receiptNo), paidBy: (str(i.paidBy) ?? "SELF") as "SELF", serviceOrderNo: str(i.no), currency: "THB", receipts: f?.url ? [{ name: f.name ?? "receipt", url: f.url }] : [] });
+      return { ok: true, summary: `${category} THB ${Number(c.amount).toFixed(2)} · ${c.spentOn.toISOString().slice(0, 10)}${f?.url ? " + receipt" : " (no receipt attached)"} — waiting for approval`, href: "/finance/expenses" };
+    } },
+  { name: "record_training", tier: "auto",
+    description: "Record a training session (培训记录) for one or more employees: title, kind (INTERNAL, ONJOB, ONLINE, VENDOR, EXTERNAL, SAFETY), date, hours, result (PLANNED, ATTENDED, PASSED, FAILED), level reached (L1–L4, only when an engineer-led practical exam certified it), certificate number and expiry. employees = codes or names; empty = the signed-in person. Recording for others needs a manager or the MD.",
+    input_schema: obj({ employees: { type: "array", items: S }, title: S, kind: S, provider: S, startedOn: S, endedOn: S, hours: N, result: { type: "string", enum: ["PLANNED", "ATTENDED", "PASSED", "FAILED"] }, level: { type: "string", enum: ["L1", "L2", "L3", "L4"] }, score: N, certificateNo: S, expiresAt: S, note: S, file: obj({ name: S, url: S }, ["name", "url"]) }, ["title", "startedOn"]),
+    run: async (i, ctx) => {
+      const who = Array.isArray(i.employees) && i.employees.length ? await Promise.all(i.employees.map((e) => employeeBy(e, ctx.employeeCode))) : [await employeeBy(undefined, ctx.employeeCode)];
+      const f = i.file as { name?: string; url?: string } | undefined;
+      if (f?.url && !/^\/api\/uploads\/[A-Za-z0-9._-]+$/.test(f.url)) throw new Error("file.url must be the url of a file attached in this conversation");
+      const d = (v: unknown) => (str(v) ? new Date(str(v)!) : undefined);
+      const n = await recordTraining({ actorCode: ctx.employeeCode, employeeCodes: who.map((e) => e.code), title: str(i.title)!, kind: str(i.kind)?.toUpperCase() ?? "INTERNAL", provider: str(i.provider), startedOn: new Date(str(i.startedOn)!), endedOn: d(i.endedOn), hours: num(i.hours), result: (str(i.result) ?? "ATTENDED") as "ATTENDED", level: str(i.level) as "L1" | undefined, score: num(i.score), certificateNo: str(i.certificateNo), expiresAt: d(i.expiresAt), note: str(i.note), attachments: f?.url ? [{ name: f.name ?? "certificate", url: f.url }] : [] });
+      return { ok: true, summary: `${str(i.title)} × ${n}: ${who.map((e) => e.name).join(", ")}`, href: "/people/training" };
     } },
   { name: "issue_tax_invoice", tier: "confirm", description: "Issue the tax invoice (TITH) and the invoice (IVTH) for an accepted order. A tax invoice number cannot be taken back, so the person confirms first.", input_schema: obj({ no: S }, ["no"]),
     summarize: (i) => `Issue tax invoice + invoice for ${str(i.no)}`,

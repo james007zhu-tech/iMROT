@@ -217,6 +217,7 @@ export const SalaryInputSchema = z.object({
   pvdEmployerRate: Rate,
   taxDeductions: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   whtMonthly: Money.optional(),
+  variablePay: Money.optional(), /// 绩效工资 at 100 %
   otherDeductions: z.array(z.object({ name: z.string().min(1), amount: Money })).default([]),
   reason: z.string().min(1),
   note: z.string().optional(),
@@ -235,7 +236,7 @@ export async function addSalaryRecord(actorCode: string, code: string, input: z.
   const s = salarySummary({ baseSalary: d.baseSalary, allowances: d.allowances as Allowance[], ssoWageBase: d.ssoWageBase, ssoEmployeeRate: d.ssoEmployeeRate, ssoEmployerRate: d.ssoEmployerRate, pvdEmployeeRate: d.pvdEmployeeRate, pvdEmployerRate: d.pvdEmployerRate, whtMonthly: d.whtMonthly, otherDeductions: d.otherDeductions as Deduction[], countryCode: e.entity.countryCode });
   const rec = await prisma.salaryRecord.create({ data: {
     employeeId: e.id, effectiveFrom: d.effectiveFrom, currency: d.currency, baseSalary: d.baseSalary,
-    allowances: d.allowances as Prisma.InputJsonValue, allowanceTotal: s.allowanceTotal, grossMonthly: s.grossMonthly,
+    allowances: d.allowances as Prisma.InputJsonValue, allowanceTotal: s.allowanceTotal, grossMonthly: s.grossMonthly, variablePay: d.variablePay,
     ssoWageBase: s.ssoWageBase, ssoEmployeeRate: s.ssoEmployeeRate, ssoEmployerRate: s.ssoEmployerRate, ssoEmployee: s.ssoEmployee, ssoEmployer: s.ssoEmployer,
     pvdEmployeeRate: d.pvdEmployeeRate, pvdEmployerRate: d.pvdEmployerRate,
     taxDeductions: d.taxDeductions as Prisma.InputJsonValue | undefined, whtMonthly: s.whtMonthly, otherDeductions: d.otherDeductions as Prisma.InputJsonValue, netEstimate: s.netEstimate,

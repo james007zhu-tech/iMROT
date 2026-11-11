@@ -14,7 +14,7 @@
  */
 export type RecognizeKind =
   | "asset" | "customer" | "service" | "inspection" | "receive" | "repair" | "maintenance"
-  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline" | "shipment" | "project" | "faultcode" | "series";
+  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline" | "shipment" | "project" | "faultcode" | "series" | "expense" | "training";
 
 /** `strict`: a document outside `accept` is refused (customer onboarding, HR papers). Without it `accept` only names the attachment; whatever the person uploads is read. */
 export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<string, string>; accept?: string[]; strict?: boolean; attachKind: string }
@@ -22,9 +22,9 @@ export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<
 export const CONFIDENCE_FLOOR = 0.8;
 
 /** Fields that must appear verbatim in the document (no paraphrase, no guessing). */
-export const VERBATIM_FIELDS = new Set(["serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo", "passportNo", "idCardNo", "workPermitNo", "swift", "blNo", "exportEntryNo", "acc_THB", "acc_USD", "acc_CNY", "acc_EUR"]);
-const DATE_FIELDS = new Set(["reportedAt", "neededBy", "projectDue", "shippedAt", "etd", "eta", "toldAt", "signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
-const NUMBER_FIELDS = new Set(["tPaymentDays", "ratedPowerKw", "ratedVoltageV", "ratedCurrentA", "laborHours", "runHours", "paidAmount", "whtAmount", "qty", "unitPrice", "amount", "total", "vatRate", "vatAmount", "subtotal"]);
+export const VERBATIM_FIELDS = new Set(["receiptNo", "vendorTaxId", "certificateNo", "serialNumber", "modelCode", "customerRef", "taxId", "quoteNo", "poNo", "whtCertRef", "bankRef", "vendorPartNo", "reportedAlarm", "customerAssetNo", "passportNo", "idCardNo", "workPermitNo", "swift", "blNo", "exportEntryNo", "acc_THB", "acc_USD", "acc_CNY", "acc_EUR"]);
+const DATE_FIELDS = new Set(["spentOn", "startedOn", "endedOn", "expiresAt", "reportedAt", "neededBy", "projectDue", "shippedAt", "etd", "eta", "toldAt", "signedAt", "paidAt", "quoteDate", "validUntil", "receivedAt", "poDate", "birthDate", "passportExpiresAt", "visaExpiresAt", "workPermitExpiresAt", "joinedAt", "contractEndsAt"]);
+const NUMBER_FIELDS = new Set(["hours", "score", "tPaymentDays", "ratedPowerKw", "ratedVoltageV", "ratedCurrentA", "laborHours", "runHours", "paidAmount", "whtAmount", "qty", "unitPrice", "amount", "total", "vatRate", "vatAmount", "subtotal"]);
 const ENUM_FIELDS: Record<string, string[]> = { productionImpact: ["STOPPED", "DEGRADED", "NONE"], status: ["ACCEPTED", "CONDITIONAL", "REJECTED"], currency: ["THB", "USD", "CNY", "EUR", "JPY"], tCurrency: ["THB", "USD", "CNY", "EUR", "JPY"],
   tIncoterm: ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"], tShipMode: ["SEA", "AIR", "ROAD", "COURIER"] };
 
@@ -70,6 +70,8 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
   faultcode: { attachKind: "KNOWLEDGE", fields: { code: "the fault/alarm code exactly as shown, leading zeros kept", title_en: "the code's name as the manual prints it", manual_en_meaning: "the manual's cause text, verbatim", manual_en_actions: "the manual's action text, verbatim", source_page: "manual page number" } },
   /** 产品系列: a catalogue or manual cover — series name and code. */
   series: { attachKind: "KNOWLEDGE", fields: { name: "product series name as the manufacturer writes it", code: "short series code", codeRule: "how the series' fault codes look, if the document says" } },
+  expense: { attachKind: "RECEIPT", fields: { spentOn: "date on the receipt YYYY-MM-DD", vendor: "seller's name as printed", vendorTaxId: "seller's 13-digit tax ID, only if printed", receiptNo: "receipt or tax invoice number exactly as printed", amount: "total paid including VAT, number only", vatAmount: "VAT amount, only when the paper is a full tax invoice showing it", category: "what kind of cost this is — choose from the form's options", description: "what was bought and why, one short line", serviceOrderNo: "the QTTH order number the cost belongs to, only if the person says it" } },
+  training: { attachKind: "CERTIFICATE", fields: { title: "course or training title", provider: "who gave the training", startedOn: "first day YYYY-MM-DD", endedOn: "last day YYYY-MM-DD", hours: "training hours, number only", certificateNo: "certificate number exactly as printed", expiresAt: "certificate expiry YYYY-MM-DD", score: "score out of 100 if stated", note: "what was covered, one or two lines" } },
   decline: { attachKind: "DECLINE", fields: { declineNote: "why the customer does not go ahead, in their words", toldAt: "date of the reply YYYY-MM-DD" } },
   delivery: { attachKind: "DELIVERY", fields: { signedBy: "name of person who signed for the goods", signedAt: "date signed, YYYY-MM-DD", remark: "remarks written on the signed copy" } },
   acceptance: { attachKind: "ACCEPTANCE", fields: { customerSignatory: "who signed", punchList: "open items written on the form", status: "ACCEPTED, CONDITIONAL or REJECTED" } },
