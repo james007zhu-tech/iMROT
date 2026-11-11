@@ -427,7 +427,11 @@
     "formAskCheck": "检查并优化这张表",
     "formAskThai": "把还空着的泰文描述补上",
     "formFilled": "✓ 已写入表单 {n} 项（{list}），橙色栏位请确认。",
-    "formNothing": "没有可写入的栏位。"
+    "formNothing": "没有可写入的栏位。",
+    "voiceKeyboard": "按键盘上的麦克风说话…",
+    "voiceTranscribing": "正在把录音转成文字…",
+    "voiceDenied": "没有拿到麦克风权限，请改用键盘上的麦克风键说话。",
+    "voiceFailed": "语音没有识别成功，请再试一次，或用键盘上的麦克风键说话。"
   },
   "ui": {
     "chooseFile": "选择文件",
@@ -2033,7 +2037,12 @@
     "passNo": "✗ 不合格",
     "pickPart": "点击选择",
     "partNotListed": "列表里没有，可以直接输入",
-    "partOfModel": "本型号"
+    "partOfModel": "本型号",
+    "dictateKeyboardPh": "点这里，再按键盘上的麦克风说话",
+    "dictateKeyboardHint": "这个浏览器没有内置语音识别，请用手机键盘上的麦克风键说话；说完点“起草进表单”。",
+    "dictateTranscribing": "正在把录音转成文字…",
+    "dictateDenied": "没有拿到麦克风权限。请改用键盘上的麦克风键说话。",
+    "dictateFailed": "语音没有识别成功。请再试一次，或用键盘上的麦克风键说话。"
   },
   "role": {
     "MD": "董事总经理 MD",

@@ -427,7 +427,11 @@
     "formAskCheck": "Check and improve this form",
     "formAskThai": "Fill in the missing Thai descriptions",
     "formFilled": "✓ Wrote {n} fields into the form ({list}) — orange ones are for you to confirm.",
-    "formNothing": "Nothing could be written into the form."
+    "formNothing": "Nothing could be written into the form.",
+    "voiceKeyboard": "Press the keyboard's microphone and speak…",
+    "voiceTranscribing": "Turning the recording into text…",
+    "voiceDenied": "Microphone permission was not given — use the keyboard's microphone instead.",
+    "voiceFailed": "The speech was not recognised — try again, or use the keyboard's microphone."
   },
   "ui": {
     "chooseFile": "Choose file",
@@ -2033,7 +2037,12 @@
     "passNo": "✗ Fail",
     "pickPart": "Tap to choose",
     "partNotListed": "Not in the list — keep typing",
-    "partOfModel": "this model"
+    "partOfModel": "this model",
+    "dictateKeyboardPh": "Tap here, then press the keyboard's microphone and speak",
+    "dictateKeyboardHint": "This browser has no speech recognition: use the microphone key of the phone's keyboard, then press “Draft into the form”.",
+    "dictateTranscribing": "Turning the recording into text…",
+    "dictateDenied": "Microphone permission was not given — use the keyboard's microphone instead.",
+    "dictateFailed": "The speech was not recognised — try again, or use the keyboard's microphone."
   },
   "role": {
     "MD": "Managing Director",
