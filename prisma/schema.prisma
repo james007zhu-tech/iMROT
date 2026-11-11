@@ -658,6 +658,9 @@ model Asset {
   configuration       Json? /// options, brake unit, filter, encoder …
   operatingConditions Json? /// load type, running hours/day, dust, temperature, grid, cooling
   nameplatePhoto      String?
+  serialSource        String      @default("NAMEPLATE") /// NAMEPLATE = the maker's own S/N · INTERNAL = nameplate missing or unreadable, DCiT issued one and labelled the machine
+  serialVerifiedAt    DateTime? /// 朱总 2026-11-11: the ATH ↔ S/N pairing was checked against the machine itself (at receiving, or by a manager for an internal S/N)
+  serialVerifiedById  String?
   photos              Json?
   qrPrintedAt         DateTime?
   createdAt           DateTime    @default(now())
@@ -957,8 +960,8 @@ model QuoteLine {
 model Inspection {
   id             String          @id @default(cuid())
   no             String          @unique /// INTH26110201
-  serviceOrderId String
-  serviceOrder   ServiceOrder    @relation(fields: [serviceOrderId], references: [id])
+  serviceOrderId String? /// empty = inspected before any QTTH existed; the QTTH opened for the machine afterwards adopts it
+  serviceOrder   ServiceOrder?   @relation(fields: [serviceOrderId], references: [id])
   assetId        String
   asset          Asset           @relation(fields: [assetId], references: [id])
   engineerId     String

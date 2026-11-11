@@ -3,6 +3,7 @@
  * the asset page is a view over the event stream, so no other code path may update Asset directly.
  */
 import { z } from "zod";
+import { assetBySerial } from "@/server/asset-first";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
 import type { AssetEventType, AssetStatus, Prisma } from "@prisma/client";
@@ -11,7 +12,9 @@ import { canTransitionAsset } from "@/lib/lifecycle";
 export const OnboardAssetInput = z.object({
   createdByEmployeeCode: z.string(), // decides country of the ATH number
   type: z.enum(["VFD", "MOTOR", "PLC", "PANEL", "DRIVE_TRAIN", "SENSOR", "OTHER"]),
-  serialNumber: z.string().min(1, "serial number is mandatory — it is the asset's true identity"),
+  serialNumber: z.string().optional(),
+  /** nameplate missing or unreadable: DCiT issues an internal serial number, the machine gets a label, a manager or the MD confirms */
+  noSerial: z.boolean().optional(),
   modelId: z.string().optional(),
   customerId: z.string(),
   plantId: z.string().optional(),
@@ -33,14 +36,21 @@ export async function onboardAsset(input: z.input<typeof OnboardAssetInput>) {
   const data = OnboardAssetInput.parse(input);
   const creator = await prisma.employee.findUniqueOrThrow({ where: { code: data.createdByEmployeeCode } });
 
+  // one ATH, one serial number (朱总 2026-11-11): a serial already on file is that machine — never a second ATH
+  const serial = data.noSerial ? "" : (data.serialNumber ?? "").trim();
+  if (!data.noSerial && !serial) throw new Error("SERIAL_REQUIRED");
+  if (serial) { const twin = await assetBySerial(prisma, serial); if (twin) throw new Error(`ASSET_SERIAL_EXISTS:${twin.code}`); }
+
   return prisma.$transaction(async (tx) => {
     const code = await allocateNumber(tx, { prefix: "A", createdByEmployeeCode: creator.code, entityId: creator.entityId });
+    data.serialNumber = serial || `DCiT-${code}`;
     const asset = await tx.asset.create({
       data: {
         code,
         entityId: creator.entityId,
         type: data.type,
         serialNumber: data.serialNumber,
+        serialSource: data.noSerial ? "INTERNAL" : "NAMEPLATE",
         modelId: data.modelId,
         customerId: data.customerId,
         plantId: data.plantId,
@@ -60,7 +70,7 @@ export async function onboardAsset(input: z.input<typeof OnboardAssetInput>) {
         assetId: asset.id,
         type: "ONBOARDED",
         actorId: creator.id,
-        summary: `${data.origin} · S/N ${data.serialNumber}`,
+        summary: `${data.origin} · S/N ${data.serialNumber}${data.noSerial ? " (internal — nameplate missing)" : ""}`,
         payload: { origin: data.origin, customerId: data.customerId, plantId: data.plantId, location: data.location, initialStatus: data.initialStatus ?? (data.origin === "TAKEOVER" ? "IN_SERVICE" : "ONBOARDED") },
       },
     });

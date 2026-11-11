@@ -290,10 +290,14 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
       return { template: "09", values: { ...work, COMPLETED_ON: d(j.finishedAt ?? j.startedAt ?? doc.issuedAt), INSPECTION_REF: insp?.no ?? "—", CONFIRMED_FAULT: j.confirmedFault || "—", CONFIG_BACKUP: j.configBackupRef || "—", CONCLUSION: j.conclusion || "—", APPROVER: SIGN_HINT } };
     }
     case "ER": {
-      const ev = await prisma.assetEvent.findFirstOrThrow({ where: { sourceDocNo: no }, include: { asset: { include: assetFull }, actor: true } });
-      const pl = (ev.payload as Record<string, string> | null) ?? {};
+      // one ERTH may list several machines: every machine in the equipment table, each one's own accessories and condition under its ATH
+      const evs = await prisma.assetEvent.findMany({ where: { sourceDocNo: no, type: "RECEIVED_WORKSHOP" }, orderBy: { id: "asc" }, include: { asset: { include: assetFull }, actor: true } });
+      if (!evs.length) throw new Error(`NOT_FOUND:${no}`);
+      const ev = evs[0];
+      const each = (k: string) => evs.length === 1 ? ((evs[0].payload as Record<string, string> | null)?.[k] ?? "") : evs.map((e) => { const v = (e.payload as Record<string, string> | null)?.[k]; return v ? `${e.asset.code}: ${v}` : ""; }).filter(Boolean).join("\n");
+      const pl: Record<string, string> = { ...((ev.payload as Record<string, string> | null) ?? {}), fault: each("fault"), accessories: each("accessories"), condition: each("condition") };
       const photos = ((ev.attachments as { name: string }[] | null) ?? []).map((x) => x.name);
-      return { template: "07", values: { ...common, ...party, ...equipmentRows([ev.asset], o?.plant?.name),
+      return { template: "07", values: { ...common, ...party, ...equipmentRows(evs.map((e) => e.asset), o?.plant?.name),
         RECEIVED_AT: `${d(ev.occurredAt)}  ${hm(ev.occurredAt)}`, JOB_NO: o?.no ?? "—", CUSTOMER_REF: o?.customerRef ?? "—", SENDER: pl.sender || "—",
         FAULT: pl.fault || o?.reportedSymptom || "—", ACCESSORIES: pl.accessories || NONE, CONDITION: pl.condition || "—", PHOTO_REFERENCES: lines_(pl.photoRefs, ...photos) || "—", HANDLING_RESTRICTIONS: pl.handlingRestrictions || NONE,
         RECEIVED_BY: ev.actor?.name ?? doc.createdBy.name, SENDER_SIGN: pl.sender || SIGN_HINT } };

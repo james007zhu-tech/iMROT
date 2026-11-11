@@ -4,6 +4,7 @@
  */
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
+import { openOrderFor, verifySerial } from "@/server/asset-first";
 import { prisma } from "@/lib/db";
 import { openJob } from "@/lib/drafts";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -22,7 +23,8 @@ export type InspectionNeed = z.infer<typeof NeedRow> & { onHand?: number; short?
 // ───────────── INTH ─────────────
 
 export const InspectionInput = z.object({
-  serviceOrderNo: z.string(),
+  /** empty = opened from the ATH: the system finds the machine's open QTTH, or keeps the INTH with the machine until one is opened */
+  serviceOrderNo: z.string().optional(),
   assetCode: z.string(),
   engineerCode: z.string(),
   inspectedAt: z.coerce.date().optional(),
@@ -59,13 +61,15 @@ export async function checkNeedsStock(needs: z.infer<typeof NeedRow>[]): Promise
 
 export async function createInspection(input: z.input<typeof InspectionInput>) {
   const d = InspectionInput.parse(input);
-  const [order, asset, eng] = await Promise.all([
-    prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }),
+  const [asset, eng] = await Promise.all([
     prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }),
     prisma.employee.findUniqueOrThrow({ where: { code: d.engineerCode } }),
   ]);
+  // 设备优先: the INTH is opened from the ATH; it belongs to the order named, else to the machine's open QTTH, else to the machine alone
+  const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }) : await openOrderFor(prisma, asset.id);
+  if (order && !(await prisma.serviceOrderAsset.findUnique({ where: { serviceOrderId_assetId: { serviceOrderId: order.id, assetId: asset.id } } }))) throw new Error(`ASSET_NOT_ON_ORDER:${asset.code}`);
   // A saved draft of this order and asset is continued (same INTH number); its blanks replace what was there.
-  const open = await prisma.inspection.findFirst({ where: { serviceOrderId: order.id, assetId: asset.id, draft: true }, orderBy: { no: "desc" } });
+  const open = await prisma.inspection.findFirst({ where: { serviceOrderId: order?.id ?? null, assetId: asset.id, draft: true }, orderBy: { no: "desc" } });
   const needs = d.needs ? (d.draft ? d.needs : await checkNeedsStock(d.needs)) : undefined;
   return prisma.$transaction(async (tx) => {
     const v = <T,>(x: T | undefined) => (open ? (x ?? null) : x);
@@ -78,16 +82,16 @@ export async function createInspection(input: z.input<typeof InspectionInput>) {
       location: v(d.location), attachmentRefs: v(d.attachmentRefs), draft: d.draft,
       needs: (open ? needs ?? [] : needs) as Prisma.InputJsonValue | undefined,
     };
-    const no = open?.no ?? (await allocateNumber(tx, { prefix: "IN", createdByEmployeeCode: eng.code, entityId: order.entityId }));
+    const no = open?.no ?? (await allocateNumber(tx, { prefix: "IN", createdByEmployeeCode: eng.code, entityId: order?.entityId ?? asset.entityId }));
     const insp = open
       ? await tx.inspection.update({ where: { id: open.id }, data })
-      : await tx.inspection.create({ data: { ...data, no, serviceOrderId: order.id, assetId: asset.id } });
+      : await tx.inspection.create({ data: { ...data, no, serviceOrderId: order?.id ?? null, assetId: asset.id } });
     if (d.draft) return insp; // nothing registered yet: no report, no timeline entry, the order does not move
-    await tx.document.create({ data: { no, type: "IN", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: eng.id, templateCode: "08" } });
-    await progressOrder(tx, order, "DIAGNOSING", eng.id, no);
+    await tx.document.create({ data: { no, type: "IN", entityId: order?.entityId ?? asset.entityId, countryCode: no.slice(2, 4), customerId: order?.customerId ?? asset.customerId, serviceOrderId: order?.id ?? null, createdById: eng.id, templateCode: "08" } });
+    if (order) await progressOrder(tx, order, "DIAGNOSING", eng.id, no);
     await tx.assetEvent.create({
       data: {
-        assetId: asset.id, type: "INSPECTED", actorId: eng.id, serviceOrderId: order.id, sourceDocNo: no,
+        assetId: asset.id, type: "INSPECTED", actorId: eng.id, serviceOrderId: order?.id ?? null, sourceDocNo: no,
         summary: `${d.probableCause ?? d.findings ?? ""}`,
         payload: { findings: d.findings, probableCause: d.probableCause, recommendation: d.recommendation, tests: d.tests, needs } as Prisma.InputJsonValue,
       },
@@ -368,6 +372,8 @@ export async function recomputeMargin(tx: Prisma.TransactionClient, orderId: str
 export async function missingForAcceptance(no: string): Promise<string[]> {
   const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { inspections: { select: { id: true } }, repairJobs: { select: { location: true } }, documents: { select: { type: true } }, deliveries: { select: { status: true } }, assets: { select: { assetId: true, asset: { select: { code: true } } } } } });
   const missing: string[] = [];
+  // 自动化项目 (朱总 2026-11-11): what we deliver is filed as ATH before the customer accepts it
+  if (o.mode === "AUTOMATION_PROJECT" && !o.assets.length) missing.push("ATH");
   if (o.mode === "PARTNER_REPAIR") {
     // 合作维修 (flow 2026-11-08): QTTH · INTH · POTH · 外送 OBTH · 返回 IBTH · our retest passed · ERTH in · DNTH out — no RPTH, the partner repaired it
     if (!o.inspections.length) missing.push("INTH");
@@ -399,33 +405,59 @@ export { assetStatusForWork };
 // ───────────── ERTH — equipment received at the workshop (template 07) ─────────────
 
 export const ReceiveInput = z.object({
-  serviceOrderNo: z.string(),
-  assetCode: z.string(),
+  /** empty = opened from the ATH (朱总 2026-11-11): each machine goes to its own open QTTH, or waits for one */
+  serviceOrderNo: z.string().optional(),
+  /** one ERTH may take in several machines of one customer; `assetCode` is the single-machine form */
+  assetCode: z.string().optional(),
+  items: z.array(z.object({ assetCode: z.string(), accessories: z.string().optional(), condition: z.string().optional(), fault: z.string().optional(), serialChecked: z.boolean().optional() })).optional(),
   actorCode: z.string(),
   receivedAt: z.coerce.date().optional(),
   sender: z.string().optional(),
   accessories: z.string().optional(), /// one per line: "item × qty" — parsed so the delivery note can check they all go back
   condition: z.string().optional(),
   fault: z.string().optional(),
+  serialChecked: z.boolean().optional(), /// the receiver compared the serial number on the machine with the ATH
   photoRefs: z.string().optional(),
   handlingRestrictions: z.string().optional(),
   attachments: z.array(z.object({ name: z.string(), url: z.string(), kind: z.string().optional() })).optional(),
 });
 
-/** Machine arrives at the workshop: ERTH number, RECEIVED_WORKSHOP event carrying the intake record. */
+/**
+ * Machines arrive at the workshop: one ERTH number, one RECEIVED_WORKSHOP event per machine carrying its intake record.
+ * Receiving is where the ATH ↔ serial number pairing is checked against the machine itself.
+ */
 export async function receiveEquipment(input: z.input<typeof ReceiveInput>) {
   const d = ReceiveInput.parse(input);
-  const [order, asset, actor] = await Promise.all([
-    prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }),
-    prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }),
+  const items = d.items?.length ? d.items : d.assetCode ? [{ assetCode: d.assetCode, accessories: d.accessories, condition: d.condition, fault: d.fault, serialChecked: d.serialChecked }] : [];
+  if (!items.length) throw new Error("ASSET_REQUIRED");
+  if (new Set(items.map((i) => i.assetCode)).size !== items.length) throw new Error("RECEIVE_ASSET_TWICE");
+  const [named, assets, actor] = await Promise.all([
+    d.serviceOrderNo ? prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { assets: { select: { assetId: true } } } }) : null,
+    prisma.asset.findMany({ where: { code: { in: items.map((i) => i.assetCode) } } }),
     prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } }),
   ]);
+  if (assets.length !== items.length) throw new Error("unknown asset code in request");
+  const customers = new Set(assets.map((a) => a.customerId));
+  if (customers.size > 1) throw new Error("RECEIVE_ONE_CUSTOMER");
+  // which QTTH each machine's intake belongs to: the one named (when the machine is on it), else its own open order, else none yet
+  const orderOf = new Map<string, { id: string; entityId: string; customerId: string } | null>();
+  for (const a of assets) orderOf.set(a.id, named && named.assets.some((x) => x.assetId === a.id) ? named : await openOrderFor(prisma, a.id));
+  if (named && ![...orderOf.values()].some((o) => o?.id === named.id)) throw new Error(`ASSET_NOT_ON_ORDER:${assets[0].code}`);
+  const orders = new Set([...orderOf.values()].map((o) => o?.id ?? null));
+  const one = orders.size === 1 ? [...orderOf.values()][0] : null; // the ERTH itself follows an order only when every machine on it does
   return prisma.$transaction(async (tx) => {
-    const no = await allocateNumber(tx, { prefix: "ER", createdByEmployeeCode: actor.code, entityId: order.entityId });
-    await tx.document.create({ data: { no, type: "ER", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, templateCode: "07", issuedAt: d.receivedAt } });
-    return tx.assetEvent.create({
-      data: { assetId: asset.id, type: "RECEIVED_WORKSHOP", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: d.receivedAt, summary: `${d.condition ?? ""}${d.fault ? ` · ${d.fault}` : ""}`, payload: { sender: d.sender, accessories: d.accessories, accessoryList: parseAccessories(d.accessories), condition: d.condition, fault: d.fault, photoRefs: d.photoRefs, handlingRestrictions: d.handlingRestrictions } as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined },
-    });
+    const no = await allocateNumber(tx, { prefix: "ER", createdByEmployeeCode: actor.code, entityId: one?.entityId ?? assets[0].entityId });
+    await tx.document.create({ data: { no, type: "ER", entityId: one?.entityId ?? assets[0].entityId, countryCode: no.slice(2, 4), customerId: assets[0].customerId, serviceOrderId: one?.id ?? null, createdById: actor.id, templateCode: "07", issuedAt: d.receivedAt } });
+    let first: Awaited<ReturnType<typeof tx.assetEvent.create>> | null = null;
+    for (const it of items) {
+      const asset = assets.find((a) => a.code === it.assetCode)!;
+      if (it.serialChecked) await verifySerial(tx, asset.id, actor);
+      const ev = await tx.assetEvent.create({
+        data: { assetId: asset.id, type: "RECEIVED_WORKSHOP", actorId: actor.id, serviceOrderId: orderOf.get(asset.id)?.id ?? null, sourceDocNo: no, occurredAt: d.receivedAt, summary: `${it.condition ?? ""}${it.fault ? ` · ${it.fault}` : ""}`, payload: { sender: d.sender, accessories: it.accessories, accessoryList: parseAccessories(it.accessories), condition: it.condition, fault: it.fault, photoRefs: d.photoRefs, handlingRestrictions: d.handlingRestrictions, serialChecked: !!it.serialChecked } as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined },
+      });
+      first ??= ev;
+    }
+    return first!;
   });
 }
 

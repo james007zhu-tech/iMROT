@@ -18,8 +18,8 @@ const onOrder = (tail = "") => (no: string, order?: string | null) => (order ? `
 
 export const DOC_PLACES: Record<string, DocPlace> = {
   QT: { nav: "opportunities", open: (no) => `/service-orders/${no}`, newHref: "/service-orders/new" },
-  ER: { nav: "receiving", open: onOrder("/receive"), step: { path: "receive", statuses: ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"], modes: ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE"] } },
-  IN: { nav: "inspectionReports", open: onOrder(), step: { path: "inspect", statuses: ["RECEIVED", "ASSIGNED", "DIAGNOSING"], modes: ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE"] } },
+  ER: { nav: "receiving", open: (no, order) => (order ? `/service-orders/${order}` : `/search?q=${no}`), newHref: "/receiving/new", step: { path: "receive", statuses: ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"], modes: ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE"] } },
+  IN: { nav: "inspectionReports", open: onOrder(), newHref: "/inspections/new", step: { path: "inspect", statuses: ["RECEIVED", "ASSIGNED", "DIAGNOSING"], modes: ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE"] } },
   RP: { nav: "repairReports", open: onOrder(), step: { path: "repair", statuses: ["IN_PROGRESS"], modes: ["REPAIR"] } },
   PM: { nav: "maintenanceReports", open: onOrder(), step: { path: "maintain", statuses: ["IN_PROGRESS"], modes: ["MAINTENANCE"] } },
   DN: { nav: "deliveryNotes", open: (no, order) => (order ? `/service-orders/${order}/deliver/${no}` : `/search?q=${no}`), step: { path: "deliver", statuses: ["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED", "DECLINED"] } },

@@ -2,6 +2,7 @@
  * SLM service layer. One service = one QTTH created at report time; everything else hangs below it.
  */
 import { createMilestones } from "@/server/project";
+import { adoptLooseDocs } from "@/server/asset-first";
 import { tradeTermsFrom } from "@/lib/export";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -134,6 +135,9 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
     });
     await tx.document.create({ data: { no, type: "QT", entityId: creator.entityId, countryCode: no.slice(2, 4), customerId: data.customerId, serviceOrderId: order.id, createdById: creator.id, templateCode: trade || project ? TRADE_QUOTE_TEMPLATE : undefined } });
     if (project) await createMilestones(tx, order.id);
+    // 设备优先: what these machines were received with or inspected for before any QTTH existed now belongs to this one
+    const adopted = await adoptLooseDocs(tx, order, assets.map((a) => a.id));
+    Object.assign(order, { adopted });
     for (const a of assets) {
       await tx.assetEvent.create({
         data: {
@@ -152,6 +156,11 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
     return order;
   });
   // 贸易: what is not on the shelf goes out for supplier quotes at once (same rule as INTH needs, flow step 3)
+  const adopted = (created as typeof created & { adopted?: Awaited<ReturnType<typeof adoptLooseDocs>> }).adopted;
+  if (adopted?.inspected) {
+    const eng = await prisma.employee.findUnique({ where: { id: adopted.inspected.engineerId }, select: { code: true } });
+    await catchUpOrder(created.no, "DIAGNOSING", creator.code, eng?.code).catch((e) => console.error(`catch up ${created.no}:`, e));
+  }
   if (trade) await autoInquiryForOrder(created.no, creator.code).catch((e) => console.error(`auto PRTH for ${created.no}:`, e));
   return created;
 }
