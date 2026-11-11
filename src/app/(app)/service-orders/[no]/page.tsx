@@ -21,6 +21,9 @@ import { declineCloseBlockers, feeTotal, undoDeclineBlocker, type DeclineFee } f
 import { closeDeclinedAction, exportDocAction, reopenAsPartnerAction, undoDeclineAction } from "./actions";
 import { approveMargin } from "@/server/slm";
 import { loadOrder } from "./_shell";
+import { DocChain } from "@/components/DocChain";
+import { setOrderSales } from "@/server/payroll";
+import { chainOf } from "@/lib/doc-chain";
 
 export const dynamic = "force-dynamic";
 const atts0 = (o: { attachments: unknown }) => (o.attachments as { name: string; url: string; kind: string }[] | null) ?? [];
@@ -70,6 +73,16 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const outstanding = order.invoices.filter((i) => !i.cancelledAt).reduce((s, i) => s + Math.max(0, Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0)), 0);
   const settledAwaitingClose = order.status === "INVOICED" && order.invoices.some((i) => !i.cancelledAt) && outstanding < 0.005;
 
+  // 销售负责人: whose target this order counts toward
+  const [owner, salesPeople, opener] = await Promise.all([
+    order.salesId ? prisma.employee.findUnique({ where: { id: order.salesId }, select: { code: true, name: true } }) : null,
+    prisma.employee.findMany({ where: { active: true, role: { in: ["SALES", "MANAGER", "MD"] } }, orderBy: { code: "asc" }, select: { id: true, code: true, name: true } }),
+    prisma.employee.findUnique({ where: { id: order.createdById }, select: { name: true } }),
+  ]);
+  async function setSales(form: FormData) {
+    "use server";
+    await guarded(async () => { const actor = await currentEmployee(); await setOrderSales({ no, actorCode: actor.code, salesCode: String(form.get("sales") || "") || null }); }, `/service-orders/${no}`);
+  }
   async function assign(form: FormData) {
     "use server";
     await guarded(async () => {
@@ -90,6 +103,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     await guarded(async () => { const me = await currentEmployee(); await approveMargin({ no, actorCode: me.code, decision: form.get("decision") as "APPROVED" | "REJECTED", note: String(form.get("note") || "") || undefined }); }, `/service-orders/${no}`);
   }
   const me = await currentEmployee();
+  const canSetSales = ["MD", "MANAGER", "ADMIN", "SALES"].includes(me.role);
   const floor = await marginFloor(order.mode);
   const marginLow = order.marginPct != null && Number(order.marginPct) < floor;
   // 转合作维修 (2026-11-09): a REPAIR order is closed and reopened as 合作维修 — the mode itself never changes.
@@ -125,6 +139,12 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const terms = order.tradeTerms as TradeTerms | null; // 国际贸易 only
   const exportLeft = terms ? exportCloseBlockers({ incoterm: terms.incoterm, shipped: order.deliveries.some((d) => d.status === "SIGNED" && d.shipping), unpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, attachments: atts }) : [];
 
+  // 单据链: the numbered documents of this order in sequence, with the customer's PO and the acceptance in their places
+  const chain = chainOf(order.mode, docs.map((d) => ({ no: d.no, type: d.type, date: d.issuedAt?.toISOString().slice(0, 10) })), {
+    customerPo: order.quoteConfirmedAt ? order.customerRef || custFiles.find((a) => a.kind === "PO")?.name || u("poConfirmed") : null,
+    acceptance: order.acceptance ? (order.acceptance.acceptedAt?.toISOString().slice(0, 10) ?? u(`step_accept`)) : null,
+  });
+
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={<span className="font-mono">{order.no}</span>}
@@ -149,11 +169,12 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           {primary && primary !== "assign" && primary !== "contractDirect" && <Link href={stepHref(order.no, primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
+      <DocChain order={order.no} slots={chain} />
       <Flash ok={ok} error={error} />
       {dec && <Alert>{u("declinedBanner", { date: dec.toldAt.toISOString().slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="min-w-0 space-y-4 lg:col-span-2">
           {order.mode === "AUTOMATION_PROJECT" ? <Card title={(order.project as ProjectInfo | null)?.name ?? u("projectCard")}>
             <Grid>
               <Field label={t("customer")}><Value>{order.customer.name}{order.plant ? ` · ${order.plant.code} ${order.plant.name}` : ""}</Value></Field>
@@ -235,6 +256,13 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
         </div>
 
         <div className="space-y-4">
+          <Card title={u("salesOwner")}>
+            {canSetSales ? <form action={setSales} className="flex gap-2">
+              <select name="sales" defaultValue={owner?.code ?? ""} aria-label={u("salesOwner")} className={inputCls}><option value="">{u("salesOwnerNone", { name: (opener?.name ?? "") })}</option>{salesPeople.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select>
+              <button className={btnGhost}>{t("save")}</button>
+            </form> : <p className="text-sm">{owner ? `${owner.code} ${owner.name}` : u("salesOwnerNone", { name: (opener?.name ?? "") })}</p>}
+            <p className="mt-1 text-xs text-navy/60">{u("salesOwnerHint")}</p>
+          </Card>
           {primary && <Card title={`${u("nextStep")}: ${stepLabel(primary)}`} accent>
             {primary === "assign" ? (
               <form action={assign} id="assign" className="space-y-2">

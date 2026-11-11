@@ -142,11 +142,17 @@ model Employee {
   overtime        OvertimeRequest[]    @relation("OvertimeOf")
   overtimeDecided OvertimeRequest[]    @relation("OvertimeApprover")
   overtimeLines   OvertimePayLine[]
+  expenses        ExpenseClaim[]       @relation("ExpenseOf")
+  expensesDecided ExpenseClaim[]       @relation("ExpenseApprover")
+  trainings       TrainingRecord[]
+  payrollLines    PayrollLine[]
+  salesTargets    SalesTarget[]
 
   assetsResponsible  Asset[]                @relation("AssetResponsible")
   events             AssetEvent[]
   ordersAssigned     ServiceOrder[]         @relation("OrderAssignee")
   ordersCreated      ServiceOrder[]         @relation("OrderCreator")
+  ordersSold         ServiceOrder[]         @relation("OrderSales")
   quoteDeclines      QuoteDecline[]
   inspections        Inspection[]
   repairJobs         RepairJob[]
@@ -233,6 +239,8 @@ model SalaryRecord {
   allowances      Json? /// [{name, amount, taxable}] — position, housing, transport, phone, meal …
   allowanceTotal  Decimal  @default(0) @db.Decimal(14, 2)
   grossMonthly    Decimal  @db.Decimal(14, 2) /// baseSalary + allowanceTotal
+  quarterlyPay    Decimal? @db.Decimal(14, 2) /// 季度绩效: the amount per month at 100 %; three months of it are paid with the quarter's last payroll
+  variablePay     Decimal? @db.Decimal(14, 2) /// 绩效工资: the monthly amount at 100 % performance; payroll multiplies it by the month's factor
   ssoWageBase     Decimal? @db.Decimal(14, 2) /// wage used for social security, capped by law
   ssoEmployeeRate Decimal? @db.Decimal(6, 4) /// e.g. 0.05
   ssoEmployerRate Decimal? @db.Decimal(6, 4)
@@ -259,6 +267,7 @@ model SalaryRecord {
 }
 
 enum ReviewKind {
+  MONTHLY /// 月度绩效: period "2026-11", score 0–100 — feeds that month's payroll
   PROBATION
   QUARTERLY
   ANNUAL
@@ -843,6 +852,8 @@ model ServiceOrder {
   assignee           Employee?          @relation("OrderAssignee", fields: [assigneeId], references: [id])
   createdById        String
   createdBy          Employee           @relation("OrderCreator", fields: [createdById], references: [id])
+  salesId            String? /// 销售负责人 (朱总 2026-11-11): whose target this order counts toward; empty = the person who opened it
+  sales              Employee?          @relation("OrderSales", fields: [salesId], references: [id])
   customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
   requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH
@@ -1661,4 +1672,185 @@ model AiAction {
   decidedAt  DateTime?
 
   @@index([employeeId, status])
+}
+
+// ───────────────────────── 费用报销 / 培训 / 字典 / 权限 / Payroll (2026-11-11) ─────────────────────────
+
+enum ExpenseStatus {
+  PENDING /// waiting for the manager or the MD
+  APPROVED /// to be reimbursed — with the next payroll, or by hand
+  REJECTED
+  PAID
+  CANCELLED
+}
+
+/// 费用报销 — one receipt, one claim. The person photographs the receipt, the system reads it, the manager or MD decides.
+/// A claim paid out of pocket (paidBy SELF) is reimbursed with the month's payroll unless finance pays it earlier.
+model ExpenseClaim {
+  id             String        @id @default(cuid())
+  no             String?       @unique /// EXTH26111101 (朱总 2026-11-11)
+  entityId       String
+  employeeId     String
+  employee       Employee      @relation("ExpenseOf", fields: [employeeId], references: [id])
+  spentOn        DateTime      @db.Date
+  category       String /// DictItem code of group expenseCategory
+  description    String
+  vendor         String?
+  vendorTaxId    String?
+  receiptNo      String? /// the receipt's or tax invoice's own number, verbatim
+  currency       String        @default("THB")
+  amount         Decimal       @db.Decimal(14, 2) /// total paid, VAT included
+  vatAmount      Decimal?      @db.Decimal(14, 2) /// input VAT, only when the paper is a full tax invoice in the company's name
+  paidBy         String        @default("SELF") /// SELF | PETTY_CASH | COMPANY
+  serviceOrderNo String? /// the QTTH the cost belongs to, when there is one
+  receipts       Json? /// [{name, url}]
+  status         ExpenseStatus @default(PENDING)
+  approverId     String?
+  approver       Employee?     @relation("ExpenseApprover", fields: [approverId], references: [id])
+  decidedAt      DateTime?
+  decisionNote   String?
+  paidAt         DateTime?
+  paidRef        String? /// bank reference, or the payroll month that carried it
+  payrollRunId   String?
+  createdAt      DateTime      @default(now())
+
+  @@index([employeeId, spentOn])
+  @@index([status])
+}
+
+/// 培训记录 — what each person was trained in and with what result (the T of iMROT, inside the company).
+model TrainingRecord {
+  id            String    @id @default(cuid())
+  entityId      String
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  title         String
+  kind          String /// DictItem code of group trainingKind
+  provider      String?
+  startedOn     DateTime  @db.Date
+  endedOn       DateTime? @db.Date
+  hours         Decimal?  @db.Decimal(6, 1)
+  result        String    @default("ATTENDED") /// PLANNED | ATTENDED | PASSED | FAILED
+  level         String? /// competency level reached, L1 … L4
+  score         Decimal?  @db.Decimal(5, 1)
+  certificateNo String?
+  expiresAt     DateTime? @db.Date
+  attachments   Json?
+  note          String?
+  createdById   String
+  createdAt     DateTime  @default(now())
+
+  @@index([employeeId, startedOn])
+}
+
+/// 数据字典 — the pick-lists people maintain themselves (expense categories, training kinds, units, positions …).
+/// `system` rows are seeded and may be renamed or switched off, never deleted: records point at their codes.
+model DictItem {
+  id      String  @id @default(cuid())
+  group   String
+  code    String
+  labelTh String
+  labelZh String
+  labelEn String
+  sort    Int     @default(0)
+  active  Boolean @default(true)
+  system  Boolean @default(false)
+
+  @@unique([group, code])
+}
+
+/// 权限管理 — a menu entry a role may not open. No row = allowed. The MD is never restricted.
+model RoleMenu {
+  role EmployeeRole
+  key  String /// nav item key (src/lib/nav.ts)
+
+  @@id([role, key])
+}
+
+enum PayrollStatus {
+  DRAFT /// computed, still editable and re-computable
+  APPROVED /// locked by the MD
+  PAID
+}
+
+/// 月度工资 — one run per legal entity and month. Every figure a line was computed from is copied onto the line,
+/// so later salary, law or policy changes never rewrite a month that was approved.
+model PayrollRun {
+  id             String        @id @default(cuid())
+  entityId       String
+  month          String /// "2026-11"
+  status         PayrollStatus @default(DRAFT)
+  policy         Json /// the performance bands and statutory figures used
+  totals         Json /// {gross, sso, ssoEmployer, wht, net, employerCost, reimbursement}
+  note           String?
+  createdBy      String
+  createdAt      DateTime      @default(now())
+  computedAt     DateTime      @default(now())
+  taxConfirmedBy String? /// 朱总 2026-11-11: withholding follows the accountant — approval waits for this
+  taxConfirmedAt DateTime?
+  approvedBy     String?
+  approvedAt     DateTime?
+  paidAt         DateTime?
+  lines          PayrollLine[]
+
+  @@unique([entityId, month])
+}
+
+model PayrollLine {
+  id               String     @id @default(cuid())
+  runId            String
+  run              PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employeeId       String
+  employee         Employee   @relation(fields: [employeeId], references: [id])
+  salaryRecordId   String?
+  baseSalary       Decimal    @db.Decimal(14, 2)
+  allowances       Json /// [{name, amount, taxable}]
+  allowanceTotal   Decimal    @db.Decimal(14, 2)
+  overtime         Decimal    @default(0) @db.Decimal(14, 2)
+  variablePay      Decimal    @default(0) @db.Decimal(14, 2) /// at 100 %
+  perfScore        Decimal?   @db.Decimal(5, 1)
+  perfFactor       Decimal    @default(1) @db.Decimal(6, 3)
+  incentive        Decimal    @default(0) @db.Decimal(14, 2) /// variablePay × perfFactor
+  perfBasis        String     @default("SCORE") /// SCORE (manager's monthly score) | TARGET (sales target achievement)
+  achievement      Decimal?   @db.Decimal(8, 4) /// actual ÷ target of the month, for TARGET
+  quarterlyPay     Decimal    @default(0) @db.Decimal(14, 2) /// three months at 100 %, only in a quarter's last month
+  quarterAchieved  Decimal?   @db.Decimal(8, 4)
+  quarterFactor    Decimal    @default(0) @db.Decimal(6, 3)
+  quarterIncentive Decimal    @default(0) @db.Decimal(14, 2)
+  bonus            Decimal    @default(0) @db.Decimal(14, 2) /// one-off, typed by the MD
+  gross            Decimal    @db.Decimal(14, 2) /// taxable income of the month
+  ssoBase          Decimal    @default(0) @db.Decimal(14, 2)
+  ssoEmployee      Decimal    @default(0) @db.Decimal(14, 2)
+  ssoEmployer      Decimal    @default(0) @db.Decimal(14, 2)
+  pvdEmployee      Decimal    @default(0) @db.Decimal(14, 2)
+  pvdEmployer      Decimal    @default(0) @db.Decimal(14, 2)
+  wht              Decimal    @default(0) @db.Decimal(14, 2) /// ภ.ง.ด.1 withholding of the month
+  whtManual        Boolean    @default(false) /// typed by the MD instead of computed
+  whtDetail        Json? /// how the figure was reached
+  otherDeduction   Decimal    @default(0) @db.Decimal(14, 2)
+  reimbursement    Decimal    @default(0) @db.Decimal(14, 2) /// approved expense claims, not income
+  net              Decimal    @db.Decimal(14, 2)
+  employerCost     Decimal    @db.Decimal(14, 2)
+  missing          String[]   @default([]) /// what the line could not find: SALARY, PERFORMANCE, OVERTIME_OPEN, TAX_ID, SSO_NO, BANK
+  note             String?
+
+  @@unique([runId, employeeId])
+}
+
+/// 销售目标 (朱总 2026-11-11): sales pay is 50 % base, 30 % on the month's target, 20 % on the quarter's.
+/// Below 70 % of target the performance pay is 0; at 70 % it is 50 %; no cap above.
+model SalesTarget {
+  id           String   @id @default(cuid())
+  entityId     String
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  period       String /// "2026-11" for a month, "2026-Q4" for a quarter
+  metric       String   @default("COLLECTED") /// COLLECTED (payments received) | INVOICED (tax invoices, ex VAT)
+  target       Decimal  @db.Decimal(16, 2)
+  actualManual Decimal? @db.Decimal(16, 2) /// typed by the MD when the system's figure is not the whole story
+  note         String?
+  setById      String
+  updatedAt    DateTime @updatedAt
+
+  @@unique([employeeId, period])
 }

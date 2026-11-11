@@ -19,10 +19,10 @@ export const NAV: NavGroup[] = [
   { key: "crm", items: [{ key: "customers", href: "/customers" }, { key: "opportunities", href: "/service-orders" }] },
   { key: "lean", items: [doc("receiving", "ER"), { key: "inspectionReports", href: "/service-reports?kind=inspection" }, { key: "repairReports", href: "/service-reports?kind=repair" }, { key: "maintenanceReports", href: "/service-reports?kind=maintenance" }, doc("deliveryNotes", "DN"), doc("acceptance", "AC"), { key: "projects", href: "/service-orders?mode=AUTOMATION_PROJECT" }] },
   { key: "scm", items: [{ key: "suppliers", href: "/suppliers" }, { key: "inquiries", href: "/purchasing/inquiries" }, { key: "purchaseOrders", href: "/purchasing/orders" }, { key: "stock", href: "/parts" }, doc("stockIn", "IB"), doc("stockOut", "OB")] },
-  { key: "fin", items: [{ key: "ledger", href: "/finance" }, doc("paymentVouchers", "PV"), doc("statements", "BL"), soon("finReports"), soon("expenses")] },
+  { key: "fin", items: [{ key: "ledger", href: "/finance" }, doc("paymentVouchers", "PV"), doc("statements", "BL"), { key: "finReports", href: "/finance/reports" }, { key: "expenses", href: "/finance/expenses" }] },
   { key: "to", items: [doc("proforma", "PF"), { key: "billing", href: "/tax?doc=iv" }, { key: "taxInvoices", href: "/tax?doc=ti" }, { key: "receipts", href: "/tax?doc=rc" }] },
-  { key: "opd", items: [{ key: "talent", href: "/people" }, { key: "overtime", href: "/people/overtime" }, { ...soon("payroll"), mdOnly: true }, soon("training")] },
-  { key: "admin", items: [soon("permissions"), soon("dictionary"), { key: "entities", href: "/admin" }] },
+  { key: "opd", items: [{ key: "talent", href: "/people" }, { key: "overtime", href: "/people/overtime" }, { key: "payroll", href: "/people/payroll" }, { key: "training", href: "/people/training" }] },
+  { key: "admin", items: [{ key: "permissions", href: "/admin/permissions", mdOnly: true }, { key: "dictionary", href: "/admin/dictionary" }, { key: "entities", href: "/admin" }] },
 ];
 
 /** Is `href` (path + optional query) the current page? A child with a query wins over its sibling without one. */
@@ -54,6 +54,8 @@ export const SHORTCUTS: { key: string; href: string; group: string }[] = [
   { key: "newInvoice", href: "/service-orders?status=ACCEPTED", group: "to" },
   { key: "payables", href: "/finance/payables", group: "fin" },
   { key: "overtime", href: "/people/overtime", group: "opd" },
+  { key: "newExpense", href: "/finance/expenses/new", group: "fin" },
+  { key: "newTraining", href: "/people/training/new", group: "opd" },
   { key: "newReceiving", href: "/documents?type=ER&new=1", group: "lean" },
   { key: "newDelivery", href: "/documents?type=DN&new=1", group: "lean" },
   { key: "allDocuments", href: "/documents", group: "home" },
@@ -61,8 +63,8 @@ export const SHORTCUTS: { key: string; href: string; group: string }[] = [
 
 /** What a new person sees before pinning anything. */
 export function defaultShortcuts(role: string): string[] {
-  if (role === "ENGINEER" || role === "WAREHOUSE") return ["newAsset", "newRepair", "stockMovement", "newFaultCode", "overtime"];
-  if (role === "SALES") return ["newCustomer", "newOrder", "quotesWaiting", "newAsset"];
+  if (role === "ENGINEER" || role === "WAREHOUSE") return ["newAsset", "newRepair", "stockMovement", "newFaultCode", "overtime", "newExpense"];
+  if (role === "SALES") return ["newCustomer", "newOrder", "quotesWaiting", "newAsset", "newExpense"];
   return ["newCustomer", "newAsset", "newOrder", "newInquiry", "newInvoice", "payables"];
 }
 
