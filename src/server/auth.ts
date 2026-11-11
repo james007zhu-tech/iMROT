@@ -3,6 +3,7 @@
  * Phase 1 is deliberately simple: email + password (scrypt). SSO can replace signIn later without touching callers.
  */
 import { cookies } from "next/headers";
+import { overHttps } from "@/server/login-guard";
 import { createHmac } from "node:crypto";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -27,7 +28,7 @@ function verify(token: string | undefined): string | null {
 export async function signInEmployee(email: string, password: string): Promise<boolean> {
   const e = await prisma.employee.findUnique({ where: { email } });
   if (!e || !e.active || !verifyPassword(password, e.passwordHash)) return false;
-  (await cookies()).set(COOKIE, sign(`${e.code}|${Date.now()}`), { httpOnly: true, sameSite: "lax", path: "/", maxAge: 7 * 86400 });
+  (await cookies()).set(COOKIE, sign(`${e.code}|${Date.now()}`), { httpOnly: true, sameSite: "lax", secure: await overHttps(), path: "/", maxAge: 7 * 86400 });
   await prisma.employee.update({ where: { id: e.id }, data: { lastLoginAt: new Date() } }).catch(() => undefined); // shown on the ETH file
   return true;
 }
@@ -67,7 +68,7 @@ export async function currentEmployee() {
 export async function signInContact(login: string, password: string): Promise<boolean> {
   const c = await prisma.contact.findUnique({ where: { portalLogin: login } });
   if (!c || !verifyPassword(password, c.portalPasswordHash)) return false;
-  (await cookies()).set(PORTAL_COOKIE, sign(`${c.id}|${Date.now()}`), { httpOnly: true, sameSite: "lax", path: "/", maxAge: 7 * 86400 });
+  (await cookies()).set(PORTAL_COOKIE, sign(`${c.id}|${Date.now()}`), { httpOnly: true, sameSite: "lax", secure: await overHttps(), path: "/", maxAge: 7 * 86400 });
   return true;
 }
 export async function signOutContact() { (await cookies()).delete(PORTAL_COOKIE); }
@@ -87,7 +88,7 @@ const REVEAL_MS = 5 * 60 * 1000;
 
 /** After a password re-check: show this customer's contacts in full for five minutes. */
 export async function grantReveal(employeeCode: string, customerCode: string) {
-  (await cookies()).set(REVEAL_COOKIE, sign(`${employeeCode}|${customerCode}|${Date.now() + REVEAL_MS}`), { httpOnly: true, sameSite: "lax", path: "/", maxAge: REVEAL_MS / 1000 });
+  (await cookies()).set(REVEAL_COOKIE, sign(`${employeeCode}|${customerCode}|${Date.now() + REVEAL_MS}`), { httpOnly: true, sameSite: "lax", secure: await overHttps(), path: "/", maxAge: REVEAL_MS / 1000 });
 }
 export async function revealActive(customerCode: string): Promise<boolean> {
   const p = verify((await cookies()).get(REVEAL_COOKIE)?.value);

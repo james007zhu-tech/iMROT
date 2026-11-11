@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { signInEmployee } from "@/server/auth";
+import { blocked, clientAddress, noteFailure, noteSuccess } from "@/server/login-guard";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 export default async function Login({ searchParams }: { searchParams: Promise<{ e?: string }> }) {
@@ -8,7 +9,10 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
   const t = await getTranslations("common");
   async function login(form: FormData) {
     "use server";
-    const ok = await signInEmployee(String(form.get("email")), String(form.get("password")));
+    const email = String(form.get("email")).trim(), from = await clientAddress();
+    if (blocked(email, from)) redirect("/login?e=wait");
+    const ok = await signInEmployee(email, String(form.get("password")));
+    if (ok) noteSuccess(email); else noteFailure(email, from);
     redirect(ok ? "/home" : "/login?e=1");
   }
   return (
@@ -19,7 +23,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
         <p className="text-xs text-navy/70">DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</p>
         <input name="email" type="email" placeholder={t("email")} className="w-full rounded border px-3 py-2" required />
         <input name="password" type="password" placeholder={t("password")} className="w-full rounded border px-3 py-2" required />
-        {e && <p className="text-sm text-alert-ink">{t("invalidLogin")}</p>}
+        {e && <p className="text-sm text-alert-ink">{t(e === "wait" ? "loginWait" : "invalidLogin")}</p>}
         <button type="submit" className="w-full rounded bg-blue py-2 text-white">{t("ok")}</button>
       </form>
     </div>
