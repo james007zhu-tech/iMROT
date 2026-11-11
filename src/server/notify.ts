@@ -7,6 +7,7 @@
  *  FINANCE (+MD):   customer invoices due, supplier invoices to pay
  */
 import { prisma } from "@/lib/db";
+import { localToday } from "@/lib/overtime";
 import { maskName } from "@/lib/mask";
 import { daysToBirthday, daysUntil, orderDue, sortNotices, type Notice } from "@/lib/notify";
 
@@ -48,5 +49,13 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   for (const p of payables) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
   for (const e of staff) { const d = daysToBirthday(e.birthDate, today); if (d != null && d <= 7) push("staffBirthday", d, e.name, `/people/${e.code}`); }
   for (const c of creds) { const d = daysUntil(c.expiresAt!, today); if (d <= c.remindDays) push("credential", d, `${c.employee.name} ${c.kind}`, `/people/${c.employee.code}`); }
+  // 朱总 2026-11-11: last month's pay goes out by the 5th. From the 1st the MD is reminded until the month is paid.
+  if (me.role === "MD") {
+    const { previousMonth, date } = localToday();
+    const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
+    const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month: previousMonth } }, select: { status: true } });
+    const started = await prisma.salaryRecord.count({ where: { employee: { entityId, active: true } } });
+    if (started && run?.status !== "PAID") push("payrollDue", 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
+  }
   return sortNotices(out).slice(0, 60);
 }

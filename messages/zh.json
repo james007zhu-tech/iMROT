@@ -2059,7 +2059,7 @@
     "age_gt10": "10 年以上",
     "age_unknown": "安装日期未填",
     "empVariablePay": "绩效工资（满额）",
-    "empVariablePayPh": "绩效达标时每月的金额",
+    "empVariablePayPh": "销售填薪酬包的 30%；其他岗位填满额",
     "tax_spouseNoIncome": "配偶无收入",
     "err_ADMIN_ONLY": "只有 MD 或系统管理员可以操作",
     "err_BAD_MONTH": "月份格式不对：{detail}",
@@ -2088,7 +2088,11 @@
     "err_TRAINING_NOT_YOURS": "只能删除自己录入的记录",
     "err_TRAINING_OWN_ONLY": "只有经理或 MD 能为他人录入培训",
     "err_TRAINING_UNKNOWN_EMPLOYEE": "有参加人不在系统里",
-    "err_PAYROLL_EMPTY": "{detail} 没有任何带薪资记录的员工"
+    "err_PAYROLL_EMPTY": "{detail} 没有任何带薪资记录的员工",
+    "empQuarterlyPay": "季度绩效（每月额，满额）",
+    "empQuarterlyPayPh": "销售：薪酬包的 20%",
+    "err_PAYROLL_TAX_UNCONFIRMED": "批准 {detail} 前需先确认个税已按会计数字",
+    "err_TARGET_MUST_BE_POSITIVE": "目标必须大于 0"
   },
   "role": {
     "MD": "董事总经理 MD",
@@ -2228,7 +2232,8 @@
     "ask_quoteWaiting": "{ref} 的报价客户还没回复，帮我起草一条跟进消息",
     "ask_maintenanceDue": "设备 {ref} 该做维护了，上次维护发现了什么？帮我准备这次的要点",
     "ask_receivable": "{ref} 到期未收款，帮我起草一封催款邮件",
-    "ask_milestone": "项目节点 {ref} 卡在哪里？下一步该做什么？"
+    "ask_milestone": "项目节点 {ref} 卡在哪里？下一步该做什么？",
+    "k_payrollDue": "{ref} 的工资要在 5 日前发放"
   },
   "reports": {
     "searchPh": "报告号、设备编号、序列号、客户",
@@ -2486,6 +2491,27 @@
     "repByExpense": "{year} 年报销按类别",
     "repNone": "暂无数据",
     "repOtherCurrency": "另有 {n} 笔外币款项未计入账龄",
-    "paySkipped": "未纳入本月工资 {n} 人（员工档案里没有薪资记录）："
+    "paySkipped": "未纳入本月工资 {n} 人（员工档案里没有薪资记录）：",
+    "tgtTitle": "销售目标：{month} 与 {quarter}",
+    "tgtHint": "销售薪酬：底薪 50%、月度目标 30%、季度目标 20%。完成不到目标的 70% 绩效为 0；达到 70% 发 50%；达到目标发 100%；超过目标按完成率发，上不封顶。季度部分随季度最后一个月的工资发放。",
+    "tgtMonthly": "月度目标",
+    "tgtQuarterly": "季度目标",
+    "tgtActual": "完成",
+    "tgtNotSet": "尚未设定目标",
+    "tgtTarget": "目标（泰铢）",
+    "tgtMetric": "口径",
+    "tgtManual": "完成额（手工）",
+    "metric_COLLECTED": "回款",
+    "metric_INVOICED": "开票额（不含 VAT）",
+    "miss_TARGET": "未设月度目标",
+    "miss_TARGET_Q": "未设季度目标",
+    "payIncentiveM": "月度目标绩效",
+    "payIncentiveQ": "季度目标绩效",
+    "payTaxTodo": "个税以会计的数字为准：导出 PND1 数据给会计，把会计给的数填到每个人的“个税”栏，然后点确认。确认后才能批准。",
+    "payTaxDone": "个税已按会计数字确认（{who}，{date}）",
+    "payTaxConfirm": "确认个税已按会计数字",
+    "payTaxUndo": "撤销确认",
+    "payTaxFirst": "需先确认个税已按会计数字",
+    "payDeadline": "{month} 的工资在次月 5 日前发放。"
   }
 }

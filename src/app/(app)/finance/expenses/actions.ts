@@ -15,7 +15,7 @@ export async function fileAction(f: FormData) {
       vendor: str(f, "vendor"), vendorTaxId: str(f, "vendorTaxId"), receiptNo: str(f, "receiptNo"), currency: str(f, "currency") ?? "THB", amount: Number(f.get("amount")),
       vatAmount: str(f, "vatAmount") ? Number(str(f, "vatAmount")) : undefined, paidBy: (str(f, "paidBy") ?? "SELF") as "SELF", serviceOrderNo: str(f, "serviceOrderNo"), receipts: atts.map(({ name, url }) => ({ name, url })),
     });
-    return { ok: `${c.currency} ${Number(c.amount).toFixed(2)}`, to: BACK };
+    return { ok: `${c.no} · ${c.currency} ${Number(c.amount).toFixed(2)}`, to: BACK };
   }, `${BACK}/new`);
 }
 export async function decideAction(id: string, f: FormData) {

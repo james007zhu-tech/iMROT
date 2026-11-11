@@ -46,6 +46,7 @@ export const DOC_PREFIXES = {
   PV: { name: "payment voucher", digits: 2 },
   TR: { name: "training", digits: 2 },
   RC: { name: "receipt", digits: 2 },
+  EX: { name: "expense claim", digits: 2 }, // EXTH26111101 — 朱总 2026-11-11
 } as const;
 
 export type MasterPrefix = keyof typeof MASTER_PREFIXES;
@@ -123,4 +124,14 @@ export function parseNumber(no: string): ParsedNumber | null {
 export function keepCustomerRef(ref: string | null | undefined): string | null {
   const v = ref?.trim();
   return v ? v : null;
+}
+
+/**
+ * 工资单 number (朱总 2026-11-11: "ESTH2611E002"): ES + country + pay month YYMM + E + the employee's own serial.
+ * No counter: a person has one payslip a month, so the number follows from the month and the employee code.
+ */
+export function payslipNo(month: string, employeeCode: string): string {
+  const m = /^E(TH|VN|CN)\d{4}(\d{3})$/.exec(employeeCode);
+  if (!m || !/^\d{4}-\d{2}$/.test(month)) throw new Error(`Cannot number a payslip for ${employeeCode} ${month}`);
+  return `ES${m[1]}${month.slice(2, 4)}${month.slice(5, 7)}E${m[2]}`;
 }

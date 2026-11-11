@@ -2059,7 +2059,7 @@
     "age_gt10": "Over 10 years",
     "age_unknown": "Install date unknown",
     "empVariablePay": "Performance pay (at 100 %)",
-    "empVariablePayPh": "Monthly amount at full performance",
+    "empVariablePayPh": "Sales: 30 % of the package",
     "tax_spouseNoIncome": "Spouse has no income",
     "err_ADMIN_ONLY": "Only the MD or the administrator may do this",
     "err_BAD_MONTH": "Bad month: {detail}",
@@ -2088,7 +2088,11 @@
     "err_TRAINING_NOT_YOURS": "You can only remove records you entered",
     "err_TRAINING_OWN_ONLY": "Only a manager or the MD may record for others",
     "err_TRAINING_UNKNOWN_EMPLOYEE": "An attendee is not in the system",
-    "err_PAYROLL_EMPTY": "Nobody with a salary record in {detail}"
+    "err_PAYROLL_EMPTY": "Nobody with a salary record in {detail}",
+    "empQuarterlyPay": "Quarterly pay (per month, at 100 %)",
+    "empQuarterlyPayPh": "Sales: 20 % of the package",
+    "err_PAYROLL_TAX_UNCONFIRMED": "Confirm the withholding against the accountant before approving {detail}",
+    "err_TARGET_MUST_BE_POSITIVE": "The target must be above 0"
   },
   "role": {
     "MD": "Managing Director",
@@ -2228,7 +2232,8 @@
     "ask_quoteWaiting": "The customer has not answered quote {ref}; draft a follow-up message",
     "ask_maintenanceDue": "Machine {ref} is due for maintenance: what did the last visit find, and what should this one cover?",
     "ask_receivable": "Invoice {ref} is overdue; draft a payment reminder e-mail",
-    "ask_milestone": "What is holding up project milestone {ref}, and what comes next?"
+    "ask_milestone": "What is holding up project milestone {ref}, and what comes next?",
+    "k_payrollDue": "Payroll {ref} is due by the 5th"
   },
   "reports": {
     "searchPh": "Report no., machine, serial, customer",
@@ -2486,6 +2491,27 @@
     "repByExpense": "Expense claims by category, {year}",
     "repNone": "No data yet",
     "repOtherCurrency": "{n} foreign-currency item(s) are not in the ageing",
-    "paySkipped": "{n} not on this payroll (no salary record in their file):"
+    "paySkipped": "{n} not on this payroll (no salary record in their file):",
+    "tgtTitle": "Sales targets: {month} and {quarter}",
+    "tgtHint": "Sales pay: 50 % base, 30 % on the month's target, 20 % on the quarter's. Under 70 % of target pays nothing; 70 % pays half; target pays in full; above target pays the achievement, uncapped. The quarterly part is paid with the quarter's last payroll.",
+    "tgtMonthly": "Monthly target",
+    "tgtQuarterly": "Quarterly target",
+    "tgtActual": "Actual",
+    "tgtNotSet": "No target set",
+    "tgtTarget": "Target (THB)",
+    "tgtMetric": "Measured by",
+    "tgtManual": "Actual (typed)",
+    "metric_COLLECTED": "Payments received",
+    "metric_INVOICED": "Invoiced (ex VAT)",
+    "miss_TARGET": "No monthly target",
+    "miss_TARGET_Q": "No quarterly target",
+    "payIncentiveM": "Monthly target pay",
+    "payIncentiveQ": "Quarterly target pay",
+    "payTaxTodo": "Withholding follows the accountant: export the PND1 data, type the accountant's figure for each person, then confirm. Approval waits for this.",
+    "payTaxDone": "Withholding confirmed against the accountant's figures ({who}, {date})",
+    "payTaxConfirm": "Confirm against the accountant",
+    "payTaxUndo": "Undo confirmation",
+    "payTaxFirst": "Confirm the withholding first",
+    "payDeadline": "Payroll {month} is paid by the 5th of the following month."
   }
 }

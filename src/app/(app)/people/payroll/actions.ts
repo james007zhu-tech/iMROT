@@ -1,7 +1,7 @@
 "use server";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
-import { approvePayroll, computePayroll, markPayrollPaid, reopenPayroll, saveScores, setBands, type LineEdit } from "@/server/payroll";
+import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, reopenPayroll, saveScores, setBands, setSalesTarget, type LineEdit } from "@/server/payroll";
 
 const BACK = "/people/payroll";
 const num = (v: FormDataEntryValue | null) => { const s = String(v ?? "").trim(); return s === "" ? undefined : Number(s); };
@@ -40,5 +40,16 @@ export async function scoresAction(month: string, f: FormData) {
     const scores = f.getAll("code").map(String).map((code) => ({ code, score: num(f.get(`score_${code}`)), conclusion: String(f.get(`why_${code}`) ?? "").trim() })).filter((s): s is { code: string; score: number; conclusion: string } => s.score !== undefined);
     const n = await saveScores({ actorCode: me.code, month, scores });
     return { ok: `${month} × ${n}`, to: `${BACK}?month=${month}` };
+  }, `${BACK}?month=${month}`);
+}
+
+export async function taxAction(month: string, confirmed: boolean) {
+  await guarded(async () => { const me = await currentEmployee(); await confirmTax({ entityId: me.entityId, month, actorCode: me.code, confirmed }); }, `${BACK}/${month}`);
+}
+export async function targetAction(month: string, code: string, period: string, f: FormData) {
+  await guarded(async () => {
+    const me = await currentEmployee();
+    await setSalesTarget({ actorCode: me.code, employeeCode: code, period, target: num(f.get("target")) ?? 0, metric: String(f.get("metric") ?? ""), actualManual: num(f.get("actualManual")) ?? null, note: String(f.get("note") ?? "") });
+    return { ok: `${code} ${period}`, to: `${BACK}?month=${month}` };
   }, `${BACK}?month=${month}`);
 }

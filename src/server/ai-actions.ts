@@ -158,7 +158,7 @@ const TOOLS: ActionTool[] = [
       const category = str(i.category)?.toUpperCase() ?? "";
       if (!cats.includes(category)) throw new Error(`category must be one of ${cats.join(", ")}`);
       const c = await fileExpense({ actorCode: ctx.employeeCode, spentOn: new Date(str(i.spentOn)!), category, description: str(i.description)!, amount: num(i.amount)!, vatAmount: num(i.vatAmount), vendor: str(i.vendor), vendorTaxId: str(i.vendorTaxId), receiptNo: str(i.receiptNo), paidBy: (str(i.paidBy) ?? "SELF") as "SELF", serviceOrderNo: str(i.no), currency: "THB", receipts: f?.url ? [{ name: f.name ?? "receipt", url: f.url }] : [] });
-      return { ok: true, summary: `${category} THB ${Number(c.amount).toFixed(2)} · ${c.spentOn.toISOString().slice(0, 10)}${f?.url ? " + receipt" : " (no receipt attached)"} — waiting for approval`, href: "/finance/expenses" };
+      return { ok: true, no: c.no ?? undefined, summary: `${c.no} · ${category} THB ${Number(c.amount).toFixed(2)} · ${c.spentOn.toISOString().slice(0, 10)}${f?.url ? " + receipt" : " (no receipt attached)"} — waiting for approval`, href: "/finance/expenses" };
     } },
   { name: "record_training", tier: "auto",
     description: "Record a training session (培训记录) for one or more employees: title, kind (INTERNAL, ONJOB, ONLINE, VENDOR, EXTERNAL, SAFETY), date, hours, result (PLANNED, ATTENDED, PASSED, FAILED), level reached (L1–L4, only when an engineer-led practical exam certified it), certificate number and expiry. employees = codes or names; empty = the signed-in person. Recording for others needs a manager or the MD.",

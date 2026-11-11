@@ -148,7 +148,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
                   <td className="whitespace-nowrap">{day(s.effectiveFrom)}{i === 0 && <Tag>{t("empCurrent")}</Tag>}</td>
                   <td className="text-right">{fmt(s.baseSalary, open)}</td>
                   <td className="text-right">{fmt(s.allowanceTotal, open)}{open && Array.isArray(s.allowances) && (s.allowances as { name: string; amount: number }[]).map((a) => <span key={a.name} className="block text-xs font-normal text-navy/60">{a.name} {Number(a.amount).toLocaleString()}</span>)}</td>
-                  <td className="text-right">{fmt(s.grossMonthly, open, s.currency)}{open && s.variablePay != null && Number(s.variablePay) > 0 && <span className="block text-xs text-navy/60">{t("empVariablePay")} {fmt(s.variablePay, open)}</span>}</td>
+                  <td className="text-right">{fmt(s.grossMonthly, open, s.currency)}{open && s.variablePay != null && Number(s.variablePay) > 0 && <span className="block text-xs text-navy/60">{t("empVariablePay")} {fmt(s.variablePay, open)}</span>}{open && s.quarterlyPay != null && Number(s.quarterlyPay) > 0 && <span className="block text-xs text-navy/60">{t("empQuarterlyPay")} {fmt(s.quarterlyPay, open)}</span>}</td>
                   <td className="text-right">{fmt(s.ssoWageBase, open)}</td><td className="text-right">{fmt(s.ssoEmployee, open)}</td><td className="text-right">{fmt(s.ssoEmployer, open)}</td>
                   <td className="text-right">{s.pvdEmployeeRate ? `${pct(s.pvdEmployeeRate)} / ${pct(s.pvdEmployerRate)}` : "—"}</td>
                   <td className="text-right">{fmt(s.whtMonthly, open)}</td>
@@ -213,6 +213,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
                   <Field label={t("empSsoEmployeeRate")}><input name="ssoEmployeeRate" type="number" step="0.0001" min={0} max={1} defaultValue={stat?.ssoEmployeeRate} className={inputCls} /></Field>
                   <Field label={t("empSsoEmployerRate")}><input name="ssoEmployerRate" type="number" step="0.0001" min={0} max={1} defaultValue={stat?.ssoEmployerRate} className={inputCls} /></Field>
                   <Field label={t("empVariablePay")}><input name="variablePay" type="number" step="0.01" min={0} placeholder={t("empVariablePayPh")} className={inputCls} /></Field>
+                  <Field label={t("empQuarterlyPay")}><input name="quarterlyPay" type="number" step="0.01" min={0} placeholder={t("empQuarterlyPayPh")} className={inputCls} /></Field>
                   <Field label={t("empWht")}><input name="whtMonthly" type="number" step="0.01" min={0} className={inputCls} /></Field>
                   <Field label={t("empPvdEmployeeRate")}><input name="pvdEmployeeRate" type="number" step="0.0001" min={0} max={1} className={inputCls} /></Field>
                   <Field label={t("empPvdEmployerRate")}><input name="pvdEmployerRate" type="number" step="0.0001" min={0} max={1} className={inputCls} /></Field>

@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
+import { allocateNumber } from "@/lib/numbering-db";
 
 const SEE_ALL = ["MD", "FINANCE"];
 export const PAID_BY = ["SELF", "PETTY_CASH", "COMPANY"] as const;
@@ -35,10 +36,11 @@ export async function fileExpense(input: z.input<typeof ExpenseInput>) {
     const dup = await prisma.expenseClaim.findFirst({ where: { receiptNo: d.receiptNo, vendor: d.vendor ?? undefined, status: { notIn: ["REJECTED", "CANCELLED"] } }, include: { employee: { select: { code: true } } } });
     if (dup) throw new Error(`EXPENSE_DUPLICATE:${d.receiptNo} · ${dup.employee.code} ${dup.spentOn.toISOString().slice(0, 10)}`);
   }
-  const c = await prisma.expenseClaim.create({ data: {
+  const c = await prisma.$transaction(async (tx) => tx.expenseClaim.create({ data: {
+    no: await allocateNumber(tx, { prefix: "EX", createdByEmployeeCode: actor.code, entityId: who.entityId }),
     entityId: who.entityId, employeeId: who.id, spentOn: d.spentOn, category: d.category, description: d.description, vendor: d.vendor, vendorTaxId: d.vendorTaxId, receiptNo: d.receiptNo,
     currency: d.currency, amount: d.amount, vatAmount: d.vatAmount, paidBy: d.paidBy, serviceOrderNo: d.serviceOrderNo, receipts: d.receipts as Prisma.InputJsonValue,
-  } });
+  } }));
   await audit(actor.id, "EXPENSE_FILE", c.id, { for: who.code, amount: d.amount, category: d.category });
   return c;
 }

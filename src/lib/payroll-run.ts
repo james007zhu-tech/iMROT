@@ -71,6 +71,18 @@ export function perfFactor(score: number | null | undefined, bands: PerfBand[] =
   return [...bands].sort((a, b) => b.min - a.min).find((b) => score >= b.min)?.factor ?? 0;
 }
 
+/**
+ * 销售绩效 (朱总 2026-11-11): "低于目标的 70% 则绩效为 0，达到 70% 为 50%，上不封顶".
+ * Between 70 % and 100 % the payout rises in a straight line from 50 % to 100 %; above target it equals the achievement.
+ */
+export function targetFactor(achievement: number | null | undefined): number {
+  if (achievement == null || !Number.isFinite(achievement) || achievement < 0.7) return 0;
+  if (achievement <= 1) return Math.round((0.5 + ((achievement - 0.7) / 0.3) * 0.5) * 1000) / 1000;
+  return Math.round(achievement * 1000) / 1000;
+}
+export const quarterOf = (month: string) => `${month.slice(0, 4)}-Q${Math.ceil(Number(month.slice(5, 7)) / 3)}`;
+export const isQuarterEnd = (month: string) => Number(month.slice(5, 7)) % 3 === 0;
+
 /** Pay periods in the calendar year for someone who joined on `joinedAt` (12 when they joined before it). */
 export function periodsInYear(month: string, joinedAt?: Date | null): number {
   const year = Number(month.slice(0, 4));
@@ -82,12 +94,14 @@ export function periodsInYear(month: string, joinedAt?: Date | null): number {
 export interface LineInput {
   baseSalary: number; allowances: Allowance[];
   overtime: number; variablePay: number; perfScore?: number | null; bands?: PerfBand[]; bonus: number;
+  achievement?: number | null; /// set = sales: the month's factor comes from the target, not from a score
+  quarterlyPay?: number; quarterAchieved?: number | null; /// three months' quarterly pay at 100 %, and the quarter's achievement
   ssoWageBase?: number | null; ssoEmployeeRate?: number | null; ssoEmployerRate?: number | null; pvdEmployeeRate?: number | null; pvdEmployerRate?: number | null;
   profile?: TaxProfile | null; periods: number; irregularBefore: number;
   whtManual?: number | null; otherDeduction: number; reimbursement: number; countryCode?: string;
 }
 export interface LineResult {
-  allowanceTotal: number; taxableAllowances: number; perfFactor: number; incentive: number; gross: number;
+  allowanceTotal: number; taxableAllowances: number; perfFactor: number; incentive: number; quarterFactor: number; quarterIncentive: number; gross: number;
   ssoBase: number; ssoEmployee: number; ssoEmployer: number; pvdEmployee: number; pvdEmployer: number;
   wht: number; whtDetail: Withholding & { allowances: number }; net: number; employerCost: number;
 }
@@ -96,10 +110,12 @@ export function computeLine(i: LineInput): LineResult {
   const d = statutoryFor(i.countryCode ?? "TH");
   const allowanceTotal = r2(i.allowances.reduce((s, a) => s + n(a.amount), 0));
   const taxableAllowances = r2(i.allowances.filter((a) => a.taxable !== false).reduce((s, a) => s + n(a.amount), 0));
-  const factor = i.variablePay > 0 ? perfFactor(i.perfScore, i.bands) : 1;
+  const factor = i.achievement !== undefined ? targetFactor(i.achievement) : i.variablePay > 0 ? perfFactor(i.perfScore, i.bands) : 1;
+  const quarterFactor = i.quarterlyPay ? targetFactor(i.quarterAchieved) : 0;
+  const quarterIncentive = r2((i.quarterlyPay ?? 0) * quarterFactor);
   const incentive = r2(i.variablePay * factor);
   const regular = r2(i.baseSalary + allowanceTotal);
-  const irregularNow = r2(i.overtime + incentive + i.bonus);
+  const irregularNow = r2(i.overtime + incentive + quarterIncentive + i.bonus);
   const gross = r2(regular + irregularNow);
   // social security is on the regular wage, clamped to the legal base — the salary record's own base wins when it has one
   const eRate = i.ssoEmployeeRate ?? d?.ssoEmployeeRate ?? 0, rRate = i.ssoEmployerRate ?? d?.ssoEmployerRate ?? 0;
@@ -110,5 +126,5 @@ export function computeLine(i: LineInput): LineResult {
   const w = monthlyWithholding({ regularMonthly: r2(i.baseSalary + taxableAllowances), periods: i.periods, irregularBefore: i.irregularBefore, irregularNow, allowances });
   const wht = i.whtManual != null ? r2(i.whtManual) : w.total;
   const net = r2(gross - ssoEmployee - pvdEmployee - wht - i.otherDeduction + i.reimbursement);
-  return { allowanceTotal, taxableAllowances, perfFactor: factor, incentive, gross, ssoBase, ssoEmployee, ssoEmployer, pvdEmployee, pvdEmployer, wht, whtDetail: { ...w, allowances }, net, employerCost: r2(gross + ssoEmployer + pvdEmployer) };
+  return { allowanceTotal, taxableAllowances, perfFactor: factor, incentive, quarterFactor, quarterIncentive, gross, ssoBase, ssoEmployee, ssoEmployer, pvdEmployee, pvdEmployer, wht, whtDetail: { ...w, allowances }, net, employerCost: r2(gross + ssoEmployer + pvdEmployer) };
 }

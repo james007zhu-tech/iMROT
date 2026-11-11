@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { annualTax, computeLine, monthlyWithholding, perfFactor, periodsInYear, personalAllowances, taxOnIncome } from "./payroll-run";
+import { payslipNo } from "./numbering";
+import { targetFactor, quarterOf, isQuarterEnd, annualTax, computeLine, monthlyWithholding, perfFactor, periodsInYear, personalAllowances, taxOnIncome } from "./payroll-run";
 
 describe("personal income tax", () => {
   it("walks the bands", () => {
@@ -77,5 +78,25 @@ describe("one payroll line", () => {
   it("pays no performance pay without a variable amount, whatever the score", () => {
     const l = computeLine({ baseSalary: 20_000, allowances: [], overtime: 0, variablePay: 0, perfScore: 40, bonus: 0, periods: 12, irregularBefore: 0, otherDeduction: 0, reimbursement: 0 });
     expect(l.incentive).toBe(0); expect(l.perfFactor).toBe(1);
+  });
+});
+
+describe("销售绩效 (朱总 2026-11-11)", () => {
+  it("pays nothing below 70 % of target, half at 70 %, in full at target, and has no cap", () => {
+    expect(targetFactor(0.69)).toBe(0);
+    expect(targetFactor(0.7)).toBe(0.5);
+    expect(targetFactor(0.85)).toBe(0.75);
+    expect(targetFactor(1)).toBe(1);
+    expect(targetFactor(1.6)).toBe(1.6);
+    expect(targetFactor(null)).toBe(0);
+  });
+  it("splits a 60,000 package 50 / 30 / 20 and pays the quarter with its last month", () => {
+    // base 30,000; monthly 18,000 at 85 % of target → 13,500; quarter 3 × 12,000 at 120 % → 43,200
+    const l = computeLine({ baseSalary: 30_000, allowances: [], overtime: 0, variablePay: 18_000, achievement: 0.85, quarterlyPay: 36_000, quarterAchieved: 1.2, bonus: 0, periods: 12, irregularBefore: 0, otherDeduction: 0, reimbursement: 0 });
+    expect(l.incentive).toBe(13_500); expect(l.quarterIncentive).toBe(43_200); expect(l.gross).toBe(86_700);
+  });
+  it("knows quarters and numbers payslips", () => {
+    expect(quarterOf("2026-11")).toBe("2026-Q4"); expect(isQuarterEnd("2026-12")).toBe(true); expect(isQuarterEnd("2026-11")).toBe(false);
+    expect(payslipNo("2026-11", "ETH2611002")).toBe("ESTH2611E002");
   });
 });

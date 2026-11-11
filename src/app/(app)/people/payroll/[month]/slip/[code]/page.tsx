@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { PageHeader } from "@/components/ui";
+import { payslipNo } from "@/lib/numbering";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function Slip({ params }: { params: Promise<{ month: string
   const entity = await prisma.legalEntity.findUnique({ where: { id: line.run.entityId } });
   const money = (n: unknown) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const allowances = (line.allowances as { name: string; amount: number }[] | null) ?? [];
-  const earn: [string, unknown][] = [[t("payBase"), line.baseSalary], ...allowances.map((a) => [a.name, a.amount] as [string, unknown]), [t("payOvertime"), line.overtime], [`${t("payIncentive")}${line.perfScore != null ? ` · ${Number(line.perfScore)} → ×${Number(line.perfFactor)}` : ""}`, line.incentive], [t("payBonus"), line.bonus]];
+  const earn: [string, unknown][] = [[t("payBase"), line.baseSalary], ...allowances.map((a) => [a.name, a.amount] as [string, unknown]), [t("payOvertime"), line.overtime], [`${t(line.perfBasis === "TARGET" ? "payIncentiveM" : "payIncentive")}${line.perfBasis === "TARGET" ? (line.achievement != null ? ` · ${(Number(line.achievement) * 100).toFixed(1)}% → ×${Number(line.perfFactor)}` : "") : line.perfScore != null ? ` · ${Number(line.perfScore)} → ×${Number(line.perfFactor)}` : ""}`, line.incentive], [`${t("payIncentiveQ")}${line.quarterAchieved != null ? ` · ${(Number(line.quarterAchieved) * 100).toFixed(1)}% → ×${Number(line.quarterFactor)}` : ""}`, line.quarterIncentive], [t("payBonus"), line.bonus]];
   const cut: [string, unknown][] = [[`${t("paySso")} 5%`, line.ssoEmployee], [t("payPvd"), line.pvdEmployee], [t("payWht"), line.wht], [t("payOther"), line.otherDeduction]];
   const tail = (s: string | null) => (s ? `•••• ${s.replace(/\D/g, "").slice(-4)}` : "—");
   return (
@@ -25,7 +26,7 @@ export default async function Slip({ params }: { params: Promise<{ month: string
       <article className="mx-auto max-w-2xl rounded-xl border bg-white p-6 text-sm print:border-0 print:p-0">
         <header className="flex items-start justify-between gap-4 border-b border-navy pb-3">
           <img src="/brand/dcit-logo.png" alt="DCiT" className="h-10 w-auto" />
-          <div className="text-right"><div className="text-base font-bold text-navy">{t("paySlipHead")} · PAY SLIP</div><div className="text-xs text-navy/70">{entity?.nameEn}</div><div className="font-mono text-xs">{month}{line.run.status === "DRAFT" ? ` · ${t("pay_DRAFT")}` : ""}</div></div>
+          <div className="text-right"><div className="text-base font-bold text-navy">{t("paySlipHead")} · PAY SLIP</div><div className="text-xs text-navy/70">{entity?.nameEn}</div><div className="font-mono text-xs">{payslipNo(month, code)} · {month}{line.run.status === "DRAFT" ? ` · ${t("pay_DRAFT")}` : ""}</div></div>
         </header>
         <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-[13px]">
           <div className="flex justify-between gap-2"><dt className="text-navy/70">{t("slipName")}</dt><dd className="font-semibold">{line.employee.name}</dd></div>
