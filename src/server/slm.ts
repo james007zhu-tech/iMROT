@@ -121,7 +121,7 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
         reportedAlarm: data.reportedAlarm,
         productionImpact: data.productionImpact,
         reportedById: data.reportedByContactId,
-        createdById: creator.id,
+        createdById: creator.id, salesId: creator.role === "SALES" ? creator.id : null,
         customerRef: keepCustomerRef(data.customerRef),
         currency: terms?.currency ?? data.currency,
         tradeTerms: terms as Prisma.InputJsonValue | undefined,

@@ -16,7 +16,7 @@ const OPEN = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRES
 export async function noticesFor(me: { id: string; code: string; role: string }, today = new Date()): Promise<Notice[]> {
   const lead = ["MD", "ADMIN", "MANAGER"].includes(me.role);
   const money = ["MD", "FINANCE"].includes(me.role);
-  const mine = lead ? {} : { OR: [{ createdById: me.id }, { assigneeId: me.id }] };
+  const mine = lead ? {} : { OR: [{ createdById: me.id }, { assigneeId: me.id }, { salesId: me.id }] };
   const soon = (n: number) => new Date(today.getTime() + n * 86_400_000);
   const out: Notice[] = [];
   const push = (kind: string, days: number, ref: string, href: string, who?: string) => out.push({ id: `${kind}:${ref}`, kind, level: days < 0 ? "late" : "soon", days, ref, who, href });

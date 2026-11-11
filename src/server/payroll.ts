@@ -207,6 +207,8 @@ export async function confirmTax(input: { entityId: string; month: string; actor
 
 // ───────── 销售目标 ─────────
 export const METRICS = ["COLLECTED", "INVOICED"] as const;
+/** 朱总 2026-11-11 "季度看开票": a quarter is measured by what was invoiced, a month by the payments received. */
+export const defaultMetric = (period: string) => (/-Q[1-4]$/.test(period) ? "INVOICED" : "COLLECTED");
 const periodRange = (period: string) => {
   const q = /^(\d{4})-Q([1-4])$/.exec(period);
   if (q) return { from: monthRange(`${q[1]}-${String((Number(q[2]) - 1) * 3 + 1).padStart(2, "0")}`).from, to: monthRange(`${q[1]}-${String(Number(q[2]) * 3).padStart(2, "0")}`).to };
@@ -215,16 +217,18 @@ const periodRange = (period: string) => {
 };
 
 /**
- * What a salesperson brought in during a period, from the orders they opened. COLLECTED = payments received (the
+ * What a salesperson brought in during a period, from the orders they are the 销售负责人 of. COLLECTED = payments received (the
  * user's own definition of a sales result runs to the money in the bank); INVOICED = tax invoices issued, before VAT.
  */
+/** An order counts for its 销售负责人; with none named, for the person who opened it. */
+const soldBy = (employeeId: string) => ({ OR: [{ salesId: employeeId }, { salesId: null, createdById: employeeId }] });
 async function systemActual(employeeId: string, metric: string, period: string): Promise<number> {
   const { from, to } = periodRange(period);
   if (metric === "INVOICED") {
-    const x = await prisma.taxInvoice.aggregate({ _sum: { subtotal: true }, where: { voidedAt: null, issuedAt: { gte: from, lt: to }, serviceOrder: { createdById: employeeId } } });
+    const x = await prisma.taxInvoice.aggregate({ _sum: { subtotal: true }, where: { voidedAt: null, issuedAt: { gte: from, lt: to }, serviceOrder: soldBy(employeeId) } });
     return Number(x._sum.subtotal ?? 0);
   }
-  const x = await prisma.receipt.aggregate({ _sum: { cashAmount: true, whtAmount: true }, where: { receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: { createdById: employeeId } } } });
+  const x = await prisma.receipt.aggregate({ _sum: { cashAmount: true, whtAmount: true }, where: { receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: soldBy(employeeId) } } });
   return Number(x._sum.cashAmount ?? 0) + Number(x._sum.whtAmount ?? 0);
 }
 
@@ -248,8 +252,19 @@ export async function setSalesTarget(input: { actorCode: string; employeeCode: s
   const payMonth = q ? `${q[1]}-${String(Number(q[2]) * 3).padStart(2, "0")}` : input.period;
   const locked = await prisma.payrollRun.findFirst({ where: { entityId: e.entityId, month: payMonth, status: { not: "DRAFT" } } });
   if (locked) throw new Error(`PAYROLL_LOCKED:${payMonth}`);
-  const metric = (METRICS as readonly string[]).includes(input.metric ?? "") ? input.metric! : "COLLECTED";
+  const metric = (METRICS as readonly string[]).includes(input.metric ?? "") ? input.metric! : defaultMetric(input.period);
   const data = { target: input.target, metric, actualManual: input.actualManual ?? null, note: input.note?.trim() || null, setById: actor.id };
   await prisma.salesTarget.upsert({ where: { employeeId_period: { employeeId: e.id, period: input.period } }, create: { ...data, entityId: e.entityId, employeeId: e.id, period: input.period }, update: data });
   await audit(actor.id, "SALES_TARGET", `${e.code} ${input.period}`, { target: input.target, metric });
+}
+
+/** 销售负责人 of an order: set by the MD, a manager, the administrator, or a salesperson (taking or handing over an order). */
+export async function setOrderSales(input: { no: string; actorCode: string; salesCode: string | null }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (!["MD", "MANAGER", "ADMIN", "SALES"].includes(actor.role)) throw new Error("SALES_OWNER_NOT_ALLOWED");
+  const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, select: { id: true, salesId: true } });
+  const to = input.salesCode ? await prisma.employee.findUniqueOrThrow({ where: { code: input.salesCode } }) : null;
+  await prisma.serviceOrder.update({ where: { id: order.id }, data: { salesId: to?.id ?? null } });
+  await audit(actor.id, "ORDER_SALES", input.no, { to: to?.code ?? null });
+  return to;
 }

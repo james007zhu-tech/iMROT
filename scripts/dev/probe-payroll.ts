@@ -6,7 +6,7 @@
 import { prisma } from "@/lib/db";
 import { addSalaryRecord } from "@/server/opd";
 import { decideExpense, fileExpense } from "@/server/expense";
-import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, payrollDetail, reopenPayroll, saveScores, setSalesTarget } from "@/server/payroll";
+import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, payrollDetail, reopenPayroll, salesProgress, saveScores, setOrderSales, setSalesTarget } from "@/server/payroll";
 import { payslipNo } from "@/lib/numbering";
 import { runAction } from "@/server/ai-actions";
 import { hiddenFor, menuKeyOf, setRoleMenu } from "@/server/perm";
@@ -66,6 +66,20 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
     await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
     run = await payrollDetail(md.entityId, MONTH); line = run!.lines.find((l) => l.employeeId === eng.id)!;
     check("above target there is no cap: 120 % of the quarter pays 120 %", Number(rl().quarterIncentive) === 43200, String(rl().quarterIncentive));
+    // 销售负责人: an order opened by the MD counts for the salesperson once they are named on it
+    const cust = await prisma.customer.findFirst({ select: { id: true } });
+    if (cust) {
+      const o = await prisma.serviceOrder.findFirst({ where: { createdById: md.id, salesId: null, taxInvoices: { some: { voidedAt: null } } }, select: { no: true, taxInvoices: { where: { voidedAt: null }, select: { issuedAt: true, subtotal: true } } } });
+      if (o) {
+        const ti = o.taxInvoices[0], m = new Date(ti.issuedAt.getTime() + 7 * 3600_000).toISOString().slice(0, 7), q = `${m.slice(0, 4)}-Q${Math.ceil(Number(m.slice(5)) / 3)}`;
+        await setSalesTarget({ actorCode: MD, employeeCode: seller.code, period: q, target: 1_000_000 }).catch(() => null);
+        const before = (await salesProgress(md.entityId, [q], [seller.id]))[0];
+        await setOrderSales({ no: o.no, actorCode: MD, salesCode: seller.code });
+        const after = (await salesProgress(md.entityId, [q], [seller.id]))[0];
+        await setOrderSales({ no: o.no, actorCode: MD, salesCode: null });
+        check("a quarter is measured by invoicing by default, and an order counts for its 销售负责人", before?.metric === "INVOICED" && before.system === 0 && after.system >= Number(ti.subtotal), `${before?.metric} ${before?.system} → ${after?.system}`);
+      } else console.log("  (no invoiced order opened by the MD in this database — 销售负责人 check skipped)");
+    }
     check("the payslip number follows the month and the person", payslipNo(MONTH, "ETH2611002") === "ESTH1903E002");
     const blockers = run!.lines.filter((l) => l.missing.includes("OVERTIME_OPEN"));
     check("people without a salary record are named, not paid zero", Array.isArray((run!.totals as { skipped?: string[] }).skipped));

@@ -2092,7 +2092,11 @@
     "empQuarterlyPay": "Quarterly pay (per month, at 100 %)",
     "empQuarterlyPayPh": "Sales: 20 % of the package",
     "err_PAYROLL_TAX_UNCONFIRMED": "Confirm the withholding against the accountant before approving {detail}",
-    "err_TARGET_MUST_BE_POSITIVE": "The target must be above 0"
+    "err_TARGET_MUST_BE_POSITIVE": "The target must be above 0",
+    "salesOwner": "Salesperson",
+    "salesOwnerNone": "Not named (counts for the opener, {name})",
+    "salesOwnerHint": "This order's payments and invoices count toward this person's sales target",
+    "err_SALES_OWNER_NOT_ALLOWED": "Only the MD, a manager, the administrator or sales may name the salesperson"
   },
   "role": {
     "MD": "Managing Director",
@@ -2493,7 +2497,7 @@
     "repOtherCurrency": "{n} foreign-currency item(s) are not in the ageing",
     "paySkipped": "{n} not on this payroll (no salary record in their file):",
     "tgtTitle": "Sales targets: {month} and {quarter}",
-    "tgtHint": "Sales pay: 50 % base, 30 % on the month's target, 20 % on the quarter's. Under 70 % of target pays nothing; 70 % pays half; target pays in full; above target pays the achievement, uncapped. The quarterly part is paid with the quarter's last payroll.",
+    "tgtHint": "Sales pay: 50 % base, 30 % on the month's target, 20 % on the quarter's. The month is measured by payments received, the quarter by invoicing, unless changed. Under 70 % of target pays nothing; 70 % pays half; target pays in full; above target pays the achievement, uncapped. The quarterly part is paid with the quarter's last payroll. Results follow each order's salesperson.",
     "tgtMonthly": "Monthly target",
     "tgtQuarterly": "Quarterly target",
     "tgtActual": "Actual",

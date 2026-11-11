@@ -22,6 +22,7 @@ import { issueInvoice, issueTaxInvoice, recordPayment } from "@/server/to";
 import { MODES } from "@/lib/modes";
 import { addCredential, updateEmployee, updateOwnContacts } from "@/server/opd";
 import { fileExpense } from "@/server/expense";
+import { setOrderSales } from "@/server/payroll";
 import { recordTraining } from "@/server/training";
 import { dictItems } from "@/server/dict";
 
@@ -97,6 +98,12 @@ const TOOLS: ActionTool[] = [
       if (!e) throw new Error(`no active employee matches "${q}"`);
       await advanceServiceOrder(str(i.no)!, "ASSIGNED", ctx.employeeCode, str(i.note), e.code);
       return { ok: true, summary: `${str(i.no)} → ${e.name}`, href: `/service-orders/${str(i.no)}` };
+    } },
+  { name: "set_order_sales", tier: "auto", description: "Name the 销售负责人 of an order — the salesperson whose target the order counts toward (employee code ETH… or name).", input_schema: obj({ no: S, sales: S }, ["no", "sales"]),
+    run: async (i, ctx) => {
+      const e = await employeeBy(i.sales, ctx.employeeCode);
+      await setOrderSales({ no: str(i.no)!, actorCode: ctx.employeeCode, salesCode: e.code });
+      return { ok: true, summary: `${str(i.no)} 销售负责人 → ${e.name}`, href: `/service-orders/${str(i.no)}` };
     } },
   { name: "set_quote", tier: "auto", description: "Write the quote lines of an order (replaces the whole set) and mark the quote as issued. Prices are in the order's currency, before VAT. Give unitCost when known so the margin is right; a margin under the floor waits for the MD.",
     input_schema: obj({ no: S, warrantyDays: N, lines: { type: "array", items: obj({ description: S, descriptionLocal: S, partSku: S, assetCode: S, qty: N, unit: S, unitPrice: N, unitCost: N }, ["description", "qty", "unitPrice"]) } }, ["no", "lines"]),

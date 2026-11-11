@@ -152,6 +152,7 @@ model Employee {
   events             AssetEvent[]
   ordersAssigned     ServiceOrder[]         @relation("OrderAssignee")
   ordersCreated      ServiceOrder[]         @relation("OrderCreator")
+  ordersSold         ServiceOrder[]         @relation("OrderSales")
   quoteDeclines      QuoteDecline[]
   inspections        Inspection[]
   repairJobs         RepairJob[]
@@ -851,6 +852,8 @@ model ServiceOrder {
   assignee           Employee?          @relation("OrderAssignee", fields: [assigneeId], references: [id])
   createdById        String
   createdBy          Employee           @relation("OrderCreator", fields: [createdById], references: [id])
+  salesId            String? /// 销售负责人 (朱总 2026-11-11): whose target this order counts toward; empty = the person who opened it
+  sales              Employee?          @relation("OrderSales", fields: [salesId], references: [id])
   customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
   requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH

@@ -2092,7 +2092,11 @@
     "empQuarterlyPay": "季度绩效（每月额，满额）",
     "empQuarterlyPayPh": "销售：薪酬包的 20%",
     "err_PAYROLL_TAX_UNCONFIRMED": "批准 {detail} 前需先确认个税已按会计数字",
-    "err_TARGET_MUST_BE_POSITIVE": "目标必须大于 0"
+    "err_TARGET_MUST_BE_POSITIVE": "目标必须大于 0",
+    "salesOwner": "销售负责人",
+    "salesOwnerNone": "未指定（业绩计给建单人 {name}）",
+    "salesOwnerHint": "这张单的回款和开票额计入此人的销售目标",
+    "err_SALES_OWNER_NOT_ALLOWED": "只有 MD、经理、系统管理员或销售可以指定销售负责人"
   },
   "role": {
     "MD": "董事总经理 MD",
@@ -2493,7 +2497,7 @@
     "repOtherCurrency": "另有 {n} 笔外币款项未计入账龄",
     "paySkipped": "未纳入本月工资 {n} 人（员工档案里没有薪资记录）：",
     "tgtTitle": "销售目标：{month} 与 {quarter}",
-    "tgtHint": "销售薪酬：底薪 50%、月度目标 30%、季度目标 20%。完成不到目标的 70% 绩效为 0；达到 70% 发 50%；达到目标发 100%；超过目标按完成率发，上不封顶。季度部分随季度最后一个月的工资发放。",
+    "tgtHint": "销售薪酬：底薪 50%、月度目标 30%、季度目标 20%。月度目标默认看回款，季度目标默认看开票。完成不到目标的 70% 绩效为 0；达到 70% 发 50%；达到目标发 100%；超过目标按完成率发，上不封顶。季度部分随季度最后一个月的工资发放。业绩按业务单的销售负责人归属。",
     "tgtMonthly": "月度目标",
     "tgtQuarterly": "季度目标",
     "tgtActual": "完成",

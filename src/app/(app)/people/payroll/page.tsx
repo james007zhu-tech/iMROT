@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
-import { METRICS, mySlips, payrollRuns, salesProgress, scorable } from "@/server/payroll";
+import { METRICS, defaultMetric, mySlips, payrollRuns, salesProgress, scorable } from "@/server/payroll";
 import { payslipNo } from "@/lib/numbering";
 import { localToday } from "@/lib/overtime";
 import { DEFAULT_BANDS, perfFactor, quarterOf, targetFactor, type PerfBand } from "@/lib/payroll-run";
@@ -91,7 +91,7 @@ export default async function Payroll({ searchParams }: { searchParams: Promise<
                       </div>
                       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                         <label className="text-xs text-navy/70">{t("tgtTarget")}<input name="target" type="number" step="0.01" min="0.01" required inputMode="decimal" defaultValue={g ? Number(g.target) : ""} className={inputCls} /></label>
-                        <label className="text-xs text-navy/70">{t("tgtMetric")}<select name="metric" defaultValue={g?.metric ?? "COLLECTED"} className={inputCls}>{METRICS.map((m) => <option key={m} value={m}>{t(`metric_${m}`)}</option>)}</select></label>
+                        <label className="text-xs text-navy/70">{t("tgtMetric")}<select name="metric" defaultValue={g?.metric ?? defaultMetric(period)} className={inputCls}>{METRICS.map((m) => <option key={m} value={m}>{t(`metric_${m}`)}</option>)}</select></label>
                         <label className="text-xs text-navy/70">{t("tgtManual")}<input name="actualManual" type="number" step="0.01" min="0" inputMode="decimal" defaultValue={g?.actualManual != null ? Number(g.actualManual) : ""} placeholder={g ? money(g.system) : t("payAuto")} className={inputCls} /></label>
                         <div className="flex items-end"><button className={`${btnGhost} w-full`}>{t("save")}</button></div>
                       </div>
