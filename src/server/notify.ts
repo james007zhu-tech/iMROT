@@ -6,6 +6,7 @@
  *  MD/ADMIN/MANAGER: all orders; margin approvals; staff birthdays and expiring documents (MD)
  *  FINANCE (+MD):   customer invoices due, supplier invoices to pay
  */
+import { openResetRequests } from "@/server/password-reset";
 import { prisma } from "@/lib/db";
 import { localToday } from "@/lib/overtime";
 import { maskName } from "@/lib/mask";
@@ -57,5 +58,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     const started = await prisma.salaryRecord.count({ where: { employee: { entityId, active: true } } });
     if (started && run?.status !== "PAID") push("payrollDue", 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
   }
+  // 忘记密码: someone asked on the sign-in page; an MD issues the link from that person's ETH file
+  if (me.role === "MD") for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   return sortNotices(out).slice(0, 60);
 }

@@ -15,7 +15,7 @@ import { UploadRecognize } from "@/components/UploadRecognize";
 import { RevealRows } from "@/components/RevealRows";
 import { ALLOWANCE_ROWS, DEDUCTION_ROWS, EmployeeFormFields } from "@/components/EmployeeFormFields";
 import { overtimeLinesOf } from "@/server/overtime";
-import { credential, dropCredential, letter, reveal, review, salary, save, saveOwn } from "./actions";
+import { credential, dropCredential, letter, reveal, review, salary, save, saveOwn, resetLink } from "./actions";
 import { salaryChange, type LetterDetails } from "@/lib/salary-letter";
 import { Alert, Card, Field, Grid, PageHeader, Table, Tag, Value, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
@@ -25,8 +25,8 @@ const fmt = (v: unknown, open: boolean, cur = "") => v === null || v === undefin
 const pct = (v: unknown) => (v === null || v === undefined ? "—" : `${(Number(v) * 100).toFixed(2).replace(/\.?0+$/, "")} %`);
 
 /** ETH file: the MD edits everything; the person sees their own file (no salary) and edits their contacts. */
-export default async function EmployeeFile({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
-  const [{ code }, { ok, error }] = await Promise.all([params, searchParams]);
+export default async function EmployeeFile({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ ok?: string; error?: string; reset?: string }> }) {
+  const [{ code }, { ok, error, reset }] = await Promise.all([params, searchParams]);
   const me = await currentEmployee();
   if (!mayViewEmployee(me, code)) return <Forbidden />;
   const md = me.role === "MD";
@@ -79,6 +79,20 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
                 <Field label={t("empLastLogin")}><Value>{e.lastLoginAt ? localIso(e.lastLoginAt)!.replace("T", " ").slice(0, 16) : "—"}</Value></Field>
                 <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" name="active" defaultChecked={e.active} /> {c("active")}</label>
               </Grid>
+              {/* 忘记密码: a single-use link the MD passes on; the owner types the new password */}
+              <div className="mt-3 border-t border-hair pt-3 text-sm">
+                {reset ? (
+                  <div className="rounded-lg bg-tint p-3 text-navy">
+                    <p className="font-medium">{t("resetLinkReady", { name: e.name })}</p>
+                    <p className="mt-1 select-all break-all font-mono text-xs">{`${process.env.PUBLIC_BASE_URL ?? ""}/reset/${reset}`}</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button formAction={resetLink.bind(null, code)} formNoValidate className="rounded-md border border-blue px-3 py-1.5 text-blue">{t("resetLinkMake")}</button>
+                    <span className="text-xs text-navy/60">{t("resetLinkHelp")}</span>
+                  </div>
+                )}
+              </div>
             </Card>
           </form>
         </>

@@ -26,7 +26,8 @@ function verify(token: string | undefined): string | null {
 }
 
 export async function signInEmployee(email: string, password: string): Promise<boolean> {
-  const e = await prisma.employee.findUnique({ where: { email } });
+  // a phone keyboard may capitalise the first letter or leave a space: the address is matched whatever its case
+  const e = await prisma.employee.findFirst({ where: { email: { equals: email.trim(), mode: "insensitive" } } });
   if (!e || !e.active || !verifyPassword(password, e.passwordHash)) return false;
   (await cookies()).set(COOKIE, sign(`${e.code}|${Date.now()}`), { httpOnly: true, sameSite: "lax", secure: await overHttps(), path: "/", maxAge: 7 * 86400 });
   await prisma.employee.update({ where: { id: e.id }, data: { lastLoginAt: new Date() } }).catch(() => undefined); // shown on the ETH file

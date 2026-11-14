@@ -399,7 +399,20 @@
     "open": "Open",
     "loginWait": "Too many wrong tries. Wait 15 minutes and try again.",
     "savingNow": "Saving… please do not press again",
-    "savingSlow": "The network is slow and this may already be saved. Wait a little, or check the list before saving again."
+    "savingSlow": "The network is slow and this may already be saved. Wait a little, or check the list before saving again.",
+    "forgotTitle": "Forgot password",
+    "forgotHelp": "Enter your sign-in email. The managers with the MD role are notified and send you a link to set a new password yourself.",
+    "forgotAsk": "Ask for a reset",
+    "forgotSent": "Request received. If this address has an account, a manager will send you the link by LINE or WeChat; it is valid for 30 minutes.",
+    "backToLogin": "Back to sign-in",
+    "resetTitle": "Set a new password",
+    "resetNew": "New password (at least {n} characters)",
+    "resetAgain": "Type it again",
+    "resetSave": "Save the new password",
+    "resetShort": "The password needs at least {n} characters",
+    "resetMismatch": "The two passwords differ",
+    "resetDead": "This link no longer works (used, or older than 30 minutes). Please ask again.",
+    "resetDone": "The new password is set. Please sign in."
   },
   "ai": {
     "title": "AI assistant",
@@ -967,7 +980,7 @@
     "err_ACCEPTANCE_INCOMPLETE": "Cannot accept: missing {detail}",
     "err_ACCEPTANCE_CONFIRM_REQUIRED": "Tick the confirmation box to accept",
     "err_MARGIN_APPROVAL_REQUIRED": "Quote {detail} is below the margin floor — the MD must approve first",
-    "err_MD_ONLY": "MD only",
+    "err_MD_ONLY": "Only the MD role may do this",
     "err_MARGIN_NOT_PENDING": "Quote {detail} is not awaiting approval",
     "filledNCheck": "Filled {n} fields — {c} orange ones need checking before you save",
     "suppliers": "Suppliers",
@@ -2148,7 +2161,10 @@
     "err_PO_REPEAT": "This order already buys these goods (ordered+this>customer's order): {detail}. To buy more, tick the confirmation above and save again.",
     "err_INSPECTION_AFTER_WORK": "This machine already has {detail} on the order. Inspection comes before the work; what is found afterwards belongs to a new order.",
     "err_DELIVERY_NO_PART": "These goods match no part in the store, so stock cannot be checked: {detail}. Receive them into the store first.",
-    "err_MODEL_NEEDS_BRAND_SERIES": "{detail} is a new model: fill in brand and series so it can be added to the library."
+    "err_MODEL_NEEDS_BRAND_SERIES": "{detail} is a new model: fill in brand and series so it can be added to the library.",
+    "resetLinkMake": "Make a password-reset link",
+    "resetLinkHelp": "Single use, valid 30 minutes. Send it to the person by LINE or WeChat; they set the new password.",
+    "resetLinkReady": "Reset link for {name} (30 minutes, single use). Copy it and send it to them:"
   },
   "role": {
     "MD": "Managing Director",
@@ -2289,7 +2305,8 @@
     "ask_maintenanceDue": "Machine {ref} is due for maintenance: what did the last visit find, and what should this one cover?",
     "ask_receivable": "Invoice {ref} is overdue; draft a payment reminder e-mail",
     "ask_milestone": "What is holding up project milestone {ref}, and what comes next?",
-    "k_payrollDue": "Payroll {ref} is due by the 5th"
+    "k_payrollDue": "Payroll {ref} is due by the 5th",
+    "k_resetAsked": "{who} ({ref}) asked for a password reset"
   },
   "reports": {
     "searchPh": "Report no., machine, serial, customer",

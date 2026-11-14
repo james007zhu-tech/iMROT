@@ -6,4 +6,4 @@ export function middleware(req: NextRequest) {
   headers.set("x-dcit-path", req.nextUrl.pathname + req.nextUrl.search);
   return NextResponse.next({ request: { headers } });
 }
-export const config = { matcher: ["/((?!_next/|api/|brand/|uploads/|favicon|portal|faults|login).*)"] };
+export const config = { matcher: ["/((?!_next/|api/|brand/|uploads/|favicon|portal|faults|login|forgot|reset).*)"] };

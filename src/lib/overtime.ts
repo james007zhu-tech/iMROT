@@ -8,7 +8,7 @@
  * allowances count as "wage" is the accountant's call — the multipliers and the basis are stored on every month-end line,
  * so a later change never rewrites a closed month.
  */
-import { localIso } from "@/lib/dates";
+import { localIso } from "./dates";
 export type OvertimeKind = "WORKDAY_OT" | "HOLIDAY_WORK" | "HOLIDAY_OT";
 export const OT_KINDS: OvertimeKind[] = ["WORKDAY_OT", "HOLIDAY_WORK", "HOLIDAY_OT"];
 export const OT_MULTIPLIER: Record<OvertimeKind, number> = { WORKDAY_OT: 1.5, HOLIDAY_WORK: 1, HOLIDAY_OT: 3 };
