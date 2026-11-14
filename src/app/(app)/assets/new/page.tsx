@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { assetBySerial, attachProjectAsset } from "@/server/asset-first";
+import { ScopedSelect } from "@/components/ScopedSelect";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { findModelByCode, onboardAsset, relateAssets } from "@/server/alm";
+import { ensureModel, onboardAsset, relateAssets } from "@/server/alm";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
@@ -35,14 +36,14 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
       const noSerial = form.get("noSerial") === "on";
       const serial = noSerial ? "" : String(form.get("serialNumber") ?? "").trim();
       const modelCode = String(form.get("modelCode") ?? "").trim();
-      const model = modelCode ? await findModelByCode(modelCode) : null;
-      if (modelCode && !model) throw new Error(`MODEL_UNKNOWN:${modelCode}`);
       const twin = serial ? await assetBySerial(prisma, serial) : null;
       const dup = twin && await prisma.asset.findFirst({ where: { id: twin.id }, include: { customer: { select: { name: true } }, plant: { select: { code: true } } } });
       if (dup) throw new Error(`SERIAL_EXISTS:${serial}:${dup.code}:${dup.customer?.name ?? ""}${dup.plant ? ` · ${dup.plant.code}` : ""}`);
       const atts = JSON.parse(String(form.get("attachments") || "[]")) as { name: string; url: string; kind: string }[];
       const num = (k: string) => (form.get(k) ? Number(form.get(k)) : undefined);
       const txt = (k: string) => String(form.get(k) ?? "").trim() || undefined;
+      // a model the library does not have yet is added to it here, from the same form
+      const model = modelCode ? (await ensureModel({ brand: txt("brand") ?? "", series: txt("series") ?? "", modelCode, assetType: txt("type"), ratedPowerKw: num("ratedPowerKw"), ratedVoltageV: num("ratedVoltageV"), ratedCurrentA: num("ratedCurrentA"), actorId: me.id })).model : null;
       const asset = await onboardAsset({
         createdByEmployeeCode: me.code,
         type: form.get("type") as "VFD",
@@ -90,7 +91,7 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
             <ModelPicker models={models.map((m) => ({ brand: m.series.brand.name, series: m.series.name, code: m.code }))} inputCls={inputCls} labels={{ brand: u("brand"), series: u("series"), model: u("modelCodeLabel"), unknown: u("modelNotInLibrary") }} />
             <Field label={u("serialLabel")} required><SerialInput inputCls={inputCls} initial={serial0 ?? ""} noSerialLabel={u("noSerial")} noSerialHint={u("noSerialHint")} text={u("serialExists", { serial: "{serial}", code: "{code}", where: "{where}" })} /></Field>
             <Field label={t("customer")} required><select name="customerId" required defaultValue={customerId ?? ""} className={inputCls}><option value="">—</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
-            <Field label={u("plantWorkshop")}><select name="plantId" className={inputCls}><option value="">—</option>{customers.flatMap((c) => c.plants.map((p) => <option key={p.id} value={p.id}>{c.name} · {p.code} {p.name}</option>))}</select></Field>
+            <Field label={u("plantWorkshop")}><ScopedSelect name="plantId" follow="customerId" className={inputCls} options={customers.flatMap((c) => c.plants.map((p) => ({ value: p.id, scope: c.id, label: `${p.code} ${p.name}`, wide: `${c.name} · ${p.code} ${p.name}` })))} /></Field>
             <Field label={u("locationPosition")} required><input name="location" required className={inputCls} /></Field>
             <Field label={t("responsible")} required><select name="responsibleEmployeeId" required className={inputCls}><option value="">—</option>{employees.map((e) => <option key={e.id} value={e.id}>{e.code} {e.name}</option>)}</select></Field>
             <Field label={t("customerAssetNo")}><input name="customerAssetNo" className={inputCls} /></Field>

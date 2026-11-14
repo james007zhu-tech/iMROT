@@ -15,3 +15,14 @@ export function shortDate(d: Date | null | undefined, now = new Date()): string 
   const md = `${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}-${md}`;
 }
+
+/**
+ * A moment as local wall-clock text, "2026-11-14T10:05:09" — what `toISOString()` would say if it did not switch to
+ * Greenwich time (trial finding 2026-11-14: pages showed times seven hours behind Bangkok, and before 07:00 the
+ * previous day). The server runs on Asia/Bangkok (TZ), so slices of this are the date and time people actually saw.
+ */
+export function localIso(d: Date | null | undefined): string | undefined {
+  if (!d) return undefined;
+  const p = (n: number, w = 2) => String(n).padStart(w, "0");
+  return `${p(d.getFullYear(), 4)}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}

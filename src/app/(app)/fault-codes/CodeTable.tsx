@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { Table, Tag, btnGhost, inputCls } from "@/components/ui";
@@ -25,7 +26,7 @@ export async function CodeTable({ rows, back, showSeries, canReview }: { rows: R
             {showSeries && <td>{c.series.brand.name} {c.series.name}</td>}
             <td><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[c.status]}`}>{u(`kbStatus_${c.status}`)}</span></td>
             <td>{c.isPublic && c.status === "APPROVED" ? <Tag>{c.published ? u("kbPublished") : u("kbPublicPending")}</Tag> : <span className="text-xs text-navy/50">{u("kbInternal")}</span>}</td>
-            <td className="text-xs text-navy/70">{c.updatedAt.toISOString().slice(0, 10)}{c.reviewedBy ? ` · ${c.reviewedBy.name}` : ""}</td>
+            <td className="text-xs text-navy/70">{localIso(c.updatedAt)!.slice(0, 10)}{c.reviewedBy ? ` · ${c.reviewedBy.name}` : ""}</td>
           </tr>
         ))}
         {rows.length === 0 && <tr><td colSpan={showSeries ? 8 : 7} className="py-6 text-center text-navy/60">{u("kbNoCodes")}</td></tr>}

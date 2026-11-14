@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { confirmSerial, looseDocsOf, relinkDoc } from "@/server/asset-first";
 import { maskName } from "@/lib/mask";
@@ -95,13 +96,13 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
         newHref={`/service-orders/new?asset=${asset.code}`} newLabel={u("newServiceOrder")} />
       <Flash ok={ok} error={error} />
       <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2 text-sm ${asset.serialVerifiedAt ? "border-navy/20 bg-white" : "border-[#E6A23C] bg-[#FFF4E5]"}`}>
-        <span className="min-w-0 flex-1">{asset.serialVerifiedAt ? u("serialVerified", { date: asset.serialVerifiedAt.toISOString().slice(0, 10) }) : u(asset.serialSource === "INTERNAL" ? "serialInternalWaiting" : "serialNotVerified")} <b className="font-mono">{asset.serialNumber}</b>{asset.serialSource === "INTERNAL" ? ` · ${u("serialInternal")}` : ""}</span>
+        <span className="min-w-0 flex-1">{asset.serialVerifiedAt ? u("serialVerified", { date: localIso(asset.serialVerifiedAt)!.slice(0, 10) }) : u(asset.serialSource === "INTERNAL" ? "serialInternalWaiting" : "serialNotVerified")} <b className="font-mono">{asset.serialNumber}</b>{asset.serialSource === "INTERNAL" ? ` · ${u("serialInternal")}` : ""}</span>
         {!asset.serialVerifiedAt && <form action={verify}><button className={btnGhost}>{u("serialVerifyNow")}</button></form>}
       </div>
       {loose.length > 0 && <Section title={u("looseDocs")}>
         <p className="mb-2 text-xs text-navy/70">{u("looseDocsHint")}</p>
         <ul className="space-y-1.5 text-sm">
-          {loose.map((d) => <li key={d.no} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5"><span className="font-mono font-semibold text-navy">{d.no}</span><span className="text-xs text-navy/70">{d.at.toISOString().slice(0, 10)}{d.draft ? ` · ${u("dn_DRAFT")}` : ""}</span><span className="min-w-0 flex-1 truncate text-xs">{d.summary}</span>
+          {loose.map((d) => <li key={d.no} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5"><span className="font-mono font-semibold text-navy">{d.no}</span><span className="text-xs text-navy/70">{localIso(d.at)!.slice(0, 10)}{d.draft ? ` · ${u("dn_DRAFT")}` : ""}</span><span className="min-w-0 flex-1 truncate text-xs">{d.summary}</span>
             {d.draft ? <Link href={`/inspections/new?asset=${asset.code}`} className="text-blue hover:underline">{t("open")}</Link>
               : openOrders.length > 0 ? <form action={relink.bind(null, d.no)} className="flex items-center gap-2"><select name="order" aria-label={u("looseAttach")} className="rounded-md border px-2 py-1 text-xs">{openOrders.map((o) => <option key={o.no} value={o.no}>{o.no}</option>)}</select><button className="text-blue hover:underline">{u("looseAttach")}</button></form>
               : <span className="text-xs text-navy/60">{u("looseWaiting")}</span>}

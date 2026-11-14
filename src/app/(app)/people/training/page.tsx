@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import { getLocale, getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
 import { trainingFor } from "@/server/training";
@@ -49,7 +50,7 @@ export default async function Training({ searchParams }: { searchParams: Promise
           return (
             <li key={r.id} className="rounded-xl border bg-white p-3 text-sm">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="font-mono text-navy/70">{r.startedOn.toISOString().slice(0, 10)}</span>
+                <span className="font-mono text-navy/70">{localIso(r.startedOn)!.slice(0, 10)}</span>
                 <span className="min-w-0 flex-1 font-semibold text-navy">{r.title}</span>
                 {r.level && <Tag>{r.level}</Tag>}
                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${r.result === "FAILED" ? "bg-alert/10 text-alert-ink" : r.result === "PLANNED" ? "bg-[#FFF4E5] text-[#9A5B00]" : r.result === "PASSED" ? "bg-navy text-white" : "bg-blue/12 text-navy"}`}>{t(`tr_${r.result}`)}</span>
@@ -61,7 +62,7 @@ export default async function Training({ searchParams }: { searchParams: Promise
                 {r.hours != null && <span>{t("trHours", { n: Number(r.hours) })}</span>}
                 {r.score != null && <span>{t("trScore", { n: Number(r.score) })}</span>}
                 {r.certificateNo && <span className="font-mono">{r.certificateNo}</span>}
-                {r.expiresAt && <span className={r.expiresAt < soon ? "font-semibold text-[#9A5B00]" : ""}>{t("trValidTo", { date: r.expiresAt.toISOString().slice(0, 10) })}</span>}
+                {r.expiresAt && <span className={r.expiresAt < soon ? "font-semibold text-[#9A5B00]" : ""}>{t("trValidTo", { date: localIso(r.expiresAt)!.slice(0, 10) })}</span>}
                 {files.map((a) => <a key={a.url} href={a.url} target="_blank" className="text-blue hover:underline">📄 {a.name}</a>)}
               </div>
               {r.note && <p className="mt-1 text-xs text-navy/80">{r.note}</p>}

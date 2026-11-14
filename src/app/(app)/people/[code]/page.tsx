@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -19,7 +20,7 @@ import { salaryChange, type LetterDetails } from "@/lib/salary-letter";
 import { Alert, Card, Field, Grid, PageHeader, Table, Tag, Value, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-const day = (v: Date | null | undefined) => (v ? v.toISOString().slice(0, 10) : "—");
+const day = (v: Date | null | undefined) => (v ? localIso(v)!.slice(0, 10) : "—");
 const fmt = (v: unknown, open: boolean, cur = "") => v === null || v === undefined ? "—" : open ? `${cur ? `${cur} ` : ""}${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}` : maskAmount(Number(v));
 const pct = (v: unknown) => (v === null || v === undefined ? "—" : `${(Number(v) * 100).toFixed(2).replace(/\.?0+$/, "")} %`);
 
@@ -75,7 +76,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
                 <Field label={c("role")}><select name="role" defaultValue={e.role} className={inputCls}>{[...new Set([...STAFF_ROLES, e.role])].map((x) => <option key={x} value={x}>{r(x)}</option>)}</select></Field>
                 <Field label={t("uiLanguage")}><select name="locale" defaultValue={e.locale} className={inputCls}><option value="th">ไทย</option><option value="zh">中文</option><option value="en">English</option></select></Field>
                 <Field label={c("newPassword")}><input name="password" type="password" minLength={6} className={inputCls} /></Field>
-                <Field label={t("empLastLogin")}><Value>{e.lastLoginAt ? e.lastLoginAt.toISOString().replace("T", " ").slice(0, 16) : "—"}</Value></Field>
+                <Field label={t("empLastLogin")}><Value>{e.lastLoginAt ? localIso(e.lastLoginAt)!.replace("T", " ").slice(0, 16) : "—"}</Value></Field>
                 <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" name="active" defaultChecked={e.active} /> {c("active")}</label>
               </Grid>
             </Card>
@@ -260,7 +261,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
               <select name="kind" className={inputCls} defaultValue="QUARTERLY">{REVIEW_KINDS.map((k) => <option key={k} value={k}>{t(`review_${k}`)}</option>)}</select>
               <input name="score" type="number" step="0.1" min={0} max={100} placeholder={t("empScore")} className={inputCls} />
               <input name="grade" placeholder={t("empGrade")} className={inputCls} />
-              <input name="reviewedAt" type="date" required defaultValue={now.toISOString().slice(0, 10)} className={inputCls} />
+              <input name="reviewedAt" type="date" required defaultValue={localIso(now)!.slice(0, 10)} className={inputCls} />
               <button className={btnGhost}>＋ {t("empAddReview")}</button>
             </div>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2"><input name="conclusion" placeholder={t("empConclusion")} className={inputCls} /><input name="improvements" placeholder={t("empImprovements")} className={inputCls} /></div>
@@ -277,7 +278,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
               <Field label={t("emailLogin")}><Value>{e.email ?? "—"}</Value></Field>
               <Field label={c("role")}><Value>{r(e.role)}</Value></Field>
               <Field label={t("uiLanguage")}><Value>{e.locale}</Value></Field>
-              <Field label={t("empLastLogin")}><Value>{e.lastLoginAt ? e.lastLoginAt.toISOString().replace("T", " ").slice(0, 16) : "—"}</Value></Field>
+              <Field label={t("empLastLogin")}><Value>{e.lastLoginAt ? localIso(e.lastLoginAt)!.replace("T", " ").slice(0, 16) : "—"}</Value></Field>
             </Grid>
           </Card>
         </>

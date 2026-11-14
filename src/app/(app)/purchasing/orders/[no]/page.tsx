@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -35,7 +36,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
       return { ok: r.ibthNo, to: `/purchasing/orders/${no}` };
     }, `/purchasing/orders/${no}`);
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localIso(new Date())!.slice(0, 10);
   const receiptsByNo = new Map<string, typeof po.receipts>();
   for (const r of po.receipts) receiptsByNo.set(r.no, [...(receiptsByNo.get(r.no) ?? []), r]);
   return (
@@ -49,7 +50,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
           <div><span className="text-navy/60">{u("supplier")}</span><br /><b>{po.supplier.name}</b>{po.supplier.contactName ? <span className="block text-xs text-navy/70">{po.supplier.contactName}{po.supplier.phone ? ` · ${po.supplier.phone}` : ""}</span> : null}</div>
           <div><span className="text-navy/60">PRTH / QTTH</span><br />{po.inquiry ? <Link href={`/purchasing/inquiries/${po.inquiry.no}`} className="font-mono text-blue hover:underline">{po.inquiry.no}</Link> : "—"} / {po.serviceOrder ? <Link href={`/service-orders/${po.serviceOrder.no}`} className="font-mono text-blue hover:underline">{po.serviceOrder.no}</Link> : "—"}</div>
           <div><span className="text-navy/60">{u("quoteNo")} · {u("paymentTerms")}</span><br />{po.supplierRef ?? "—"} · {po.paymentTerms ?? "—"}</div>
-          <div><span className="text-navy/60">{t("date")} · {u("expectedAt")}</span><br />{po.orderedAt.toISOString().slice(0, 10)} · {po.expectedAt?.toISOString().slice(0, 10) ?? "—"}</div>
+          <div><span className="text-navy/60">{t("date")} · {u("expectedAt")}</span><br />{localIso(po.orderedAt)!.slice(0, 10)} · {localIso(po.expectedAt)?.slice(0, 10) ?? "—"}</div>
         </div>
       </Card>
       <Card title={u("poLines")}>
@@ -60,7 +61,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
       </Card>
       {receiptsByNo.size > 0 && <Card title={u("receiptsIb")}>
         <Table head={["IBTH", t("date"), u("partSku"), t("qty"), u("unitCost"), u("supplierDocNo")]}>
-          {[...receiptsByNo.entries()].flatMap(([ibNo, rs]) => rs.map((r, i) => <tr key={r.id}><td className="font-mono">{i === 0 ? ibNo : ""}</td><td>{r.movedAt.toISOString().slice(0, 10)}</td><td className="font-mono">{r.part?.sku ?? ""}</td><td>{Number(r.qty)}</td><td className="text-right">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : ""}</td><td>{r.supplierRef ?? ""}</td></tr>))}
+          {[...receiptsByNo.entries()].flatMap(([ibNo, rs]) => rs.map((r, i) => <tr key={r.id}><td className="font-mono">{i === 0 ? ibNo : ""}</td><td>{localIso(r.movedAt)!.slice(0, 10)}</td><td className="font-mono">{r.part?.sku ?? ""}</td><td>{Number(r.qty)}</td><td className="text-right">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : ""}</td><td>{r.supplierRef ?? ""}</td></tr>))}
         </Table>
       </Card>}
       {openPo && (<>

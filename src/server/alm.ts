@@ -178,3 +178,40 @@ export async function relateAssets(opts: { fromCode: string; toCode: string; rel
 export async function findModelByCode(code: string) {
   return prisma.model.findFirst({ where: { code: { equals: code.trim(), mode: "insensitive" } }, include: { series: { include: { brand: true } } } });
 }
+
+const CATEGORY_OF: Record<string, string> = { VFD: "VFD", MOTOR: "MOTOR", PLC: "PLC" };
+const codeFrom = (name: string, len: number) => name.normalize("NFKD").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, len) || "X";
+
+/**
+ * The model of a machine being filed, created on the spot when the library does not have it (trial finding 2026-11-14:
+ * a new model needed three library forms and the nameplate uploaded again). Brand and series are matched by name or
+ * code, whatever the case; what is missing is created from what the nameplate form already says. The fault codes and
+ * maintenance standards of the series are filled in later in the library — the machine does not wait for them.
+ */
+export async function ensureModel(input: { brand: string; series: string; modelCode: string; assetType?: string; ratedPowerKw?: number; ratedVoltageV?: number; ratedCurrentA?: number; actorId?: string }) {
+  const code = input.modelCode.trim();
+  const known = await findModelByCode(code);
+  if (known) return { model: known, created: false };
+  const brandName = input.brand.trim(), seriesName = input.series.trim();
+  if (!brandName || !seriesName) throw new Error(`MODEL_NEEDS_BRAND_SERIES:${code}`);
+  const ci = (v: string) => ({ equals: v, mode: "insensitive" as const });
+  let brand = await prisma.brand.findFirst({ where: { OR: [{ name: ci(brandName) }, { code: ci(brandName) }] } });
+  if (!brand) {
+    let bc = codeFrom(brandName, 3);
+    for (let i = 2; await prisma.brand.findUnique({ where: { code: bc } }); i++) bc = `${codeFrom(brandName, 3)}${i}`;
+    brand = await prisma.brand.create({ data: { code: bc, name: brandName.toUpperCase() } });
+  }
+  let series = await prisma.series.findFirst({ where: { brandId: brand.id, OR: [{ name: ci(seriesName) }, { code: ci(seriesName) }, { aliases: { has: seriesName } }] } });
+  if (!series) {
+    let sc = codeFrom(seriesName.replace(new RegExp(`^${brand.name}\\s*`, "i"), ""), 12);
+    for (let i = 2; await prisma.series.findFirst({ where: { brandId: brand.id, code: sc } }); i++) sc = `${sc.replace(/\d+$/, "")}${i}`;
+    const cat = input.assetType && CATEGORY_OF[input.assetType] ? await prisma.productCategory.findUnique({ where: { code: CATEGORY_OF[input.assetType] } }) : null;
+    series = await prisma.series.create({ data: { brandId: brand.id, code: sc, name: seriesName, categoryCode: cat?.code, publicVisible: false } });
+  }
+  const model = await prisma.model.create({
+    data: { seriesId: series.id, code, ratedPowerKw: input.ratedPowerKw, ratedVoltageV: input.ratedVoltageV ? Math.round(input.ratedVoltageV) : undefined, ratedCurrentA: input.ratedCurrentA, specs: { createdWhileFiling: true } },
+    include: { series: { include: { brand: true } } },
+  });
+  if (input.actorId) await prisma.auditLog.create({ data: { actorId: input.actorId, action: "MODEL_CREATED_INLINE", target: code, detail: { brand: brand.name, series: series.name } } });
+  return { model, created: true };
+}

@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
@@ -72,8 +73,8 @@ export default async function Project({ params, searchParams }: { params: Promis
               <tr key={m.id} className={next?.seq === m.seq ? "bg-tint" : ""}>
                 <td>{m.seq}</td>
                 <td className="font-semibold">{phase(m.phase)}</td>
-                <td className="whitespace-nowrap">{m.plannedOn?.toISOString().slice(0, 10) ?? "—"}</td>
-                <td>{m.doneAt ? <>✓ {m.doneAt.toISOString().slice(0, 10)}{m.doneById ? ` · ${people.get(m.doneById) ?? ""}` : ""}{m.note ? <span className="block text-xs text-navy/70">{m.note}</span> : null}{files.map((a) => <a key={a.url} href={a.url} target="_blank" className="mr-2 block text-xs text-blue hover:underline">📄 {a.name}</a>)}</> : "—"}</td>
+                <td className="whitespace-nowrap">{localIso(m.plannedOn)?.slice(0, 10) ?? "—"}</td>
+                <td>{m.doneAt ? <>✓ {localIso(m.doneAt)!.slice(0, 10)}{m.doneById ? ` · ${people.get(m.doneById) ?? ""}` : ""}{m.note ? <span className="block text-xs text-navy/70">{m.note}</span> : null}{files.map((a) => <a key={a.url} href={a.url} target="_blank" className="mr-2 block text-xs text-blue hover:underline">📄 {a.name}</a>)}</> : "—"}</td>
                 <td className="text-right">{m.payPct ? `${Math.round(Number(m.payPct) * 1000) / 10}%` : ""}</td>
                 <td className="whitespace-nowrap text-right">{m.payPct ? amount.toFixed(2) : ""}</td>
                 <td>{m.taxInvoiceNo ? <span className="space-x-2 text-xs"><a className="font-mono text-blue hover:underline" href={`/api/documents/${m.taxInvoiceNo}/render?format=pdf`}>{m.taxInvoiceNo}</a>{m.invoiceNo && <a className="font-mono text-blue hover:underline" href={`/api/documents/${m.invoiceNo}/render?format=pdf`}>{m.invoiceNo}</a>}</span>
@@ -90,7 +91,7 @@ export default async function Project({ params, searchParams }: { params: Promis
           {next.phase === "DELIVERY" && signedDn === 0 && <Alert>{u("deliveryNeedsDn")} <Link href={`/service-orders/${no}/deliver`} className="underline">{u("step_deliver")}</Link></Alert>}
           {next.phase === "SAT" && <Alert>{u("satLocks")}</Alert>}
           <Grid>
-            <Field label={u("milestoneDoneOn")} required><input name="doneAt" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} className={inputCls} /></Field>
+            <Field label={u("milestoneDoneOn")} required><input name="doneAt" type="date" required defaultValue={localIso(new Date())!.slice(0, 10)} className={inputCls} /></Field>
           </Grid>
           <Field label={u("milestoneNote")}><textarea name="note" rows={2} className={inputCls} /></Field>
           <Field label={needsRecord ? u("testRecordFiles") : u("milestoneFiles")} required={!!needsRecord}><input name="files" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>

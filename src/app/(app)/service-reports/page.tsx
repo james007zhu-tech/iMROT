@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 const KINDS = ["inspection", "repair", "maintenance"] as const;
 const DOC = { inspection: "IN", repair: "RP", maintenance: "PM" } as const;
 const NAVKEY = { inspection: "inspectionReports", repair: "repairReports", maintenance: "maintenanceReports" } as const;
-const day = (d?: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
+const day = (d?: Date | null) => (d ? localIso(d)!.slice(0, 10) : "");
 const cut = (s?: string | null, n = 70) => (s && s.length > n ? `${s.slice(0, n)}…` : s ?? "");
 
 /** 精益服务: every inspection (INTH), repair (RPTH) and maintenance (PMTH) report in one list each, newest first. */

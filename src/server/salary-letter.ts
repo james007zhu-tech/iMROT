@@ -3,6 +3,7 @@
  * and Chinese, template 32 (scripts/templates/build_hr_letters.py), filled from the salary record and the one before it.
  * MD only, like every salary figure; every render is audited.
  */
+import { localIso } from "@/lib/dates";
 import path from "node:path";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { prisma } from "@/lib/db";
@@ -44,13 +45,13 @@ export async function salaryLetterFields(recordId: string) {
   if (!ch) throw new Error("NO_PREVIOUS_SALARY"); // a first salary is an offer, not an adjustment
   if (ch.diff <= 0) throw new Error("NOT_AN_INCREASE");
   const e = rec.employee, l = (rec.letter as LetterDetails | null) ?? {};
-  const eff = rec.effectiveFrom, pay = payday(eff), today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
+  const eff = rec.effectiveFrom, pay = payday(eff), today = new Date(localIso(new Date())!.slice(0, 10) + "T00:00:00Z");
   const monthOf = new Date(Date.UTC(eff.getUTCFullYear(), eff.getUTCMonth(), 1));
   const sal = salutationFor(l.salutation || e.name.split(/\s+/)[0]);
   const empNo = l.employeeNo || e.code;
   const addressee = l.salutation && /^(mr|mrs|ms|miss|dr)\b/i.test(l.salutation.trim()) ? sal.en : e.name; // "Mr. Nattawut" on the To line when a title was given
   return {
-    LETTER_NO: `${empNo}-SAL-${eff.toISOString().slice(0, 7).replace("-", "")}`,
+    LETTER_NO: `${empNo}-SAL-${localIso(eff)!.slice(0, 7).replace("-", "")}`,
     ISSUE_DATE: fmtDate.en(today),
     EMP_NAME: addressee, TO_NAME: [addressee, e.nameLocal].filter(Boolean).join("\n"), POSITION: l.position || e.position || "", EMP_CODE: empNo,
     SALUTATION_EN: sal.en, SALUTATION_TH: sal.th, SALUTATION_ZH: sal.zh,

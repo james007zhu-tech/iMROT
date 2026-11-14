@@ -2,6 +2,7 @@
  * T&O / FIN Phase 1 slice: TITH tax invoice (local currency, Thai text, VAT separate), IVTH invoice (also the payment record),
  * BLTH monthly statement for credit customers. Every amount is booked in CNY at the BoC rate of the document date.
  */
+import { localIso } from "@/lib/dates";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -14,7 +15,7 @@ import { declineInvoiceLines } from "@/server/decline";
 export async function bocRate(currency: string, onOrBefore: Date): Promise<number> {
   if (currency === "CNY") return 1;
   const r = await prisma.fxRate.findFirst({ where: { currency, rateDate: { lte: onOrBefore } }, orderBy: { rateDate: "desc" } });
-  if (!r) throw new Error(`No Bank of China rate for ${currency} on or before ${onOrBefore.toISOString().slice(0, 10)} — run npm run fx:fetch`);
+  if (!r) throw new Error(`No Bank of China rate for ${currency} on or before ${localIso(onOrBefore)!.slice(0, 10)} — run npm run fx:fetch`);
   return Number(r.rateToCny);
 }
 

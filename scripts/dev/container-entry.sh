@@ -21,6 +21,8 @@
 #                          publishes http://localhost:3000. The token is read from the file and never logged.
 set -uo pipefail
 cd /app
+# DCiT works on Thailand time: dates and times on pages, documents and logs are Bangkok's, not Greenwich's
+export TZ="${TZ:-Asia/Bangkok}"
 OPS=.dev-ops
 mkdir -p "$OPS"
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$OPS/log"; }
@@ -58,8 +60,10 @@ start_tunnel() {
     mkdir -p "$OPS/bin"
     curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$arch" -o "$bin.tmp" && chmod +x "$bin.tmp" && mv "$bin.tmp" "$bin" || { log "cloudflared download FAILED"; return 0; }
   fi
+  # http2 (TCP 443) on purpose: on this network QUIC (UDP 7844) keeps timing out, and every drop left requests hanging
+  # for the browser while the server had long finished (trial finding 2026-11-14: saves "spinning" for 30–150 s)
   log "starting cloudflared tunnel"
-  TUNNEL_TOKEN="$(tr -d '[:space:]' <"$OPS/tunnel-token")" "$bin" tunnel --no-autoupdate run >>"$OPS/tunnel.log" 2>&1 &
+  TUNNEL_TOKEN="$(tr -d '[:space:]' <"$OPS/tunnel-token")" "$bin" tunnel --no-autoupdate --protocol http2 run >>"$OPS/tunnel.log" 2>&1 &
   TUNNEL_PID=$!
 }
 

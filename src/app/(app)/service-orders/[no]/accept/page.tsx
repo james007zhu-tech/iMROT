@@ -5,7 +5,7 @@ import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { maskName } from "@/lib/mask";
 import { saveUpload } from "@/lib/uploads";
-import { shortDate } from "@/lib/dates";
+import { shortDate, localIso } from "@/lib/dates";
 import { RevealRows } from "@/components/RevealRows";
 import { Alert, Card, Field, Grid, inputCls } from "@/components/ui";
 import { StepPage, atts, dayNow, loadOrder, str } from "../_shell";
@@ -25,7 +25,7 @@ export default async function Accept({ params, searchParams }: { params: Promise
   const tests = ((job?.tests as { test: string; criterion?: string; result?: string }[] | null) ?? []).map((x) => ({ d: x.test, c: x.criterion ?? "", r: x.result ?? "" }));
   const parts = ((job?.partsReplaced as { partSku: string; newSerial?: string }[] | null) ?? []);
   const rows = [...tests, ...(parts.length ? [{ d: u("partsReplaced"), c: u("newSerialRecorded"), r: parts.map((p) => p.newSerial ?? p.partSku).join(" / ") }] : []), ...(job?.configBackupRef ? [{ d: u("paramBackup"), c: u("fileArchived"), r: job.configBackupRef }] : [])];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localIso(new Date())!.slice(0, 10);
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {

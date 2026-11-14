@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { decideTaxInvoiceVoid, issueInvoice, issueTaxInvoice, requestTaxInvoiceVoid } from "@/server/to";
@@ -27,8 +28,8 @@ export default async function Invoice({ params, searchParams }: { params: Promis
   const shown = feeLines ? feeLines.map((l, i) => ({ id: `fee${i}`, lineNo: i + 1, descriptionLocal: l.descriptionLocal, description: l.descriptionEn, qty: 1, unitPrice: l.unitPrice, amount: l.unitPrice }))
     : order.lines.map((l) => ({ id: l.id, lineNo: l.lineNo, descriptionLocal: l.descriptionLocal, description: l.description, qty: Number(l.qty), unitPrice: Number(l.unitPrice), amount: Number(l.amount) }));
   const sum = feeLines ? totals(feeLines, Number(entity.vatRate)) : { subtotal: Number(order.subtotal ?? 0), vatAmount: Number(order.vatAmount ?? 0), total: Number(order.total ?? 0) };
-  const today = new Date().toISOString().slice(0, 10);
-  const due = new Date(Date.now() + order.customer.paymentTermDays * 86400000).toISOString().slice(0, 10);
+  const today = localIso(new Date())!.slice(0, 10);
+  const due = localIso(new Date(Date.now() + order.customer.paymentTermDays * 86400000))!.slice(0, 10);
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
@@ -63,7 +64,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
               <tr key={x.id} className={x.voidedAt ? "text-navy/50 line-through" : ""}>
                 <td className="font-mono"><a className="text-blue hover:underline" href={`/api/documents/${x.no}/render?format=pdf`}>{x.no}</a></td>
                 <td className="font-mono text-xs">{x.bookNo ? `${x.bookNo} / ${x.bookSeq}` : "—"}</td>
-                <td>{x.issuedAt.toISOString().slice(0, 10)}</td><td>{x.currency} {Number(x.total).toFixed(2)}</td>
+                <td>{localIso(x.issuedAt)!.slice(0, 10)}</td><td>{x.currency} {Number(x.total).toFixed(2)}</td>
                 <td className="font-mono text-xs">{x.invoices.map((i) => <span key={i.no} className={`block ${i.cancelledAt ? "line-through" : ""}`}>{i.no}</span>)}</td>
                 <td className="no-underline">{voidTag(x)}</td>
                 <td className="text-xs">{x.voidRequestReason ?? ""}{x.voidDecisionNote ? <span className="block text-navy/60">MD: {x.voidDecisionNote}</span> : null}</td>
@@ -90,7 +91,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
           <Table head={["#", u("descThRequired"), u("descEn"), t("qty"), t("price"), t("amount")]}>
             {shown.map((l, i) => <tr key={l.id}><td>{l.lineNo}</td><td><input name={`th${i}`} required defaultValue={l.descriptionLocal ?? ""} className={inputCls} /></td><td>{l.description}</td><td>{l.qty}</td><td className="text-right">{l.unitPrice.toFixed(2)}</td><td className="text-right">{l.amount.toFixed(2)}</td></tr>)}
           </Table>
-          <p className="text-right text-[13px]">{t("subtotal")} {sum.subtotal.toFixed(2)} · {t("vat")} {sum.vatAmount.toFixed(2)} · <b>{t("total")} {sum.total.toFixed(2)}</b>{fx ? ` · CNY ${(sum.total * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} (${u("bocOn")} ${fx.rateDate.toISOString().slice(5, 10)})` : ""}</p>
+          <p className="text-right text-[13px]">{t("subtotal")} {sum.subtotal.toFixed(2)} · {t("vat")} {sum.vatAmount.toFixed(2)} · <b>{t("total")} {sum.total.toFixed(2)}</b>{fx ? ` · CNY ${(sum.total * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} (${u("bocOn")} ${localIso(fx.rateDate)!.slice(5, 10)})` : ""}</p>
         </Card>
         <Card title={u("invoiceIv")}>
           <Grid>

@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -25,7 +26,7 @@ export default async function Inquiries({ searchParams }: { searchParams: Promis
               <td>{(r.lines as unknown[]).length}</td><td>{r.quotes.length}</td>
               <td>{sel ? `${sel.supplier.name} · ${sel.currency} ${Number(sel.subtotal).toFixed(2)}` : ""}</td>
               <td className="font-mono">{r.orders.map((o) => <Link key={o.no} href={`/purchasing/orders/${o.no}`} className="text-blue hover:underline">{o.no}</Link>)}</td>
-              <td>{r.requestedBy.name}</td><td>{r.createdAt.toISOString().slice(0, 10)}</td>
+              <td>{r.requestedBy.name}</td><td>{localIso(r.createdAt)!.slice(0, 10)}</td>
             </tr>); })}
           {rows.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-navy/60">{u("noInquiries")}</td></tr>}
         </Table>

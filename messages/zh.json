@@ -397,7 +397,9 @@
     "yes": "是",
     "no": "否",
     "open": "打开",
-    "loginWait": "尝试次数过多，请 15 分钟后再试"
+    "loginWait": "尝试次数过多，请 15 分钟后再试",
+    "savingNow": "正在保存… 请不要重复点击",
+    "savingSlow": "网络较慢，数据可能已经存上了。请再等一下，或先到列表里看一眼，确认没有再重新保存。"
   },
   "ai": {
     "title": "AI 助手",
@@ -921,7 +923,7 @@
     "fld_reportedSymptom": "故障现象",
     "brand": "品牌",
     "series": "系列",
-    "modelNotInLibrary": "型号库里还没有这个型号，需先新建型号",
+    "modelNotInLibrary": "型号库里还没有这个型号，保存时会自动加进型号库（请把品牌和系列填上）",
     "acceptSignature": "客户签字（照片 / 门户电子签）",
     "signedOn": "已签 {date}",
     "inspectPlace": "检测地点",
@@ -2144,7 +2146,9 @@
     "err_STOCK_SHORT": "库存不够（要出/现有）：{detail}",
     "err_DELIVERY_NO_STOCK": "送货数量超过库存（要送/可送）：{detail}。请先收货入库，或者分批送货。",
     "err_PO_REPEAT": "这张业务单已经采购过这些物料（已采购+本次>客户订货）：{detail}。确实要再买，请勾选上方的确认后再保存。",
-    "err_INSPECTION_AFTER_WORK": "这台设备在这张单上已有 {detail}。检测应在维修或保养之前；之后发现的新问题请另开业务单。"
+    "err_INSPECTION_AFTER_WORK": "这台设备在这张单上已有 {detail}。检测应在维修或保养之前；之后发现的新问题请另开业务单。",
+    "err_DELIVERY_NO_PART": "这行货在库里找不到对应的料号，没法核对库存：{detail}。请先把货收进库，再开送货单。",
+    "err_MODEL_NEEDS_BRAND_SERIES": "{detail} 是新型号，请填上品牌和系列，系统会一起加进型号库。"
   },
   "role": {
     "MD": "董事总经理 MD",

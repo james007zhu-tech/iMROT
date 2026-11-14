@@ -7,6 +7,7 @@
  *    and the fee is invoiced (TITH) or waived;
  *  - undo (the customer changes their mind) only while no DNTH or TITH has been issued after the decline.
  */
+import { localIso } from "@/lib/dates";
 import { quoteJustCancels } from "./modes";
 
 export const DECLINE_REASONS = ["PRICE", "REPLACE", "LEAD_TIME", "SELF", "OTHER"] as const;
@@ -70,6 +71,6 @@ export function feeLineText(machine: { brand?: string; model?: string; serial?: 
 /** Printed on the return DNTH: the machine line and the remark. */
 export const RETURN_UNREPAIRED = "ส่งคืนโดยไม่ได้ซ่อม\nReturned unrepaired";
 export function returnRemark(toldAt: Date): string {
-  const d = toldAt.toISOString().slice(0, 10);
+  const d = localIso(toldAt)!.slice(0, 10);
   return `ส่งคืนโดยไม่ได้ซ่อม ลูกค้าไม่อนุมัติใบเสนอราคา (${d}) อุปกรณ์อยู่ในสภาพเดียวกับที่รับไว้\nReturned unrepaired: quotation not approved (${d}); equipment in the condition received.`;
 }

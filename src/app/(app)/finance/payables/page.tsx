@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -26,7 +27,7 @@ export default async function Payables({ searchParams }: { searchParams: Promise
           {rows.map((r) => {
             const overdue = r.status === "OPEN" && r.dueDate < today;
             return <tr key={r.id}>
-              <td className={overdue ? "font-semibold text-alert-ink" : ""}>{r.dueDate.toISOString().slice(0, 10)}</td>
+              <td className={overdue ? "font-semibold text-alert-ink" : ""}>{localIso(r.dueDate)!.slice(0, 10)}</td>
               <td><Link href={`/suppliers/${r.supplier.code}`} className="text-blue hover:underline">{r.supplier.name}</Link><span className="block text-xs text-navy/60">{u(`pay_${r.supplier.paymentMode}`)}</span></td>
               <td className="font-mono">{r.invoiceNo}</td>
               <td><Link href={r.purchaseOrder.serviceOrder && r.purchaseOrder.kind === "SUBCONTRACT" ? `/service-orders/${r.purchaseOrder.serviceOrder.no}/partner` : `/purchasing/orders/${r.purchaseOrder.no}`} className="font-mono text-blue hover:underline">{r.purchaseOrder.no}</Link></td>
@@ -34,7 +35,7 @@ export default async function Payables({ searchParams }: { searchParams: Promise
               <td className="text-right">{Number(r.whtAmount).toFixed(2)}{Number(r.whtRate) > 0 ? <span className="block text-xs text-navy/60">{(Number(r.whtRate) * 100).toFixed(0)}%</span> : null}</td>
               <td className="text-right font-semibold">{r.currency} {Number(r.payable).toFixed(2)}</td>
               <td><Tag hot={overdue}>{u(`payable_${r.status}`)}</Tag>{r.paymentNo ? <span className="ml-1 font-mono text-xs">{r.paymentNo}</span> : null}</td>
-              <td>{r.status === "OPEN" && mayPay && <form action={payAction} className="flex gap-1"><input type="hidden" name="id" value={r.id} /><input name="paymentRef" placeholder={u("paymentRefPh")} className={`${inputCls} w-32`} /><input name="paidAt" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={`${inputCls} w-36`} /><button className={btnBlue}>{u("payNow")}</button></form>}</td>
+              <td>{r.status === "OPEN" && mayPay && <form action={payAction} className="flex gap-1"><input type="hidden" name="id" value={r.id} /><input name="paymentRef" placeholder={u("paymentRefPh")} className={`${inputCls} w-32`} /><input name="paidAt" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={`${inputCls} w-36`} /><button className={btnBlue}>{u("payNow")}</button></form>}</td>
             </tr>;
           })}
           {rows.length === 0 && <tr><td colSpan={10} className="py-6 text-center text-navy/60">{u("noPayables")}</td></tr>}

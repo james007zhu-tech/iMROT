@@ -4,6 +4,7 @@
  * own contacts). Every change is audited; every salary view is audited.
  * The ETH/EVN/ECN number follows the legal entity chosen, so the MD can create the first staff of a new country.
  */
+import { localIso } from "@/lib/dates";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -243,7 +244,7 @@ export async function addSalaryRecord(actorCode: string, code: string, input: z.
     taxDeductions: d.taxDeductions as Prisma.InputJsonValue | undefined, whtMonthly: s.whtMonthly, otherDeductions: d.otherDeductions as Prisma.InputJsonValue, netEstimate: s.netEstimate,
     reason: d.reason, note: d.note, approvedById: approver.id, approvedAt: d.approvedAt ?? new Date(), createdById: actor.id, attachments: d.attachments as Prisma.InputJsonValue | undefined,
   } });
-  await audit(actor.id, "SALARY_ADD", code, { effectiveFrom: d.effectiveFrom.toISOString().slice(0, 10), reason: d.reason, currency: d.currency });
+  await audit(actor.id, "SALARY_ADD", code, { effectiveFrom: localIso(d.effectiveFrom)!.slice(0, 10), reason: d.reason, currency: d.currency });
   return rec;
 }
 

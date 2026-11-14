@@ -2,6 +2,7 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { localIso } from "@/lib/dates";
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
 import { findPart, resolveParts } from "@/server/scm";
@@ -351,7 +352,7 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
       await tx.assetEvent.create({
         data: { assetId: link.assetId, type: "ACCEPTED", actorId: actor.id, actorName: d.customerSignatory, serviceOrderId: order.id, sourceDocNo: order.no, occurredAt: d.acceptedAt,
           summary: `${d.status}${d.punchList ? ` · ${d.punchList}` : ""}`, // the signatory lives in actorName and is masked when shown
-          payload: { status: d.status, deliverables: d.deliverables, warrantyStart: d.warrantyStart, warrantyDays: order.warrantyDays, warrantyUntil: ok && order.warrantyDays != null ? new Date((d.warrantyStart ?? d.acceptedAt ?? new Date()).getTime() + order.warrantyDays * 86_400_000).toISOString().slice(0, 10) : undefined, mode: order.mode, statusFrom: from, statusTo: to } as Prisma.InputJsonValue },
+          payload: { status: d.status, deliverables: d.deliverables, warrantyStart: d.warrantyStart, warrantyDays: order.warrantyDays, warrantyUntil: ok && order.warrantyDays != null ? localIso(new Date((d.warrantyStart ?? d.acceptedAt ?? new Date()).getTime() + order.warrantyDays * 86_400_000))!.slice(0, 10) : undefined, mode: order.mode, statusFrom: from, statusTo: to } as Prisma.InputJsonValue },
       });
     }
     return acc;

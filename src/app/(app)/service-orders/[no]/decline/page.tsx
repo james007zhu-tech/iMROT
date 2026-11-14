@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { declineQuote } from "@/server/decline";
@@ -26,7 +27,7 @@ export default async function Decline({ params, searchParams }: { params: Promis
   // A quote that already carries an inspection line for the machine prefills its fee.
   const quoted = (code: string) => order.lines.filter((l) => l.assetCode === code && INSPECTION.test(`${l.description} ${l.descriptionLocal ?? ""}`)).reduce((s, l) => s + Number(l.amount), 0);
   const received = order.events.filter((e) => e.type === "RECEIVED_WORKSHOP");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localIso(new Date())!.slice(0, 10);
 
   async function save(f: FormData) {
     "use server";
@@ -103,7 +104,7 @@ export default async function Decline({ params, searchParams }: { params: Promis
                 {received.map((e) => {
                   const acc = ((e.payload as { accessoryList?: { item: string; qty: number }[] } | null)?.accessoryList) ?? [];
                   const code = order.assets.find((l) => l.assetId === e.assetId)?.asset.code ?? "";
-                  return <p key={e.id}>{u("machineInShop", { code, doc: e.sourceDocNo ?? "", date: e.occurredAt.toISOString().slice(0, 10), n: acc.length })}{acc.length ? ` (${acc.map((x) => x.item).join("、")})` : ""}</p>;
+                  return <p key={e.id}>{u("machineInShop", { code, doc: e.sourceDocNo ?? "", date: localIso(e.occurredAt)!.slice(0, 10), n: acc.length })}{acc.length ? ` (${acc.map((x) => x.item).join("、")})` : ""}</p>;
                 })}
                 <p className="font-semibold text-navy">{u("returnNeeded")}</p>
               </div>

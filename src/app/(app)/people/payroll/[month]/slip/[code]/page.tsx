@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -46,7 +47,7 @@ export default async function Slip({ params }: { params: Promise<{ month: string
           </section>
         </div>
         <div className="mt-4 flex items-center justify-between rounded-lg bg-navy px-4 py-3 text-white"><span className="font-semibold">{t("payNet")} · NET PAY</span><span className="text-xl font-bold tabular-nums">THB {money(line.net)}</span></div>
-        <p className="mt-3 text-xs text-navy/60">{t("slipEmployer", { sso: money(line.ssoEmployer) })}{line.run.paidAt ? ` · ${t("slipPaidOn", { date: line.run.paidAt.toISOString().slice(0, 10) })}` : ""}</p>
+        <p className="mt-3 text-xs text-navy/60">{t("slipEmployer", { sso: money(line.ssoEmployer) })}{line.run.paidAt ? ` · ${t("slipPaidOn", { date: localIso(line.run.paidAt)!.slice(0, 10) })}` : ""}</p>
       </article>
     </div>
   );

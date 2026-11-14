@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -134,15 +135,15 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
 
   // Timeline: the order's events, one line per document/step even when several assets carry the same event.
   const seen = new Set<string>();
-  const timeline = order.events.filter((e) => { const k = `${e.type}|${e.sourceDocNo}|${e.occurredAt.toISOString().slice(0, 16)}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  const timeline = order.events.filter((e) => { const k = `${e.type}|${e.sourceDocNo}|${localIso(e.occurredAt)!.slice(0, 16)}`; if (seen.has(k)) return false; seen.add(k); return true; });
   const atts = (order.attachments as { name: string; url: string; kind: string }[] | null) ?? [];
   const terms = order.tradeTerms as TradeTerms | null; // 国际贸易 only
   const exportLeft = terms ? exportCloseBlockers({ incoterm: terms.incoterm, shipped: order.deliveries.some((d) => d.status === "SIGNED" && d.shipping), unpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, attachments: atts }) : [];
 
   // 单据链: the numbered documents of this order in sequence, with the customer's PO and the acceptance in their places
-  const chain = chainOf(order.mode, docs.map((d) => ({ no: d.no, type: d.type, date: d.issuedAt?.toISOString().slice(0, 10) })), {
+  const chain = chainOf(order.mode, docs.map((d) => ({ no: d.no, type: d.type, date: localIso(d.issuedAt)?.slice(0, 10) })), {
     customerPo: order.quoteConfirmedAt ? order.customerRef || custFiles.find((a) => a.kind === "PO")?.name || u("poConfirmed") : null,
-    acceptance: order.acceptance ? (order.acceptance.acceptedAt?.toISOString().slice(0, 10) ?? u(`step_accept`)) : null,
+    acceptance: order.acceptance ? (localIso(order.acceptance.acceptedAt)?.slice(0, 10) ?? u(`step_accept`)) : null,
   });
 
   return (
@@ -171,7 +172,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
       <DocChain order={order.no} slots={chain} />
       <Flash ok={ok} error={error} />
-      {dec && <Alert>{u("declinedBanner", { date: dec.toldAt.toISOString().slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
+      {dec && <Alert>{u("declinedBanner", { date: localIso(dec.toldAt)!.slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="min-w-0 space-y-4 lg:col-span-2">
@@ -243,7 +244,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               {order.lines.map((l) => <tr key={l.id}><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-navy/70">{l.descriptionLocal}</span> : null}</td><td>{Number(l.qty)} {l.unit}</td><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></tr>)}
             </Table>
             <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>
-            {order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: order.lockedAt.toISOString().slice(0, 10) })}` : ""}</p>}
+            {order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: localIso(order.lockedAt)!.slice(0, 10) })}` : ""}</p>}
             {order.marginApproval === "PENDING" && me.role === "MD" && (
               <form action={decideMargin} className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">
                 <span className="text-sm font-semibold text-alert-ink">{u("marginDecision")}</span>

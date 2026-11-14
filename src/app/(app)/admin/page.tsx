@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
@@ -66,7 +67,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
           <Field label={t("localCcy")} required><input name="localCurrency" defaultValue={e?.localCurrency ?? ""} placeholder="VND" required maxLength={3} className={`${inputCls} font-mono`} /></Field>
           <Field label={t("bookCcy")}><div className="min-h-10 rounded-md border bg-tint px-2.5 py-2 text-sm">CNY</div></Field>
           <Field label={u("vatPct")} required><input name="vatPct" type="number" step="0.01" min={0} max={100} defaultValue={e ? pct(e.vatRate) : ""} required className={inputCls} /></Field>
-          <Field label={u("vatRegisteredFrom")}><input name="vatRegisteredFrom" type="date" defaultValue={e?.vatRegisteredFrom ? e.vatRegisteredFrom.toISOString().slice(0, 10) : ""} className={inputCls} /></Field>
+          <Field label={u("vatRegisteredFrom")}><input name="vatRegisteredFrom" type="date" defaultValue={e?.vatRegisteredFrom ? localIso(e.vatRegisteredFrom)!.slice(0, 10) : ""} className={inputCls} /></Field>
           <Field label={u("taxInvoiceBookSize")}><input name="taxInvoiceBookSize" type="number" min={1} max={1000} defaultValue={e?.taxInvoiceBookSize ?? 50} className={inputCls} /><p className="mt-1 text-xs text-navy/60">{u("taxInvoiceBookHint")}</p></Field>
           <Field label={t("addressEn")} className="md:col-span-3"><input name="addressEn" defaultValue={e?.addressEn ?? ""} className={inputCls} /></Field>
           <Field label={t("addressLocal")} className="md:col-span-3"><input name="addressLocal" defaultValue={e?.addressLocal ?? ""} className={inputCls} /></Field>
@@ -143,7 +144,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
       <Card title={t("bocRates")}>
         <form action={fetchRates} className="flex flex-wrap items-center gap-3"><button className={btnGhost}>{u("fxFetchNow")}</button><span className="text-xs text-navy/70">{u("fxAutoNote")}</span></form>
         <Table head={[t("date"), t("currency"), t("rate"), t("published")]}>
-          {rates.map((r) => <tr key={r.id}><td>{r.rateDate.toISOString().slice(0, 10)}</td><td className="font-mono">{r.currency}</td><td className="font-mono">{Number(r.rateToCny).toFixed(6)}</td><td>{r.publishedAt?.toISOString().slice(0, 16).replace("T", " ") ?? ""}</td></tr>)}
+          {rates.map((r) => <tr key={r.id}><td>{localIso(r.rateDate)!.slice(0, 10)}</td><td className="font-mono">{r.currency}</td><td className="font-mono">{Number(r.rateToCny).toFixed(6)}</td><td>{localIso(r.publishedAt)?.slice(0, 16).replace("T", " ") ?? ""}</td></tr>)}
           {rates.length === 0 && <tr><td colSpan={4} className="text-alert-ink">{t("noRates")}</td></tr>}
         </Table>
       </Card>

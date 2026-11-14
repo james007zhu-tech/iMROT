@@ -29,7 +29,7 @@ const ENUM_FIELDS: Record<string, string[]> = { productionImpact: ["STOPPED", "D
   tIncoterm: ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"], tShipMode: ["SEA", "AIR", "ROAD", "COURIER"] };
 
 export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
-  asset: { attachKind: "NAMEPLATE", fields: { brand: "manufacturer, e.g. SIEMENS", series: "product series, e.g. SINAMICS S120", modelCode: "model / order number exactly as printed", serialNumber: "serial number exactly as printed", ratedPowerKw: "rated power kW", ratedVoltageV: "rated voltage V", ratedCurrentA: "rated current A", customerAssetNo: "customer's own asset tag if visible" } },
+  asset: { attachKind: "NAMEPLATE", fields: { brand: "manufacturer, e.g. SIEMENS", series: "product series, e.g. SINAMICS S120", modelCode: "model / order number exactly as printed", serialNumber: "serial number exactly as printed", ratedPowerKw: "rated power kW, exactly as printed (keep a multiplier such as 2x4.0)", ratedVoltageV: "rated voltage V", ratedCurrentA: "rated current A", customerAssetNo: "customer's own asset tag if visible" } },
   customer: { attachKind: "COMPANY_DOC", accept: ["DBD", "PP20", "BILLING"], strict: true, fields: { taxId: "13-digit Thai tax ID", branchCode: "5-digit branch code, 00000 = head office" } },
   /** The customer's inquiry (RFQ / e-mail / LINE message), purchase order or fault report: filed under its own kind (rule: inquiry files are found on the QTTH and in the customer's "historical inquiries"). */
   service: {
@@ -173,7 +173,10 @@ export function normalizeDate(v: string): string {
 
 /** "1,234.50 THB" → "1234.50"; "7%" on a rate field → "0.07". */
 export function normalizeNumber(v: string, field?: string): string {
-  const s = v.replace(/[^\d.,%-]/g, "");
+  // "2x4.0 kW" on a double-axis module is two axes of 4.0 kW, not 24 (trial finding 2026-11-14): the rating is the
+  // value after the multiplier, per axis; the count stays visible in the model number
+  const multi = v.match(/^\s*\d+\s*[x×*]\s*(\d[\d.,]*)/i);
+  const s = (multi ? multi[1] : v).replace(/[^\d.,%-]/g, "");
   const pct = /%$/.test(s);
   const n = Number(s.replace(/%/g, "").replace(/,/g, ""));
   if (!Number.isFinite(n)) return v.trim();

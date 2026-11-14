@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
@@ -91,7 +92,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
             <Alert>{u("fxMissing", { ccy: order.currency })} <Link href="/admin" className="underline">{u("fxGoAdmin")}</Link></Alert>
           ) : order.currency !== "CNY" && (
             <p className={`text-xs ${rate.ageDays > 3 ? "font-semibold text-alert-ink" : "text-navy/70"}`}>
-              {u("fxLine", { ccy: order.currency, rate: rate.rateToCny.toFixed(6), date: rate.rateDate.toISOString().slice(0, 10) })}
+              {u("fxLine", { ccy: order.currency, rate: rate.rateToCny.toFixed(6), date: localIso(rate.rateDate)!.slice(0, 10) })}
               {order.totalCny != null && ` · ${u("fxTotal", { amount: Number(order.totalCny).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })}`}
               {rate.ageDays > 3 && ` · ${u("fxStale", { days: rate.ageDays })}`}
             </p>

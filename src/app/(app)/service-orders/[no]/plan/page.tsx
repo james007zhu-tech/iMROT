@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
@@ -105,9 +106,9 @@ export default async function Plan({ params, searchParams }: { params: Promise<{
           <div className="grid grid-cols-[1fr_110px_160px] gap-2 text-xs text-navy/70"><span>{u("milestone")}</span><span>{u("payPct")}</span><span>{u("plannedOn")}</span></div>
           {PHASES.map((p) => { const m = milestones.find((x) => x.phase === p); return (
             <div key={p} className="mt-1 grid grid-cols-[1fr_110px_160px] items-center gap-2">
-              <span className="text-sm">{m?.seq}. {u(`phase_${p as Phase}`)}{m?.doneAt ? <span className="ml-2 text-xs text-navy/60">✓ {m.doneAt.toISOString().slice(0, 10)}</span> : null}</span>
+              <span className="text-sm">{m?.seq}. {u(`phase_${p as Phase}`)}{m?.doneAt ? <span className="ml-2 text-xs text-navy/60">✓ {localIso(m.doneAt)!.slice(0, 10)}</span> : null}</span>
               <input name={`mp_${p}`} type="number" min="0" max="100" step="0.1" defaultValue={pct(m?.payPct)} disabled={frozen} placeholder="—" className={inputCls} />
-              <input name={`md_${p}`} type="date" defaultValue={m?.plannedOn ? m.plannedOn.toISOString().slice(0, 10) : ""} className={inputCls} />
+              <input name={`md_${p}`} type="date" defaultValue={m?.plannedOn ? localIso(m.plannedOn)!.slice(0, 10) : ""} className={inputCls} />
             </div>); })}
           <p className={`mt-2 text-xs ${Math.round(sum * 1000) === 1000 ? "text-navy/70" : "font-semibold text-alert-ink"}`}>{u("paySplitLine", { pct: Math.round(sum * 1000) / 10 })}</p>
         </Card>

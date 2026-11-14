@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -25,7 +26,7 @@ export default async function PurchaseOrders({ searchParams }: { searchParams: P
               <td className="font-mono">{r.inquiry ? <Link href={`/purchasing/inquiries/${r.inquiry.no}`} className="text-blue hover:underline">{r.inquiry.no}</Link> : ""}</td>
               <td className="font-mono">{r.serviceOrder ? <Link href={`/service-orders/${r.serviceOrder.no}`} className="text-blue hover:underline">{r.serviceOrder.no}</Link> : ""}</td>
               <td className="text-right">{r.currency} {Number(r.total).toFixed(2)}</td>
-              <td>{got} / {all}</td><td>{r.expectedAt?.toISOString().slice(0, 10) ?? ""}</td><td>{r.orderedAt.toISOString().slice(0, 10)}</td>
+              <td>{got} / {all}</td><td>{localIso(r.expectedAt)?.slice(0, 10) ?? ""}</td><td>{localIso(r.orderedAt)!.slice(0, 10)}</td>
             </tr>); })}
           {rows.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-navy/60">{u("noPos")}</td></tr>}
         </Table>

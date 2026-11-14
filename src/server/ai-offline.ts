@@ -4,12 +4,13 @@
  * show an asset's history, search by serial, and turn a dictated "new asset …" into form values for the user to check.
  * Same scope rules as the tools: a portal contact only ever sees their own customer's records.
  */
+import { localIso } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import type { AssistAction, AssistContext } from "./ai";
 import { findCodes, parseNewAsset } from "@/lib/assist-parse";
 
 type Reply = { text: string; actions: AssistAction[]; toolsUsed: string[] };
-const day = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : "");
+const day = (d: Date | null | undefined) => (d ? localIso(d)!.slice(0, 10) : "");
 
 export async function offlineAssist(messages: { role: "user" | "assistant"; content: string }[], ctx: AssistContext): Promise<Reply> {
   const { getTranslations } = await import("next-intl/server"); // loaded here so the services stay importable outside Next (smoke:mem)

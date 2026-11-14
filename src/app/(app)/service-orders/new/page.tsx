@@ -1,5 +1,6 @@
 import { PartDropdown } from "@/components/PartDropdown";
 import Link from "next/link";
+import { ScopedSelect } from "@/components/ScopedSelect";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { advanceServiceOrder, createServiceOrder } from "@/server/slm";
@@ -113,7 +114,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         {proj && <Card title={u("projectCard")}>
           <Grid>
             <Field label={u("projectName")} required><input name="projectName" required placeholder="Line 3 extruder drive upgrade" className={inputCls} /></Field>
-            <Field label={u("projectSite")}><select name="plantId" className={inputCls}><option value="">—</option>{plants.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name} · {p.customer.name}</option>)}</select></Field>
+            <Field label={u("projectSite")}><ScopedSelect name="plantId" follow="customerId" className={inputCls} options={plants.map((p) => ({ value: p.id, scope: p.customerId, label: `${p.code} ${p.name}`, wide: `${p.code} ${p.name} · ${p.customer.name}` }))} /></Field>
             <Field label={u("projectDue")}><input name="projectDue" type="date" className={inputCls} /></Field>
           </Grid>
           <Field label={u("projectScope")} required><textarea name="projectScope" required rows={3} placeholder={u("projectScopePh")} className={inputCls} /></Field>
@@ -165,7 +166,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           <Field label={t("symptom")} required><textarea name="reportedSymptom" required rows={2} className={`${inputCls} font-semibold text-fault`} /></Field>
           <Grid>
             <Field label={u("customerRefVerbatim")}><input name="customerRef" className={`${inputCls} font-mono`} /></Field>
-            <Field label={u("reportedBy")}><select name="reportedById" className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)} · {c.customer.name}</option>)}</select></Field>
+            <Field label={u("reportedBy")}><ScopedSelect name="reportedById" follow="assetCodes" via={Object.fromEntries(assets.map((a) => [a.code, a.customerId ?? ""]))} className={inputCls} options={contacts.map((c) => ({ value: c.id, scope: c.customerId, label: maskName(c.name), wide: `${maskName(c.name)} · ${c.customer.name}` }))} /></Field>
             <Field label={t("reportedAt")}><input name="reportedAt" type="datetime-local" defaultValue={now} className={inputCls} /></Field>
           </Grid>
           <Field label={u("poAttachments")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>

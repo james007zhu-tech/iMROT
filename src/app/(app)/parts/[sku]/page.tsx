@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -35,7 +36,7 @@ export default async function PartPage({ params, searchParams }: { params: Promi
         <form action={move} className="flex flex-wrap gap-1"><select name="direction" className={input}><option value="IN">{t("stockIn")}</option><option value="OUT">{t("stockOut")}</option></select><input name="qty" type="number" step="0.001" placeholder={t("qty")} className={`${input} w-20`} required /><input name="batch" placeholder={t("batch")} className={`${input} w-24`} /><input name="unitCost" type="number" step="0.01" placeholder={t("unitCostIn")} className={`${input} w-36`} /><input name="assetCode" placeholder={t("athOut")} className={`${input} w-32`} /><input name="serviceOrderNo" placeholder={t("qtthOut")} className={`${input} w-32`} /><input name="old" placeholder={t("oldPart")} className={input} /><button className="rounded bg-navy px-3 text-sm text-white">{"+"}</button></form>
       </section>
       <section className="rounded-xl border bg-white p-4"><h2 className="mb-2 font-bold text-navy">{t("movements")}</h2>
-        <ul className="text-sm">{part.movements.map((m) => <li key={m.id}><span className="font-mono">{m.no}</span> · {m.direction} {Number(m.qty)} · {m.movedAt.toISOString().slice(0, 10)}{m.asset ? ` → ${m.asset.code}` : ""}{m.oldPartDisposition ? ` · ${t("oldPart")}: ${m.oldPartDisposition}` : ""}</li>)}</ul>
+        <ul className="text-sm">{part.movements.map((m) => <li key={m.id}><span className="font-mono">{m.no}</span> · {m.direction} {Number(m.qty)} · {localIso(m.movedAt)!.slice(0, 10)}{m.asset ? ` → ${m.asset.code}` : ""}{m.oldPartDisposition ? ` · ${t("oldPart")}: ${m.oldPartDisposition}` : ""}</li>)}</ul>
       </section>
     </div>
   );

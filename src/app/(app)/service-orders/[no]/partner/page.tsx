@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -28,7 +29,7 @@ export default async function PartnerRepair({ params, searchParams }: { params: 
   ]);
   const locked = !!order.lockedAt;
   const openInquiry = inquiries.find((i) => i.status === "OPEN" || i.status === "COMPARED");
-  const day = (d?: Date | null) => (d ? d.toISOString().slice(0, 10) : "—");
+  const day = (d?: Date | null) => (d ? localIso(d)!.slice(0, 10) : "—");
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   // what came in on the ERTH travels on to the partner by default
   const erAccessories = (assetId: string) => (order.events.find((e) => e.type === "RECEIVED_WORKSHOP" && e.assetId === assetId)?.payload as { accessories?: string } | null)?.accessories ?? "";
@@ -147,7 +148,7 @@ export default async function PartnerRepair({ params, searchParams }: { params: 
               })}
 
               {po.milestones.length > 0 && <div className="mt-3"><Table head={[u("time"), t("asset"), u("milestone"), t("note"), u("executor")]}>
-                {po.milestones.map((m) => <tr key={m.id}><td className="whitespace-nowrap">{m.at.toISOString().slice(0, 16).replace("T", " ")}</td><td className="font-mono">{order.assets.find((a) => a.assetId === m.assetId)?.asset.code ?? ""}</td><td>{stageLabel(m.stage)}{m.sourceDocNo ? <span className="ml-1 font-mono text-xs">{m.sourceDocNo}</span> : null}</td><td>{m.note ?? ""}{((m.attachments as { name: string; url: string }[] | null) ?? []).map((a) => <a key={a.url} href={a.url} target="_blank" className="ml-1 text-blue">📎</a>)}</td><td>{m.by.name}</td></tr>)}
+                {po.milestones.map((m) => <tr key={m.id}><td className="whitespace-nowrap">{localIso(m.at)!.slice(0, 16).replace("T", " ")}</td><td className="font-mono">{order.assets.find((a) => a.assetId === m.assetId)?.asset.code ?? ""}</td><td>{stageLabel(m.stage)}{m.sourceDocNo ? <span className="ml-1 font-mono text-xs">{m.sourceDocNo}</span> : null}</td><td>{m.note ?? ""}{((m.attachments as { name: string; url: string }[] | null) ?? []).map((a) => <a key={a.url} href={a.url} target="_blank" className="ml-1 text-blue">📎</a>)}</td><td>{m.by.name}</td></tr>)}
               </Table><p className="text-xs text-navy/60">{u("milestonesInternal")}</p></div>}
 
               {revs.length > 0 && <div className="mt-3"><Table head={[u("version"), u("time"), u("reason"), t("subtotal"), u("customerConsent")]}>
@@ -161,7 +162,7 @@ export default async function PartnerRepair({ params, searchParams }: { params: 
                     <Field label={t("description")}><input name="description" defaultValue={firstLine?.description ?? ""} className={inputCls} /></Field>
                     <Field label={t("qty")}><input name="qty" type="number" step="0.001" defaultValue={firstLine?.qty ?? 1} className={inputCls} /></Field>
                     <Field label={u("unitPriceExVat")}><input name="unitPrice" type="number" step="0.01" defaultValue={firstLine?.unitPrice ?? ""} className={inputCls} /></Field>
-                    <Field label={u("dueBack")}><input name="expectedAt" type="date" defaultValue={po.expectedAt?.toISOString().slice(0, 10) ?? ""} className={inputCls} /></Field>
+                    <Field label={u("dueBack")}><input name="expectedAt" type="date" defaultValue={localIso(po.expectedAt)?.slice(0, 10) ?? ""} className={inputCls} /></Field>
                   </Grid>
                   <Field label={u("reason")} required><input name="reason" required className={inputCls} /></Field>
                   <Field label={u("customerConsent")}><input name="customerConsent" placeholder={u("customerConsentPh")} className={inputCls} /></Field>

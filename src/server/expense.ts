@@ -3,6 +3,7 @@
  * reimbursed with the month's payroll, or earlier by finance. People see their own claims; managers their reports';
  * the MD and finance see all.
  */
+import { localIso } from "@/lib/dates";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -34,7 +35,7 @@ export async function fileExpense(input: z.input<typeof ExpenseInput>) {
   // the same receipt twice is the usual mistake
   if (d.receiptNo) {
     const dup = await prisma.expenseClaim.findFirst({ where: { receiptNo: d.receiptNo, vendor: d.vendor ?? undefined, status: { notIn: ["REJECTED", "CANCELLED"] } }, include: { employee: { select: { code: true } } } });
-    if (dup) throw new Error(`EXPENSE_DUPLICATE:${d.receiptNo} · ${dup.employee.code} ${dup.spentOn.toISOString().slice(0, 10)}`);
+    if (dup) throw new Error(`EXPENSE_DUPLICATE:${d.receiptNo} · ${dup.employee.code} ${localIso(dup.spentOn)!.slice(0, 10)}`);
   }
   const c = await prisma.$transaction(async (tx) => tx.expenseClaim.create({ data: {
     no: await allocateNumber(tx, { prefix: "EX", createdByEmployeeCode: actor.code, entityId: who.entityId }),

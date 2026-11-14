@@ -2,6 +2,7 @@
  * Report generation: a registered document number → the DCiT Word template it belongs to → field values from the
  * event data → .docx (and .pdf when LibreOffice is installed). Nothing is typed by hand; the template layout is untouched.
  */
+import { localIso } from "@/lib/dates";
 import { bankLines, type BankDetails } from "@/lib/bank";
 import { PHASE_NAME, paymentScheduleLines, type ProjectInfo } from "@/lib/project";
 import type { RequestLine } from "@/lib/modes";
@@ -47,7 +48,7 @@ const tiLines = (lines: TiLine[]) => ({
 const DISPOSITION: Record<string, string> = { SCRAP: "Scrap at DCiT\nทิ้งที่ DCiT", RETURN_TO_CUSTOMER: "Return to customer\nคืนลูกค้า", KEEP_FOR_ANALYSIS: "Keep for analysis\nเก็บวิเคราะห์" };
 const branchLabel = (code?: string | null, plant?: { name: string } | null) => [code, plant?.name ? `(${plant.name})` : ""].filter(Boolean).join(" ");
 
-const d = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
+const d = (x: Date | null | undefined) => (x ? localIso(x)!.slice(0, 10) : "");
 type TestRow = { test: string; criterion?: string; result?: string; recordId?: string; pass?: boolean };
 
 const KIND: Record<string, string> = { REPAIR: "Repair\nซ่อม", MAINTENANCE: "Maintenance\nบำรุงรักษา", OVERHAUL: "Overhaul\nยกเครื่อง", CONTRACT: "Contract service\nบริการตามสัญญา", PARTS_SALE: "Parts supply\nจำหน่ายอะไหล่" };
@@ -59,7 +60,7 @@ const lines_ = (...xs: (string | null | undefined | false)[]) => xs.filter((x): 
 const CHECK = (on: boolean) => (on ? "☒" : "☐");
 const SIGN_HINT = "Name / date  ชื่อ / วันที่";
 const NONE = "None  ไม่มี";
-const hm = (x: Date) => x.toISOString().slice(11, 16);
+const hm = (x: Date) => localIso(x)!.slice(11, 16);
 
 type FullAsset = { code: string; serialNumber: string; type: string; location: string | null; model: { code: string; series: { name: string; brand: { name: string } } } | null };
 const assetFull = { model: { include: { series: { include: { brand: true } } } } } as const;
@@ -495,7 +496,7 @@ type CustodyMove = Prisma.StockMovementGetPayload<{ include: { purchaseOrder: { 
  */
 async function custodyFields(no: string, doc: { createdBy: { name: string } }, m: CustodyMove, common: FieldValues): Promise<{ template: string; values: FieldValues }> {
   const po = m.purchaseOrder, sup = po?.supplier, a = m.asset;
-  const d = (x?: Date | null) => (x ? x.toISOString().slice(0, 10) : "");
+  const d = (x?: Date | null) => (x ? localIso(x)!.slice(0, 10) : "");
   const equipment = a ? [a.code, a.model ? `${a.model.series.brand.name} ${a.model.code}` : a.type, `S/N ${a.serialNumber}`].join("\n") : "—";
   const sentMs = po?.milestones.find((x) => x.sourceDocNo === (m.kind === "SUBCONTRACT_OUT" ? no : m.refNo) && x.stage === "SENT"); // the condition written by this very dispatch
   const base: FieldValues = { ...common, ISSUE_DATE: d(m.movedAt), PO_NO: po ? `${po.no}${po.version > 1 ? ` (rev ${po.version - 1})` : ""}` : "—",
