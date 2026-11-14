@@ -26,6 +26,9 @@ async function main() {
     } });
   }
   console.log(`backfill: ${old.length} fault codes moved into the knowledge base`);
+  // 朱总 2026-11-14: the company's Thai name is ตูเฉิง — the master data carried a stray tone mark (ตู้เฉิง) and every printed document showed it
+  const named = await prisma.$executeRaw`UPDATE "LegalEntity" SET "nameLocal" = replace("nameLocal", 'ตู้เฉิง', 'ตูเฉิง') WHERE "nameLocal" LIKE '%ตู้เฉิง%'`;
+  console.log(`backfill: ${named} legal entity name(s) corrected to ตูเฉิง`);
 }
 
 async function freeSlug(base: string, taken: (s: string) => Promise<number>) {

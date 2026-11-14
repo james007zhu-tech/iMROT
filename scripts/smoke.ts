@@ -22,7 +22,7 @@ import { METRICS } from "../src/lib/metrics";
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`SMOKE FAIL: ${m}`); console.log("  ok  " + m); };
 
 async function ensureSeed() {
-  const entity = await prisma.legalEntity.upsert({ where: { countryCode: "TH" }, update: {}, create: { countryCode: "TH", code: "DCiT", nameEn: "DUCHENG INDUSTRIAL (THAILAND) CO., LTD.", nameLocal: "บริษัท ตู้เฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด", taxId: "0205568072149", branchCode: "00000", localCurrency: "THB", bookCurrency: "CNY", vatRate: 0.07, signatoryName: "Zhu Dongsheng", phone: "+66 (0) 88 660 6999", email: "dongsheng.zhu@ducheng-industrial.com", website: "www.ducheng-industrial.com" } });
+  const entity = await prisma.legalEntity.upsert({ where: { countryCode: "TH" }, update: {}, create: { countryCode: "TH", code: "DCiT", nameEn: "DUCHENG INDUSTRIAL (THAILAND) CO., LTD.", nameLocal: "บริษัท ตูเฉิง อินดัสเทรียล (ไทยแลนด์) จำกัด", taxId: "0205568072149", branchCode: "00000", localCurrency: "THB", bookCurrency: "CNY", vatRate: 0.07, signatoryName: "Zhu Dongsheng", phone: "+66 (0) 88 660 6999", email: "dongsheng.zhu@ducheng-industrial.com", website: "www.ducheng-industrial.com" } });
   await prisma.employee.upsert({ where: { code: "ETH2611001" }, update: {}, create: { code: "ETH2611001", entityId: entity.id, name: "Zhu Dongsheng", role: "MD", email: "dongsheng.zhu@ducheng-industrial.com", locale: "zh" } });
   const sie = await prisma.brand.upsert({ where: { code: "SIE" }, update: {}, create: { code: "SIE", name: "SIEMENS" } });
   const s120 = await prisma.series.upsert({ where: { brandId_code: { brandId: sie.id, code: "S120" } }, update: {}, create: { brandId: sie.id, code: "S120", name: "SINAMICS S120" } });
