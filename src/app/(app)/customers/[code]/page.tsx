@@ -1,6 +1,8 @@
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { completeCustomer } from "@/server/company-lookup";
+import { isThaiTaxId } from "@/server/dbd";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee, grantReveal, revealActive } from "@/server/auth";
@@ -43,6 +45,14 @@ export default async function CustomerDetail({ params, searchParams }: { params:
     const s = (k: string) => String(f.get(k) ?? "").trim() || undefined;
     await guarded(async () => { await addContact(code, { name: s("name") ?? "", title: s("title"), plantCode: s("plant"), phone: s("phone"), lineId: s("line"), email: s("email"), birthday: s("birthday"), portalLogin: s("login"), portalPassword: s("pw") }); }, `/customers/${code}`);
   }
+  async function complete() {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      const r = await completeCustomer(code, me.id);
+      return r.filled.length ? `completed:${r.filled.length}` : "completedNone";
+    }, `/customers/${code}`);
+  }
   async function statement() {
     "use server";
     await guarded(async () => { const me = await currentEmployee(); const bl = await issueMonthlyStatement(code, localIso(new Date())!.slice(2, 7).replace("-", ""), me.code); return `${bl.no} · ${bl.currency} ${Number(bl.total).toFixed(2)}`; }, `/customers/${code}`);
@@ -56,9 +66,9 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/customers", label: u("backToCustomers") }} title={<><span className="font-mono">{c.code}</span> <span className="text-lg font-semibold">{c.name}</span></>} badge={c.dbdStatus ? <Tag>DBD · {c.dbdStatus}</Tag> : undefined}
-        actions={<>{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
+        actions={<>{c.taxId && isThaiTaxId(c.taxId) && (!c.addressLocal || !c.addressEn || !c.billingAddress || !c.phone || !c.nameLocal) && <form action={complete}><button className={btnGhost}>🔎 {u("completeByTaxId")}</button></form>}{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
         newHref={`/service-orders/new?customer=${c.code}`} newLabel={u("newServiceOrder")} />
-      <Flash ok={ok === "revealed" ? u("revealedFor5") : ok} error={errorCode} />
+      <Flash ok={ok === "revealed" ? u("revealedFor5") : ok?.startsWith("completed:") ? u("completedN", { n: ok.split(":")[1] }) : ok === "completedNone" ? u("completedNone") : ok} error={errorCode} />
       <Card title={u("company")}>
         <Grid>
           <Field label={u("nameTh")}><Value>{c.nameLocal ?? "—"}</Value></Field>
@@ -82,12 +92,27 @@ export default async function CustomerDetail({ params, searchParams }: { params:
       <Card title={u("contacts")}>
         <div className="flex flex-wrap items-center gap-2">
           <Tag>{open ? u("revealed") : `🔒 ${u("masked")}`}</Tag>
-          {!open && <form action={reveal} className="flex items-center gap-2"><input name="password" type="password" required placeholder={u("reenterPassword")} className={`${inputCls} w-48`} /><button className={btnGhost}>{u("showFull")}</button></form>}
+          {!open && <form action={reveal} className="flex items-center gap-2"><input name="password" type="password" required placeholder={u("reenterPassword")} className={`${inputCls} w-48`} /><button className={`${btnGhost} whitespace-nowrap`}>{u("showFull")}</button></form>}
         </div>
-        <Table head={[t("name"), u("jobTitle"), t("plant"), u("phoneLine"), t("email"), u("portalLogin")]}>
+        <Table head={[u("personName"), u("jobTitle"), t("plant"), u("phoneLine"), t("email"), u("portalLogin")]}>
           {c.contacts.map((k) => <tr key={k.id}><td>{show(k.name, maskName)}</td><td>{k.title ?? ""}</td><td>{k.plant?.code ?? ""}</td><td>{show(k.phone, maskPhone)}{k.lineId ? ` · ${show(k.lineId, maskLogin)}` : ""}</td><td>{show(k.email, maskEmail)}</td><td>{k.portalLogin ? show(k.portalLogin, maskLogin) : "—"}</td></tr>)}
         </Table>
-        <form action={contact} className="grid grid-cols-2 gap-2 md:grid-cols-5"><input name="name" required placeholder={t("name")} className={inputCls} /><input name="title" placeholder={u("jobTitle")} className={inputCls} /><select name="plant" className={inputCls}><option value="">{t("plant")}</option>{c.plants.map((p) => <option key={p.id} value={p.code}>{p.code}</option>)}</select><input name="phone" placeholder={t("phone")} className={inputCls} /><input name="line" placeholder="LINE" className={inputCls} /><input name="email" placeholder={t("email")} className={inputCls} /><input name="birthday" placeholder={u("birthdayMmDd")} className={inputCls} /><input name="login" placeholder={u("portalLogin")} className={inputCls} /><input name="pw" type="password" placeholder={u("portalPassword")} className={inputCls} /><button className={btnGhost}>＋ {u("addContact")}</button></form>
+        {/* every box under its own label: the list's header above belongs to the list, not to these boxes */}
+        <form action={contact} className="rounded-lg border border-hair bg-[#F8FAFC] p-3">
+          <p className="mb-2 text-sm font-semibold text-navy">＋ {u("addContact")}</p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2 md:grid-cols-4">
+            <Field label={u("personName")} required><input name="name" required className={inputCls} /></Field>
+            <Field label={u("jobTitle")}><input name="title" className={inputCls} /></Field>
+            <Field label={t("plant")}><select name="plant" className={inputCls}><option value="">—</option>{c.plants.map((p) => <option key={p.id} value={p.code}>{p.code} {p.name}</option>)}</select></Field>
+            <Field label={t("phone")}><input name="phone" inputMode="tel" className={inputCls} /></Field>
+            <Field label="LINE"><input name="line" className={inputCls} /></Field>
+            <Field label={t("email")}><input name="email" type="email" className={inputCls} /></Field>
+            <Field label={u("birthdayMmDd")}><input name="birthday" placeholder="11-25" className={inputCls} /></Field>
+            <Field label={u("portalLogin")}><input name="login" autoComplete="off" className={inputCls} /></Field>
+            <Field label={u("portalPassword")}><input name="pw" type="password" autoComplete="new-password" className={inputCls} /></Field>
+          </div>
+          <div className="mt-3"><button className={btnGhost}>{u("addContact")}</button></div>
+        </form>
       </Card>
       <Card title={`${t("assets")} (${c.assets.length})`}>
         <Table head={[t("assetCode"), t("model"), t("serial"), t("plant"), t("location"), t("status")]}>

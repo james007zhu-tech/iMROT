@@ -1,61 +1,59 @@
 "use client";
 /**
  * One save per click (trial finding 2026-11-14: a save that seemed stuck was pressed again, and it had been saved the
- * first time). While a form is on its way the page says so, its buttons stop answering, and a second submit of the
- * same form is refused. After 15 s it adds that the network is slow and where to look before trying again.
+ * first time). A save is a server action on its way — seen as its request, not as a form submit, so forms the page
+ * handles itself (the assistant's box, searches) are left alone. While it travels the page says so, the save buttons
+ * stop answering, and a second submit is refused. The assistant announces its own work on a form the same way.
  * The buttons are not disabled — a disabled button would drop its own name and value from what is sent.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
+
+export const ASSIST_BUSY = "dcit:assist-busy"; // window event, detail: boolean
 
 export function SubmitGuard() {
   const t = useTranslations("common");
   const path = usePathname(), query = useSearchParams().toString();
-  const [since, setSince] = useState<number | null>(null);
-  const [slow, setSlow] = useState(false);
+  const [what, setWhat] = useState<"save" | "assist" | null>(null);
+  const saves = useRef(0), assisting = useRef(false);
 
-  const clear = () => { setSince(null); setSlow(false); delete document.body.dataset.saving; document.querySelectorAll("form[data-busy]").forEach((f) => f.removeAttribute("data-busy")); };
+  const show = () => {
+    const saving = saves.current > 0;
+    if (saving) document.body.dataset.saving = "1"; else { delete document.body.dataset.saving; document.querySelectorAll("form[data-busy]").forEach((f) => f.removeAttribute("data-busy")); }
+    setWhat(saving ? "save" : assisting.current ? "assist" : null);
+  };
   // the save answered: the address changed (the banner with ?ok= or ?error= is a new address too)
-  useEffect(clear, [path, query]);
-  // … or the request itself came back (a second save can land on the very same address)
+  useEffect(() => { saves.current = 0; show(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [path, query]);
+
   useEffect(() => {
     const real = window.fetch;
     window.fetch = async (...args: Parameters<typeof fetch>) => {
       const h = new Headers((args[1]?.headers as HeadersInit | undefined) ?? (args[0] instanceof Request ? args[0].headers : undefined));
-      const isAction = h.has("next-action");
-      try { return await real(...args); } finally { if (isAction) setTimeout(clear, 1200); }
+      if (!h.has("next-action")) return real(...args);
+      saves.current++; show();
+      const lost = setTimeout(() => { saves.current = 0; show(); }, 180_000); // a request lost for good must not lock the page
+      try { return await real(...args); } finally { clearTimeout(lost); setTimeout(() => { saves.current = Math.max(0, saves.current - 1); show(); }, 800); }
     };
-    return () => { window.fetch = real; };
-  }, []);
-
-  useEffect(() => {
-    const on = (e: Event) => {
+    const submit = (e: Event) => {
       const form = e.target as HTMLFormElement;
-      const action = form.getAttribute("action") ?? "";
-      if (action && !action.startsWith("javascript:")) return; // a plain link-like form (search) is not a save
-      if (form.dataset.busy) { e.preventDefault(); e.stopImmediatePropagation(); return; }
-      if (e.defaultPrevented) return;
-      form.dataset.busy = "1"; document.body.dataset.saving = "1";
-      setSince(Date.now()); setSlow(false);
+      if (document.body.dataset.saving || form.dataset.busy) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+      // the instant between the click and the request: the same form is not taken twice
+      form.dataset.busy = "1";
+      setTimeout(() => { if (!saves.current) form.removeAttribute("data-busy"); }, 1000);
     };
-    document.addEventListener("submit", on, true);
-    return () => document.removeEventListener("submit", on, true);
+    const assist = (e: Event) => { assisting.current = !!(e as CustomEvent<boolean>).detail; show(); };
+    document.addEventListener("submit", submit, true);
+    window.addEventListener(ASSIST_BUSY, assist);
+    return () => { window.fetch = real; document.removeEventListener("submit", submit, true); window.removeEventListener(ASSIST_BUSY, assist); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (since == null) return;
-    const a = setTimeout(() => setSlow(true), 15_000);
-    // after three minutes the request is lost for good: let the form be used again
-    const b = setTimeout(clear, 180_000);
-    return () => { clearTimeout(a); clearTimeout(b); };
-  }, [since]);
-
-  if (since == null) return null;
+  if (!what) return null;
   return (
     <div role="status" className="fixed inset-x-0 bottom-4 z-[70] mx-auto w-fit max-w-[92vw] rounded-xl bg-navy px-4 py-3 text-sm text-white shadow-2xl">
       <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white align-[-1px]" />
-      {t("savingNow")}{slow && <span className="mt-1 block text-xs text-white/85">{t("savingSlow")}</span>}
+      {t(what === "save" ? "savingNow" : "assistFilling")}
     </div>
   );
 }

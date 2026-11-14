@@ -20,28 +20,50 @@ export function DbdLookup({ formId }: { formId: string }) {
     if (!form || id.length !== 13) { setState({ tone: "warn", text: t("taxIdNeeded") }); return; }
     last.current = id;
     setBusy(true); setState(null);
+    const put = (name: string, v: unknown, onlyEmpty = false) => {
+      const el = form.elements.namedItem(name) as HTMLInputElement | null;
+      if (!el || v == null || v === "" || (onlyEmpty && el.value.trim())) return false;
+      el.value = String(v);
+      el.classList.add("ai-filled");
+      el.addEventListener("input", () => el.classList.remove("ai-filled"), { once: true });
+      return true;
+    };
+    /** Second pass: what the registry does not publish (address in English, phone), from the public web. Only empty boxes. */
+    const web = async (known: Record<string, string>) => {
+      setState({ tone: "ok", text: t("webLooking") });
+      const r = await fetch(`/api/dbd/${id}?web=1&${new URLSearchParams(known)}`);
+      const w = (await r.json()) as { values?: Record<string, string>; sources?: string[] };
+      let n = 0;
+      for (const [src, name] of Object.entries(MAP)) if (w.values?.[src] && put(name, w.values[src], true)) n++;
+      const reg = (form.elements.namedItem("addressLocal") as HTMLInputElement | null)?.value;
+      if (reg) put("billingAddress", reg, true); // a tax invoice carries the registered address unless the customer says otherwise
+      return { n, source: w.sources?.[0] };
+    };
     try {
       const r = await fetch(`/api/dbd/${id}`);
       const j = await r.json();
-      if (j.error === "DBD_BLOCKED") { setState({ tone: "warn", text: t("dbdBlocked"), openUrl: j.openUrl }); return; }
-      if (!r.ok) { setState({ tone: "warn", text: t(j.error === "NOT_FOUND" ? "dbdNotFound" : j.error === "INVALID_TAX_ID" ? "taxIdInvalid" : "dbdFailed"), openUrl: j.openUrl }); return; }
+      if (j.error === "DBD_BLOCKED" || (!r.ok && j.error !== "NOT_FOUND" && j.error !== "INVALID_TAX_ID")) {
+        // the registry does not answer: the web alone
+        const w = await web({});
+        setState(w.n ? { tone: "ok", text: t("webFilled", { n: w.n }), openUrl: w.source } : { tone: "warn", text: t(j.error === "DBD_BLOCKED" ? "dbdBlocked" : "dbdFailed"), openUrl: j.openUrl });
+        return;
+      }
+      if (!r.ok) { setState({ tone: "warn", text: t(j.error === "NOT_FOUND" ? "dbdNotFound" : "taxIdInvalid"), openUrl: j.openUrl }); return; }
       const values: Record<string, string> = {};
       for (const [src, name] of Object.entries(MAP)) {
         let v = j[src];
         if (v == null || v === "") continue;
         if (name === "foundedAt" && /^\d{8}$/.test(String(v))) v = `${String(v).slice(0, 4)}-${String(v).slice(4, 6)}-${String(v).slice(6)}`;
-        const el = form.elements.namedItem(name) as HTMLInputElement | null;
-        if (!el) continue;
-        el.value = String(v); values[name] = String(v);
-        el.classList.add("ai-filled");
-        el.addEventListener("input", () => el.classList.remove("ai-filled"), { once: true });
+        if (put(name, v)) values[name] = String(v);
       }
       (form.elements.namedItem("dbdStatus") as HTMLInputElement).value = j.status ?? "";
       (form.elements.namedItem("dbdFetchedAt") as HTMLInputElement).value = j.fetchedAt;
       (form.elements.namedItem("dbdData") as HTMLInputElement).value = JSON.stringify(j.raw ?? null);
       (form.elements.namedItem("dbdValues") as HTMLInputElement).value = JSON.stringify(values);
       const closed = /เลิก|ร้าง|ล้มละลาย|closed|dissolved|bankrupt/i.test(j.status ?? "");
-      setState(closed ? { tone: "warn", text: t("dbdClosed", { status: j.status }) } : { tone: "ok", text: t("dbdFound", { status: j.status ?? "—" }) });
+      if (closed) { setState({ tone: "warn", text: t("dbdClosed", { status: j.status }) }); return; }
+      const w = await web({ nameTh: j.nameTh ?? "", nameEn: j.nameEn ?? "", addressTh: j.addressTh ?? "" }).catch(() => ({ n: 0, source: undefined }));
+      setState({ tone: "ok", text: `${t("dbdFound", { status: j.status ?? "—" })}${w.n ? ` · ${t("webFilled", { n: w.n })}` : ""}` });
     } catch { setState({ tone: "warn", text: t("dbdFailed") }); } finally { setBusy(false); }
   }
 

@@ -398,8 +398,7 @@
     "no": "否",
     "open": "打开",
     "loginWait": "尝试次数过多，请 15 分钟后再试",
-    "savingNow": "正在保存… 请不要重复点击",
-    "savingSlow": "网络较慢，数据可能已经存上了。请再等一下，或先到列表里看一眼，确认没有再重新保存。",
+    "savingNow": "正在保存，别急着点，不然跳走了…",
     "forgotTitle": "忘记密码",
     "forgotHelp": "填写登录用的邮箱。系统会通知总经理（MD 角色），由他把重置链接发给你，你自己设置新密码。",
     "forgotAsk": "申请重置密码",
@@ -412,7 +411,8 @@
     "resetShort": "密码至少 {n} 位",
     "resetMismatch": "两次输入的密码不一样",
     "resetDead": "这个链接已经失效（用过了，或超过 30 分钟）。请重新申请。",
-    "resetDone": "新密码已生效，请登录。"
+    "resetDone": "新密码已生效，请登录。",
+    "assistFilling": "正在给你填，别急着点，不然跳走了…"
   },
   "ai": {
     "title": "AI 助手",
@@ -2164,7 +2164,14 @@
     "err_MODEL_NEEDS_BRAND_SERIES": "{detail} 是新型号，请填上品牌和系列，系统会一起加进型号库。",
     "resetLinkMake": "生成重置密码链接",
     "resetLinkHelp": "链接只能用一次，30 分钟内有效。通过 LINE 或微信发给本人，由本人设置新密码。",
-    "resetLinkReady": "{name} 的重置链接（30 分钟内有效，只能用一次）。复制后发给本人："
+    "resetLinkReady": "{name} 的重置链接（30 分钟内有效，只能用一次）。复制后发给本人：",
+    "personName": "姓名",
+    "completeByTaxId": "按税号补全信息",
+    "completedN": "已按税号补全 {n} 项（来自 DBD 登记和公开网页），请核对",
+    "completedNone": "按这个税号没有查到更多信息",
+    "webLooking": "DBD 已查到，正在从网上查英文地址和电话…",
+    "webFilled": "网上补了 {n} 项",
+    "err_TAX_ID_INVALID": "税号不对：{detail}"
   },
   "role": {
     "MD": "董事总经理 MD",
