@@ -3,6 +3,8 @@
 import { currentEmployee, grantReveal } from "@/server/auth";
 import { saveLetterDetails } from "@/server/salary-letter";
 import { addCredential, addQuickCredentials, addReview, addSalaryRecord, auditSalaryView, authorizeEmployeeReveal, removeCredential, setCareers, updateEmployee, updateOwnContacts } from "@/server/opd";
+import { redirect } from "next/navigation";
+import { issueResetLink } from "@/server/password-reset";
 import { guarded } from "@/lib/action-result";
 import { ALLOWANCE_ROWS, DEDUCTION_ROWS, readContacts, readEmployeeForm } from "@/components/EmployeeFormFields";
 
@@ -60,4 +62,15 @@ export async function letter(code: string, recordId: string, f: FormData) {
     const me = await currentEmployee();
     await saveLetterDetails(me.code, recordId, { salutation: str(f, "salutation"), employeeNo: str(f, "employeeNo"), position: str(f, "position"), praiseTh: str(f, "praiseTh"), praiseEn: str(f, "praiseEn"), praiseZh: str(f, "praiseZh") });
   }, `${back(code)}#letter`);
+}
+
+/** 忘记密码: the MD issues a single-use link and passes it on; the password is typed by its owner only. */
+export async function resetLink(code: string) {
+  let to = `${back(code)}?error=SAVE_FAILED`;
+  try {
+    const me = await currentEmployee();
+    const r = await issueResetLink({ employeeCode: code, actorCode: me.code });
+    to = `${back(code)}?reset=${r.token}#account`;
+  } catch (e) { to = `${back(code)}?error=${encodeURIComponent((e as Error).message.split("\n")[0])}`; }
+  redirect(to);
 }

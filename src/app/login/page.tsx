@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { signInEmployee } from "@/server/auth";
@@ -23,8 +24,9 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
         <p className="text-xs text-navy/70">DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</p>
         <input name="email" type="email" placeholder={t("email")} className="w-full rounded border px-3 py-2" required />
         <input name="password" type="password" placeholder={t("password")} className="w-full rounded border px-3 py-2" required />
-        {e && <p className="text-sm text-alert-ink">{t(e === "wait" ? "loginWait" : "invalidLogin")}</p>}
+        {e === "reset" ? <p className="rounded bg-tint p-2 text-sm text-navy">{t("resetDone")}</p> : e && <p className="text-sm text-alert-ink">{t(e === "wait" ? "loginWait" : "invalidLogin")}</p>}
         <button type="submit" className="w-full rounded bg-blue py-2 text-white">{t("ok")}</button>
+        <Link href="/forgot" className="block text-center text-sm text-blue">{t("forgotTitle")}</Link>
       </form>
     </div>
   );

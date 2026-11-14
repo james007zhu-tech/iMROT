@@ -88,21 +88,22 @@ enum EmployeeRole {
 }
 
 model Employee {
-  id           String       @id @default(cuid())
-  code         String       @unique /// ETH2610001 — the first letter+country of this code decides the country of everything this person creates
-  entityId     String
-  entity       LegalEntity  @relation(fields: [entityId], references: [id])
-  name         String
-  nameLocal    String?
-  role         EmployeeRole
-  email        String?      @unique
-  phone        String?
-  passwordHash String?
-  shortcuts    Json? /// 常用功能: the entry keys this person pinned (src/lib/nav.ts SHORTCUTS); null = the role's default
-  locale       String       @default("th") /// th | zh | en — UI language, switchable any time
-  active       Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  lastLoginAt  DateTime?
+  passwordResets PasswordReset[]
+  id             String          @id @default(cuid())
+  code           String          @unique /// ETH2610001 — the first letter+country of this code decides the country of everything this person creates
+  entityId       String
+  entity         LegalEntity     @relation(fields: [entityId], references: [id])
+  name           String
+  nameLocal      String?
+  role           EmployeeRole
+  email          String?         @unique
+  phone          String?
+  passwordHash   String?
+  shortcuts      Json? /// 常用功能: the entry keys this person pinned (src/lib/nav.ts SHORTCUTS); null = the role's default
+  locale         String          @default("th") /// th | zh | en — UI language, switchable any time
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  lastLoginAt    DateTime?
 
   // ── ETH employee file (2026-11-08): the MD sees and edits everything; the person sees their own file
   //    without salary and may change their own contact details. Contacts are masked until the password is re-entered.
@@ -1856,4 +1857,20 @@ model SalesTarget {
   updatedAt    DateTime @updatedAt
 
   @@unique([employeeId, period])
+}
+
+/// 忘记密码 (2026-11-14). A request is a row without a token; a manager with the MD role (or the operator's script)
+/// turns it into a single-use link that lives 30 minutes. Only the hash of the token is kept.
+model PasswordReset {
+  id          String    @id @default(cuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  requestedAt DateTime  @default(now())
+  via         String /// SELF (asked on the sign-in page) | MD (issued from the ETH file) | OPS (operator's script)
+  tokenHash   String?   @unique
+  expiresAt   DateTime?
+  usedAt      DateTime?
+  issuedById  String?
+
+  @@index([employeeId, requestedAt])
 }

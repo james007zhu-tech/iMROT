@@ -7,7 +7,7 @@
  *    and the fee is invoiced (TITH) or waived;
  *  - undo (the customer changes their mind) only while no DNTH or TITH has been issued after the decline.
  */
-import { localIso } from "@/lib/dates";
+import { localIso } from "./dates";
 import { quoteJustCancels } from "./modes";
 
 export const DECLINE_REASONS = ["PRICE", "REPLACE", "LEAD_TIME", "SELF", "OTHER"] as const;

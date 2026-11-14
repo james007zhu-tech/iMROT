@@ -4,7 +4,7 @@
  * a weekend or bank holiday moves it to the previous bank working day.
  */
 
-import { localIso } from "@/lib/dates";
+import { localIso } from "./dates";
 /** Fixed-date Thai bank holidays (MM-DD). Lunar holidays (Makha / Visakha / Asarnha Bucha) move every year — not listed. */
 const TH_FIXED_HOLIDAYS = new Set(["01-01", "04-06", "04-13", "04-14", "04-15", "05-01", "05-04", "06-03", "07-28", "08-12", "10-13", "10-23", "12-05", "12-10", "12-31"]);
 
