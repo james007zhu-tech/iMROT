@@ -22,8 +22,8 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
         <div className="flex items-center justify-between">{/* eslint-disable-next-line @next/next/no-img-element */}
           <h1><img src="/brand/dcit-logo.png" alt={t("appName")} className="h-12 w-auto" /></h1><LanguageSwitcher tone="light" /></div>
         <p className="text-xs text-navy/70">DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</p>
-        <input name="email" type="email" placeholder={t("email")} className="w-full rounded border px-3 py-2" required />
-        <input name="password" type="password" placeholder={t("password")} className="w-full rounded border px-3 py-2" required />
+        <input name="email" type="email" autoCapitalize="none" autoCorrect="off" autoComplete="username" placeholder={t("email")} className="w-full rounded border px-3 py-2" required />
+        <input name="password" type="password" autoComplete="current-password" placeholder={t("password")} className="w-full rounded border px-3 py-2" required />
         {e === "reset" ? <p className="rounded bg-tint p-2 text-sm text-navy">{t("resetDone")}</p> : e && <p className="text-sm text-alert-ink">{t(e === "wait" ? "loginWait" : "invalidLogin")}</p>}
         <button type="submit" className="w-full rounded bg-blue py-2 text-white">{t("ok")}</button>
         <Link href="/forgot" className="block text-center text-sm text-blue">{t("forgotTitle")}</Link>
