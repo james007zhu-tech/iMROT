@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db";
 import { partnerDeliveryBlockers } from "@/server/srm";
 import { allocateNumber } from "@/lib/numbering-db";
 import { audit } from "@/server/audit";
+import { findPart, stockOnHand } from "@/server/scm";
 import { poLinesFromQuote, progressOrder, type PoLine } from "@/server/slm";
 import { isTradeMode } from "@/lib/modes";
 import { RETURN_UNREPAIRED, returnRemark } from "@/lib/decline";
@@ -42,6 +43,26 @@ export async function deliveryPlan(no: string): Promise<{ lines: DeliveryLine[];
     });
   }
   return { lines, poFromQuote: !stored?.length };
+}
+
+/** Per SKU on a trade order: what this note delivers against what the store has plus what already left it for this order. */
+async function tradeStockShort(orderId: string, plan: DeliveryLine[], delivered: Record<string, number>): Promise<string[]> {
+  const now = new Map<string, number>(), before = new Map<string, number>();
+  for (const l of plan) {
+    if (l.kind !== "PO" || l.isService || !l.partSku) continue;
+    now.set(l.partSku, (now.get(l.partSku) ?? 0) + (delivered[l.key] ?? 0));
+    before.set(l.partSku, (before.get(l.partSku) ?? 0) + l.deliveredBefore);
+  }
+  const short: string[] = [];
+  for (const [key, qty] of now) {
+    if (qty <= 0) continue;
+    const part = await findPart(key);
+    if (!part) continue; // a free-text line has no stock to check
+    const out = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: orderId } });
+    const available = (await stockOnHand(part.sku)) + Number(out._sum.qty ?? 0) - (before.get(key) ?? 0);
+    if (qty > available + 1e-9) short.push(`${part.sku} ${qty}/${Math.max(0, available)}`);
+  }
+  return short;
 }
 
 /** Lines whose delivered quantity does not match what is still due. Service lines are never delivered. */
@@ -81,6 +102,12 @@ export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
   if (bad.length && !d.overrideReason) throw new Error(`DELIVERY_MISMATCH:${bad.map((b) => `${b.description} ${b.now}/${b.due}`).join("; ")}`);
   if (bad.length && actor.role !== "MD") throw new Error("DELIVERY_OVERRIDE_MD_ONLY");
   if (!d.draft && !lines.some((l) => (d.delivered[l.key] ?? 0) > 0)) throw new Error("DELIVERY_EMPTY");
+  // 贸易 (trial finding 2026-11-14: three were delivered with two in stock): goods on a trade order can go out only if they
+  // are in the store or were already taken out of it for this order — and no reason overrides that, the goods are not there
+  if (!d.draft && isTradeMode(order.mode)) {
+    const short = await tradeStockShort(order.id, lines, d.delivered);
+    if (short.length) throw new Error(`DELIVERY_NO_STOCK:${short.join("; ")}`);
+  }
   const driver = d.driverCode ? await prisma.employee.findUniqueOrThrow({ where: { code: d.driverCode } }) : null;
   const draft = await prisma.deliveryNote.findFirst({ where: { serviceOrderId: order.id, status: "DRAFT" } });
   const data = {

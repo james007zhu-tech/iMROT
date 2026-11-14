@@ -8,7 +8,7 @@ import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { FormMemory } from "@/components/FormMemory";
-import { Card, Field, Grid, PageHeader, Table, Tag, btnGhost, btnPrimary, inputCls } from "@/components/ui";
+import { Alert, Card, Field, Grid, PageHeader, Table, Tag, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 const str = (f: FormData, k: string) => { const v = String(f.get(k) ?? "").trim(); return v || undefined; };
@@ -42,7 +42,8 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
     <div className="space-y-4">
       <PageHeader back={{ href: "/purchasing/orders", label: u("purchaseOrders") }} title={<span className="font-mono">{po.no}</span>} badge={<Tag hot={po.status === "SENT" || po.status === "PARTIAL"}>{ts(po.status)}</Tag>}
         actions={po.status === "DRAFT" ? <form action={markSent}><button className={btnGhost}>{u("markSent")}</button></form> : null} />
-      <Flash ok={ok} error={error} />
+      <Flash ok={ok} error={error?.startsWith("UNKNOWN_SKU") ? undefined : error} />
+      {error?.startsWith("UNKNOWN_SKU") && <Alert>{u("unknownSku", { list: error.split(":").slice(1).join(":") })} {error.split(":").slice(1).join(":").split(",").map((s) => <Link key={s} href={`/parts/new?vendor=${encodeURIComponent(s.replace(/^[A-Z]{2,4}-/, ""))}&back=/purchasing/orders/${po.no}`} className="ml-2 underline">＋ {s}</Link>)}</Alert>}
       <Card title={u("poHeader")}>
         <div className="grid gap-2 text-sm md:grid-cols-4">
           <div><span className="text-navy/60">{u("supplier")}</span><br /><b>{po.supplier.name}</b>{po.supplier.contactName ? <span className="block text-xs text-navy/70">{po.supplier.contactName}{po.supplier.phone ? ` · ${po.supplier.phone}` : ""}</span> : null}</div>

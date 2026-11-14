@@ -10,7 +10,7 @@ import { totals, round2 } from "@/lib/money";
 import { assertNotLocked } from "@/server/slm";
 import { recomputeMargin, partnerCostByAsset } from "@/server/slm-docs";
 import { paymentTermsText } from "@/lib/srm";
-import { recordStockDoc } from "@/server/scm";
+import { findPart, normPartNo, recordStockDoc, resolveParts } from "@/server/scm";
 import type { Prisma } from "@prisma/client";
 
 const Att = z.object({ name: z.string(), url: z.string(), kind: z.string().optional() });
@@ -82,7 +82,7 @@ export async function inquiryLinesFromOrder(no: string): Promise<InquiryLine[]> 
   }
   const out: InquiryLine[] = [];
   for (const w of wanted) {
-    const part = w.sku ? await prisma.part.findUnique({ where: { sku: w.sku } }) : null;
+    const part = await findPart(w.sku);
     const moves = part ? await prisma.stockMovement.findMany({ where: { partId: part.id }, select: { direction: true, qty: true } }) : [];
     const onHand = moves.reduce((s, m) => s + (m.direction === "IN" ? 1 : -1) * Number(m.qty), 0);
     const short = w.qty - onHand;
@@ -165,6 +165,8 @@ export const PurchaseOrderInput = z.object({
   inquiryNo: z.string().optional(), serviceOrderNo: z.string().optional(),
   expectedAt: z.coerce.date().optional(), currency: z.string().default("THB"), vatRate: z.number().min(0).max(1).optional(),
   supplierRef: z.string().optional(), paymentTerms: z.string().optional(),
+  /** the buyer has seen that the order already has these goods on another POTH and wants this one as well */
+  allowRepeat: z.boolean().optional(),
   lines: z.array(z.object({ partSku: z.string().optional(), vendorPartNo: z.string().optional(), description: z.string().min(1), qty: z.number().positive(), unit: z.string().default("pcs"), unitPrice: z.number().min(0) })).min(1, "PO_NEEDS_LINE"),
   attachments: z.array(Att).optional(),
 });
@@ -180,6 +182,24 @@ export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInp
     if (!supplier.isPartner) throw new Error(`NOT_A_PARTNER:${supplier.code ?? supplier.name}`);
     // back-to-back (decided 2026-11-08): we promised the customer N days, the partner's POTH says N days
     if (order?.warrantyDays != null && d.warrantyDays !== order.warrantyDays) throw new Error(`WARRANTY_NOT_BACK_TO_BACK:${d.warrantyDays ?? "-"}≠${order.warrantyDays}`);
+  }
+  // The same goods bought twice for one order (trial finding 2026-11-14: three identical POTH tripled the purchase amount
+  // and nothing said so). Per part number: what the order's other open POTH already buy, plus this one, against what the
+  // customer ordered. More than that needs the buyer to say so.
+  if (order && kind === "PARTS" && !d.allowRepeat) {
+    const key = (l: { partSku?: string; vendorPartNo?: string; description?: string }) => normPartNo(l.partSku || l.vendorPartNo || l.description || "").replace(/^[A-Z0-9]{2,4}-/, "");
+    const others = await prisma.purchaseOrder.findMany({ where: { serviceOrderId: order.id, kind: "PARTS", status: { not: "CANCELLED" } }, select: { no: true, lines: true } });
+    const sold = ((order.poLines as { partSku?: string; description: string; qty: number; isService?: boolean }[] | null) ?? []).filter((l) => !l.isService);
+    const repeats: string[] = [];
+    for (const l of d.lines) {
+      const k = key(l);
+      const same = others.flatMap((o) => (o.lines as { partSku?: string; vendorPartNo?: string; description?: string; qty: number }[]).filter((x) => key(x) === k).map((x) => ({ no: o.no, qty: x.qty })));
+      if (!same.length) continue;
+      const already = same.reduce((s, x) => s + x.qty, 0);
+      const need = sold.filter((x) => key(x) === k).reduce((s, x) => s + x.qty, 0);
+      if (!need || already + l.qty > need + 1e-9) repeats.push(`${l.partSku || l.vendorPartNo || l.description} ${already}+${l.qty}${need ? `>${need}` : ""} (${[...new Set(same.map((x) => x.no))].join(", ")})`);
+    }
+    if (repeats.length) throw new Error(`PO_REPEAT:${repeats.join("; ")}`);
   }
   const paymentTerms = d.paymentTerms ?? (kind === "SUBCONTRACT" ? paymentTermsText(supplier.paymentMode, supplier.paymentDays) : undefined);
   const vatRate = d.vatRate ?? Number(actor.entity.vatRate);
@@ -207,8 +227,9 @@ export async function raisePurchaseOrdersForOrder(no: string, actorCode: string)
     const lines = (q.lines as { lineNo: number; vendorPartNo?: string; description?: string; qty: number; unit?: string; unitPrice: number }[]).map((l) => { const src = il.find((x) => x.lineNo === l.lineNo); return { partSku: src?.partSku, vendorPartNo: l.vendorPartNo ?? src?.vendorPartNo, description: l.description ?? src?.description ?? "", qty: l.qty, unit: l.unit ?? src?.unit ?? "pcs", unitPrice: l.unitPrice }; });
     const sub = inq.kind === "SUBCONTRACT";
     const expectedAt = sub && q.leadTimeDays ? new Date(Date.now() + q.leadTimeDays * 86_400_000) : undefined;
-    const po = await createPurchaseOrder({ actorCode, supplierId: q.supplierId, inquiryNo: inq.no, kind: inq.kind, warrantyDays: sub ? (inq.serviceOrder?.warrantyDays ?? q.warrantyDays ?? undefined) : undefined, scope: sub ? (q.solution ?? undefined) : undefined, expectedAt, currency: q.currency, vatRate: q.vatRate != null ? Number(q.vatRate) : undefined, paymentTerms: q.paymentTerms ?? undefined, supplierRef: q.quoteNo ?? undefined, lines });
-    made.push(po.no);
+    // goods the order already buys on another POTH are not bought again by this automatic step
+    const po = await createPurchaseOrder({ actorCode, supplierId: q.supplierId, inquiryNo: inq.no, kind: inq.kind, warrantyDays: sub ? (inq.serviceOrder?.warrantyDays ?? q.warrantyDays ?? undefined) : undefined, scope: sub ? (q.solution ?? undefined) : undefined, expectedAt, currency: q.currency, vatRate: q.vatRate != null ? Number(q.vatRate) : undefined, paymentTerms: q.paymentTerms ?? undefined, supplierRef: q.quoteNo ?? undefined, lines }).catch((e: Error) => { if (/^PO_REPEAT/.test(e.message)) return null; throw e; });
+    if (po) made.push(po.no);
   }
   return made;
 }
@@ -224,11 +245,13 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
   for (const r of take) {
     const l = lines.find((x) => x.lineNo === r.lineNo);
     if (!l) throw new Error(`PO_LINE_NOT_FOUND:${r.lineNo}`);
-    if (!l.partSku) throw new Error(`PO_LINE_NO_SKU:${r.lineNo}`); // parts must exist as SKUs before they can be stocked
+    if (!l.partSku && !l.vendorPartNo) throw new Error(`PO_LINE_NO_SKU:${r.lineNo}`); // a line needs a part number — ours or the maker's — before it can be stocked
     if (r.qty > l.qty - l.receivedQty + 1e-9) throw new Error(`RECEIPT_OVER:${r.lineNo}`);
   }
-  const ib = await recordStockDoc({ actorCode: input.actorCode, direction: "IN", serviceOrderNo: po.serviceOrder?.no, supplierRef: input.supplierRef ?? po.supplierRef ?? undefined, costCurrency: po.currency, movedAt: input.movedAt, lines: take.map((r) => { const l = lines.find((x) => x.lineNo === r.lineNo)!; return { partSku: l.partSku!, qty: r.qty, batch: r.batch, unitCost: l.unitPrice }; }) });
-  const updatedLines = lines.map((l) => { const r = take.find((x) => x.lineNo === l.lineNo); return r ? { ...l, receivedQty: round2(l.receivedQty + r.qty) } : l; });
+  const ib = await recordStockDoc({ actorCode: input.actorCode, direction: "IN", serviceOrderNo: po.serviceOrder?.no, supplierRef: input.supplierRef ?? po.supplierRef ?? undefined, costCurrency: po.currency, movedAt: input.movedAt, lines: take.map((r) => { const l = lines.find((x) => x.lineNo === r.lineNo)!; return { partSku: (l.partSku || l.vendorPartNo)!, qty: r.qty, batch: r.batch, unitCost: l.unitPrice }; }) });
+  // the line keeps the library's SKU from now on, so the next receipt and the stock page agree on the part
+  const skuOf = new Map(take.map((r, i) => [r.lineNo, ib.lines[i]?.part?.sku]));
+  const updatedLines = lines.map((l) => { const r = take.find((x) => x.lineNo === l.lineNo); return r ? { ...l, partSku: skuOf.get(l.lineNo) ?? l.partSku, receivedQty: round2(l.receivedQty + r.qty) } : l; });
   const complete = updatedLines.every((l) => l.receivedQty + 1e-9 >= l.qty);
   await prisma.$transaction(async (tx) => {
     await tx.stockMovement.updateMany({ where: { no: ib.no }, data: { purchaseOrderId: po.id } });

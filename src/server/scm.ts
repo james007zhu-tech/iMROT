@@ -28,6 +28,41 @@ export const StockDocInput = z.object({
   lines: z.array(Line).min(1, "a stock document needs at least one line"),
 });
 
+/** One spelling per part number: upper case, no spaces. */
+export const normPartNo = (s: string) => s.normalize("NFKC").toUpperCase().replace(/\s+/g, "");
+
+/**
+ * Finds parts by whatever number people actually write (trial finding 2026-11-14: a purchase order carries the maker's
+ * own number, the library's SKU is that number behind a brand prefix, and receiving answered "unknown part number").
+ * A key matches, in this order: the SKU itself; the maker's part number; the SKU without its brand prefix.
+ * A maker's number that two brands share is ambiguous and is refused rather than guessed.
+ */
+export async function resolveParts(keys: string[]) {
+  const wanted = [...new Set(keys.map((k) => k.trim()).filter(Boolean))];
+  const found = new Map<string, Awaited<ReturnType<typeof prisma.part.findMany>>[number]>();
+  const unknown: string[] = [], ambiguous: string[] = [];
+  for (const key of wanted) {
+    const n = normPartNo(key);
+    const hits = await prisma.$queryRaw<{ id: string; sku: string; vendor: string }[]>`
+      SELECT id, sku, "vendorPartNo" AS vendor FROM "Part"
+      WHERE upper(regexp_replace(sku, '\s+', '', 'g')) = ${n}
+         OR upper(regexp_replace("vendorPartNo", '\s+', '', 'g')) = ${n}
+         OR upper(regexp_replace(sku, '\s+', '', 'g')) LIKE ${"%-" + n.replace(/[\\%_]/g, "\\$&")}
+      LIMIT 20`;
+    const exact = hits.filter((h) => normPartNo(h.sku) === n);
+    const pick = exact.length ? exact : hits;
+    if (!pick.length) { unknown.push(key); continue; }
+    if (pick.length > 1) { ambiguous.push(`${key} → ${pick.map((h) => h.sku).join(" / ")}`); continue; }
+    found.set(key, (await prisma.part.findUniqueOrThrow({ where: { id: pick[0].id } })));
+  }
+  return { found, unknown, ambiguous };
+}
+/** One part by any of its numbers, or null. */
+export async function findPart(key: string | null | undefined) {
+  if (!key?.trim()) return null;
+  return (await resolveParts([key])).found.get(key.trim()) ?? null;
+}
+
 /**
  * One IBTH / OBTH document = one number, any number of SKU lines (decision 2026-11-04).
  * Each line moves exactly one SKU, so stock on hand stays per SKU; an OUT line into an asset writes PART_REPLACED.
@@ -35,20 +70,27 @@ export const StockDocInput = z.object({
 export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
   const d = StockDocInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
-  const skus = [...new Set(d.lines.map((l) => l.partSku))];
-  const parts = await prisma.part.findMany({ where: { sku: { in: skus } } });
-  const unknown = skus.filter((s) => !parts.some((p) => p.sku === s));
+  const { found, unknown, ambiguous } = await resolveParts(d.lines.map((l) => l.partSku));
+  if (ambiguous.length) throw new Error(`AMBIGUOUS_SKU:${ambiguous.join("; ")}`);
   if (unknown.length) throw new Error(`UNKNOWN_SKU:${unknown.join(",")}`);
   const asset = d.assetCode ? await prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }) : null;
   const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }) : null;
   if (order) assertNotLocked(order);
   if (d.direction === "OUT" && !asset && !order) throw new Error("an OUT movement must name the asset or the service order it serves");
+  // nothing leaves the store that is not in it (trial finding 2026-11-14)
+  if (d.direction === "OUT") {
+    const want = new Map<string, number>();
+    for (const l of d.lines) { const p = found.get(l.partSku.trim())!; want.set(p.sku, (want.get(p.sku) ?? 0) + l.qty); }
+    const short: string[] = [];
+    for (const [sku, qty] of want) { const have = await stockOnHand(sku, d.warehouse); if (qty > have + 1e-9) short.push(`${sku} ${qty}/${have}`); }
+    if (short.length) throw new Error(`STOCK_SHORT:${short.join("; ")}`);
+  }
 
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: d.direction === "IN" ? "IB" : "OB", createdByEmployeeCode: actor.code, entityId: actor.entityId, date: d.movedAt });
     const rows = [];
     for (const [i, l] of d.lines.entries()) {
-      const part = parts.find((p) => p.sku === l.partSku)!;
+      const part = found.get(l.partSku.trim())!;
       rows.push(await tx.stockMovement.create({
         data: { no, lineNo: i + 1, direction: d.direction, partId: part.id, qty: l.qty, warehouse: d.warehouse, batch: l.batch, assetId: asset?.id, serviceOrderId: order?.id, oldPartDisposition: l.oldPartDisposition, movedAt: d.movedAt, byName: actor.name, unitCost: d.direction === "IN" ? l.unitCost : undefined, supplierRef: d.supplierRef },
         include: { part: true },

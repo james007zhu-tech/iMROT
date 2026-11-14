@@ -31,7 +31,7 @@ export default async function NewPurchaseOrder({ searchParams }: { searchParams:
       const lines = Array.from({ length: ROWS }, (_, i) => ({ partSku: str(f, `s${i}`), vendorPartNo: str(f, `v${i}`), description: str(f, `d${i}`) ?? "", qty: Number(str(f, `q${i}`) ?? 0), unit: str(f, `u${i}`) ?? "pcs", unitPrice: Number(str(f, `p${i}`) ?? 0) })).filter((l) => l.description && l.qty > 0);
       if (!lines.length) throw new Error("PO_NEEDS_LINE");
       const vat = str(f, "vatRate");
-      const po = await createPurchaseOrder({ actorCode: me.code, supplierId: String(f.get("supplierId")), serviceOrderNo: str(f, "serviceOrderNo"), expectedAt: str(f, "expectedAt") ? new Date(str(f, "expectedAt")!) : undefined, currency: str(f, "currency") ?? "THB", vatRate: vat ? Number(vat) : undefined, supplierRef: str(f, "supplierRef"), paymentTerms: str(f, "paymentTerms"), lines, attachments: JSON.parse(String(f.get("attachments") || "[]")) });
+      const po = await createPurchaseOrder({ actorCode: me.code, supplierId: String(f.get("supplierId")), allowRepeat: f.get("allowRepeat") === "on", serviceOrderNo: str(f, "serviceOrderNo"), expectedAt: str(f, "expectedAt") ? new Date(str(f, "expectedAt")!) : undefined, currency: str(f, "currency") ?? "THB", vatRate: vat ? Number(vat) : undefined, supplierRef: str(f, "supplierRef"), paymentTerms: str(f, "paymentTerms"), lines, attachments: JSON.parse(String(f.get("attachments") || "[]")) });
       return { ok: po.no, to: `/purchasing/orders/${po.no}` };
     }, "/purchasing/orders/new");
   }
@@ -39,6 +39,7 @@ export default async function NewPurchaseOrder({ searchParams }: { searchParams:
     <div className="space-y-4">
       <PageHeader back={{ href: "/purchasing/orders", label: u("purchaseOrders") }} title={u("newPo")} actions={<><Link href="/purchasing/orders" className={btnGhost}>{t("cancel")}</Link><button form="f" className={btnPrimary}>{u("savePo")}</button></>} />
       <Flash error={error} />
+      {error?.startsWith("PO_REPEAT") && <label className="flex items-start gap-2 rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-3 py-2 text-sm text-[#7A4A00]"><input type="checkbox" name="allowRepeat" form="f" className="mt-0.5 h-4 w-4 shrink-0" /><span>{u("poAllowRepeat")}</span></label>}
       <FormMemory formId="f" />
       <UploadRecognize kind="purchase" formId="f" title={u("upSupplierQuoteTitle")} hint={u("upSupplierQuoteHint")} lineFields={{ vendorPartNo: "v", description: "d", qty: "q", unit: "u", unitPrice: "p" }} />
       <form id="f" action={save} className="space-y-4">
