@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -9,7 +10,7 @@ import { Flash } from "@/components/Flash";
 import { PageHeader, Table, Tag } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-const day = (v: Date | null | undefined) => (v ? v.toISOString().slice(0, 10) : "—");
+const day = (v: Date | null | undefined) => (v ? localIso(v)!.slice(0, 10) : "—");
 
 /** OPD · employees — the MD sees the list; everyone else lands on their own file (decision 2026-11-08). */
 export default async function People({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; all?: string }> }) {

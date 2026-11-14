@@ -9,7 +9,7 @@ import { prisma } from "@/lib/db";
 import { partnerDeliveryBlockers } from "@/server/srm";
 import { allocateNumber } from "@/lib/numbering-db";
 import { audit } from "@/server/audit";
-import { findPart, stockOnHand } from "@/server/scm";
+import { findPart, normPartNo, recordStockDoc, stockOnHand } from "@/server/scm";
 import { poLinesFromQuote, progressOrder, type PoLine } from "@/server/slm";
 import { isTradeMode } from "@/lib/modes";
 import { RETURN_UNREPAIRED, returnRemark } from "@/lib/decline";
@@ -45,24 +45,70 @@ export async function deliveryPlan(no: string): Promise<{ lines: DeliveryLine[];
   return { lines, poFromQuote: !stored?.length };
 }
 
-/** Per SKU on a trade order: what this note delivers against what the store has plus what already left it for this order. */
-async function tradeStockShort(orderId: string, plan: DeliveryLine[], delivered: Record<string, number>): Promise<string[]> {
+type OrderPart = { id: string; sku: string; vendorPartNo: string | null };
+const bare = (x: string) => normPartNo(x).replace(/[^A-Z0-9]/g, "");
+
+/**
+ * Which library part each goods line of a trade order is (trial finding 2026-11-14, second round: the customer's PO was
+ * read in before the part existed, the line carried no part number, and the stock check skipped it). In this order:
+ * the line's own number; a POTH line of this order with the same number or text; a part number written inside the
+ * description; a part received for this order whose number the description contains; and when exactly one line and one
+ * received part are left over, each other. A line that still has no part is reported, never skipped.
+ */
+async function tradeParts(orderId: string, plan: DeliveryLine[]) {
+  const goods = plan.filter((l) => l.kind === "PO" && !l.isService);
+  const map = new Map<string, OrderPart>();
+  const pos = await prisma.purchaseOrder.findMany({ where: { serviceOrderId: orderId, kind: "PARTS", status: { not: "CANCELLED" } }, select: { lines: true } });
+  const bought = pos.flatMap((p) => p.lines as { partSku?: string; vendorPartNo?: string; description?: string }[]);
+  const inbound = await prisma.stockMovement.findMany({ where: { serviceOrderId: orderId, direction: "IN", partId: { not: null } }, select: { part: { select: { id: true, sku: true, vendorPartNo: true } } } });
+  const received = [...new Map(inbound.map((m) => [m.part!.id, m.part!])).values()];
+  for (const l of goods) {
+    let part: OrderPart | null = await findPart(l.partSku);
+    const text = bare(l.description);
+    if (!part) {
+      const hit = bought.find((b) => { const n = bare(b.partSku || b.vendorPartNo || ""); return (n.length >= 4 && text.includes(n)) || (!!b.description && bare(b.description) === text); });
+      if (hit) part = await findPart(hit.partSku || hit.vendorPartNo);
+    }
+    if (!part) {
+      const hits = new Map<string, OrderPart>();
+      for (const tok of l.description.split(/[\s,;，；()（）]+/).filter((t) => t.length >= 5 && /\d/.test(t))) { const p = await findPart(tok); if (p) hits.set(p.id, p); }
+      if (hits.size === 1) part = [...hits.values()][0];
+    }
+    if (!part) part = received.find((r) => { const n = bare(r.vendorPartNo || r.sku); return n.length >= 4 && text.includes(n); }) ?? null;
+    if (part) map.set(l.key, part);
+  }
+  const left = goods.filter((l) => !map.has(l.key));
+  const used = new Set([...map.values()].map((p) => p.id));
+  const spare = received.filter((r) => !used.has(r.id));
+  if (left.length === 1 && spare.length === 1) map.set(left[0].key, spare[0]);
+  return map;
+}
+
+/** Per part on a trade order: what this note delivers against what the store has plus what already left it for this order. */
+async function tradeStock(orderId: string, plan: DeliveryLine[], delivered: Record<string, number>) {
+  const parts = await tradeParts(orderId, plan);
   const now = new Map<string, number>(), before = new Map<string, number>();
+  const noPart: string[] = [];
   for (const l of plan) {
-    if (l.kind !== "PO" || l.isService || !l.partSku) continue;
-    now.set(l.partSku, (now.get(l.partSku) ?? 0) + (delivered[l.key] ?? 0));
-    before.set(l.partSku, (before.get(l.partSku) ?? 0) + l.deliveredBefore);
+    if (l.kind !== "PO" || l.isService) continue;
+    const qty = delivered[l.key] ?? 0;
+    const part = parts.get(l.key);
+    if (!part) { if (qty > 0) noPart.push(l.description.slice(0, 60)); continue; }
+    now.set(part.sku, (now.get(part.sku) ?? 0) + qty);
+    before.set(part.sku, (before.get(part.sku) ?? 0) + l.deliveredBefore);
   }
   const short: string[] = [];
-  for (const [key, qty] of now) {
+  const issue: { partSku: string; qty: number }[] = []; // what still has to leave the store for this note
+  for (const [sku, qty] of now) {
     if (qty <= 0) continue;
-    const part = await findPart(key);
-    if (!part) continue; // a free-text line has no stock to check
+    const part = await prisma.part.findUniqueOrThrow({ where: { sku } });
     const out = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: orderId } });
-    const available = (await stockOnHand(part.sku)) + Number(out._sum.qty ?? 0) - (before.get(key) ?? 0);
-    if (qty > available + 1e-9) short.push(`${part.sku} ${qty}/${Math.max(0, available)}`);
+    const taken = Math.max(0, Number(out._sum.qty ?? 0) - (before.get(sku) ?? 0)); // already out of the store for this order and not yet delivered
+    const onHand = await stockOnHand(sku);
+    if (qty > onHand + taken + 1e-9) short.push(`${sku} ${qty}/${Math.max(0, onHand + taken)}`);
+    else if (qty > taken) issue.push({ partSku: sku, qty: qty - taken });
   }
-  return short;
+  return { parts, noPart, short, issue };
 }
 
 /** Lines whose delivered quantity does not match what is still due. Service lines are never delivered. */
@@ -104,18 +150,17 @@ export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
   if (!d.draft && !lines.some((l) => (d.delivered[l.key] ?? 0) > 0)) throw new Error("DELIVERY_EMPTY");
   // 贸易 (trial finding 2026-11-14: three were delivered with two in stock): goods on a trade order can go out only if they
   // are in the store or were already taken out of it for this order — and no reason overrides that, the goods are not there
-  if (!d.draft && isTradeMode(order.mode)) {
-    const short = await tradeStockShort(order.id, lines, d.delivered);
-    if (short.length) throw new Error(`DELIVERY_NO_STOCK:${short.join("; ")}`);
-  }
+  const trade = !d.draft && isTradeMode(order.mode) ? await tradeStock(order.id, lines, d.delivered) : null;
+  if (trade?.noPart.length) throw new Error(`DELIVERY_NO_PART:${trade.noPart.join("; ")}`);
+  if (trade?.short.length) throw new Error(`DELIVERY_NO_STOCK:${trade.short.join("; ")}`);
   const driver = d.driverCode ? await prisma.employee.findUniqueOrThrow({ where: { code: d.driverCode } }) : null;
   const draft = await prisma.deliveryNote.findFirst({ where: { serviceOrderId: order.id, status: "DRAFT" } });
   const data = {
     status: d.draft ? ("DRAFT" as const) : ("ISSUED" as const), deliverOn: d.deliverOn, plantId: d.plantId ?? order.plantId, address: d.address ?? null, contactId: d.contactId ?? null, driverId: driver?.id ?? null, vehicle: d.vehicle ?? null,
-    lines: lines.map((l) => ({ ...l, delivered: d.delivered[l.key] ?? 0 })) as unknown as Prisma.InputJsonValue,
+    lines: lines.map((l) => ({ ...l, partSku: trade?.parts.get(l.key)?.sku ?? l.partSku, delivered: d.delivered[l.key] ?? 0 })) as unknown as Prisma.InputJsonValue,
     mismatch: bad.length ? (bad as unknown as Prisma.InputJsonValue) : undefined, overrideReason: bad.length ? d.overrideReason : null, overrideById: bad.length ? actor.id : null, remark: d.remark ?? null,
   };
-  return prisma.$transaction(async (tx) => {
+  const dn = await prisma.$transaction(async (tx) => {
     const dn = draft
       ? await tx.deliveryNote.update({ where: { id: draft.id }, data })
       : await tx.deliveryNote.create({ data: { ...data, no: await allocateNumber(tx, { prefix: "DN", createdByEmployeeCode: actor.code, entityId: order.entityId, date: d.deliverOn }), serviceOrderId: order.id } });
@@ -124,7 +169,12 @@ export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
     await tx.document.create({ data: { no: dn.no, type: "DN", entityId: order.entityId, countryCode: dn.no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, templateCode: "19", issuedAt: d.deliverOn } });
     if (bad.length) await audit(actor.id, "DELIVERY_OVERRIDE", dn.no, { reason: d.overrideReason, mismatch: bad.map((b) => ({ key: b.key, due: b.due, now: b.now })) }, tx);
     return dn;
-  });
+  });  // the goods leave the store with the note (one OBTH), so the next order sees what is really left
+  if (trade?.issue.length) {
+    const ob = await recordStockDoc({ actorCode: actor.code, direction: "OUT", serviceOrderNo: order.no, movedAt: d.deliverOn, lines: trade.issue });
+    await audit(actor.id, "DELIVERY_STOCK_OUT", dn.no, { obth: ob.no, lines: trade.issue });
+  }
+  return dn;
 }
 
 /** Customer signed for it: DELIVERED on each asset's timeline. */

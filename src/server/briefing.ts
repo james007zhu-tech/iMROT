@@ -6,6 +6,7 @@
  *   machines like it      → what closed cases on the same model turned out to be
  * Rendered above the inspection form and handed to the model as context when it drafts from dictation or photos.
  */
+import { localIso } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 
 export interface Briefing {
@@ -17,7 +18,7 @@ export interface Briefing {
   parts: { sku: string; name: string; position?: string | null; onHand: number }[];
 }
 
-const day = (d?: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
+const day = (d?: Date | null) => (d ? localIso(d)!.slice(0, 10) : "");
 const one = (s?: string | null, n = 220) => (s ? s.replace(/\s+/g, " ").trim().slice(0, n) : undefined);
 
 export async function assetBriefing(assetCode: string, report: { symptom?: string | null; alarm?: string | null; orderId?: string }): Promise<Briefing | null> {

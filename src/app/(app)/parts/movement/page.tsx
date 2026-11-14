@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { recordStockDoc } from "@/server/scm";
-import { dayNow } from "@/lib/dates";
+import { dayNow, localIso } from "@/lib/dates";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
@@ -52,7 +52,7 @@ export default async function Movement({ searchParams }: { searchParams: Promise
           <Grid>
             <Field label={u("direction")} required><select name="direction" defaultValue={direction === "OUT" ? "OUT" : "IN"} className={inputCls}><option value="IN">{u("dirIn")}</option><option value="OUT">{u("dirOut")}</option></select></Field>
             <Field label={u("warehouse")}><input name="warehouse" defaultValue="RAYONG" className={inputCls} /></Field>
-            <Field label={u("date")}><input name="movedAt" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={inputCls} /></Field>
+            <Field label={u("date")}><input name="movedAt" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={inputCls} /></Field>
             <Field label={u("relatedAsset")}><select name="assetCode" className={inputCls}><option value="">—</option>{assetsOfOrder.map((a) => <option key={a.label} value={a.code}>{a.label}</option>)}</select></Field>
             <Field label={u("relatedOrder")}><select name="serviceOrderNo" defaultValue={order ?? ""} className={inputCls}><option value="">—</option>{orders.map((o) => <option key={o.id} value={o.no}>{o.no} · {o.customer.name}</option>)}</select></Field>
             <Field label={u("supplierRef")}><input name="supplierRef" className={inputCls} /></Field>

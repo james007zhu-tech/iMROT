@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -45,12 +46,12 @@ export default async function SupplierPage({ params, searchParams }: { params: P
       </Card>}
       <Card title="POTH">
         <Table head={["POTH", t("type"), t("status"), "QTTH", t("amount"), t("date")]}>
-          {s.orders.map((o) => <tr key={o.id}><td><Link href={`/purchasing/orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link>{o.version > 1 ? ` v${o.version}` : ""}</td><td>{o.kind === "SUBCONTRACT" ? u("partnerRepair") : u("kindParts")}</td><td>{tPo(o.status)}</td><td>{o.serviceOrder ? <Link href={o.kind === "SUBCONTRACT" ? `/service-orders/${o.serviceOrder.no}/partner` : `/service-orders/${o.serviceOrder.no}`} className="font-mono text-blue hover:underline">{o.serviceOrder.no}</Link> : "—"}</td><td className="text-right">{o.currency} {Number(o.total).toFixed(2)}</td><td>{o.orderedAt.toISOString().slice(0, 10)}</td></tr>)}
+          {s.orders.map((o) => <tr key={o.id}><td><Link href={`/purchasing/orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link>{o.version > 1 ? ` v${o.version}` : ""}</td><td>{o.kind === "SUBCONTRACT" ? u("partnerRepair") : u("kindParts")}</td><td>{tPo(o.status)}</td><td>{o.serviceOrder ? <Link href={o.kind === "SUBCONTRACT" ? `/service-orders/${o.serviceOrder.no}/partner` : `/service-orders/${o.serviceOrder.no}`} className="font-mono text-blue hover:underline">{o.serviceOrder.no}</Link> : "—"}</td><td className="text-right">{o.currency} {Number(o.total).toFixed(2)}</td><td>{localIso(o.orderedAt)!.slice(0, 10)}</td></tr>)}
         </Table>
       </Card>
       {s.invoices.length > 0 && <Card title={u("supplierInvoices")}>
         <Table head={[u("supplierInvoiceNo"), "POTH", t("date"), u("dueDate"), u("payableAmount"), t("status")]}>
-          {s.invoices.map((i) => <tr key={i.id}><td className="font-mono">{i.invoiceNo}</td><td className="font-mono">{i.purchaseOrder.no}</td><td>{i.invoiceDate.toISOString().slice(0, 10)}</td><td>{i.dueDate.toISOString().slice(0, 10)}</td><td className="text-right">{i.currency} {Number(i.payable).toFixed(2)}</td><td><Tag hot={i.status === "OPEN"}>{u(`payable_${i.status}`)}</Tag>{i.paymentNo ? <span className="ml-1 font-mono text-xs">{i.paymentNo}</span> : null}</td></tr>)}
+          {s.invoices.map((i) => <tr key={i.id}><td className="font-mono">{i.invoiceNo}</td><td className="font-mono">{i.purchaseOrder.no}</td><td>{localIso(i.invoiceDate)!.slice(0, 10)}</td><td>{localIso(i.dueDate)!.slice(0, 10)}</td><td className="text-right">{i.currency} {Number(i.payable).toFixed(2)}</td><td><Tag hot={i.status === "OPEN"}>{u(`payable_${i.status}`)}</Tag>{i.paymentNo ? <span className="ml-1 font-mono text-xs">{i.paymentNo}</span> : null}</td></tr>)}
         </Table>
       </Card>}
     </div>

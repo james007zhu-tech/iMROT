@@ -397,7 +397,9 @@
     "yes": "Yes",
     "no": "No",
     "open": "Open",
-    "loginWait": "Too many wrong tries. Wait 15 minutes and try again."
+    "loginWait": "Too many wrong tries. Wait 15 minutes and try again.",
+    "savingNow": "Saving… please do not press again",
+    "savingSlow": "The network is slow and this may already be saved. Wait a little, or check the list before saving again."
   },
   "ai": {
     "title": "AI assistant",
@@ -921,7 +923,7 @@
     "fld_reportedSymptom": "symptom",
     "brand": "Brand",
     "series": "Series",
-    "modelNotInLibrary": "Not in the model library yet — add the model first",
+    "modelNotInLibrary": "Not in the model library yet — it is added when you save (fill in brand and series).",
     "acceptSignature": "Customer signature (photo / portal e-sign)",
     "signedOn": "Signed {date}",
     "inspectPlace": "Inspected at",
@@ -2144,7 +2146,9 @@
     "err_STOCK_SHORT": "Not enough stock (wanted/on hand): {detail}",
     "err_DELIVERY_NO_STOCK": "More than the store holds (to deliver/available): {detail}. Receive the goods first, or deliver in part.",
     "err_PO_REPEAT": "This order already buys these goods (ordered+this>customer's order): {detail}. To buy more, tick the confirmation above and save again.",
-    "err_INSPECTION_AFTER_WORK": "This machine already has {detail} on the order. Inspection comes before the work; what is found afterwards belongs to a new order."
+    "err_INSPECTION_AFTER_WORK": "This machine already has {detail} on the order. Inspection comes before the work; what is found afterwards belongs to a new order.",
+    "err_DELIVERY_NO_PART": "These goods match no part in the store, so stock cannot be checked: {detail}. Receive them into the store first.",
+    "err_MODEL_NEEDS_BRAND_SERIES": "{detail} is a new model: fill in brand and series so it can be added to the library."
   },
   "role": {
     "MD": "Managing Director",

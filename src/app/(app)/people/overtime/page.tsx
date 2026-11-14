@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -54,7 +55,7 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
         <Table head={[u("employee"), u("otDate"), u("otTime"), u("otHours"), u("otKind"), u("otReason"), ""]}>
           {pending.map((r) => <tr key={r.id}>
             <td><span className="font-mono">{r.employee.code}</span> {r.employee.name}</td>
-            <td className="whitespace-nowrap">{r.workDate.toISOString().slice(0, 10)}</td>
+            <td className="whitespace-nowrap">{localIso(r.workDate)!.slice(0, 10)}</td>
             <td className="whitespace-nowrap">{r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime}{r.breakMinutes ? ` (−${r.breakMinutes}′)` : ""}</td>
             <td className="font-semibold">{hrs(r)}</td><td className="text-xs">{kind(r.kind)}</td>
             <td>{r.reason}{r.serviceOrderNo && <Link href={`/service-orders/${r.serviceOrderNo}`} className="ml-1 font-mono text-xs text-blue">{r.serviceOrderNo}</Link>}{r.decisionNote && <span className="block text-xs text-alert-ink">{r.decisionNote}</span>}</td>
@@ -68,7 +69,7 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
           {mine.map((r) => {
             const open = (r.status === "PENDING" || r.status === "APPROVED") && !r.payMonthId;
             return <tr key={r.id}>
-              <td className="whitespace-nowrap">{r.workDate.toISOString().slice(0, 10)}</td>
+              <td className="whitespace-nowrap">{localIso(r.workDate)!.slice(0, 10)}</td>
               <td className="whitespace-nowrap">{r.startTime}–{r.endTime}{r.actualStart ? <span className="block text-xs text-navy/60">{u("otActual")} {r.actualStart}–{r.actualEnd}</span> : null}</td>
               <td className="font-semibold">{hrs(r)}</td><td className="text-xs">{kind(r.kind)}</td><td>{r.reason}</td>
               <td><Tag hot={r.status === "PENDING" || r.status === "REJECTED"}>{u(`otStatus_${r.status}`)}</Tag>{r.approver ? <span className="block text-xs text-navy/60">{r.approver.name}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span> : null}</td>
@@ -88,7 +89,7 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
         <Table head={[u("otMonth"), u("otHours"), u("otPay"), u("otClosedBy"), ""]}>
           <tr className="bg-tint"><td>{month} <Tag>{u("otRunning")}</Tag></td><td>{preview.reduce((s, l) => s + l.pay.totalHours, 0)}</td><td className="text-right">{preview.reduce((s, l) => s + l.pay.total, 0).toFixed(2)}</td><td className="text-xs text-navy/60">{u("otAutoOn", { date: `${month}-01` })}</td><td /></tr>
           {!prevClosed && <tr><td>{previousMonth}</td><td colSpan={3} className="text-xs text-alert-ink">{u("otNotClosed")}</td><td><form action={closeMonthAction.bind(null, me.entityId, previousMonth)}><button className={btnGhost}>{u("otCloseNow")}</button></form></td></tr>}
-          {months.map((m) => <tr key={m.id}><td><Link href={`/people/overtime/${m.month}`} className="font-mono text-blue hover:underline">{m.month}</Link></td><td>{Number(m.totalHours)}</td><td className="text-right font-semibold">{Number(m.totalAmount).toFixed(2)}</td><td className="text-xs">{m.closedBy === "SYSTEM" ? u("otSystem") : m.closedBy} · {m.closedAt.toISOString().slice(0, 16).replace("T", " ")}</td><td /></tr>)}
+          {months.map((m) => <tr key={m.id}><td><Link href={`/people/overtime/${m.month}`} className="font-mono text-blue hover:underline">{m.month}</Link></td><td>{Number(m.totalHours)}</td><td className="text-right font-semibold">{Number(m.totalAmount).toFixed(2)}</td><td className="text-xs">{m.closedBy === "SYSTEM" ? u("otSystem") : m.closedBy} · {localIso(m.closedAt)!.slice(0, 16).replace("T", " ")}</td><td /></tr>)}
         </Table>
         {preview.length > 0 && <div className="mt-3"><p className="mb-1 text-xs font-semibold text-navy">{u("otPreview", { month })}</p>
           <Table head={[u("employee"), ...OT_KINDS.map((k) => u(`ot_${k}`)), u("otRate"), u("otPay")]}>

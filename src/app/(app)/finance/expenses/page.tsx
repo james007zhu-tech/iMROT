@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getLocale, getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
@@ -34,7 +35,7 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
             <li key={r.id} className="rounded-xl border bg-white p-3 text-sm">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 {r.no && <span className="font-mono font-semibold text-navy">{r.no}</span>}
-                <span className="font-mono text-navy/70">{r.spentOn.toISOString().slice(0, 10)}</span>
+                <span className="font-mono text-navy/70">{localIso(r.spentOn)!.slice(0, 10)}</span>
                 <span className="font-semibold text-navy">{cats.get(r.category) ?? r.category}</span>
                 <span className="min-w-0 flex-1 truncate">{r.description}</span>
                 <span className="font-semibold tabular-nums">{money(r.amount, r.currency)}</span>

@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -6,7 +7,7 @@ import { currentEmployee } from "@/server/auth";
 import { Card, Field, Grid, PageHeader, Table, Tag, Value, btnGhost } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-const day = (v: Date | null | undefined) => (v ? v.toISOString().slice(0, 10) : "—");
+const day = (v: Date | null | undefined) => (v ? localIso(v)!.slice(0, 10) : "—");
 const money = (n: unknown) => Number(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** BLTH detail (decision 2026-11-08: only credit customers have statements): the invoices on it, what is paid, ageing, PDF. */

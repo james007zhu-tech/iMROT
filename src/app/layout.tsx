@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import "./globals.css";
+import { Suspense } from "react";
+import { SubmitGuard } from "@/components/SubmitGuard";
 
 export const metadata: Metadata = { title: "DCiT OS", description: "iMROT — equipment-centred service operations", manifest: "/manifest.json", icons: {
   // Option C chosen 2026-11-08: the logo's "i" with its square dot on a navy tile, drawn pixel-exact at 16 and 32 px (docs/brand/favicon*.svg).
@@ -15,7 +17,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={locale}>
       <body>
-        <NextIntlClientProvider locale={locale} messages={messages}>{children}</NextIntlClientProvider>
+        <NextIntlClientProvider locale={locale} messages={messages}>{children}<Suspense><SubmitGuard /></Suspense></NextIntlClientProvider>
       </body>
     </html>
   );

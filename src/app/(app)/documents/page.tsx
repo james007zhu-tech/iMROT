@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import type { Prisma } from "@prisma/client";
@@ -9,7 +10,7 @@ import { ReadyOrders, newStep } from "@/components/ReadyOrders";
 
 export const dynamic = "force-dynamic";
 
-const day = (d?: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
+const day = (d?: Date | null) => (d ? localIso(d)!.slice(0, 10) : "");
 
 /**
  * /documents            单据中心 — every numbered document, by type, number, customer or order

@@ -3,6 +3,7 @@
  * invoices, expense claims, payroll. THB only (foreign-currency invoices are listed beside it, unconverted).
  * It is not the statutory ledger: the accountant's books remain the record for filing.
  */
+import { localIso } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -35,7 +36,7 @@ export async function financeReport(entityId: string, year: number, opts: { with
   for (const x of rcs) { const m = at(x.receivedAt); if (m) { m.collected += Number(x.cashAmount); m.whtByCustomers += Number(x.whtAmount); } }
   for (const x of sis) { const m = at(x.invoiceDate); if (m) { m.purchases += Number(x.subtotal); m.vatIn += Number(x.vatAmount); } }
   for (const x of sPaid) { const m = x.paidAt && at(x.paidAt); if (m) m.paidSuppliers += Number(x.payable); }
-  for (const x of exps) { const m = months.find((y) => y.month === x.spentOn.toISOString().slice(0, 7)); if (m) { m.expenses += Number(x.amount) - Number(x.vatAmount ?? 0); m.vatIn += Number(x.vatAmount ?? 0); } }
+  for (const x of exps) { const m = months.find((y) => y.month === localIso(x.spentOn)!.slice(0, 7)); if (m) { m.expenses += Number(x.amount) - Number(x.vatAmount ?? 0); m.vatIn += Number(x.vatAmount ?? 0); } }
   for (const x of runs) { const m = months.find((y) => y.month === x.month); if (m) m.payroll += Number((x.totals as { employerCost?: number }).employerCost ?? 0); }
   for (const m of months) { for (const k of Object.keys(m) as (keyof MonthRow)[]) if (k !== "month") (m[k] as number) = r2(m[k] as number); m.result = r2(m.revenue - m.purchases - m.expenses - m.payroll); m.vatNet = r2(m.vatOut - m.vatIn); }
   const total = months.reduce((s, m) => { for (const k of Object.keys(m) as (keyof MonthRow)[]) if (k !== "month") (s[k] as number) = r2((s[k] as number) + (m[k] as number)); return s; }, { month: String(year), revenue: 0, vatOut: 0, collected: 0, whtByCustomers: 0, purchases: 0, vatIn: 0, paidSuppliers: 0, expenses: 0, payroll: 0, result: 0, vatNet: 0 } as MonthRow);

@@ -8,6 +8,7 @@
  * allowances count as "wage" is the accountant's call — the multipliers and the basis are stored on every month-end line,
  * so a later change never rewrites a closed month.
  */
+import { localIso } from "@/lib/dates";
 export type OvertimeKind = "WORKDAY_OT" | "HOLIDAY_WORK" | "HOLIDAY_OT";
 export const OT_KINDS: OvertimeKind[] = ["WORKDAY_OT", "HOLIDAY_WORK", "HOLIDAY_OT"];
 export const OT_MULTIPLIER: Record<OvertimeKind, number> = { WORKDAY_OT: 1.5, HOLIDAY_WORK: 1, HOLIDAY_OT: 3 };
@@ -34,7 +35,7 @@ export function hourlyWage(monthlyBase: number): number {
 
 /** Month key "2026-11" of a work date (stored as UTC midnight of the local date). */
 export function monthKeyOf(workDate: Date): string {
-  return workDate.toISOString().slice(0, 7);
+  return localIso(workDate)!.slice(0, 7);
 }
 
 /** First and last+1 day of a month key, as UTC midnights — the same convention as work dates. */

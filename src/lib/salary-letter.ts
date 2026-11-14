@@ -4,6 +4,7 @@
  * a weekend or bank holiday moves it to the previous bank working day.
  */
 
+import { localIso } from "@/lib/dates";
 /** Fixed-date Thai bank holidays (MM-DD). Lunar holidays (Makha / Visakha / Asarnha Bucha) move every year — not listed. */
 const TH_FIXED_HOLIDAYS = new Set(["01-01", "04-06", "04-13", "04-14", "04-15", "05-01", "05-04", "06-03", "07-28", "08-12", "10-13", "10-23", "12-05", "12-10", "12-31"]);
 
@@ -13,7 +14,7 @@ const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d));
 export function payday(month: Date): Date {
   let d = utc(month.getUTCFullYear(), month.getUTCMonth() + 1, 5);
   for (let i = 0; i < 10; i++) {
-    const dow = d.getUTCDay(), md = d.toISOString().slice(5, 10);
+    const dow = d.getUTCDay(), md = localIso(d)!.slice(5, 10);
     if (dow !== 0 && dow !== 6 && !TH_FIXED_HOLIDAYS.has(md)) return d;
     d = new Date(d.getTime() - 86_400_000);
   }

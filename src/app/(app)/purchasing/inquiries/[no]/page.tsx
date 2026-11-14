@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -64,8 +65,8 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
       <Card title={u("inquiryHeader")}>
         <div className="grid gap-2 text-sm md:grid-cols-4">
           <div><span className="text-navy/60">QTTH</span><br />{inq.serviceOrder ? <Link href={`/service-orders/${inq.serviceOrder.no}`} className="font-mono text-blue hover:underline">{inq.serviceOrder.no}</Link> : "—"}{inq.serviceOrder ? <span className="block text-xs text-navy/70">{inq.serviceOrder.customer.name}</span> : null}</div>
-          <div><span className="text-navy/60">{u("requestedBy")}</span><br />{inq.requestedBy.name} · {inq.createdAt.toISOString().slice(0, 10)}</div>
-          <div><span className="text-navy/60">{u("neededBy")}</span><br />{inq.neededBy?.toISOString().slice(0, 10) ?? "—"}</div>
+          <div><span className="text-navy/60">{u("requestedBy")}</span><br />{inq.requestedBy.name} · {localIso(inq.createdAt)!.slice(0, 10)}</div>
+          <div><span className="text-navy/60">{u("neededBy")}</span><br />{localIso(inq.neededBy)?.slice(0, 10) ?? "—"}</div>
           <div><span className="text-navy/60">POTH</span><br />{inq.orders.length ? inq.orders.map((o) => <Link key={o.no} href={`/purchasing/orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link>) : "—"}</div>
         </div>
         {inq.note && <p className="mt-2 text-sm">{inq.note}</p>}
@@ -77,7 +78,7 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
           <tr className="font-semibold"><td colSpan={4}>{t("subtotal")}</td>{inq.quotes.map((q) => <td key={q.id} className={`text-right ${q.selected ? "text-blue" : ""}`}>{q.currency} {Number(q.subtotal).toFixed(2)}</td>)}</tr>
           {sub && <tr className="text-xs"><td colSpan={4}>{u("partnerWarranty")}{inq.serviceOrder?.warrantyDays != null ? ` (${u("customerPromise", { days: inq.serviceOrder.warrantyDays })})` : ""}</td>{inq.quotes.map((q) => <td key={q.id} className={`text-right ${inq.serviceOrder?.warrantyDays != null && (q.warrantyDays ?? 0) < inq.serviceOrder.warrantyDays ? "font-semibold text-alert-ink" : ""}`}>{q.warrantyDays != null ? `${q.warrantyDays} d` : "—"}</td>)}</tr>}
           {sub && <tr className="text-xs"><td colSpan={4}>{u("partnerSolution")}</td>{inq.quotes.map((q) => <td key={q.id} className="text-right">{q.solution ?? "—"}</td>)}</tr>}
-          <tr className="text-xs text-navy/70"><td colSpan={4}>{u("quoteNo")} · {u("leadTime")} · {u("validUntil")}</td>{inq.quotes.map((q) => <td key={q.id} className="text-right">{q.quoteNo ?? "—"} · {q.leadTimeDays != null ? `${q.leadTimeDays} d` : "—"} · {q.validUntil?.toISOString().slice(0, 10) ?? "—"}</td>)}</tr>
+          <tr className="text-xs text-navy/70"><td colSpan={4}>{u("quoteNo")} · {u("leadTime")} · {u("validUntil")}</td>{inq.quotes.map((q) => <td key={q.id} className="text-right">{q.quoteNo ?? "—"} · {q.leadTimeDays != null ? `${q.leadTimeDays} d` : "—"} · {localIso(q.validUntil)?.slice(0, 10) ?? "—"}</td>)}</tr>
           {open && inq.quotes.length > 0 && <tr><td colSpan={4}></td>{inq.quotes.map((q) => <td key={q.id} className="text-right">{q.selected ? <Tag>{u("selectedQuote")}</Tag> : <form action={select}><input type="hidden" name="quoteId" value={q.id} /><button className={btnGhost}>{u("selectQuote")}</button></form>}</td>)}</tr>}
         </Table>
         {inq.quotes.length === 0 && <p className="py-4 text-center text-sm text-navy/60">{u("noQuotesYet")}</p>}

@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -48,7 +49,7 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
 
       {skipped.length > 0 && <p className="rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-3 py-2 text-[13px] text-[#7A4A00]">{t("paySkipped", { n: skipped.length })} {skipped.join("、")}</p>}
       {draft && <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-[13px] ${run.taxConfirmedAt ? "border-navy/20 bg-white text-navy" : "border-[#E6A23C] bg-[#FFF4E5] text-[#7A4A00]"}`}>
-        <span className="min-w-0 flex-1">{run.taxConfirmedAt ? t("payTaxDone", { who: run.taxConfirmedBy ?? "", date: run.taxConfirmedAt.toISOString().slice(0, 10) }) : t("payTaxTodo")}</span>
+        <span className="min-w-0 flex-1">{run.taxConfirmedAt ? t("payTaxDone", { who: run.taxConfirmedBy ?? "", date: localIso(run.taxConfirmedAt)!.slice(0, 10) }) : t("payTaxTodo")}</span>
         <a href={`/api/payroll/${month}/export?kind=pnd1`} className={btnGhost}>{t("payExport_pnd1")}</a>
         <form action={taxAction.bind(null, month, !run.taxConfirmedAt)}><button className={run.taxConfirmedAt ? btnGhost : btnPrimary}>{run.taxConfirmedAt ? t("payTaxUndo") : t("payTaxConfirm")}</button></form>
       </div>}

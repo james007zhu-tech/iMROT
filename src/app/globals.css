@@ -50,3 +50,5 @@ input::placeholder, textarea::placeholder { color: rgb(11 45 83 / 0.38); font-st
 @keyframes ai-pulse { 0% { transform: scale(0.9); opacity: 0.7; } 70%, 100% { transform: scale(1.55); opacity: 0; } }
 @keyframes ai-dot { 0%, 100% { fill: #2374D5; transform: scale(1); } 50% { fill: #7DBBFF; transform: scale(1.18); } }
 @media (prefers-reduced-motion: reduce) { .ai-fab-ring, .ai-fab-pulse, .ai-fab-dot { animation: none; } .ai-fab-pulse { display: none; } }
+/* a save is on its way (SubmitGuard): the save buttons, inside the form or tied to it from the page header, stop answering */
+body[data-saving] :is(button:not([type="button"]), input[type="submit"]) { pointer-events: none; opacity: 0.55; }

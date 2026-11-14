@@ -2,6 +2,7 @@
  * Equipment knowledge services (rules in src/lib/knowledge.ts): series dictionary, fault-code library, review, import,
  * publish, and the public queries. The public queries read PublishedFaultCode only — never FaultCode.
  */
+import { localIso } from "@/lib/dates";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
@@ -440,7 +441,7 @@ export function publicView(p: NonNullable<Pub>, lang: string) {
   return {
     brand: p.brandName, brandSlug: p.brandSlug, series: p.seriesName, seriesSlug: p.seriesSlug, code: p.code, kind: p.kind, mustStop: p.mustStop, appliesTo: p.appliesTo,
     lang: text?.lang ?? null, others: text?.others ?? [], title: text?.title ?? p.code, meaning: text?.meaning ?? null, causes: text?.causes ?? [], checks: text?.checks ?? [],
-    remedy: text?.remedy ?? null, safety: text?.safety ?? null, prepare: text?.prepare ?? null, source: p.source, related: p.related, publishedAt: p.publishedAt.toISOString().slice(0, 10),
+    remedy: text?.remedy ?? null, safety: text?.safety ?? null, prepare: text?.prepare ?? null, source: p.source, related: p.related, publishedAt: localIso(p.publishedAt)!.slice(0, 10),
   };
 }
 export async function publicCodes(brandSlug: string, seriesSlug: string, opts: { kind?: string; page?: number; lang: string }) {

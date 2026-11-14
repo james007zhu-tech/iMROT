@@ -3,12 +3,13 @@
  * basic info, contacts, work history rows, quick credential entry (filled by the upload box), payroll identifiers.
  * The whole file is one form, saved once (mockup v0.1, 2026-11-08). Input `name`s match RECOGNIZE.employee fields.
  */
+import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { CONTRACT_TYPES } from "@/server/opd";
 import { RevealRows } from "@/components/RevealRows";
 import { Card, Field, Grid, Tag, inputCls } from "@/components/ui";
 
-const d = (v: Date | null | undefined) => (v ? v.toISOString().slice(0, 10) : "");
+const d = (v: Date | null | undefined) => (v ? localIso(v)!.slice(0, 10) : "");
 export const CAREER_ROWS = 8;
 export const ALLOWANCE_ROWS = 4;
 export const DEDUCTION_ROWS = 2;

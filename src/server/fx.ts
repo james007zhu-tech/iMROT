@@ -2,6 +2,7 @@
  * Bank of China rates in the database (decision: fetched automatically, never typed in).
  * `refreshBocRates` is what the daily job, the admin button and the stale-rate auto refresh all call.
  */
+import { localIso } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { fetchBocRates, toFxRate } from "@/lib/fx/boc";
 
@@ -20,7 +21,7 @@ export async function refreshBocRates(): Promise<{ rateDate: string; count: numb
     });
     count++;
   }
-  return { rateDate: rateDate.toISOString().slice(0, 10), count };
+  return { rateDate: localIso(rateDate)!.slice(0, 10), count };
 }
 
 /** Latest stored rate for a currency (CNY is 1), with its age in days. */

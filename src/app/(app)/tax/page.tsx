@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { businessClosureOn } from "@/lib/closure";
@@ -7,7 +8,7 @@ import { ReadyOrders } from "@/components/ReadyOrders";
 
 export const dynamic = "force-dynamic";
 
-const day = (d?: Date | null) => d?.toISOString().slice(0, 10) ?? "";
+const day = (d?: Date | null) => localIso(d)?.slice(0, 10) ?? "";
 const money = (n: unknown) => Number(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** 税务运营: 请款单 (IVTH / PFTH), 收据 (RCTH), 税务发票 (TITH) — one list each (menu 2026-11-10), newest first. */

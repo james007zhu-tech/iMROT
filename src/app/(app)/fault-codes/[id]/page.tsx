@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -117,10 +118,10 @@ export default async function FaultCodePage({ params, searchParams }: { params: 
             <Card title={u("kbReview")}>
               <dl className="space-y-1 text-sm">
                 <div><dt className="inline text-navy/60">{u("kbVersion")}: </dt><dd className="inline">v{c.version}</dd></div>
-                <div><dt className="inline text-navy/60">{u("kbOrigin")}: </dt><dd className="inline">{u(`kbOrigin_${c.origin}`)}{c.import ? ` · ${c.import.fileName} · ${c.import.actor.name} · ${c.import.createdAt.toISOString().slice(0, 10)}` : ""}</dd></div>
-                {c.reviewedBy && <div><dt className="inline text-navy/60">{u("kbReviewedBy")}: </dt><dd className="inline">{c.reviewedBy.name} · {c.reviewedAt?.toISOString().slice(0, 10)}</dd></div>}
+                <div><dt className="inline text-navy/60">{u("kbOrigin")}: </dt><dd className="inline">{u(`kbOrigin_${c.origin}`)}{c.import ? ` · ${c.import.fileName} · ${c.import.actor.name} · ${localIso(c.import.createdAt)!.slice(0, 10)}` : ""}</dd></div>
+                {c.reviewedBy && <div><dt className="inline text-navy/60">{u("kbReviewedBy")}: </dt><dd className="inline">{c.reviewedBy.name} · {localIso(c.reviewedAt)?.slice(0, 10)}</dd></div>}
                 {c.reviewNote && <div className="rounded bg-alert/10 px-2 py-1 text-alert-ink">{c.reviewNote}</div>}
-                {c.published && <div><dt className="inline text-navy/60">{u("kbPublishedAt")}: </dt><dd className="inline">{c.published.publishedAt.toISOString().slice(0, 10)} · v{c.published.version}</dd></div>}
+                {c.published && <div><dt className="inline text-navy/60">{u("kbPublishedAt")}: </dt><dd className="inline">{localIso(c.published.publishedAt)!.slice(0, 10)} · v{c.published.version}</dd></div>}
               </dl>
               <form action={review} className="mt-3 space-y-2">
                 <input type="hidden" name="id" value={c.id} />
@@ -135,7 +136,7 @@ export default async function FaultCodePage({ params, searchParams }: { params: 
               </form>
             </Card>
             <Card title={`${u("kbOurCases")} (${c.cases.length})`}>
-              {c.cases.length ? <ul className="space-y-1 text-sm">{c.cases.map((o) => <li key={o.no}><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link> <span className="text-navy/70">{o.customer.name} · {o.createdAt.toISOString().slice(0, 10)}</span></li>)}</ul> : <p className="text-sm text-navy/60">{u("kbNoCases")}</p>}
+              {c.cases.length ? <ul className="space-y-1 text-sm">{c.cases.map((o) => <li key={o.no}><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link> <span className="text-navy/70">{o.customer.name} · {localIso(o.createdAt)!.slice(0, 10)}</span></li>)}</ul> : <p className="text-sm text-navy/60">{u("kbNoCases")}</p>}
             </Card>
           </aside>
         )}

@@ -7,8 +7,10 @@ import { errorCode } from "@/lib/errors";
 /** `run` may return a message, or `{ ok, to }` to land somewhere else on success (a step form returns to its order). */
 export async function guarded(run: () => Promise<string | void | { ok?: string; to: string }>, backTo: string): Promise<void> {
   let target = backTo;
+  const began = Date.now();
   try {
     const r = await run();
+    if (Date.now() - began > 3000) console.warn(`[slow-action] ${backTo} took ${Date.now() - began} ms`); // so a slow save can be told from a slow network
     const ok = typeof r === "object" && r ? r.ok : r;
     const dest = typeof r === "object" && r ? r.to : backTo;
     target = `${dest}${dest.includes("?") ? "&" : "?"}ok=${encodeURIComponent(ok ?? "saved")}`;

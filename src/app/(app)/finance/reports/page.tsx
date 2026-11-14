@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
@@ -24,7 +25,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
   const Ageing = ({ title, a, rows, who }: { title: string; a: Record<string, number>; rows: { no: string; due: Date | null; open: number; name: string; href?: string }[]; who: string }) => (
     <Card title={title}>
       <div className="grid grid-cols-5 gap-1.5 text-center text-xs">{AGE_KEYS.map((k) => <div key={k} className={`rounded-lg border px-1 py-1.5 ${k !== "notDue" && a[k] > 0 ? "border-[#E6A23C] bg-[#FFF4E5]" : "bg-white"}`}><div className="text-navy/70">{t(`age_${k}`)}</div><div className="font-semibold tabular-nums text-navy">{money(a[k])}</div></div>)}</div>
-      {rows.length > 0 && <ul className="mt-2 space-y-1 text-[13px]">{rows.map((x) => <li key={x.no} className="flex flex-wrap items-baseline gap-2"><span className="font-mono text-xs text-navy/70">{x.due?.toISOString().slice(0, 10)}</span>{x.href ? <Link href={x.href} className="font-mono text-blue hover:underline">{x.no}</Link> : <span className="font-mono">{x.no}</span>}<span className="min-w-0 flex-1 truncate">{x.name}</span><span className="tabular-nums">{money(x.open)}</span></li>)}</ul>}
+      {rows.length > 0 && <ul className="mt-2 space-y-1 text-[13px]">{rows.map((x) => <li key={x.no} className="flex flex-wrap items-baseline gap-2"><span className="font-mono text-xs text-navy/70">{localIso(x.due)?.slice(0, 10)}</span>{x.href ? <Link href={x.href} className="font-mono text-blue hover:underline">{x.no}</Link> : <span className="font-mono">{x.no}</span>}<span className="min-w-0 flex-1 truncate">{x.name}</span><span className="tabular-nums">{money(x.open)}</span></li>)}</ul>}
       {rows.length === 0 && <p className="mt-2 text-[13px] text-navy/60">{t("repNoOverdue", { who })}</p>}
     </Card>
   );

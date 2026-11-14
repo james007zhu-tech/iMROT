@@ -15,6 +15,8 @@ describe("recognize normalisation", () => {
   it("numbers lose separators and currency, VAT rate becomes a decimal", () => {
     expect(normalizeNumber("9,383.90 THB")).toBe("9383.9");
     expect(normalizeNumber("฿ 8,770")).toBe("8770");
+    expect(normalizeNumber("2x4.0 kW", "ratedPowerKw")).toBe("4");
+    expect(normalizeNumber("2 × 9 A", "ratedCurrentA")).toBe("9");
     expect(normalizeNumber("7%", "vatRate")).toBe("0.07");
     expect(normalizeNumber("7", "vatRate")).toBe("0.07");
     expect(normalizeNumber("0.07", "vatRate")).toBe("0.07");

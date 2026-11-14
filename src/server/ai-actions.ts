@@ -8,6 +8,7 @@
  *            stored as AiAction PENDING and executed when the person presses confirm (/api/ai/confirm)
  * A tool returns {ok, summary, href?} or {pending: id, summary}; errors go back to the model as text so it can ask.
  */
+import { localIso } from "@/lib/dates";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
@@ -124,7 +125,7 @@ const TOOLS: ActionTool[] = [
       const plan = await deliveryPlan(no);
       const delivered = Object.fromEntries(plan.lines.map((l) => [l.key, Math.max(0, l.expected - l.deliveredBefore)]).filter(([, q]) => (q as number) > 0));
       if (!Object.keys(delivered).length) throw new Error(`${no}: nothing left to deliver`);
-      const dn = await issueDelivery({ serviceOrderNo: no, actorCode: ctx.employeeCode, deliverOn: new Date(str(i.deliverOn) ?? new Date().toISOString().slice(0, 10)), delivered, remark: str(i.remark) });
+      const dn = await issueDelivery({ serviceOrderNo: no, actorCode: ctx.employeeCode, deliverOn: new Date(str(i.deliverOn) ?? localIso(new Date())!.slice(0, 10)), delivered, remark: str(i.remark) });
       return { ok: true, summary: `${dn.no} for ${no}`, href: `/service-orders/${no}/deliver/${dn.no}`, data: { no: dn.no } };
     } },
   { name: "sign_delivery", tier: "auto", description: "The customer signed the delivery note: record who and when.", input_schema: obj({ dn: S, signedBy: S, signedAt: S }, ["dn", "signedBy"]),
@@ -165,7 +166,7 @@ const TOOLS: ActionTool[] = [
       const category = str(i.category)?.toUpperCase() ?? "";
       if (!cats.includes(category)) throw new Error(`category must be one of ${cats.join(", ")}`);
       const c = await fileExpense({ actorCode: ctx.employeeCode, spentOn: new Date(str(i.spentOn)!), category, description: str(i.description)!, amount: num(i.amount)!, vatAmount: num(i.vatAmount), vendor: str(i.vendor), vendorTaxId: str(i.vendorTaxId), receiptNo: str(i.receiptNo), paidBy: (str(i.paidBy) ?? "SELF") as "SELF", serviceOrderNo: str(i.no), currency: "THB", receipts: f?.url ? [{ name: f.name ?? "receipt", url: f.url }] : [] });
-      return { ok: true, no: c.no ?? undefined, summary: `${c.no} · ${category} THB ${Number(c.amount).toFixed(2)} · ${c.spentOn.toISOString().slice(0, 10)}${f?.url ? " + receipt" : " (no receipt attached)"} — waiting for approval`, href: "/finance/expenses" };
+      return { ok: true, no: c.no ?? undefined, summary: `${c.no} · ${category} THB ${Number(c.amount).toFixed(2)} · ${localIso(c.spentOn)!.slice(0, 10)}${f?.url ? " + receipt" : " (no receipt attached)"} — waiting for approval`, href: "/finance/expenses" };
     } },
   { name: "record_training", tier: "auto",
     description: "Record a training session (培训记录) for one or more employees: title, kind (INTERNAL, ONJOB, ONLINE, VENDOR, EXTERNAL, SAFETY), date, hours, result (PLANNED, ATTENDED, PASSED, FAILED), level reached (L1–L4, only when an engineer-led practical exam certified it), certificate number and expiry. employees = codes or names; empty = the signed-in person. Recording for others needs a manager or the MD.",
@@ -234,5 +235,5 @@ export async function documentChain(no: string) {
     prisma.purchaseInquiry.findMany({ where: { serviceOrderId: o.id }, select: { no: true, status: true } }),
     prisma.purchaseOrder.findMany({ where: { serviceOrderId: o.id }, select: { no: true, status: true } }),
   ]);
-  return { order: o, documents: docs.map((d) => ({ no: d.no, type: d.type, date: d.issuedAt?.toISOString().slice(0, 10) })), supplierInquiries: prs, purchaseOrders: pos };
+  return { order: o, documents: docs.map((d) => ({ no: d.no, type: d.type, date: localIso(d.issuedAt)?.slice(0, 10) })), supplierInquiries: prs, purchaseOrders: pos };
 }

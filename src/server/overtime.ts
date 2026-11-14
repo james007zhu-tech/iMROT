@@ -3,6 +3,7 @@
  * Rules in src/lib/overtime.ts (LPA s.61–63, 36 h/week, hourly wage = base ÷ 30 ÷ 8).
  * Amounts are salary data: only the MD sees them; employees see their own hours and statuses.
  */
+import { localIso } from "@/lib/dates";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
@@ -35,7 +36,7 @@ async function checkRequest(employeeId: string, workDate: Date, start: string, e
   const near = await prisma.overtimeRequest.findMany({ where: { employeeId, id: ignoreId ? { not: ignoreId } : undefined, status: { in: ["PENDING", "APPROVED"] }, workDate: { gte: new Date(workDate.getTime() - 86_400_000), lte: new Date(workDate.getTime() + 86_400_000) } } });
   const me = interval(workDate, start, end);
   const clash = near.find((r) => { const o = interval(r.workDate, r.actualStart ?? r.startTime, r.actualEnd ?? r.endTime); return o.from < me.to && me.from < o.to; });
-  if (clash) throw new Error(`OT_OVERLAP:${clash.workDate.toISOString().slice(0, 10)} ${clash.startTime}–${clash.endTime}`);
+  if (clash) throw new Error(`OT_OVERLAP:${localIso(clash.workDate)!.slice(0, 10)} ${clash.startTime}–${clash.endTime}`);
   // 36 h a week of overtime + holiday overtime (Mon–Sun)
   const w = weekRange(workDate);
   const week = await prisma.overtimeRequest.findMany({ where: { employeeId, id: ignoreId ? { not: ignoreId } : undefined, status: { in: ["PENDING", "APPROVED"] }, workDate: { gte: w.from, lt: w.to } } });
@@ -56,7 +57,7 @@ export async function requestOvertime(input: z.input<typeof OvertimeInput>) {
   await checkRequest(emp.id, d.workDate, d.startTime, d.endTime, d.kind, hours);
   const auto = actor.role === "MD"; // the MD files for himself or on someone's behalf after agreeing it with them
   const r = await prisma.overtimeRequest.create({ data: { entityId: emp.entityId, employeeId: emp.id, workDate: d.workDate, startTime: d.startTime, endTime: d.endTime, breakMinutes: d.breakMinutes, hours, kind: d.kind, reason: d.reason, serviceOrderNo: d.serviceOrderNo || null, status: auto ? "APPROVED" : "PENDING", approverId: auto ? actor.id : null, decidedAt: auto ? new Date() : null, decisionNote: auto ? "MD" : null, createdById: actor.id } });
-  await audit(actor.id, "OT_REQUEST", r.id, { employee: emp.code, date: d.workDate.toISOString().slice(0, 10), hours, kind: d.kind });
+  await audit(actor.id, "OT_REQUEST", r.id, { employee: emp.code, date: localIso(d.workDate)!.slice(0, 10), hours, kind: d.kind });
   return r;
 }
 

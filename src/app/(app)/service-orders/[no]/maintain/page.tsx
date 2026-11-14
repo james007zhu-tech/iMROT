@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { advanceServiceOrder, createServiceOrder } from "@/server/slm";
@@ -111,7 +112,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
           <Grid>
             <Field label={u("recommendation")} required><input name="recommendation" required defaultValue={draft?.recommendation ?? ""} className={inputCls} /></Field>
             <Field label={u("conditionRating")}><select name="conditionRating" defaultValue={draft?.conditionRating ?? undefined} className={inputCls}><option value="GOOD">{u("rateGood")}</option><option value="GOOD_WITH_ISSUE">{u("rateIssue")}</option><option value="POOR">{u("ratePoor")}</option></select></Field>
-            <Field label={u("nextPm")}><div className="flex gap-2"><input name="nextDueAt" type="date" defaultValue={draft?.nextDueAt ? draft.nextDueAt.toISOString().slice(0, 10) : ""} className={inputCls} /><input name="nextDueHours" type="number" placeholder="+h" defaultValue={draft?.nextDueHours ?? ""} className={inputCls} /></div></Field>
+            <Field label={u("nextPm")}><div className="flex gap-2"><input name="nextDueAt" type="date" defaultValue={draft?.nextDueAt ? localIso(draft.nextDueAt)!.slice(0, 10) : ""} className={inputCls} /><input name="nextDueHours" type="number" placeholder="+h" defaultValue={draft?.nextDueHours ?? ""} className={inputCls} /></div></Field>
             <Field label={u("laborHours")}><input name="laborHours" type="number" step="0.5" defaultValue={draft?.laborHours != null ? Number(draft.laborHours) : ""} className={inputCls} /></Field>
             <Field label={u("consumablesUsed")}><input name="consumables" defaultValue={draft?.consumables ?? outs} className={inputCls} /></Field>
             <Field label={u("customerEscort")}><select name="escortContactId" defaultValue={draft?.escortContactId ?? ""} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)}{c.title ? ` · ${c.title}` : ""}</option>)}</select></Field>

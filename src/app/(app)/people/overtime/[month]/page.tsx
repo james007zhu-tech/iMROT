@@ -1,3 +1,4 @@
+import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -39,7 +40,7 @@ export default async function OvertimeMonth({ params, searchParams }: { params: 
       </Card>
       <Card title={u("otRequestsPaid")}>
         <Table head={[u("employee"), u("otDate"), u("otTime"), u("otHours"), u("otKind"), u("otReason")]}>
-          {m.requests.map((r) => <tr key={r.id}><td className="font-mono">{r.employee.code}</td><td>{r.workDate.toISOString().slice(0, 10)}</td><td>{r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime}</td><td>{Number(r.actualHours ?? r.hours)}</td><td className="text-xs">{u(`ot_${r.kind}`)}</td><td>{r.reason}</td></tr>)}
+          {m.requests.map((r) => <tr key={r.id}><td className="font-mono">{r.employee.code}</td><td>{localIso(r.workDate)!.slice(0, 10)}</td><td>{r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime}</td><td>{Number(r.actualHours ?? r.hours)}</td><td className="text-xs">{u(`ot_${r.kind}`)}</td><td>{r.reason}</td></tr>)}
         </Table>
       </Card>
     </div>
