@@ -22,8 +22,12 @@ describe("DBD lookup parsing", () => {
       "cd:OrganizationJuristicAddress": { "cr:AddressType": { "cd:AddressNo": "99/9", "cd:Moo": "4", "cd:Road": "สุขุมวิท", "cd:CitySubDivision": { "cr:CitySubDivisionTextTH": "มาบตาพุด" }, "cd:City": { "cr:CityTextTH": "เมืองระยอง" }, "cd:CountrySubDivision": { "cr:CountrySubDivisionTextTH": "ระยอง" } } } } }] });
     expect(ok?.nameTh).toBe("บริษัท ทดสอบ จำกัด");
     expect(ok?.foundedAt).toBe("1993-01-15");
-    expect(ok?.addressTh).toBe("99/9 หมู่ 4 ถนนสุขุมวิท มาบตาพุด เมืองระยอง ระยอง");
+    expect(ok?.addressTh).toBe("99/9 หมู่ที่ 4 ถนนสุขุมวิท ตำบลมาบตาพุด อำเภอเมืองระยอง จังหวัดระยอง");
     expect(isClosedStatus(ok?.status)).toBe(false);
     expect(parseDbdResponse({ status: { code: "1004", description: "No data available" }, data: [] })).toBeNull();
+  });
+  it("joins sub-district, district and province to the house number (DBD's cd:Address stops at the moo)", () => {
+    const r = parseDbdResponse({ status: { code: "1000" }, data: [{ "cd:OrganizationJuristicPerson": { "cd:OrganizationJuristicNameTH": "บริษัท จงเช่อ รับเบอร์ (ไทยแลนด์) จำกัด", "cd:OrganizationJuristicAddress": { "cr:AddressType": { "cd:Moo": "6", "cd:Address": "7/666  หมู่ที่ 6", "cd:AddressNo": "7/666", "cd:City": { "cr:CityTextTH": "ปลวกแดง" }, "cd:CitySubDivision": { "cr:CitySubDivisionTextTH": "มาบยางพร" }, "cd:CountrySubDivision": { "cr:CountrySubDivisionCode": "TH-21", "cr:CountrySubDivisionTextTH": "ระยอง" } } } } }] });
+    expect(r?.addressTh).toBe("7/666 หมู่ที่ 6 ตำบลมาบยางพร อำเภอปลวกแดง จังหวัดระยอง");
   });
 });
