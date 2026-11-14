@@ -2138,7 +2138,13 @@
     "err_RELINK_ONLY_ER_IN": "只有 ERTH 和 INTH 可以改归属：{detail}",
     "err_ATTACH_ONLY_PROJECT": "只有自动化项目单可以在交付时加设备",
     "err_ASSET_OTHER_CUSTOMER": "{detail} 属于另一家客户",
-    "err_MILESTONE_NEEDS_ATH": "请先给交付的设备建 ATH，再完成这个节点"
+    "err_MILESTONE_NEEDS_ATH": "请先给交付的设备建 ATH，再完成这个节点",
+    "poAllowRepeat": "我已知道这张业务单已有相同物料的采购单，仍然要再下这一张",
+    "err_AMBIGUOUS_SKU": "料号对应多个物料，请写带品牌前缀的完整料号：{detail}",
+    "err_STOCK_SHORT": "库存不够（要出/现有）：{detail}",
+    "err_DELIVERY_NO_STOCK": "送货数量超过库存（要送/可送）：{detail}。请先收货入库，或者分批送货。",
+    "err_PO_REPEAT": "这张业务单已经采购过这些物料（已采购+本次>客户订货）：{detail}。确实要再买，请勾选上方的确认后再保存。",
+    "err_INSPECTION_AFTER_WORK": "这台设备在这张单上已有 {detail}。检测应在维修或保养之前；之后发现的新问题请另开业务单。"
   },
   "role": {
     "MD": "董事总经理 MD",

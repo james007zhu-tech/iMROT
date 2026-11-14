@@ -2138,7 +2138,13 @@
     "err_RELINK_ONLY_ER_IN": "Only ERTH and INTH can be moved: {detail}",
     "err_ATTACH_ONLY_PROJECT": "Only a project order takes delivered equipment",
     "err_ASSET_OTHER_CUSTOMER": "{detail} belongs to another customer",
-    "err_MILESTONE_NEEDS_ATH": "File the delivered equipment as ATH before completing this milestone"
+    "err_MILESTONE_NEEDS_ATH": "File the delivered equipment as ATH before completing this milestone",
+    "poAllowRepeat": "I know this order already has these goods on another PO; place this one as well",
+    "err_AMBIGUOUS_SKU": "The part number matches several parts — give the full SKU with its brand prefix: {detail}",
+    "err_STOCK_SHORT": "Not enough stock (wanted/on hand): {detail}",
+    "err_DELIVERY_NO_STOCK": "More than the store holds (to deliver/available): {detail}. Receive the goods first, or deliver in part.",
+    "err_PO_REPEAT": "This order already buys these goods (ordered+this>customer's order): {detail}. To buy more, tick the confirmation above and save again.",
+    "err_INSPECTION_AFTER_WORK": "This machine already has {detail} on the order. Inspection comes before the work; what is found afterwards belongs to a new order."
   },
   "role": {
     "MD": "Managing Director",

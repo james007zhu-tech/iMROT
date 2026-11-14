@@ -4,6 +4,7 @@
  */
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
+import { findPart, resolveParts } from "@/server/scm";
 import { openOrderFor, verifySerial } from "@/server/asset-first";
 import { prisma } from "@/lib/db";
 import { openJob } from "@/lib/drafts";
@@ -49,7 +50,7 @@ export async function checkNeedsStock(needs: z.infer<typeof NeedRow>[]): Promise
   const out: InspectionNeed[] = [];
   for (const n of needs) {
     if (n.kind !== "PART" || !n.partSku) { out.push(n); continue; }
-    const part = await prisma.part.findUnique({ where: { sku: n.partSku } });
+    const part = await findPart(n.partSku);
     if (!part) { out.push({ ...n, onHand: 0, short: n.qty }); continue; }
     const rows = await prisma.stockMovement.groupBy({ by: ["direction"], where: { partId: part.id }, _sum: { qty: true } });
     const sum = (dir: "IN" | "OUT") => Number(rows.find((r) => r.direction === dir)?._sum.qty ?? 0);
@@ -68,6 +69,13 @@ export async function createInspection(input: z.input<typeof InspectionInput>) {
   // 设备优先: the INTH is opened from the ATH; it belongs to the order named, else to the machine's open QTTH, else to the machine alone
   const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }) : await openOrderFor(prisma, asset.id);
   if (order && !(await prisma.serviceOrderAsset.findUnique({ where: { serviceOrderId_assetId: { serviceOrderId: order.id, assetId: asset.id } } }))) throw new Error(`ASSET_NOT_ON_ORDER:${asset.code}`);
+  // Inspection comes before the work (trial finding 2026-11-14: an INTH was accepted after the PMTH it should have preceded).
+  // Once this machine has an RPTH or PMTH on the order, a new INTH is refused; what is found afterwards belongs to a new order.
+  if (order) {
+    const done = await prisma.repairJob.findFirst({ where: { serviceOrderId: order.id, assetId: asset.id }, orderBy: { no: "desc" }, select: { no: true } });
+    const continuing = await prisma.inspection.count({ where: { serviceOrderId: order.id, assetId: asset.id, draft: true } });
+    if (done && !continuing) throw new Error(`INSPECTION_AFTER_WORK:${done.no}`);
+  }
   // A saved draft of this order and asset is continued (same INTH number); its blanks replace what was there.
   const open = await prisma.inspection.findFirst({ where: { serviceOrderId: order?.id ?? null, assetId: asset.id, draft: true }, orderBy: { no: "desc" } });
   const needs = d.needs ? (d.draft ? d.needs : await checkNeedsStock(d.needs)) : undefined;
@@ -158,16 +166,16 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const vatRate = d.vatRate ?? (order.mode === "INTERNATIONAL_TRADE" ? EXPORT_VAT_RATE : Number(order.entity.vatRate));
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
   const fx = order.currency === "CNY" ? 1 : (await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny;
-  const parts = await prisma.part.findMany({ where: { sku: { in: d.lines.map((l) => l.partSku).filter((s): s is string => !!s) } } });
+  const parts = await resolveParts(d.lines.map((l) => l.partSku).filter((s): s is string => !!s));
   const partnerCosts = order.mode === "PARTNER_REPAIR" ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
-  const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.find((p) => p.sku === l.partSku)?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
+  const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
   const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 
   return prisma.$transaction(async (tx) => {
     await tx.quoteLine.deleteMany({ where: { serviceOrderId: order.id } });
     await tx.quoteLine.createMany({
       data: d.lines.map((l, i) => {
-        const part = parts.find((p) => p.sku === l.partSku);
+        const part = l.partSku ? parts.found.get(l.partSku.trim()) : undefined;
         return {
           serviceOrderId: order.id, lineNo: i + 1, assetCode: l.assetCode, partId: part?.id, description: l.description,
           descriptionLocal: l.descriptionLocal, qty: l.qty, unit: l.unit, unitPrice: l.unitPrice,
@@ -391,7 +399,9 @@ export async function missingForAcceptance(no: string): Promise<string[]> {
     if (!o.deliveries.some((d) => d.status === "SIGNED")) missing.push("DNTH");
     return missing;
   }
-  if (o.kind !== "CONTRACT" && o.kind !== "PARTS_SALE" && !o.inspections.length) missing.push("INTH");
+  // 维保 (trial finding 2026-11-14): a maintenance visit is accepted on its PMTH; an INTH is optional there, as the document chain says
+  const maintenance = o.mode === "MAINTENANCE" || o.kind === "MAINTENANCE" || o.kind === "CONTRACT";
+  if (!maintenance && o.kind !== "PARTS_SALE" && !o.inspections.length) missing.push("INTH");
   if (!o.repairJobs.length) missing.push(o.kind === "MAINTENANCE" || o.kind === "CONTRACT" ? "PMTH" : "RPTH");
   if (o.repairJobs.some((j) => j.location === "WORKSHOP")) {
     if (!o.documents.some((d) => d.type === "ER")) missing.push("ERTH");
