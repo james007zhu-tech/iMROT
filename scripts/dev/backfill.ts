@@ -9,6 +9,14 @@ import { ensureCategories } from "../../src/server/knowledge";
 import { searchTextOf, slugify } from "../../src/lib/knowledge";
 
 async function main() {
+  // 2026-11-15 暂估应付: POTHs received before accruals existed get theirs (idempotent — one row per POTH, kept in step).
+  { const { syncAccrual } = await import("../../src/server/srm"); let n = 0;
+    for (const po of await prisma.purchaseOrder.findMany({ where: { kind: "PARTS", status: { in: ["PARTIAL", "RECEIVED"] } }, select: { id: true, receipts: { orderBy: { movedAt: "desc" }, take: 1, select: { movedAt: true } }, invoices: { where: { accrued: true }, select: { id: true } } } })) {
+      if (po.invoices.length) continue;
+      if (await syncAccrual(po.id, po.receipts[0]?.movedAt)) n++;
+    }
+    console.log(`backfill: ${n} 暂估应付 written for goods already received`); }
+
   // 2026-11-09 business modes: orders created before modes existed take the mode their kind implies.
   const m = await prisma.serviceOrder.updateMany({ where: { mode: "REPAIR", kind: { in: ["MAINTENANCE", "OVERHAUL", "CONTRACT"] } }, data: { mode: "MAINTENANCE" } });
   const t = await prisma.serviceOrder.updateMany({ where: { mode: "REPAIR", kind: "PARTS_SALE" }, data: { mode: "DOMESTIC_TRADE" } });

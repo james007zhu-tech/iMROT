@@ -265,5 +265,7 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
     await tx.stockMovement.updateMany({ where: { no: ib.no }, data: { purchaseOrderId: po.id } });
     await tx.purchaseOrder.update({ where: { id: po.id }, data: { lines: updatedLines as unknown as Prisma.InputJsonValue, status: complete ? "RECEIVED" : "PARTIAL", attachments: input.attachments?.length ? ([...((po.attachments as unknown[] | null) ?? []), ...input.attachments] as Prisma.InputJsonValue) : undefined } });
   });
+  // 入库即暂估: what came in is owed from today, invoice or not (dynamic import: srm already imports this file)
+  await (await import("@/server/srm")).syncAccrual(po.id, input.movedAt ?? new Date());
   return { ibthNo: ib.no, status: complete ? "RECEIVED" : "PARTIAL" };
 }

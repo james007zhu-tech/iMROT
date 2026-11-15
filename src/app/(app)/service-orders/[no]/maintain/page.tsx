@@ -11,6 +11,8 @@ import { genericChecklist } from "@/lib/pm-generic";
 import { maskName } from "@/lib/mask";
 import { Card, Field, Grid, Table, Tag, Value, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, num, str } from "../_shell";
+import { WorkGate } from "../_gate";
+import { workGap } from "@/lib/work-gate";
 
 export const dynamic = "force-dynamic";
 const ROWS = 20;
@@ -23,6 +25,8 @@ export default async function Maintain({ params, searchParams }: { params: Promi
   const [{ no }, { error }] = await Promise.all([params, searchParams]);
   const order = await loadOrder(no);
   const [t, u, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getLocale()]);
+  const gap = workGap(order, { maintenance: true, rework: order.acceptance?.status === "REJECTED" });
+  if (gap) return <StepPage order={order} title={u("step_maintain")} saveLabel=""><WorkGate no={no} gap={gap} work="maintain" /></StepPage>;
   const asset = order.assets[0]?.asset;
   const draft = openJob(order.repairJobs, { maintenance: true, orderStatus: order.status });
   const [standards, last, engineers, contacts] = await Promise.all([

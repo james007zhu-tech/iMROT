@@ -109,14 +109,21 @@ async function main() {
     await advanceServiceOrder(o.no, "DIAGNOSING", admin.code);
     await setQuoteLines({ serviceOrderNo: o.no, actorCode: admin.code, lines: [{ assetCode: vfd.code, description: "Labour", qty: 1, unitPrice: 1000 }] });
     await advanceServiceOrder(o.no, "QUOTE_PENDING", admin.code);
+    // 测试报告 P0-07: no repair report before the customer's PO
+    const early = await createRepairJob({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "SITE", confirmedFault: "x", workPerformed: "y" }).then(() => "written", (e) => String(e.message));
+    if (/WORK_TOO_EARLY_CONFIRM/.test(early)) pass("P0-07 a repair report before the customer PO is refused", early); else throw new Error(`early RPTH was not refused: ${early}`);
     await confirmCustomerPo({ no: o.no, actorCode: admin.code, poLines: await poLinesFromQuote(o.no) });
-    await createRepairJob({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "SITE", confirmedFault: "x", workPerformed: "y", finishedAt: new Date() });
+    // 测试报告 P0-08: no finishing without a run test that has a result and passed, nor with a failed one
+    const bare = await createRepairJob({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "SITE", confirmedFault: "x", workPerformed: "y", finishedAt: new Date() }).then(() => "finished", (e) => String(e.message));
+    const failed = await createRepairJob({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "SITE", confirmedFault: "x", workPerformed: "y", finishedAt: new Date(), tests: [{ key: "noLoad", test: "no-load", result: "ok", pass: true }, { key: "load", test: "load", result: "trips OC", pass: false }] }).then(() => "finished", (e) => String(e.message));
+    if (/REPAIR_NEEDS_TEST/.test(bare) && /REPAIR_FAILED/.test(failed)) pass("P0-08 finishing needs a passed run test and no failed one", `${bare} / ${failed}`); else throw new Error(`finish rule: ${bare} / ${failed}`);
+    await createRepairJob({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "SITE", confirmedFault: "x", workPerformed: "y", finishedAt: new Date(), tests: [{ key: "noLoad", test: "no-load run", result: "50 Hz, 3.1 A", pass: true }] });
     try {
       await recordAcceptance({ serviceOrderNo: o.no, actorCode: admin.code, status: "REJECTED", deliverables: [{ deliverable: "runs", criterion: "ok", result: "fails" }], punchList: "still trips" });
       const s = (await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } })).status;
       pass("P4 rejected acceptance routes order to", s);
       try {
-        await createRepairJob({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "SITE", confirmedFault: "x2", workPerformed: "rework", finishedAt: new Date() });
+        await createRepairJob({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "SITE", confirmedFault: "x2", workPerformed: "rework", finishedAt: new Date(), tests: [{ key: "noLoad", test: "no-load run", result: "50 Hz, 3.1 A", pass: true }] });
         pass("P4b rework RPTH allowed after rejection", "");
       } catch (e) { gap("P4b rework RPTH blocked after rejection", errMsg(e)); }
     } catch (e) { gap("P4 rejected acceptance throws", errMsg(e)); }
