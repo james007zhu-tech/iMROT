@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db";
 import { receivePurchaseOrder } from "@/server/purchasing";
 import { registerSupplierInvoice } from "@/server/srm";
 import { mismatch } from "@/lib/pay-rules";
+import { findPart } from "@/server/scm";
+import { guessBrand } from "@/lib/part-guess";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
@@ -34,7 +36,8 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
     await guarded(async () => {
       const me = await currentEmployee();
       const received = lines.map((l, i) => ({ lineNo: l.lineNo, qty: Number(str(f, `r${i}`) ?? 0), batch: str(f, `b${i}`) })).filter((r) => r.qty > 0);
-      const r = await receivePurchaseOrder({ poNo: no, actorCode: me.code, supplierRef: str(f, "supplierRef"), movedAt: str(f, "movedAt") ? new Date(str(f, "movedAt")!) : undefined, received, attachments: JSON.parse(String(f.get("attachments") || "[]")) });
+      const newParts = lines.map((l, i) => ({ lineNo: l.lineNo, brandCode: str(f, `nb${i}`), vendorPartNo: str(f, `nv${i}`) ?? "", name: str(f, `nn${i}`) ?? "" })).filter((x) => x.vendorPartNo || x.name);
+      const r = await receivePurchaseOrder({ poNo: no, actorCode: me.code, newParts, supplierRef: str(f, "supplierRef"), movedAt: str(f, "movedAt") ? new Date(str(f, "movedAt")!) : undefined, received, attachments: JSON.parse(String(f.get("attachments") || "[]")) });
       return { ok: r.ibthNo, to: `/purchasing/orders/${no}` };
     }, `/purchasing/orders/${no}`);
   }
@@ -50,6 +53,9 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
   const accrual = po.invoices.find((i) => i.accrued), invoices = po.invoices.filter((i) => !i.accrued);
   const mayInvoice = po.kind === "PARTS" && po.status !== "DRAFT" && po.status !== "CANCELLED" && invoices.reduce((x, i) => x + Number(i.subtotal), 0) < Number(po.subtotal) - 0.01;
   const today = localIso(new Date())!.slice(0, 10);
+  // 入库必须有料号: which lines the library does not know yet — those get the 新建料号 fields, filled from the POTH
+  const known = await Promise.all(lines.map(async (l) => !!((await findPart(l.partSku).catch(() => null)) ?? (await findPart(l.vendorPartNo).catch(() => null)))));
+  const brands = known.every(Boolean) ? [] : await prisma.brand.findMany({ orderBy: { name: "asc" }, select: { code: true, name: true } });
   const receiptsByNo = new Map<string, typeof po.receipts>();
   for (const r of po.receipts) receiptsByNo.set(r.no, [...(receiptsByNo.get(r.no) ?? []), r]);
   return (
@@ -106,7 +112,17 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
               <Field label={u("receivedOn")}><input name="movedAt" type="date" defaultValue={today} className={inputCls} /></Field>
             </Grid>
             <Table head={["#", t("description"), u("outstanding"), u("receiveNow"), u("batch")]}>
-              {lines.map((l, i) => { const due = l.qty - l.receivedQty; return <tr key={l.lineNo}><td>{l.lineNo}</td><td>{l.description}{!l.partSku ? (l.vendorPartNo ? <span className="block text-xs text-navy/60">{u("poLineAutoPart", { no: l.vendorPartNo })}</span> : <span className="block text-xs text-alert-ink">{u("poLineNeedsSku")}</span>) : null}</td><td>{due}</td><td><input name={`r${i}`} type="number" step="0.001" max={due} defaultValue={due > 0 ? due : ""} disabled={(!l.partSku && !l.vendorPartNo) || due <= 0} className={inputCls} /></td><td><input name={`b${i}`} className={inputCls} /></td></tr>; })}
+              {lines.map((l, i) => { const due = l.qty - l.receivedQty; const lacks = !known[i] && due > 0; return <tr key={l.lineNo} className={lacks ? "bg-[#FFF4E5]" : ""}><td>{l.lineNo}</td>
+                <td>{l.description}
+                  {lacks && <div className="mt-1 space-y-1 rounded-lg border border-[#E6A23C] bg-white p-2">
+                    <div className="text-xs font-semibold text-[#7A4A00]">{u("poLineNewPart", { n: l.lineNo })}</div>
+                    <div className="grid grid-cols-1 gap-1 md:grid-cols-3">
+                      <label className="text-xs text-navy/70">{u("newPartBrand")}<select name={`nb${i}`} defaultValue={guessBrand(`${l.description} ${po.supplier.name}`, brands) ?? ""} className={inputCls}><option value="">{u("newPartNoBrand")}</option>{brands.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}</select></label>
+                      <label className="text-xs text-navy/70">{u("newPartVendorNo")} *<input name={`nv${i}`} defaultValue={l.vendorPartNo ?? l.partSku ?? ""} className={`${inputCls} font-mono`} /></label>
+                      <label className="text-xs text-navy/70">{u("newPartName")} *<input name={`nn${i}`} defaultValue={l.description} className={inputCls} /></label>
+                    </div>
+                  </div>}
+                </td><td>{due}</td><td><input name={`r${i}`} type="number" step="0.001" max={due} defaultValue={due > 0 ? due : ""} disabled={due <= 0} className={inputCls} /></td><td><input name={`b${i}`} className={inputCls} /></td></tr>; })}
             </Table>
             <p className="text-xs text-navy/70">{u("receiveNote")}</p>
             <div className="mt-2 text-right"><button className={btnPrimary}>{u("saveReceipt")}</button></div>

@@ -6,6 +6,7 @@
  * the row's SKU, name, Thai name and unit. A part that is not in the list can still be typed.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 
 export interface PartOption { sku: string; vendorPartNo?: string | null; name: string; nameLocal?: string | null; unit?: string | null; onHand?: number; own?: boolean }
 
@@ -15,6 +16,28 @@ export function PartDropdown({ formId, parts, sku, name, local, unit, vendor, la
   const [at, setAt] = useState<{ el: HTMLInputElement; i: string; top: number; left: number; width: number } | null>(null);
   const [q, setQ] = useState("");
   const box = useRef<HTMLDivElement>(null);
+  const tt = useTranslations("ui");
+  // 原地新建料号 (朱总 2026-11-15): a part that is not in the list is made right here and filled into the row
+  const [made, setMade] = useState<PartOption[]>([]);
+  const [draft, setDraft] = useState<{ brand: string; vendor: string; name: string; busy?: boolean; err?: string } | null>(null);
+  const [brands, setBrands] = useState<{ code: string; name: string }[] | null>(null);
+  async function startNew() {
+    if (!at) return;
+    const form = at.el.form!;
+    const val = (prefix?: string) => (prefix ? ((form.elements.namedItem(`${prefix}${at.i}`) as HTMLInputElement | null)?.value ?? "").trim() : "");
+    const typedSku = val(sku), nm = val(name) || q;
+    setDraft({ brand: "", vendor: val(vendor) || typedSku || q, name: nm });
+    const r = await fetch(`/api/parts-quick?text=${encodeURIComponent(`${nm} ${typedSku}`)}`).then((x) => x.json()).catch(() => null);
+    if (r?.brands) { setBrands(r.brands); if (r.guess) setDraft((d) => (d && !d.brand ? { ...d, brand: r.guess } : d)); }
+  }
+  async function create() {
+    if (!draft || draft.busy) return;
+    if (!draft.vendor.trim() || !draft.name.trim()) { setDraft({ ...draft, err: tt("newPartNeeds") }); return; }
+    setDraft({ ...draft, busy: true, err: undefined });
+    const r = await fetch("/api/parts-quick", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ brandCode: draft.brand, vendorPartNo: draft.vendor, name: draft.name }) }).then((x) => x.json()).catch(() => null);
+    if (!r?.sku) { setDraft({ ...draft, busy: false, err: tt("newPartFailed") }); return; }
+    setMade((m) => [...m, r]); setDraft(null); pick(r);
+  }
 
   useEffect(() => {
     const form = document.getElementById(formId) as HTMLFormElement | null;
@@ -26,7 +49,7 @@ export function PartDropdown({ formId, parts, sku, name, local, unit, vendor, la
     };
     const place = (el: HTMLInputElement, i: string) => { const r = el.getBoundingClientRect(); const w = Math.min(Math.max(r.width, 300), window.innerWidth - 16); setAt({ el, i, top: r.bottom + window.scrollY + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + window.scrollX, width: w }); };
     const open = (e: Event) => { const r = rowOf(e.target); if (!r) return; r.el.removeAttribute("list"); r.el.autocomplete = "off"; setQ(e.type === "input" ? r.el.value : ""); place(r.el, r.i); };
-    const close = (e: Event) => { if (box.current?.contains(e.target as Node) || rowOf(e.target)) return; setAt(null); };
+    const close = (e: Event) => { if (box.current?.contains(e.target as Node) || rowOf(e.target)) return; setAt(null); setDraft(null); };
     form.addEventListener("focusin", open); form.addEventListener("input", open);
     document.addEventListener("pointerdown", close);
     return () => { form.removeEventListener("focusin", open); form.removeEventListener("input", open); document.removeEventListener("pointerdown", close); };
@@ -35,8 +58,8 @@ export function PartDropdown({ formId, parts, sku, name, local, unit, vendor, la
   const found = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     const hit = (p: PartOption) => { const h = `${p.sku} ${p.vendorPartNo ?? ""} ${p.name} ${p.nameLocal ?? ""}`.toLowerCase(); return words.every((w) => h.includes(w)); };
-    return parts.filter(hit).slice(0, 30);
-  }, [q, parts]);
+    return [...made, ...parts].filter(hit).slice(0, 30);
+  }, [q, parts, made]);
 
   function pick(p: PartOption) {
     if (!at) return;
@@ -59,7 +82,19 @@ export function PartDropdown({ formId, parts, sku, name, local, unit, vendor, la
           <span className="block text-xs text-navy/60"><span className="font-mono">{p.sku}</span>{p.onHand !== undefined ? <span className={p.onHand > 0 ? "" : "font-semibold text-alert-ink"}>  ·  {labels.onHand} {p.onHand}</span> : null}</span>
         </button>
       ))}
-      {found.length === 0 && <p className="px-3 py-2 text-sm text-navy/60">{labels.none}</p>}
+      {found.length === 0 && !draft && <p className="px-3 py-2 text-sm text-navy/60">{labels.none}</p>}
+      {!draft && <button type="button" onPointerDown={(e) => e.preventDefault()} onClick={startNew} className="mt-1 block w-full rounded-lg border border-dashed border-blue/60 px-3 py-2 text-left text-[14px] font-semibold text-blue">＋ {tt("newPartHere")}</button>}
+      {draft && <div className="space-y-2 rounded-lg border border-blue/40 bg-[#F4F8FD] p-2" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void create(); } }}>
+        <div className="text-[13px] font-semibold text-navy">{tt("newPartHere")}</div>
+        <label className="block text-xs text-navy/70">{tt("newPartBrand")}
+          <select value={draft.brand} onChange={(e) => setDraft({ ...draft, brand: e.target.value })} className="mt-0.5 block min-h-10 w-full rounded-lg border border-navy/25 bg-white px-2 text-sm"><option value="">{tt("newPartNoBrand")}</option>{(brands ?? []).map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}</select></label>
+        <label className="block text-xs text-navy/70">{tt("newPartVendorNo")} *
+          <input value={draft.vendor} onChange={(e) => setDraft({ ...draft, vendor: e.target.value })} className="mt-0.5 block min-h-10 w-full rounded-lg border border-navy/25 bg-white px-2 font-mono text-sm" /></label>
+        <label className="block text-xs text-navy/70">{tt("newPartName")} *
+          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="mt-0.5 block min-h-10 w-full rounded-lg border border-navy/25 bg-white px-2 text-sm" /></label>
+        {draft.err && <p className="text-xs font-semibold text-alert-ink">{draft.err}</p>}
+        <div className="flex justify-end gap-2"><button type="button" onClick={() => setDraft(null)} className="min-h-10 rounded-lg border border-navy/25 bg-white px-3 text-sm">{tt("newPartCancel")}</button><button type="button" onClick={create} disabled={draft.busy} className="min-h-10 rounded-lg bg-blue px-3 text-sm font-semibold text-white disabled:opacity-50">{draft.busy ? "…" : tt("newPartCreate")}</button></div>
+      </div>}
     </div>
   );
 }

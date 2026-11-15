@@ -1,3 +1,4 @@
+import { skuGaps } from "@/server/purchasing";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getLocale, getTranslations } from "next-intl/server";
@@ -37,6 +38,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const { no } = await params;
   const { ok, error } = await searchParams;
   const order = await loadOrder(no);
+  // 转采购必须有料号: the part lines that still have none, while the order is still before delivery
+  const gaps = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"].includes(order.status) ? await skuGaps(no).catch(() => []) : [];
   const [t, u, ts, te, locale, tInq, tPo] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getTranslations("eventType"), getLocale(), getTranslations("inquiryStatus"), getTranslations("poStatus")]);
   const engineers = await prisma.employee.findMany({ where: { active: true, role: { in: ["ENGINEER", "MANAGER", "MD", "ADMIN"] } }, orderBy: { name: "asc" } });
   const stamp = (d: Date) => new Intl.DateTimeFormat(locale, { ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}), month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
@@ -181,6 +184,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
       <DocChain order={order.no} slots={chain} />
       <Flash ok={ok} error={error} />
+      {gaps.length > 0 && <Alert>{u("buyNeedsSku")}：{gaps.map((g) => `${g.lineNo ? `#${g.lineNo} ` : ""}${g.description}`).join("；")}。 <Link href={`/service-orders/${no}/quote`} className="font-semibold underline">{u("buyNeedsSkuGo")} →</Link></Alert>}
       {dec && <Alert>{u("declinedBanner", { date: localIso(dec.toldAt)!.slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

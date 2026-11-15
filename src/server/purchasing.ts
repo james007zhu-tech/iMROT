@@ -44,9 +44,41 @@ export const InquiryInput = z.object({
   attachments: z.array(Att).optional(),
 });
 
+/**
+ * 转采购必须有料号 (朱总 2026-11-15): every line bought must be a part in the library — by our SKU or the maker's
+ * number. Returns the lines with the library's SKU filled in; throws BUY_NEEDS_SKU with the line numbers that have none.
+ */
+export async function withSkus<T extends { partSku?: string; vendorPartNo?: string }>(lines: T[]): Promise<T[]> {
+  const out: T[] = [], missing: number[] = [];
+  for (const [i, l] of lines.entries()) {
+    const part = (await findPart(l.partSku).catch(() => null)) ?? (await findPart(l.vendorPartNo).catch(() => null));
+    if (!part) missing.push(i + 1);
+    out.push(part ? { ...l, partSku: part.sku, vendorPartNo: l.vendorPartNo || part.vendorPartNo } : l);
+  }
+  if (missing.length) throw new Error(`BUY_NEEDS_SKU:${missing.join("、")}`);
+  return out;
+}
+
+/** The part lines of an order that have no part number yet — what stands between the quote and purchasing. */
+export async function skuGaps(no: string): Promise<{ lineNo: number; description: string }[]> {
+  const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { lines: { orderBy: { lineNo: "asc" } }, inspections: { where: { draft: false } } } });
+  const trade = o.mode === "DOMESTIC_TRADE" || o.mode === "INTERNATIONAL_TRADE";
+  if (trade) {
+    if (o.lines.length) return o.lines.filter((l) => !l.partId).map((l) => ({ lineNo: l.lineNo, description: l.description }));
+    const req = (o.requestLines as { sku?: string; description: string }[] | null) ?? [];
+    const gaps: { lineNo: number; description: string }[] = [];
+    for (const [i, r] of req.entries()) if (!(await findPart(r.sku).catch(() => null))) gaps.push({ lineNo: i + 1, description: r.description });
+    return gaps;
+  }
+  // 维修: the parts the inspection says the repair needs; labour and pure-repair lines need no number
+  const needs = o.inspections.flatMap((i) => ((i.needs as { kind: string; partSku?: string; description: string }[] | null) ?? []).filter((n) => n.kind === "PART" && !n.partSku));
+  return needs.map((n) => { const l = o.lines.find((x) => x.description === n.description); return l && l.partId ? null : { lineNo: l?.lineNo ?? 0, description: n.description }; }).filter((x): x is { lineNo: number; description: string } => !!x);
+}
+
 /** Raise a PRTH. From a service order it carries the order's parts that are not in stock; or any lines by hand. */
 export async function createInquiry(input: z.input<typeof InquiryInput>) {
   const d = InquiryInput.parse(input);
+  if (d.kind === "PARTS") d.lines = await withSkus(d.lines);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { assets: true } }) : null;
   if (order) assertNotLocked(order);
@@ -68,8 +100,10 @@ export async function createInquiry(input: z.input<typeof InquiryInput>) {
 export async function inquiryLinesFromOrder(no: string): Promise<InquiryLine[]> {
   const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { lines: { include: { part: true }, orderBy: { lineNo: "asc" } }, inspections: { where: { draft: false }, orderBy: { no: "desc" } } } });
   const wanted: { sku: string; vendorPartNo?: string; description: string; qty: number; unit: string; assetCode?: string }[] = [];
-  if (o.lines.some((l) => l.part)) {
-    for (const l of o.lines) if (l.part) wanted.push({ sku: l.part.sku, vendorPartNo: l.part.vendorPartNo, description: l.description, qty: Number(l.qty), unit: l.unit, assetCode: l.assetCode ?? undefined });
+  const trade = o.mode === "DOMESTIC_TRADE" || o.mode === "INTERNATIONAL_TRADE";
+  if (o.lines.some((l) => l.part) || (trade && o.lines.length)) {
+    // 贸易: every quote line is goods, with or without a part number yet (the inquiry form asks for the missing ones)
+    for (const l of o.lines) if (l.part || trade) wanted.push({ sku: l.part?.sku ?? "", vendorPartNo: l.part?.vendorPartNo, description: l.description, qty: Number(l.qty), unit: l.unit, assetCode: l.assetCode ?? undefined });
   } else if (o.inspections.length === 0 && Array.isArray(o.requestLines)) {
     // 贸易: the customer's inquiry lines; an item we have never stocked (no SKU match) is short in full
     for (const r of o.requestLines as { sku?: string; description: string; qty: number; unit: string }[]) wanted.push({ sku: r.sku ?? "", description: r.description, qty: Number(r.qty), unit: r.unit });
@@ -77,7 +111,7 @@ export async function inquiryLinesFromOrder(no: string): Promise<InquiryLine[]> 
     for (const insp of o.inspections) {
       const needs = (insp.needs as { kind: string; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit?: string }[] | null) ?? [];
       const asset = await prisma.asset.findUnique({ where: { id: insp.assetId }, select: { code: true } });
-      for (const n of needs) if (n.kind === "PART" && n.partSku) wanted.push({ sku: n.partSku, vendorPartNo: n.vendorPartNo, description: n.description, qty: Number(n.qty), unit: n.unit ?? "pcs", assetCode: asset?.code });
+      for (const n of needs) if (n.kind === "PART") wanted.push({ sku: n.partSku ?? "", vendorPartNo: n.vendorPartNo, description: n.description, qty: Number(n.qty), unit: n.unit ?? "pcs", assetCode: asset?.code });
     }
   }
   const out: InquiryLine[] = [];
@@ -97,6 +131,7 @@ export async function autoInquiryForOrder(no: string, actorCode: string): Promis
   if (open) return null;
   const lines = await inquiryLinesFromOrder(no);
   if (!lines.length) return null;
+  if ((await skuGaps(no)).length) return null; // a line has no part number yet: the order page says which, nothing is raised behind the user's back
   const inq = await createInquiry({ actorCode, serviceOrderNo: no, lines, note: "auto: short items from the inspection or the customer's inquiry" });
   return inq.no;
 }
@@ -172,6 +207,7 @@ export const PurchaseOrderInput = z.object({
 });
 export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInput>) {
   const d = PurchaseOrderInput.parse(input);
+  if (d.kind === "PARTS" && !d.inquiryNo) d.lines = await withSkus(d.lines);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode }, include: { entity: true } });
   const inq = d.inquiryNo ? await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: d.inquiryNo }, include: { serviceOrder: true } }) : null;
   const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { assets: true } }) : inq?.serviceOrder ? await prisma.serviceOrder.findUniqueOrThrow({ where: { id: inq.serviceOrder.id }, include: { assets: true } }) : null;
@@ -235,7 +271,7 @@ export async function raisePurchaseOrdersForOrder(no: string, actorCode: string)
 }
 
 /** Goods arrived: one IBTH (one or more lines) against the POTH; the PO goes PARTIAL or RECEIVED. */
-export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; attachments?: { name: string; url: string; kind?: string }[] }) {
+export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; newParts?: { lineNo: number; brandCode?: string; vendorPartNo: string; name: string }[]; attachments?: { name: string; url: string; kind?: string }[] }) {
   const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.poNo }, include: { serviceOrder: true } });
   if (po.status === "CANCELLED" || po.status === "RECEIVED") throw new Error(`PO_CLOSED:${po.no}`);
   if (po.kind === "SUBCONTRACT") throw new Error(`PO_IS_SUBCONTRACT:${po.no}`); // the machine comes back on a 外协返回 IBTH (srm.returnFromPartner)
@@ -245,17 +281,22 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
   for (const r of take) {
     const l = lines.find((x) => x.lineNo === r.lineNo);
     if (!l) throw new Error(`PO_LINE_NOT_FOUND:${r.lineNo}`);
-    if (!l.partSku && !l.vendorPartNo) throw new Error(`PO_LINE_NO_SKU:${r.lineNo}`); // a line needs a part number — ours or the maker's — before it can be stocked
     if (r.qty > l.qty - l.receivedQty + 1e-9) throw new Error(`RECEIPT_OVER:${r.lineNo}`);
   }
-  // A maker's number the library has never seen becomes a part here, from the line itself (walk-through 2026-11-15:
-  // goods at the door, and the form said "create the part first" — one more form for what the line already says).
+  // 入库必须有料号 (朱总 2026-11-15). A line whose part is not in the library is made into one from what the receipt
+  // form shows for it (brand, maker's number, name — taken from the POTH, the person can correct them). Nothing is made
+  // silently; lines that still have none are named.
+  const missing: number[] = [];
   for (const r of take) {
     const l = lines.find((x) => x.lineNo === r.lineNo)!;
-    if (l.partSku || !l.vendorPartNo || (await findPart(l.vendorPartNo))) continue;
-    const made = await createPart({ vendorPartNo: l.vendorPartNo, name: l.description || l.vendorPartNo, unit: l.unit });
+    if ((await findPart(l.partSku).catch(() => null)) ?? (await findPart(l.vendorPartNo).catch(() => null))) continue;
+    const np = input.newParts?.find((x) => x.lineNo === r.lineNo);
+    if (!np?.vendorPartNo?.trim() || !np.name?.trim()) { missing.push(r.lineNo); continue; }
+    const made = (await findPart(np.vendorPartNo).catch(() => null)) ?? (await createPart({ brandCode: np.brandCode || undefined, vendorPartNo: np.vendorPartNo.trim(), name: np.name.trim(), unit: l.unit }));
+    l.partSku = made.sku; l.vendorPartNo = l.vendorPartNo || made.vendorPartNo;
     await prisma.auditLog.create({ data: { actorId: (await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } })).id, action: "PART_CREATED_ON_RECEIPT", target: made.sku, detail: { po: po.no, line: l.lineNo } } });
   }
+  if (missing.length) throw new Error(`PO_LINE_NO_SKU:${missing.join("、")}`);
   const ib = await recordStockDoc({ actorCode: input.actorCode, direction: "IN", serviceOrderNo: po.serviceOrder?.no, supplierRef: input.supplierRef ?? po.supplierRef ?? undefined, costCurrency: po.currency, movedAt: input.movedAt, lines: take.map((r) => { const l = lines.find((x) => x.lineNo === r.lineNo)!; return { partSku: (l.partSku || l.vendorPartNo)!, qty: r.qty, batch: r.batch, unitCost: l.unitPrice }; }) });
   // the line keeps the library's SKU from now on, so the next receipt and the stock page agree on the part
   const skuOf = new Map(take.map((r, i) => [r.lineNo, ib.lines[i]?.part?.sku]));
