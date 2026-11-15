@@ -11,7 +11,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
   async function login(form: FormData) {
     "use server";
     const email = String(form.get("email")).trim(), from = await clientAddress();
-    if (blocked(email, from)) redirect("/login?e=wait");
+    if (blocked(email, from)) { console.warn(`[login-fail] ${new Date().toISOString()} why=locked email=${JSON.stringify(email)}`); redirect("/login?e=wait"); }
     const ok = await signInEmployee(email, String(form.get("password")));
     if (ok) noteSuccess(email); else noteFailure(email, from);
     redirect(ok ? "/home" : "/login?e=1");
