@@ -21,7 +21,7 @@ import { reopenBlocker } from "@/lib/modes";
 import type { Prisma } from "@prisma/client";
 import { audit } from "@/server/audit";
 import { latestRate } from "@/server/fx";
-import { overLimit } from "@/lib/pay-rules";
+import { accrualNo, mismatch, overLimit } from "@/lib/pay-rules";
 
 const Att = z.object({ name: z.string(), url: z.string(), kind: z.string().optional() });
 type AttT = z.infer<typeof Att>;
@@ -310,7 +310,7 @@ export const SupplierInvoiceInput = z.object({
  */
 export async function registerSupplierInvoice(input: z.input<typeof SupplierInvoiceInput>) {
   const d = SupplierInvoiceInput.parse(input);
-  const [po, actor] = await Promise.all([prisma.purchaseOrder.findUniqueOrThrow({ where: { no: d.poNo }, include: { supplier: true, milestones: true, invoices: { where: { status: { not: "CANCELLED" } } } } }), actorOf(d.actorCode)]);
+  const [po, actor] = await Promise.all([prisma.purchaseOrder.findUniqueOrThrow({ where: { no: d.poNo }, include: { supplier: true, milestones: true, invoices: { where: { status: { not: "CANCELLED" }, accrued: false } } } }), actorOf(d.actorCode)]);
   if (po.status === "CANCELLED") throw new Error(`PO_CLOSED:${po.no}`);
   const already = po.invoices.reduce((s, i) => s + Number(i.subtotal), 0);
   if (round2(already + d.subtotal) > Number(po.subtotal) + 0.01) throw new Error(`INVOICE_EXCEEDS_PO:${round2(already + d.subtotal)}>${Number(po.subtotal)}`);
@@ -319,7 +319,36 @@ export async function registerSupplierInvoice(input: z.input<typeof SupplierInvo
   const vatAmount = d.vatAmount ?? round2(d.subtotal * Number(po.vatRate));
   const whtRate = d.whtRate ?? whtRateFor(po.supplier.countryCode, po.kind);
   const whtAmount = round2(d.subtotal * whtRate), total = round2(d.subtotal + vatAmount);
-  return prisma.supplierInvoice.create({ data: { entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: d.invoiceNo.trim(), invoiceDate: d.invoiceDate, currency: po.currency, subtotal: d.subtotal, vatAmount, total, whtRate, whtAmount, payable: round2(total - whtAmount), dueDate: payableDueDate(d.invoiceDate, po.supplier.paymentMode, po.supplier.paymentDays), attachments: d.attachments as Prisma.InputJsonValue | undefined, createdById: actor.id } });
+  // 三单匹配 (POTH, 入库, 发票): the invoice against what has been received and not yet invoiced
+  const matchDiff = po.kind === "PARTS" ? round2(d.subtotal - (receivedValue(po.lines) - already)) : null;
+  const inv = await prisma.supplierInvoice.create({ data: { entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: d.invoiceNo.trim(), invoiceDate: d.invoiceDate, currency: po.currency, subtotal: d.subtotal, vatAmount, total, whtRate, whtAmount, payable: round2(total - whtAmount), matchDiff, dueDate: payableDueDate(d.invoiceDate, po.supplier.paymentMode, po.supplier.paymentDays), attachments: d.attachments as Prisma.InputJsonValue | undefined, createdById: actor.id } });
+  await audit(actor.id, "SUPPLIER_INVOICE", inv.invoiceNo, { po: po.no, subtotal: d.subtotal, matchDiff });
+  if (po.kind === "PARTS") await syncAccrual(po.id);
+  return inv;
+}
+
+/** What has come through the door on a POTH, at the POTH's prices. */
+export function receivedValue(lines: unknown): number {
+  return round2(((lines as { qty: number; unitPrice: number; receivedQty?: number }[] | null) ?? []).reduce((s, l) => s + Number(l.receivedQty ?? 0) * Number(l.unitPrice ?? 0), 0));
+}
+
+/**
+ * 暂估应付 (测试报告 P0-10): goods received and not yet invoiced are owed all the same. One row per POTH holds the
+ * difference between what was received and what the supplier has invoiced; it disappears when the invoices cover it.
+ * Due by the supplier's terms from the receipt. It carries no input VAT claim and cannot be paid — the invoice is.
+ */
+export async function syncAccrual(poId: string, receivedAt?: Date) {
+  const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: poId }, include: { supplier: true, invoices: { where: { status: { not: "CANCELLED" } } } } });
+  if (po.kind !== "PARTS") return null;
+  const row = po.invoices.find((i) => i.accrued);
+  const invoiced = po.invoices.filter((i) => !i.accrued).reduce((s, i) => s + Number(i.subtotal), 0);
+  const open = po.status === "CANCELLED" ? 0 : round2(receivedValue(po.lines) - invoiced);
+  if (open <= 0.01) { if (row) await prisma.supplierInvoice.delete({ where: { id: row.id } }); return null; }
+  const vatAmount = round2(open * Number(po.vatRate)), total = round2(open + vatAmount);
+  const at = receivedAt ?? row?.invoiceDate ?? new Date();
+  const data = { subtotal: open, vatAmount, total, whtRate: 0, whtAmount: 0, payable: total, invoiceDate: at, dueDate: payableDueDate(at, po.supplier.paymentMode, po.supplier.paymentDays) };
+  return row ? prisma.supplierInvoice.update({ where: { id: row.id }, data })
+    : prisma.supplierInvoice.create({ data: { ...data, accrued: true, entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: accrualNo(po.no), currency: po.currency, createdById: po.createdById } });
 }
 
 /** The amount in THB for the limit; null when a foreign invoice has no rate to convert with (then the MD decides). */
@@ -330,7 +359,8 @@ export async function payableThb(inv: { currency: string; payable: unknown }) {
 }
 
 /** Does this payment wait for the MD? Above 50,000 THB, or the payer is the person who registered the invoice. */
-export async function paymentNeedsMd(inv: { currency: string; payable: unknown; createdById: string }, payerId?: string) {
+export async function paymentNeedsMd(inv: { currency: string; payable: unknown; createdById: string; matchDiff?: unknown; subtotal?: unknown }, payerId?: string) {
+  if (inv.matchDiff != null && mismatch(Number(inv.matchDiff), Number(inv.subtotal ?? 0) - Number(inv.matchDiff))) return true; // 三单不符
   return overLimit(await payableThb(inv)) || (!!payerId && inv.createdById === payerId);
 }
 
@@ -340,6 +370,7 @@ export async function approvePayment(input: { id: string; actorCode: string }) {
   if (actor.role !== "MD") throw new Error("MD_ONLY");
   const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
   if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
+  if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
   await prisma.supplierInvoice.update({ where: { id: inv.id }, data: { mdApprovedBy: actor.code, mdApprovedAt: new Date() } });
   await audit(actor.id, "PAYMENT_RELEASED", inv.invoiceNo, { payable: Number(inv.payable), currency: inv.currency });
 }
@@ -350,6 +381,7 @@ export async function paySupplierInvoice(input: { id: string; actorCode: string;
   if (actor.role !== "FINANCE") throw new Error("FINANCE_PAYS");
   const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
   if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
+  if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
   if (!inv.mdApprovedAt && (await paymentNeedsMd(inv, actor.id))) throw new Error(`PAY_NEEDS_MD:${inv.invoiceNo}`);
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "PV", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.paidAt });

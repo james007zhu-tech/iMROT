@@ -1385,6 +1385,8 @@ model SupplierInvoice {
   paidAt          DateTime?
   paymentNo       String? /// PVTH… issued when paid
   paymentRef      String? /// bank transfer reference, verbatim
+  accrued         Boolean       @default(false) /// 暂估: goods received, the supplier's invoice not yet in — one row per POTH, replaced when the invoice is registered
+  matchDiff       Decimal?      @db.Decimal(18, 2) /// invoice subtotal − value received when it was registered (三单匹配); beyond tolerance the MD releases
   mdApprovedBy    String? /// the MD's release: needed above 50,000 THB, or when the payer registered the invoice himself
   mdApprovedAt    DateTime?
   attachments     Json?

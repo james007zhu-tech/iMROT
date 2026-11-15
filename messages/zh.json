@@ -1406,7 +1406,7 @@
     "revisePo": "变更 POTH（追加费用 / 工期变更）",
     "reviseHint": "追加费用或延期须先取得客户书面同意；新成本自动回流 QTTH；如需调整客户价格请在报价页修改",
     "saveRevision": "保存变更",
-    "supplierInvoices": "供应商发票",
+    "supplierInvoices": "供应商发票与应付",
     "supplierInvoiceNo": "供应商发票号",
     "supplierInvoiceHint": "按 POTH 与复测结果核对；泰国合作伙伴预扣 3%；到期日按供应商条款",
     "registerSupplierInvoice": "登记供应商发票",
@@ -2320,7 +2320,14 @@
     "err_WORK_TOO_EARLY_QUOTE": "{detail} 还不能写报告。先完成：报价 → 客户 PO",
     "err_WORK_TOO_EARLY_CONFIRM": "{detail} 还不能写报告。还在等客户的 PO",
     "err_WORK_TOO_EARLY_OVER": "{detail} 已经过了维修阶段，不能再写报告",
-    "workGateTitleM": "现在还不能写维保单"
+    "workGateTitleM": "现在还不能写维保单",
+    "accrued": "暂估（货已到、票未到）",
+    "accruedWaits": "暂估 · 待到票",
+    "matchOff": "与入库不符，差 {diff}，待 MD 批",
+    "matchReleased": "与入库不符，MD 已批",
+    "vatAutoPh": "不填按税率自动算",
+    "supplierInvoiceMatchHint": "系统会把发票和采购单、入库数量对一遍。金额相差超过 1% 或 500 的，要 MD 批准后才能付。登记后，暂估自动转成正式应付。",
+    "err_PAYABLE_ACCRUED": "这笔还是暂估，要先在采购单上登记供应商发票才能付"
   },
   "role": {
     "MD": "董事总经理 MD",

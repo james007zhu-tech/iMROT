@@ -70,7 +70,7 @@ export async function buildCashPlan(entityId: string, month: string) {
   const span = { gte: prevFirst, lt: first };
   const [vatOut, vatIn, vatExp, wht] = await Promise.all([
     prisma.taxInvoice.aggregate({ _sum: { vatAmount: true }, where: { serviceOrder: { entityId }, issuedAt: span, voidedAt: null } }),
-    prisma.supplierInvoice.aggregate({ _sum: { vatAmount: true }, where: { entityId, invoiceDate: span, status: { not: "CANCELLED" }, currency: "THB" } }),
+    prisma.supplierInvoice.aggregate({ _sum: { vatAmount: true }, where: { entityId, invoiceDate: span, status: { not: "CANCELLED" }, currency: "THB", accrued: false } }),
     prisma.expenseClaim.aggregate({ _sum: { vatAmount: true }, where: { entityId, spentOn: span, status: { in: ["APPROVED", "PAID"] } } }),
     prisma.supplierInvoice.aggregate({ _sum: { whtAmount: true }, where: { entityId, paidAt: span, status: "PAID" } }),
   ]);

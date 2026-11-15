@@ -64,7 +64,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   }
   // 付款复批: payments above the limit wait for the MD
   if (me.role === "MD") {
-    const waiting = await prisma.supplierInvoice.findMany({ where: { status: "OPEN", mdApprovedAt: null, currency: "THB", payable: { gt: MD_LIMIT_THB } }, select: { invoiceNo: true, dueDate: true, supplier: { select: { name: true } } }, take: 50 });
+    const waiting = await prisma.supplierInvoice.findMany({ where: { status: "OPEN", accrued: false, mdApprovedAt: null, currency: "THB", payable: { gt: MD_LIMIT_THB } }, select: { invoiceNo: true, dueDate: true, supplier: { select: { name: true } } }, take: 50 });
     for (const p of waiting) push("payRelease", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
   }
   // 现金计划: the month's plan is written the first time anyone opens the system in that month; finance and the MD
@@ -77,5 +77,8 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   }
   // 忘记密码: someone asked on the sign-in page; an MD issues the link from that person's ETH file
   if (me.role === "MD") for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
-  return sortNotices(out).slice(0, 60);
+  // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease";
+  const sorted = sortNotices(out);
+  return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
 }

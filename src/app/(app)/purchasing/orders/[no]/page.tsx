@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { receivePurchaseOrder } from "@/server/purchasing";
+import { registerSupplierInvoice } from "@/server/srm";
+import { mismatch } from "@/lib/pay-rules";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
@@ -19,7 +21,7 @@ type PoLine = { lineNo: number; partSku?: string; vendorPartNo?: string; descrip
 export default async function PurchaseOrder({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const [{ no }, { ok, error }] = await Promise.all([params, searchParams]);
   const [t, u, ts] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("poStatus")]);
-  const po = await prisma.purchaseOrder.findUnique({ where: { no }, include: { supplier: true, inquiry: { select: { no: true } }, serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, createdBy: { select: { name: true } }, receipts: { orderBy: { movedAt: "asc" }, include: { part: { select: { sku: true } } } } } });
+  const po = await prisma.purchaseOrder.findUnique({ where: { no }, include: { supplier: true, inquiry: { select: { no: true } }, serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, createdBy: { select: { name: true } }, receipts: { orderBy: { movedAt: "asc" }, include: { part: { select: { sku: true } } } }, invoices: { where: { status: { not: "CANCELLED" } }, orderBy: { createdAt: "asc" } } } });
   if (!po) notFound();
   const lines = po.lines as PoLine[];
   const openPo = po.status !== "RECEIVED" && po.status !== "CANCELLED";
@@ -36,6 +38,17 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
       return { ok: r.ibthNo, to: `/purchasing/orders/${no}` };
     }, `/purchasing/orders/${no}`);
   }
+  async function invoice(f: FormData) {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      const inv = await registerSupplierInvoice({ poNo: no, actorCode: me.code, invoiceNo: String(f.get("invoiceNo") ?? ""), invoiceDate: str(f, "invoiceDate") ? new Date(str(f, "invoiceDate")!) : new Date(), subtotal: Number(f.get("subtotal")), vatAmount: str(f, "vatAmount") ? Number(str(f, "vatAmount")) : undefined, attachments: JSON.parse(String(f.get("invoiceFiles") || "[]")) });
+      return { ok: inv.invoiceNo, to: `/purchasing/orders/${no}` };
+    }, `/purchasing/orders/${no}`);
+  }
+  // 暂估 and 三单匹配: what was received and not yet invoiced, and how each invoice sits against the receipts
+  const accrual = po.invoices.find((i) => i.accrued), invoices = po.invoices.filter((i) => !i.accrued);
+  const mayInvoice = po.kind === "PARTS" && po.status !== "DRAFT" && po.status !== "CANCELLED" && invoices.reduce((x, i) => x + Number(i.subtotal), 0) < Number(po.subtotal) - 0.01;
   const today = localIso(new Date())!.slice(0, 10);
   const receiptsByNo = new Map<string, typeof po.receipts>();
   for (const r of po.receipts) receiptsByNo.set(r.no, [...(receiptsByNo.get(r.no) ?? []), r]);
@@ -63,6 +76,25 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
         <Table head={["IBTH", t("date"), u("partSku"), t("qty"), u("unitCost"), u("supplierDocNo")]}>
           {[...receiptsByNo.entries()].flatMap(([ibNo, rs]) => rs.map((r, i) => <tr key={r.id}><td className="font-mono">{i === 0 ? ibNo : ""}</td><td>{localIso(r.movedAt)!.slice(0, 10)}</td><td className="font-mono">{r.part?.sku ?? ""}</td><td>{Number(r.qty)}</td><td className="text-right">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : ""}</td><td>{r.supplierRef ?? ""}</td></tr>))}
         </Table>
+      </Card>}
+      {po.kind === "PARTS" && (accrual || invoices.length > 0 || mayInvoice) && <Card title={u("supplierInvoices")}>
+        {(accrual || invoices.length > 0) && <Table head={[u("supplierInvoiceNo"), t("date"), t("subtotal"), t("vat"), u("payableAmount"), u("dueDate"), t("status")]}>
+          {invoices.map((i) => { const off = mismatch(i.matchDiff == null ? null : Number(i.matchDiff), Number(i.subtotal) - Number(i.matchDiff ?? 0)); return (
+            <tr key={i.id}><td className="font-mono">{i.invoiceNo}</td><td>{localIso(i.invoiceDate)!.slice(0, 10)}</td><td className="text-right">{Number(i.subtotal).toFixed(2)}</td><td className="text-right">{Number(i.vatAmount).toFixed(2)}</td><td className="text-right font-semibold">{i.currency} {Number(i.payable).toFixed(2)}</td><td>{localIso(i.dueDate)!.slice(0, 10)}</td>
+              <td><Tag hot={off && !i.mdApprovedAt}>{off ? (i.mdApprovedAt ? u("matchReleased") : u("matchOff", { diff: Number(i.matchDiff).toFixed(2) })) : u(`payable_${i.status}`)}</Tag>{i.paymentNo ? <span className="ml-1 font-mono text-xs">{i.paymentNo}</span> : null}</td></tr>); })}
+          {accrual && <tr><td>{u("accrued")}</td><td>{localIso(accrual.invoiceDate)!.slice(0, 10)}</td><td className="text-right">{Number(accrual.subtotal).toFixed(2)}</td><td className="text-right">{Number(accrual.vatAmount).toFixed(2)}</td><td className="text-right font-semibold">{accrual.currency} {Number(accrual.payable).toFixed(2)}</td><td>{localIso(accrual.dueDate)!.slice(0, 10)}</td><td><Tag hot>{u("accruedWaits")}</Tag></td></tr>}
+        </Table>}
+        {mayInvoice && <form action={invoice} className="mt-3 space-y-2 rounded-lg border p-3">
+          <div className="text-sm font-semibold text-navy">{u("registerSupplierInvoice")}</div>
+          <Grid>
+            <Field label={u("supplierInvoiceNo")} required><input name="invoiceNo" required className={`${inputCls} font-mono`} /></Field>
+            <Field label={t("date")} required><input name="invoiceDate" type="date" required defaultValue={today} className={inputCls} /></Field>
+            <Field label={`${t("subtotal")} (${po.currency})`} required><input name="subtotal" type="number" step="0.01" min="0.01" inputMode="decimal" required defaultValue={accrual ? Number(accrual.subtotal).toFixed(2) : ""} className={inputCls} /></Field>
+            <Field label={`${t("vat")} ${(Number(po.vatRate) * 100).toFixed(0)}%`}><input name="vatAmount" type="number" step="0.01" min="0" inputMode="decimal" placeholder={u("vatAutoPh")} className={inputCls} /></Field>
+          </Grid>
+          <p className="text-xs text-navy/70">{u("supplierInvoiceMatchHint")}</p>
+          <div className="text-right"><button className={btnPrimary}>{u("registerSupplierInvoice")}</button></div>
+        </form>}
       </Card>}
       {openPo && (<>
         <FormMemory formId="r" />

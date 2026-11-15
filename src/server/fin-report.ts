@@ -22,7 +22,7 @@ export async function financeReport(entityId: string, year: number, opts: { with
   const [tis, rcs, sis, sPaid, exps, runs, openInv, openAp, foreign] = await Promise.all([
     prisma.taxInvoice.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, serviceOrder: { entityId } }, select: { issuedAt: true, subtotal: true, vatAmount: true, serviceOrder: { select: { mode: true, customer: { select: { name: true } } } } } }),
     prisma.receipt.findMany({ where: { receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: { entityId } } }, select: { receivedAt: true, cashAmount: true, whtAmount: true } }),
-    prisma.supplierInvoice.findMany({ where: { entityId, status: { not: "CANCELLED" }, currency: "THB", invoiceDate: { gte: from, lt: to } }, select: { invoiceDate: true, subtotal: true, vatAmount: true } }),
+    prisma.supplierInvoice.findMany({ where: { entityId, status: { not: "CANCELLED" }, currency: "THB", invoiceDate: { gte: from, lt: to } }, select: { invoiceDate: true, subtotal: true, vatAmount: true, accrued: true } }),
     prisma.supplierInvoice.findMany({ where: { entityId, status: "PAID", currency: "THB", paidAt: { gte: from, lt: to } }, select: { paidAt: true, payable: true } }),
     prisma.expenseClaim.findMany({ where: { entityId, status: { in: ["APPROVED", "PAID"] }, currency: "THB", spentOn: { gte: from, lt: to } }, select: { spentOn: true, amount: true, vatAmount: true, category: true } }),
     opts.withPayroll ? prisma.payrollRun.findMany({ where: { entityId, status: { not: "DRAFT" }, month: { gte: `${year}-01`, lte: `${year}-12` } }, select: { month: true, totals: true } }) : Promise.resolve([]),
@@ -34,7 +34,8 @@ export async function financeReport(entityId: string, year: number, opts: { with
   const at = (d: Date) => months.find((m) => m.month === mk(d));
   for (const x of tis) { const m = at(x.issuedAt); if (m) { m.revenue += Number(x.subtotal); m.vatOut += Number(x.vatAmount); } }
   for (const x of rcs) { const m = at(x.receivedAt); if (m) { m.collected += Number(x.cashAmount); m.whtByCustomers += Number(x.whtAmount); } }
-  for (const x of sis) { const m = at(x.invoiceDate); if (m) { m.purchases += Number(x.subtotal); m.vatIn += Number(x.vatAmount); } }
+  // 暂估: a purchase, but no input VAT until the invoice is in
+  for (const x of sis) { const m = at(x.invoiceDate); if (m) { m.purchases += Number(x.subtotal); if (!x.accrued) m.vatIn += Number(x.vatAmount); } }
   for (const x of sPaid) { const m = x.paidAt && at(x.paidAt); if (m) m.paidSuppliers += Number(x.payable); }
   for (const x of exps) { const m = months.find((y) => y.month === localIso(x.spentOn)!.slice(0, 7)); if (m) { m.expenses += Number(x.amount) - Number(x.vatAmount ?? 0); m.vatIn += Number(x.vatAmount ?? 0); } }
   for (const x of runs) { const m = months.find((y) => y.month === x.month); if (m) m.payroll += Number((x.totals as { employerCost?: number }).employerCost ?? 0); }
