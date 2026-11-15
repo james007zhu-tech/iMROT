@@ -331,3 +331,17 @@ export async function saveLegalEntity(input: z.input<typeof EntityInput>) {
   await audit(actor.id, "ENTITY_SAVE", saved.code, { countryCode, ...rest, ...(bank === undefined ? {} : { bankDetails: bank }) });
   return saved;
 }
+
+/** 我的 (2026-11-15): a person changes their own password, proving the current one first. */
+export async function changeOwnPassword(actorCode: string, current: string, next: string, again: string) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
+  if (!verifyPassword(current, actor.passwordHash)) throw new Error("WRONG_PASSWORD");
+  if (next.length < 8) throw new Error("PASSWORD_SHORT");
+  if (next !== again) throw new Error("PASSWORD_MISMATCH");
+  if (next === current) throw new Error("PASSWORD_SAME");
+  await prisma.$transaction(async (tx) => {
+    await tx.employee.update({ where: { id: actor.id }, data: { passwordHash: hashPassword(next) } });
+    await tx.passwordReset.deleteMany({ where: { employeeId: actor.id, usedAt: null } }); // an open reset link is for the old password
+    await audit(actor.id, "PASSWORD_CHANGE", actor.code, { by: "self" }, tx);
+  });
+}

@@ -3,7 +3,7 @@
  * Uses its own employee; leaves it inactive.  npx tsx scripts/dev/probe-forgot.ts
  */
 import { prisma } from "../../src/lib/db";
-import { createEmployee } from "../../src/server/opd";
+import { changeOwnPassword, createEmployee } from "../../src/server/opd";
 import { noticesFor } from "../../src/server/notify";
 import { completeReset, issueResetLink, requestReset, resetTarget } from "../../src/server/password-reset";
 import { verifyPassword } from "../../src/lib/password";
@@ -47,6 +47,12 @@ const refused = async (fn: () => Promise<unknown>) => { try { await fn(); return
   check("a link older than 30 minutes is dead", ops.minutes === 30 && !(await resetTarget(ops.token)));
   const log = await prisma.auditLog.findMany({ where: { target: e.code, action: { startsWith: "PASSWORD_RESET" } } });
   check("links and the reset are in the audit log", log.filter((l) => l.action === "PASSWORD_RESET_LINK").length === 3 && log.filter((l) => l.action === "PASSWORD_RESET").length === 1, log.map((l) => l.action).join(","));
+  // 我的: the owner changes the password, proving the current one
+  check("changing the password needs the current one", (await refused(() => changeOwnPassword(e.code, "not-it", `mine-${stamp}-pw`, `mine-${stamp}-pw`))) === "WRONG_PASSWORD");
+  check("… and a new one of 8 characters, typed twice the same", (await refused(() => changeOwnPassword(e.code, `new-${stamp}-pw`, "short", "short"))) === "PASSWORD_SHORT" && (await refused(() => changeOwnPassword(e.code, `new-${stamp}-pw`, `mine-${stamp}-pw`, `mine-${stamp}-px`))) === "PASSWORD_MISMATCH");
+  await changeOwnPassword(e.code, `new-${stamp}-pw`, `mine-${stamp}-pw`, `mine-${stamp}-pw`);
+  const mine = await prisma.employee.findUniqueOrThrow({ where: { id: e.id } });
+  check("the owner's own change takes effect", verifyPassword(`mine-${stamp}-pw`, mine.passwordHash) && !verifyPassword(`new-${stamp}-pw`, mine.passwordHash));
   await prisma.employee.update({ where: { id: e.id }, data: { active: false } });
   console.log(failed ? `\n${failed} FAILED` : "\nall passed");
   process.exit(failed ? 1 : 0);

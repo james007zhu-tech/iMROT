@@ -2,11 +2,12 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
-import { getSeries, listFaultCodes } from "@/server/knowledge";
+import { LIFECYCLES, getSeries, listFaultCodes } from "@/server/knowledge";
+import { localIso } from "@/lib/dates";
 import { canApprove, canEditDictionary, KINDS, STATUSES, manualLabel, type Source } from "@/lib/knowledge";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
-import { Card, Field, Grid, PageHeader, Pager, Table, Tag, btnGhost, btnPrimary, filterCls, inputCls } from "@/components/ui";
+import { Card, Field, Grid, Value, PageHeader, Pager, Table, Tag, btnGhost, btnPrimary, filterCls, inputCls } from "@/components/ui";
 import { CodeTable } from "../../fault-codes/CodeTable";
 import { saveSeriesAction } from "../../fault-codes/actions";
 
@@ -56,7 +57,7 @@ export default async function SeriesPage({ params, searchParams }: { params: Pro
               <Field label={u("kbSeriesCode")} required><input name="code" required defaultValue={s?.code} className={`${inputCls} font-mono`} /></Field>
               <Field label={u("kbSeriesName")} required><input name="name" required defaultValue={s?.name} className={inputCls} /></Field>
               <Field label={u("kbCategory")}><select name="categoryCode" defaultValue={s?.categoryCode ?? ""} className={inputCls}><option value="">—</option>{categories.map((c) => <option key={c.code} value={c.code}>{c.nameZh} · {c.nameEn}</option>)}</select></Field>
-              <Field label={u("kbLifecycle")}><select name="lifecycle" defaultValue={s?.lifecycle ?? "ACTIVE"} className={inputCls}>{["ACTIVE", "MATURE", "DISCONTINUED"].map((l) => <option key={l} value={l}>{u(`kbLife_${l}`)}</option>)}</select></Field>
+              <Field label={u("kbLifecycle")}><select name="lifecycle" defaultValue={s?.lifecycle ?? "ACTIVE"} className={inputCls}>{LIFECYCLES.map((l) => <option key={l} value={l}>{u(`kbLife_${l}`)}</option>)}</select></Field>
               <Field label={u("kbSuccessor")}><select name="successorId" defaultValue={s?.successorId ?? ""} className={inputCls}><option value="">—</option>{others.map((o) => <option key={o.id} value={o.id}>{o.brand.name} {o.name}</option>)}</select></Field>
               <Field label={u("kbAliases")}><input name="aliases" defaultValue={s?.aliases.join(", ")} placeholder="S120, SINAMICS S120" className={inputCls} /></Field>
               <Field label={u("kbCodePattern")}><input name="codePattern" defaultValue={s?.codePattern ?? ""} placeholder="^[FA]\d{5}$" className={`${inputCls} font-mono`} /></Field>
@@ -68,6 +69,20 @@ export default async function SeriesPage({ params, searchParams }: { params: Pro
               <label className="flex items-center gap-2"><input type="checkbox" name="publicVisible" defaultChecked={s?.publicVisible ?? true} />{u("kbPublicVisible")}</label>
               <label className="flex items-center gap-2"><input type="checkbox" name="active" defaultChecked={s?.active ?? true} />{u("kbActive")}</label>
             </div>
+          </Card>
+          {/* 生命周期核实: where the status comes from and how sure it is (master list 2026-11-14) */}
+          <Card title={u("kbLifeCard")}>
+            <Grid>
+              <Field label={u("kbLifeDates")} className="md:col-span-2"><input name="lifecycleDates" defaultValue={s?.lifecycleDates ?? ""} className={inputCls} /></Field>
+              <Field label={u("kbInstalled")}><Value>{s?.installedBase ?? "—"}{s?.masterNo ? ` · ${s.masterNo}` : ""}</Value></Field>
+              <Field label={u("kbSuccessorNote")} className="md:col-span-2"><input name="successorNote" defaultValue={s?.successorNote ?? ""} className={inputCls} /></Field>
+              <Field label={u("kbGrade")}><select name="lifecycleGrade" defaultValue={s?.lifecycleGrade ?? ""} className={inputCls}><option value="">—</option><option value="A">A · {u("kbGradeA")}</option><option value="B">B · {u("kbGradeB")}</option></select></Field>
+              <Field label={u("kbLifeUrl")} className="md:col-span-2"><input name="lifecycleUrl" type="url" defaultValue={s?.lifecycleUrl ?? ""} className={inputCls} /></Field>
+              <Field label={u("kbLifeChecked")}><input name="lifecycleCheckedAt" type="date" defaultValue={localIso(s?.lifecycleCheckedAt)?.slice(0, 10) ?? ""} className={inputCls} /></Field>
+              <Field label={u("kbLifeRemark")} className="md:col-span-3"><textarea name="lifecycleRemark" defaultValue={s?.lifecycleRemark ?? ""} className={`${inputCls} min-h-20`} /></Field>
+            </Grid>
+            {s?.lifecycleUrl && <p className="mt-2 text-sm"><a href={s.lifecycleUrl} target="_blank" rel="noreferrer" className="break-all text-blue hover:underline">{s.lifecycleUrl}</a></p>}
+            <p className="mt-2 text-xs text-navy/60">{u("kbLifeCaution")}</p>
             {docs.length > 0 && <div className="mt-3 text-sm"><div className="text-navy/60">{u("kbDocuments")}</div><ul>{docs.map((d, i) => <li key={i}>{d.url ? <a href={d.url} target="_blank" rel="noreferrer" className="text-blue hover:underline">{manualLabel(d)}</a> : manualLabel(d)}</li>)}</ul></div>}
           </Card>
           {editable ? <div className="flex justify-end"><button className={btnPrimary}>{t("save")}</button></div> : <p className="text-sm text-navy/60">{u("kbDictionaryReadOnly")}</p>}
