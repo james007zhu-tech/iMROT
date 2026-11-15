@@ -418,7 +418,11 @@
     "pwHide": "Hide",
     "loginNoAccount": "No account uses this email. Check the spelling.",
     "loginInactive": "This account is switched off. Contact the MD.",
-    "loginWrongPassword": "The email is right, the password is not. Press “Show” to see what you typed. {left} tries left."
+    "loginWrongPassword": "The email is right, the password is not. Press “Show” to see what you typed. {left} tries left.",
+    "staffSignIn": "Staff sign-in",
+    "portalSignIn": "Customer portal sign-in",
+    "staffSignInLink": "DCiT staff? Sign in here →",
+    "portalSignInLink": "Customer portal →"
   },
   "ai": {
     "title": "AI assistant",

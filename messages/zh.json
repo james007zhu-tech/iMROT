@@ -418,7 +418,11 @@
     "pwHide": "隐藏",
     "loginNoAccount": "这个邮箱没有账号，请检查邮箱拼写。",
     "loginInactive": "这个账号已停用，请联系总经理。",
-    "loginWrongPassword": "邮箱对，密码不对。点“显示”看看输入的内容。还可以试 {left} 次。"
+    "loginWrongPassword": "邮箱对，密码不对。点“显示”看看输入的内容。还可以试 {left} 次。",
+    "staffSignIn": "员工登录",
+    "portalSignIn": "客户门户登录",
+    "staffSignInLink": "DCiT 员工？从这里登录 →",
+    "portalSignInLink": "客户门户 →"
   },
   "ai": {
     "title": "AI 助手",

@@ -44,6 +44,10 @@ export async function signInEmployee(email: string, password: string): Promise<S
   await prisma.employee.update({ where: { id: e!.id }, data: { lastLoginAt: new Date() } }).catch(() => undefined); // shown on the ETH file
   return "ok";
 }
+/** Whether an address belongs to a member of staff (the portal door sends staff to their own sign-in). */
+export async function isStaffEmail(email: string): Promise<boolean> {
+  return !!(await prisma.employee.findFirst({ where: { email: { equals: email.trim(), mode: "insensitive" } }, select: { id: true } }));
+}
 export async function signOut() { (await cookies()).delete(COOKIE); }
 
 /**

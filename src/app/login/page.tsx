@@ -23,12 +23,13 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
       <form action={login} className="w-full max-w-sm space-y-3 rounded-lg bg-white p-6">
         <div className="flex items-center justify-between">{/* eslint-disable-next-line @next/next/no-img-element */}
           <h1><img src="/brand/dcit-logo.png" alt={t("appName")} className="h-12 w-auto" /></h1><LanguageSwitcher tone="light" /></div>
+        <h2 className="text-base font-semibold text-navy">{t("staffSignIn")}</h2>
         <p className="text-xs text-navy/70">DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</p>
         <input name="email" type="email" autoCapitalize="none" autoCorrect="off" autoComplete="username" placeholder={t("email")} className="w-full rounded border px-3 py-2" required />
         <PasswordInput name="password" autoComplete="current-password" placeholder={t("password")} className="w-full rounded border px-3 py-2" required label={{ show: t("pwShow"), hide: t("pwHide") }} />
         {e === "reset" ? <p className="rounded bg-tint p-2 text-sm text-navy">{t("resetDone")}</p> : e && <p className="text-sm text-alert-ink">{t(e === "wait" ? "loginWait" : e === "no-account" ? "loginNoAccount" : e === "inactive" ? "loginInactive" : e === "wrong-password" ? "loginWrongPassword" : "invalidLogin", { left: left ?? "" })}</p>}
         <button type="submit" className="w-full rounded bg-blue py-2 text-white">{t("ok")}</button>
-        <Link href="/forgot" className="block text-center text-sm text-blue">{t("forgotTitle")}</Link>
+        <div className="flex items-center justify-between text-sm"><Link href="/forgot" className="text-blue">{t("forgotTitle")}</Link><Link href="/portal/login" className="text-navy/60">{t("portalSignInLink")}</Link></div>
       </form>
     </div>
   );
