@@ -398,8 +398,7 @@
     "no": "No",
     "open": "Open",
     "loginWait": "Too many wrong tries. Wait 15 minutes and try again.",
-    "savingNow": "Saving… please do not press again",
-    "savingSlow": "The network is slow and this may already be saved. Wait a little, or check the list before saving again.",
+    "savingNow": "Saving — hold on, or the page will jump…",
     "forgotTitle": "Forgot password",
     "forgotHelp": "Enter your sign-in email. The managers with the MD role are notified and send you a link to set a new password yourself.",
     "forgotAsk": "Ask for a reset",
@@ -412,7 +411,8 @@
     "resetShort": "The password needs at least {n} characters",
     "resetMismatch": "The two passwords differ",
     "resetDead": "This link no longer works (used, or older than 30 minutes). Please ask again.",
-    "resetDone": "The new password is set. Please sign in."
+    "resetDone": "The new password is set. Please sign in.",
+    "assistFilling": "Filling it in for you — hold on, or the page will jump…"
   },
   "ai": {
     "title": "AI assistant",
@@ -2164,7 +2164,14 @@
     "err_MODEL_NEEDS_BRAND_SERIES": "{detail} is a new model: fill in brand and series so it can be added to the library.",
     "resetLinkMake": "Make a password-reset link",
     "resetLinkHelp": "Single use, valid 30 minutes. Send it to the person by LINE or WeChat; they set the new password.",
-    "resetLinkReady": "Reset link for {name} (30 minutes, single use). Copy it and send it to them:"
+    "resetLinkReady": "Reset link for {name} (30 minutes, single use). Copy it and send it to them:",
+    "personName": "Full name",
+    "completeByTaxId": "Complete from tax ID",
+    "completedN": "Filled {n} field(s) from the DBD registry and the web — please check",
+    "completedNone": "Nothing more was found for this tax ID",
+    "webLooking": "Found in DBD — looking up the English address and phone on the web…",
+    "webFilled": "{n} filled from the web",
+    "err_TAX_ID_INVALID": "Not a valid tax ID: {detail}"
   },
   "role": {
     "MD": "Managing Director",

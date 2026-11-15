@@ -60,14 +60,19 @@ function fromNamespaced(p: Record<string, unknown>, raw: unknown): DbdCompany {
   const s = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : typeof v === "number" ? String(v) : undefined);
   const sub = (v: unknown, k: string) => (v && typeof v === "object" ? s((v as Record<string, unknown>)[k]) : undefined);
   const a = ((p["cd:OrganizationJuristicAddress"] as Record<string, unknown> | undefined)?.["cr:AddressType"] ?? {}) as Record<string, unknown>;
-  const parts = [s(a["cd:AddressNo"]), s(a["cd:Building"]), s(a["cd:Moo"]) && `หมู่ ${s(a["cd:Moo"])}`, s(a["cd:Soi"]) && `ซอย${s(a["cd:Soi"])}`, s(a["cd:Road"]) && `ถนน${s(a["cd:Road"])}`,
-    sub(a["cd:CitySubDivision"], "cr:CitySubDivisionTextTH"), sub(a["cd:City"], "cr:CityTextTH"), sub(a["cd:CountrySubDivision"], "cr:CountrySubDivisionTextTH"), s(a["cd:PostCode"])].filter(Boolean);
+  // cd:Address is only the house number and moo ("7/666 หมู่ที่ 6"): the sub-district, district and province are
+  // separate fields and belong to the address (seen 2026-11-14: Zhongce's address stopped at the moo)
+  const street = s(a["cd:Address"])?.replace(/\s+/g, " ") ?? [s(a["cd:AddressNo"]), s(a["cd:Building"]), s(a["cd:Moo"]) && `หมู่ที่ ${s(a["cd:Moo"])}`, s(a["cd:Soi"]) && `ซอย${s(a["cd:Soi"])}`, s(a["cd:Road"]) && `ถนน${s(a["cd:Road"])}`].filter(Boolean).join(" ");
+  const tambon = sub(a["cd:CitySubDivision"], "cr:CitySubDivisionTextTH"), amphoe = sub(a["cd:City"], "cr:CityTextTH"), province = sub(a["cd:CountrySubDivision"], "cr:CountrySubDivisionTextTH");
+  const bkk = sub(a["cd:CountrySubDivision"], "cr:CountrySubDivisionCode") === "TH-10" || /กรุงเทพ/.test(province ?? "");
+  const withPrefix = (v: string | undefined, prefix: string) => (v ? (v.startsWith(prefix) ? v : `${prefix}${v}`) : undefined);
+  const parts = [street, withPrefix(tambon, bkk ? "แขวง" : "ตำบล"), withPrefix(amphoe, bkk ? "เขต" : "อำเภอ"), bkk ? province : withPrefix(province, "จังหวัด"), s(a["cd:PostCode"])].filter(Boolean);
   const capital = Number(String(p["cd:OrganizationJuristicRegisterCapital"] ?? "").replace(/[^\d.]/g, ""));
   const reg = s(p["cd:OrganizationJuristicRegisterDate"]);
   return {
     nameTh: s(p["cd:OrganizationJuristicNameTH"]),
     nameEn: s(p["cd:OrganizationJuristicNameEN"]),
-    addressTh: s(a["cd:Address"]) ?? (parts.join(" ") || undefined),
+    addressTh: parts.join(" ") || undefined,
     addressEn: undefined,
     phone: undefined, // DBD does not publish phone numbers; the customer's billing info or PP20 has it
     registeredCapital: Number.isFinite(capital) && capital > 0 ? capital : undefined,

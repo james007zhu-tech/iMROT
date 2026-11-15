@@ -4,6 +4,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../src/lib/db";
+import { parseDbdResponse } from "../../src/server/dbd";
 import { ensureCategories } from "../../src/server/knowledge";
 import { searchTextOf, slugify } from "../../src/lib/knowledge";
 
@@ -29,6 +30,17 @@ async function main() {
   // 朱总 2026-11-14: the company's Thai name is ตูเฉิง — the master data carried a stray tone mark (ตู้เฉิง) and every printed document showed it
   const named = await prisma.$executeRaw`UPDATE "LegalEntity" SET "nameLocal" = replace("nameLocal", 'ตู้เฉิง', 'ตูเฉิง') WHERE "nameLocal" LIKE '%ตู้เฉิง%'`;
   console.log(`backfill: ${named} legal entity name(s) corrected to ตูเฉิง`);
+  // 2026-11-14: registered addresses read from DBD stopped at the moo ("7/666 หมู่ที่ 6"); the stored registry answer
+  // has the sub-district, district and province, so the short ones are completed from it
+  let longer = 0;
+  for (const c of await prisma.customer.findMany({ where: { dbdData: { not: Prisma.DbNull }, addressLocal: { not: null } }, select: { id: true, addressLocal: true, billingAddress: true, dbdData: true } })) {
+    const full = parseDbdResponse(c.dbdData)?.addressTh;
+    const cur = c.addressLocal!.replace(/\s+/g, " ").trim();
+    if (!full || full === cur || !full.startsWith(cur)) continue;
+    await prisma.customer.update({ where: { id: c.id }, data: { addressLocal: full, billingAddress: c.billingAddress?.replace(/\s+/g, " ").trim() === cur ? full : undefined } });
+    longer++;
+  }
+  console.log(`backfill: ${longer} registered address(es) completed with sub-district, district and province`);
 }
 
 async function freeSlug(base: string, taken: (s: string) => Promise<number>) {

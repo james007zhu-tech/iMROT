@@ -54,7 +54,7 @@ export async function createCustomer(input: z.input<typeof CustomerInput>) {
   if (dupe) throw new Error(`CUSTOMER_EXISTS:${dupe.code}:${dupe.name}`);
   // Which DBD-derived fields did a person change before saving?
   const edited = d.dbd ? Object.entries(d.dbd.values).filter(([k, v]) => (d as Record<string, unknown>)[k] !== undefined && String((d as Record<string, unknown>)[k]) !== v).map(([k]) => k) : [];
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const code = await allocateNumber(tx, { prefix: "C", createdByEmployeeCode: actor.code, entityId: entity.id });
     const c = await tx.customer.create({
       data: {
@@ -74,6 +74,11 @@ export async function createCustomer(input: z.input<typeof CustomerInput>) {
     await audit(actor.id, "CUSTOMER_CREATE", code, { taxId: d.taxId, dbd: !!d.dbd, edited }, tx);
     return c;
   });
+  // 一个税号查全: whatever the form or the assistant left empty (address in English, phone, billing address) is looked
+  // up from the tax ID after the save, without making the person wait for it
+  if (!d.overseas && (!d.addressLocal || !d.addressEn || !d.phone || !d.billingAddress))
+    void import("@/server/company-lookup").then((m) => m.completeCustomer(created.code, actor.id)).catch((e) => console.warn(`[crm] completing ${created.code}: ${(e as Error).message}`));
+  return created;
 }
 
 export async function addPlant(customerCode: string, p: z.input<typeof Plant>) {

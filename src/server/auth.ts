@@ -2,7 +2,7 @@
  * Session: employee login (OPD) and portal contact login (CRM). Cookie-based, httpOnly, 7 days.
  * Phase 1 is deliberately simple: email + password (scrypt). SSO can replace signIn later without touching callers.
  */
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { overHttps } from "@/server/login-guard";
 import { createHmac } from "node:crypto";
 import { redirect } from "next/navigation";
@@ -28,7 +28,16 @@ function verify(token: string | undefined): string | null {
 export async function signInEmployee(email: string, password: string): Promise<boolean> {
   // a phone keyboard may capitalise the first letter or leave a space: the address is matched whatever its case
   const e = await prisma.employee.findFirst({ where: { email: { equals: email.trim(), mode: "insensitive" } } });
-  if (!e || !e.active || !verifyPassword(password, e.passwordHash)) return false;
+  // what a phone keyboard does to a password: a space after it, full-width letters from a Chinese input method.
+  // The password as typed is tried first, then the same characters in their plain form.
+  const plain = password.normalize("NFKC").trim();
+  const good = !!e && e.active && (verifyPassword(password, e.passwordHash) || (plain !== password && verifyPassword(plain, e.passwordHash)));
+  if (!good) {
+    // why a sign-in failed, without the password itself (2026-11-15: "same name, same password" failed on a phone only)
+    const h = await headers();
+    console.warn(`[login-fail] ${new Date().toISOString()} why=${!e ? "no-account" : !e.active ? "inactive" : "wrong-password"} email=${JSON.stringify(email)} pw.len=${password.length} pw.plain.len=${plain.length} pw.nonAscii=${/[^\x20-\x7e]/.test(password)} ua=${JSON.stringify((h.get("user-agent") ?? "").slice(0, 140))}`);
+    return false;
+  }
   (await cookies()).set(COOKIE, sign(`${e.code}|${Date.now()}`), { httpOnly: true, sameSite: "lax", secure: await overHttps(), path: "/", maxAge: 7 * 86400 });
   await prisma.employee.update({ where: { id: e.id }, data: { lastLoginAt: new Date() } }).catch(() => undefined); // shown on the ETH file
   return true;

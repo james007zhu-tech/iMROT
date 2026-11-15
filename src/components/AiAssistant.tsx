@@ -1,4 +1,5 @@
 "use client";
+import { ASSIST_BUSY } from "@/components/SubmitGuard";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
@@ -47,6 +48,8 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
     const shown = [text.trim(), ...sent.map((f) => `📎 ${f.name}`)].filter(Boolean).join("\n");
     const next = [...msgs, { role: "user" as const, content: shown }];
     setMsgs(next); setInput(""); setFiles([]); setBusy(true);
+    const onForm = variant === "float" && scope === "staff" && !!readForm(); // working on the form behind: the page says so
+    if (onForm) window.dispatchEvent(new CustomEvent(ASSIST_BUSY, { detail: true }));
     try {
       const payload = { messages: next.map(({ role, content }) => ({ role, content })), path, attachments: kept.current, form: variant === "float" && scope === "staff" ? readForm() ?? undefined : undefined, fields: variant === "page" ? [] : Array.from(document.querySelectorAll<HTMLElement>("main form [name]")).map((el) => el.getAttribute("name")).filter((n, i, a): n is string => !!n && !n.startsWith("$") && a.indexOf(n) === i).slice(0, 80) };
       let r: Response;
@@ -62,7 +65,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
       if (go?.href && variant !== "page") { router.push(go.href); } // on the home page the conversation stays; the answer carries a button instead
     } catch (e) {
       setMsgs([...next, { role: "assistant", content: `⚠ ${(e as Error).message}` }]);
-    } finally { setBusy(false); }
+    } finally { setBusy(false); if (onForm) window.dispatchEvent(new CustomEvent(ASSIST_BUSY, { detail: false })); }
   }
 
   /** The person presses confirm / cancel on a card the assistant prepared (tax invoice, payment). */
@@ -166,11 +169,11 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
       <div className="mt-1 flex items-center gap-2">{tools}<button disabled={busy} aria-label="send" className="ml-auto h-10 w-10 shrink-0 rounded-full bg-blue text-lg font-bold text-white disabled:opacity-50">↑</button></div>
     </form>
   ) : (
-    <form onSubmit={(e) => { e.preventDefault(); void send(input); }} {...drop} className="flex flex-wrap items-end gap-1 border-t p-2">
+    <form onSubmit={(e) => { e.preventDefault(); void send(input); }} {...drop} className="border-t p-2">
       {chips}
-      {tools}
-      <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} rows={1} placeholder={t(voiceHint ? "voiceKeyboard" : voice.state === "transcribing" ? "voiceTranscribing" : "placeholder")} className="max-h-24 min-w-0 flex-1 resize-none rounded border px-3 py-2 text-sm" />
-      <button disabled={busy} className="h-10 shrink-0 rounded-full bg-blue px-4 font-bold text-white disabled:opacity-50">↑</button>
+      {/* the text across the full width so the hint is read whole; the tools in one row under it */}
+      <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} rows={2} placeholder={t(voiceHint ? "voiceKeyboard" : voice.state === "transcribing" ? "voiceTranscribing" : "placeholder")} className="block max-h-32 w-full resize-none rounded-lg border px-3 py-2 text-sm placeholder:not-italic" />
+      <div className="mt-1.5 flex items-center gap-1.5">{tools}<button disabled={busy} aria-label="send" className="ml-auto h-10 shrink-0 rounded-full bg-blue px-4 font-bold text-white disabled:opacity-50">↑</button></div>
     </form>
   );
 

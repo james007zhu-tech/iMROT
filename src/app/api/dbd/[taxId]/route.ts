@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/api-auth";
+import { lookupCompanyWeb } from "@/server/company-lookup";
 import { DbdBlockedError, dbdWebUrl, isThaiTaxId, lookupDbd } from "@/server/dbd";
 
 /** GET → normalized DBD company record for the new-customer form. Staff only. */
-export async function GET(_: Request, { params }: { params: Promise<{ taxId: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ taxId: string }> }) {
   const denied = await requireSession();
   if (denied) return denied;
   const { taxId } = await params;
   if (!isThaiTaxId(taxId)) return NextResponse.json({ error: "INVALID_TAX_ID" }, { status: 400 });
+  // ?web=1 — the second pass: what the registry does not publish (address in English, phone), from the public web
+  if (new URL(req.url).searchParams.get("web")) {
+    const u = new URL(req.url).searchParams;
+    const web = await lookupCompanyWeb(taxId, { nameTh: u.get("nameTh") ?? undefined, nameEn: u.get("nameEn") ?? undefined, addressTh: u.get("addressTh") ?? undefined }).catch(() => null);
+    return NextResponse.json(web ?? { values: {}, sources: [] });
+  }
   try {
     const r = await lookupDbd(taxId);
     if (!r) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
