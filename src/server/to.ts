@@ -1,3 +1,4 @@
+import { countryOfNo, isTestNo } from "@/lib/numbering";
 /**
  * T&O / FIN Phase 1 slice: TITH tax invoice (local currency, Thai text, VAT separate), IVTH invoice (also the payment record),
  * BLTH monthly statement for credit customers. Every amount is booked in CNY at the BoC rate of the document date.
@@ -84,11 +85,13 @@ export async function writeTaxInvoice(tx: Prisma.TransactionClient, a: {
   const no = await allocateNumber(tx, { prefix: "TI", createdByEmployeeCode: actor.code, entityId: order.entityId, date: issuedAt });
   // เล่มที่ / เลขที่ในเล่ม (朱总 2026-11-08): one running sequence per legal entity, books of `taxInvoiceBookSize`; a voided
   // tax invoice keeps its place in the book, exactly as a torn page in a paper book would.
-  const last = await tx.taxInvoice.findFirst({ where: { serviceOrder: { entityId: order.entityId }, seq: { not: null } }, orderBy: { seq: "desc" }, select: { seq: true } });
-  const seq = (last?.seq ?? 0) + 1;
+  // A TEST- tax invoice takes no page in the book: the book starts with the first real one.
+  const test = isTestNo(no);
+  const last = test ? null : await tx.taxInvoice.findFirst({ where: { serviceOrder: { entityId: order.entityId }, seq: { not: null } }, orderBy: { seq: "desc" }, select: { seq: true } });
+  const seq = test ? null : (last?.seq ?? 0) + 1;
   const bookSize = Math.max(1, order.entity.taxInvoiceBookSize);
-  const bookNo = String(Math.ceil(seq / bookSize)).padStart(3, "0");
-  const bookSeq = ((seq - 1) % bookSize) + 1;
+  const bookNo = seq ? String(Math.ceil(seq / bookSize)).padStart(3, "0") : null;
+  const bookSeq = seq ? ((seq - 1) % bookSize) + 1 : null;
   const ti = await tx.taxInvoice.create({
     data: {
       no, serviceOrderId: order.id, issuedAt, currency, seq, bookNo, bookSeq,
@@ -97,7 +100,7 @@ export async function writeTaxInvoice(tx: Prisma.TransactionClient, a: {
       buyerTaxId: a.buyerTaxId ?? order.customer.taxId, buyerBranch: a.buyerBranch ?? order.customer.branchCode,
     },
   });
-  await tx.document.create({ data: { no, type: "TI", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, issuedAt } });
+  await tx.document.create({ data: { no, type: "TI", entityId: order.entityId, countryCode: countryOfNo(no), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, issuedAt } });
   return ti;
 }
 
@@ -124,7 +127,7 @@ export async function issueInvoice(input: z.input<typeof InvoiceInput>) {
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "IV", createdByEmployeeCode: actor.code, entityId: order.entityId, date: issuedAt });
     const iv = await tx.invoice.create({ data: { no, serviceOrderId: order.id, taxInvoiceId: ti?.id, issuedAt, dueAt, currency: ti?.currency ?? order.currency, amountDue } });
-    await tx.document.create({ data: { no, type: "IV", entityId: order.entityId, countryCode: no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, issuedAt } });
+    await tx.document.create({ data: { no, type: "IV", entityId: order.entityId, countryCode: countryOfNo(no), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, issuedAt } });
     return iv;
   });
 }
@@ -146,6 +149,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
   const d = PaymentInput.parse(input);
   const iv = await prisma.invoice.findUniqueOrThrow({ where: { no: d.invoiceNo }, include: { serviceOrder: { include: { assets: true } } } });
   if (iv.cancelledAt) throw new Error(`INVOICE_CANCELLED:${iv.no}`);
+  if (round2(d.paidAmount + d.whtAmount) <= 0) throw new Error("PAYMENT_NEEDS_AMOUNT");
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const outstanding = expectedReceipt(Number(iv.amountDue), Number(iv.paidAmount ?? 0) + Number(iv.whtAmount ?? 0), 0);
   const settled = round2(d.paidAmount + d.whtAmount) >= outstanding;
@@ -162,7 +166,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
     // RCTH — one receipt per payment received (決定 2026-11-07): this payment's cash, WHT and settled amount against the TITH.
     const rcNo = await allocateNumber(tx, { prefix: "RC", createdByEmployeeCode: actor.code, entityId: iv.serviceOrder.entityId });
     const receipt = await tx.receipt.create({ data: { no: rcNo, invoiceId: iv.id, taxInvoiceNo: taxInvoice?.no, receivedAt: d.paidAt, currency: iv.currency, cashAmount: round2(d.paidAmount), whtAmount: round2(d.whtAmount), settledAmount: round2(d.paidAmount + d.whtAmount), bankRef: d.bankRef, whtCertRef: d.whtCertRef, attachments: proofs as Prisma.InputJsonValue } });
-    await tx.document.create({ data: { no: rcNo, type: "RC", entityId: iv.serviceOrder.entityId, countryCode: rcNo.slice(2, 4), customerId: iv.serviceOrder.customerId, serviceOrderId: iv.serviceOrderId, createdById: actor.id, issuedAt: d.paidAt } });
+    await tx.document.create({ data: { no: rcNo, type: "RC", entityId: iv.serviceOrder.entityId, countryCode: countryOfNo(rcNo), customerId: iv.serviceOrder.customerId, serviceOrderId: iv.serviceOrderId, createdById: actor.id, issuedAt: d.paidAt } });
     for (const a of iv.serviceOrder.assets) {
       await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: rcNo, occurredAt: d.paidAt, summary: `${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? ` + WHT ${d.whtAmount.toFixed(2)}` : ""} · ${iv.no}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef, receiptNo: rcNo, settled } as Prisma.InputJsonValue, attachments: proofs as Prisma.InputJsonValue } });
     }
@@ -184,7 +188,7 @@ export async function issueMonthlyStatement(customerCode: string, period: string
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "BL", createdByEmployeeCode: actor.code, entityId: customer.entityId });
     const bl = await tx.monthlyStatement.create({ data: { no, customerId: customer.id, period, issuedAt: new Date(), currency, total, invoices: { connect: invoices.map((i) => ({ id: i.id })) } } });
-    await tx.document.create({ data: { no, type: "BL", entityId: customer.entityId, countryCode: no.slice(2, 4), customerId: customer.id, createdById: actor.id } });
+    await tx.document.create({ data: { no, type: "BL", entityId: customer.entityId, countryCode: countryOfNo(no), customerId: customer.id, createdById: actor.id } });
     return bl;
   });
 }
@@ -197,7 +201,6 @@ export async function requestTaxInvoiceVoid(input: { taxInvoiceNo: string; actor
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   if (ti.voidedAt) throw new Error(`TI_ALREADY_VOID:${ti.no}`);
   if (ti.voidStatus === "REQUESTED") throw new Error(`TI_VOID_PENDING:${ti.no}`);
-  if (ti.invoices.some((iv) => iv.receipts.length > 0 || Number(iv.paidAmount ?? 0) > 0)) throw new Error(`TI_HAS_PAYMENTS:${ti.no}`);
   if (!input.reason.trim()) throw new Error("VOID_REASON_REQUIRED");
   const upd = await prisma.taxInvoice.update({ where: { id: ti.id }, data: { voidStatus: "REQUESTED", voidRequestedAt: new Date(), voidRequestedById: actor.id, voidRequestReason: input.reason.trim(), voidDecidedAt: null, voidDecidedById: null, voidDecisionNote: null } });
   await audit(actor.id, "TI_VOID_REQUEST", ti.no, { reason: input.reason.trim(), order: ti.serviceOrder.no });
@@ -213,7 +216,6 @@ export async function decideTaxInvoiceVoid(input: { taxInvoiceNo: string; actorC
   if (actor.role !== "MD") throw new Error("MD_ONLY");
   const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no: input.taxInvoiceNo }, include: { invoices: { include: { receipts: true } }, serviceOrder: { include: { assets: true } } } });
   if (ti.voidStatus !== "REQUESTED") throw new Error(`TI_VOID_NOT_REQUESTED:${ti.no}`);
-  if (input.decision === "APPROVED" && ti.invoices.some((iv) => iv.receipts.length > 0 || Number(iv.paidAmount ?? 0) > 0)) throw new Error(`TI_HAS_PAYMENTS:${ti.no}`);
   const now = new Date();
   return prisma.$transaction(async (tx) => {
     const upd = await tx.taxInvoice.update({ where: { id: ti.id }, data: {
@@ -221,10 +223,98 @@ export async function decideTaxInvoiceVoid(input: { taxInvoiceNo: string; actorC
       ...(input.decision === "APPROVED" ? { voidedAt: now, voidReason: ti.voidRequestReason ?? input.note ?? "void" } : {}),
     } });
     if (input.decision === "APPROVED") {
+      // 应收和回款跟着改回去: its IVTH is cancelled, the receipts against it are voided with it, the money shows as not received
+      const rcs = ti.invoices.flatMap((iv) => iv.receipts).filter((r) => !r.voidedAt);
+      await tx.receipt.updateMany({ where: { id: { in: rcs.map((r) => r.id) } }, data: { voidedAt: now, voidStatus: "APPROVED", voidDecidedById: actor.id, voidDecidedAt: now, voidRequestReason: `${ti.no} voided` } });
+      await tx.document.updateMany({ where: { no: { in: [ti.no, ...ti.invoices.map((i) => i.no), ...rcs.map((r) => r.no)] } }, data: { voidedAt: now } });
+      await tx.invoice.updateMany({ where: { taxInvoiceId: ti.id }, data: { paidAmount: null, whtAmount: null, paidAt: null } });
       await tx.invoice.updateMany({ where: { taxInvoiceId: ti.id, cancelledAt: null }, data: { cancelledAt: now, cancelReason: `TITH ${ti.no} voided` } });
+      await tx.creditNote.updateMany({ where: { taxInvoiceId: ti.id, voidedAt: null }, data: { voidedAt: now, voidReason: `${ti.no} voided` } });
+      if (ti.serviceOrder.status === "CLOSED") await tx.serviceOrder.update({ where: { id: ti.serviceOrderId }, data: { status: "INVOICED" } });
       for (const a of ti.serviceOrder.assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "INVOICED", actorId: actor.id, serviceOrderId: ti.serviceOrderId, sourceDocNo: ti.no, occurredAt: now, summary: `VOID ${ti.no}: ${ti.voidRequestReason ?? ""}`, payload: { void: true, reason: ti.voidRequestReason, invoicesCancelled: ti.invoices.map((i) => i.no) } as Prisma.InputJsonValue } });
     }
     await audit(actor.id, input.decision === "APPROVED" ? "TI_VOID_APPROVE" : "TI_VOID_REJECT", ti.no, { note: input.note, invoices: ti.invoices.map((i) => i.no) }, tx);
     return upd;
+  });
+}
+
+
+// ── RCTH void (朱总 2026-11-15: every money document can be voided; anyone asks, the MD decides) ─────────────────
+
+export async function requestReceiptVoid(input: { receiptNo: string; actorCode: string; reason: string }) {
+  const rc = await prisma.receipt.findUniqueOrThrow({ where: { no: input.receiptNo } });
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (rc.voidedAt) throw new Error(`RC_ALREADY_VOID:${rc.no}`);
+  if (rc.voidStatus === "REQUESTED") throw new Error(`RC_VOID_PENDING:${rc.no}`);
+  if (!input.reason.trim()) throw new Error("VOID_REASON_REQUIRED");
+  await audit(actor.id, "RC_VOID_REQUEST", rc.no, { reason: input.reason.trim() });
+  return prisma.receipt.update({ where: { id: rc.id }, data: { voidStatus: "REQUESTED", voidRequestedById: actor.id, voidRequestReason: input.reason.trim(), voidDecidedAt: null, voidDecidedById: null, voidDecisionNote: null } });
+}
+
+/** MD decision. APPROVED voids the receipt (number kept) and gives its cash and WHT back to the IVTH: the receivable is open again. */
+export async function decideReceiptVoid(input: { receiptNo: string; actorCode: string; decision: "APPROVED" | "REJECTED"; note?: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  const rc = await prisma.receipt.findUniqueOrThrow({ where: { no: input.receiptNo }, include: { invoice: { include: { receipts: true } } } });
+  if (rc.voidStatus !== "REQUESTED") throw new Error(`RC_VOID_NOT_REQUESTED:${rc.no}`);
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    const upd = await tx.receipt.update({ where: { id: rc.id }, data: { voidStatus: input.decision, voidDecidedAt: now, voidDecidedById: actor.id, voidDecisionNote: input.note, ...(input.decision === "APPROVED" ? { voidedAt: now } : {}) } });
+    if (input.decision === "APPROVED") {
+      const left = rc.invoice.receipts.filter((r) => r.id !== rc.id && !r.voidedAt);
+      const cash = round2(left.reduce((s, r) => s + Number(r.cashAmount), 0)), wht = round2(left.reduce((s, r) => s + Number(r.whtAmount), 0));
+      const lastAt = left.map((r) => r.receivedAt).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+      await tx.invoice.update({ where: { id: rc.invoiceId }, data: { paidAmount: left.length ? cash : null, whtAmount: left.length ? wht : null, paidAt: lastAt } });
+      await tx.document.updateMany({ where: { no: rc.no }, data: { voidedAt: now } });
+    }
+    await audit(actor.id, input.decision === "APPROVED" ? "RC_VOID_APPROVE" : "RC_VOID_REJECT", rc.no, { note: input.note, invoice: rc.invoice.no }, tx);
+    return upd;
+  });
+}
+
+// ── CNTH credit note ─────────────────────────────────────────────────────────────────────────────────────────
+
+export const CreditNoteInput = z.object({ taxInvoiceNo: z.string(), actorCode: z.string(), reason: z.string().trim().min(1, "CREDIT_REASON_REQUIRED"), subtotal: z.number().positive("CREDIT_NEEDS_AMOUNT"), issuedAt: z.coerce.date().optional() });
+
+/**
+ * 开贷项单: lowers a tax invoice by an amount before VAT (a price correction, a return, a discount given afterwards).
+ * Finance or the MD. Never more than what is left of the tax invoice. The IVTH's amount due goes down by the same
+ * total; where the customer had already paid more than what is left, the difference shows as owed back to them.
+ */
+export async function issueCreditNote(input: z.input<typeof CreditNoteInput>) {
+  assertBusinessClosure("TI");
+  const d = CreditNoteInput.parse(input);
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
+  if (actor.role !== "MD" && actor.role !== "FINANCE") throw new Error("FINANCE_ONLY");
+  const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no: d.taxInvoiceNo }, include: { serviceOrder: true, creditNotes: { where: { voidedAt: null } }, invoices: { where: { cancelledAt: null }, orderBy: { issuedAt: "desc" } } } });
+  if (ti.voidedAt) throw new Error(`TI_ALREADY_VOID:${ti.no}`);
+  const left = round2(Number(ti.subtotal) - ti.creditNotes.reduce((s, c) => s + Number(c.subtotal), 0));
+  if (d.subtotal > left + 0.005) throw new Error(`CREDIT_EXCEEDS_TI:${d.subtotal.toFixed(2)}>${left.toFixed(2)}`);
+  const vatAmount = round2(d.subtotal * Number(ti.vatRate)), total = round2(d.subtotal + vatAmount);
+  const iv = ti.invoices[0] ?? null;
+  const issuedAt = d.issuedAt ?? new Date();
+  return prisma.$transaction(async (tx) => {
+    const no = await allocateNumber(tx, { prefix: "CN", createdByEmployeeCode: actor.code, entityId: ti.serviceOrder.entityId, date: issuedAt });
+    const cn = await tx.creditNote.create({ data: { no, taxInvoiceId: ti.id, invoiceId: iv?.id, issuedAt, reason: d.reason, currency: ti.currency, subtotal: d.subtotal, vatAmount, total, createdById: actor.id } });
+    await tx.document.create({ data: { no, type: "CN", entityId: ti.serviceOrder.entityId, countryCode: countryOfNo(no), customerId: ti.serviceOrder.customerId, serviceOrderId: ti.serviceOrderId, createdById: actor.id, issuedAt } });
+    if (iv) await tx.invoice.update({ where: { id: iv.id }, data: { amountDue: round2(Number(iv.amountDue) - total) } });
+    await audit(actor.id, "CREDIT_NOTE", no, { taxInvoice: ti.no, invoice: iv?.no, subtotal: d.subtotal, total, reason: d.reason }, tx);
+    return cn;
+  });
+}
+
+/** A wrong credit note is voided by the MD: the amount goes back onto the IVTH. */
+export async function voidCreditNote(input: { no: string; actorCode: string; reason: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  if (!input.reason.trim()) throw new Error("VOID_REASON_REQUIRED");
+  const cn = await prisma.creditNote.findUniqueOrThrow({ where: { no: input.no } });
+  if (cn.voidedAt) throw new Error(`CN_ALREADY_VOID:${cn.no}`);
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    if (cn.invoiceId) { const iv = await tx.invoice.findUniqueOrThrow({ where: { id: cn.invoiceId } }); if (!iv.cancelledAt) await tx.invoice.update({ where: { id: iv.id }, data: { amountDue: round2(Number(iv.amountDue) + Number(cn.total)) } }); }
+    await tx.document.updateMany({ where: { no: cn.no }, data: { voidedAt: now } });
+    await audit(actor.id, "CREDIT_NOTE_VOID", cn.no, { reason: input.reason.trim() }, tx);
+    return tx.creditNote.update({ where: { id: cn.id }, data: { voidedAt: now, voidReason: input.reason.trim() } });
   });
 }

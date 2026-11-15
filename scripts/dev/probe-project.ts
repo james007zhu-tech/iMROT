@@ -65,7 +65,7 @@ async function main() {
   assert(ms[0].doneAt && ms[0].note === `PO-${stamp}`, "the PO completes the contract milestone");
   await refused(() => issueTaxInvoice({ serviceOrderNo: o.no, actorCode: md.code }), /USE_MILESTONE_INVOICE/, "no order-level TITH for a project");
   const i1 = await invoiceMilestone({ no: o.no, actorCode: md.code, seq: 1 });
-  assert(i1.amount === 161400 && /^TITH/.test(i1.taxInvoiceNo) && /^IVTH/.test(i1.invoiceNo), `instalment 1: 30 % = 161,400 + VAT → ${i1.taxInvoiceNo} / ${i1.invoiceNo}`);
+  assert(i1.amount === 161400 && /^(TEST-)?TITH/.test(i1.taxInvoiceNo) && /^(TEST-)?IVTH/.test(i1.invoiceNo), `instalment 1: 30 % = 161,400 + VAT → ${i1.taxInvoiceNo} / ${i1.invoiceNo}`);
   await refused(() => invoiceMilestone({ no: o.no, actorCode: md.code, seq: 1 }), /TI_EXISTS/, "an instalment is invoiced once");
   await refused(() => savePlan({ ...plan, bom: [], milestones: PHASES.map((p) => ({ phase: p, payPct: p === "CONTRACT" ? 1 : null })) }).then(() => prisma.projectMilestone.findFirstOrThrow({ where: { serviceOrderId: o.id, phase: "DELIVERY" } })).then((m) => { if (Number(m.payPct) === 0.6) throw new Error("FROZEN"); }), /FROZEN/, "after the PO the split and BOM stay as contracted");
 

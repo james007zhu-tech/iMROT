@@ -74,7 +74,8 @@ export async function buildCashPlan(entityId: string, month: string) {
     prisma.expenseClaim.aggregate({ _sum: { vatAmount: true }, where: { entityId, spentOn: span, status: { in: ["APPROVED", "PAID"] } } }),
     prisma.supplierInvoice.aggregate({ _sum: { whtAmount: true }, where: { entityId, paidAt: span, status: "PAID" } }),
   ]);
-  const vat = r2(Number(vatOut._sum.vatAmount ?? 0) - Number(vatIn._sum.vatAmount ?? 0) - Number(vatExp._sum.vatAmount ?? 0));
+  const vatCn = await prisma.creditNote.aggregate({ _sum: { vatAmount: true }, where: { taxInvoice: { serviceOrder: { entityId } }, issuedAt: span, voidedAt: null } });
+  const vat = r2(Number(vatOut._sum.vatAmount ?? 0) - Number(vatCn._sum.vatAmount ?? 0) - Number(vatIn._sum.vatAmount ?? 0) - Number(vatExp._sum.vatAmount ?? 0));
   if (vat > 0) lines.push({ date: dayIn(month, 15), dir: "OUT", kind: "VAT", party: "RD", what: prev, amount: vat, currency: "THB", href: "/tax", estimate: true });
   if (Number(wht._sum.whtAmount ?? 0) > 0) lines.push({ date: dayIn(month, 7), dir: "OUT", kind: "PND53", party: "RD", what: prev, amount: r2(Number(wht._sum.whtAmount)), currency: "THB", href: "/tax", fixed: true });
 

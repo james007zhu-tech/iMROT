@@ -77,7 +77,7 @@ async function main() {
   assert(done.status === "INVOICED" && !!done.lockedAt && done.deliveries[0].status === "SIGNED", "shipped → INVOICED and locked, the PL counts as signed by the carrier");
   await refused(() => issueTaxInvoice({ serviceOrderNo: o.no, actorCode: md.code }), /EXPORT_NO_TAX_INVOICE/, "no TITH for an export");
   const pay = await recordPayment({ invoiceNo: s1.invoiceNo!, actorCode: md.code, paidAt: new Date(), paidAmount: 5260, bankRef: `TT-${stamp}` });
-  assert(pay.settled && /^RCTH/.test(pay.receiptNo), `USD paid, receipt ${pay.receiptNo}`);
+  assert(pay.settled && /^(TEST-)?RCTH/.test(pay.receiptNo), `USD paid, receipt ${pay.receiptNo}`);
 
   console.log("5. completion: shipped, paid and the export documents uploaded");
   await refused(() => advanceServiceOrder(o.no, "CLOSED", md.code), /EXPORT_CLOSE_BLOCKED:EXPORT_PACKING_LIST,EXPORT_BL,EXPORT_ENTRY/, "cannot complete without packing list, B/L and export entry");

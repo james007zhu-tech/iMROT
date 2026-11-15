@@ -1,3 +1,4 @@
+import { countryOfNo } from "@/lib/numbering";
 /**
  * 自动化项目 — plan, milestones and instalment invoices (flow 自动化项目-流程图-v1, 2026-11-09; rules src/lib/project.ts).
  *  - savePlan: solution, deliverables, BOM (→ requestLines, so the shortage PRTH and the quote work as for trade),
@@ -124,7 +125,7 @@ export async function invoiceMilestone(input: { no: string; actorCode: string; s
     const ti = await writeTaxInvoice(tx, { order: o, actor, issuedAt, currency, lines, vatRate: Number(o.entity.vatRate), fx });
     const ivNo = await allocateNumber(tx, { prefix: "IV", createdByEmployeeCode: actor.code, entityId: o.entityId, date: issuedAt });
     await tx.invoice.create({ data: { no: ivNo, serviceOrderId: o.id, taxInvoiceId: ti.id, issuedAt, dueAt: new Date(issuedAt.getTime() + o.customer.paymentTermDays * 86_400_000), currency, amountDue: ti.total } });
-    await tx.document.create({ data: { no: ivNo, type: "IV", entityId: o.entityId, countryCode: ivNo.slice(2, 4), customerId: o.customerId, serviceOrderId: o.id, createdById: actor.id, issuedAt } });
+    await tx.document.create({ data: { no: ivNo, type: "IV", entityId: o.entityId, countryCode: countryOfNo(ivNo), customerId: o.customerId, serviceOrderId: o.id, createdById: actor.id, issuedAt } });
     await tx.projectMilestone.update({ where: { id: m.id }, data: { taxInvoiceNo: ti.no, invoiceNo: ivNo } });
     const after = shape.map((x) => (x.seq === m.seq ? { ...x, taxInvoiceNo: ti.no } : x));
     if (o.status === "ACCEPTED" && allInvoiced(after)) await progressOrder(tx, o, "INVOICED", actor.id, ti.no);

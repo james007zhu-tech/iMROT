@@ -64,6 +64,9 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   }
   // 付款复批: payments above the limit wait for the MD
   if (me.role === "MD") {
+    // 作废待批: a tax invoice or a receipt someone asked to void
+    for (const x of await prisma.taxInvoice.findMany({ where: { voidStatus: "REQUESTED" }, select: { no: true, voidRequestReason: true, serviceOrder: { select: { no: true } } }, take: 30 })) push("voidAsked", 0, x.no, `/service-orders/${x.serviceOrder.no}/invoice`, x.voidRequestReason ?? "");
+    for (const x of await prisma.receipt.findMany({ where: { voidStatus: "REQUESTED", voidedAt: null }, select: { no: true, voidRequestReason: true, invoice: { select: { serviceOrder: { select: { no: true } } } } }, take: 30 })) push("voidAsked", 0, x.no, `/service-orders/${x.invoice.serviceOrder.no}/payment`, x.voidRequestReason ?? "");
     const waiting = await prisma.supplierInvoice.findMany({ where: { status: "OPEN", accrued: false, mdApprovedAt: null, currency: "THB", payable: { gt: MD_LIMIT_THB } }, select: { invoiceNo: true, dueDate: true, supplier: { select: { name: true } } }, take: 50 });
     for (const p of waiting) push("payRelease", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
   }
@@ -78,7 +81,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // 忘记密码: someone asked on the sign-in page; an MD issues the link from that person's ETH file
   if (me.role === "MD") for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease";
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked";
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
 }

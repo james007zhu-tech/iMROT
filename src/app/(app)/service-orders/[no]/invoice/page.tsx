@@ -1,7 +1,8 @@
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { decideTaxInvoiceVoid, issueInvoice, issueTaxInvoice, requestTaxInvoiceVoid } from "@/server/to";
+import { decideTaxInvoiceVoid, issueCreditNote, issueInvoice, issueTaxInvoice, requestTaxInvoiceVoid, voidCreditNote } from "@/server/to";
+import { liveNumbers } from "@/lib/numbering";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { businessClosureOn } from "@/lib/closure";
@@ -19,7 +20,8 @@ export default async function Invoice({ params, searchParams }: { params: Promis
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const me = await currentEmployee();
   const fx = await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } });
-  const taxInvoices = await prisma.taxInvoice.findMany({ where: { serviceOrderId: order.id }, orderBy: { issuedAt: "asc" }, include: { invoices: { select: { no: true, cancelledAt: true, paidAmount: true } } } });
+  const taxInvoices = await prisma.taxInvoice.findMany({ where: { serviceOrderId: order.id }, orderBy: { issuedAt: "asc" }, include: { invoices: { select: { no: true, cancelledAt: true, paidAmount: true } }, creditNotes: { orderBy: { issuedAt: "asc" } } } });
+  const mayCredit = me.role === "MD" || me.role === "FINANCE";
   const active = taxInvoices.find((x) => !x.voidedAt);
   const canIssue = !active; // first issue, or re-issue after every earlier TITH was voided
   // 客户拒绝报价: the tax invoice carries the inspection fee, one line per charged machine, instead of the declined quote
@@ -54,6 +56,14 @@ export default async function Invoice({ params, searchParams }: { params: Promis
     "use server";
     await guarded(async () => { const me = await currentEmployee(); await decideTaxInvoiceVoid({ taxInvoiceNo: String(f.get("ti")), actorCode: me.code, decision: f.get("decision") as "APPROVED", note: str(f, "note") }); return f.get("decision") === "APPROVED" ? "voidApproved" : "voidRejected"; }, `/service-orders/${no}/invoice`);
   }
+  async function credit(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); const cn = await issueCreditNote({ taxInvoiceNo: String(f.get("ti")), actorCode: me.code, reason: String(f.get("reason") ?? ""), subtotal: Number(f.get("subtotal")) }); return { ok: cn.no, to: `/service-orders/${no}/invoice` }; }, `/service-orders/${no}/invoice`);
+  }
+  async function voidCredit(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await voidCreditNote({ no: String(f.get("cn")), actorCode: me.code, reason: String(f.get("reason") ?? "") }); return { ok: String(f.get("cn")), to: `/service-orders/${no}/invoice` }; }, `/service-orders/${no}/invoice`);
+  }
   const voidTag = (x: (typeof taxInvoices)[number]) => x.voidedAt ? <Tag hot>{u("tiVoided")}</Tag> : x.voidStatus === "REQUESTED" ? <Tag hot>{u("tiVoidRequested")}</Tag> : x.voidStatus === "REJECTED" ? <Tag>{u("tiVoidRejected")}</Tag> : <Tag>{u("tiValid")}</Tag>;
   return (
     <StepPage order={order} title={feeLines ? u("step_invoiceFee") : u("step_invoice")} ok={ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} saveLabel={businessClosureOn() && canIssue ? u("issueTiIv") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
@@ -68,17 +78,26 @@ export default async function Invoice({ params, searchParams }: { params: Promis
                 <td className="font-mono text-xs">{x.invoices.map((i) => <span key={i.no} className={`block ${i.cancelledAt ? "line-through" : ""}`}>{i.no}</span>)}</td>
                 <td className="no-underline">{voidTag(x)}</td>
                 <td className="text-xs">{x.voidRequestReason ?? ""}{x.voidDecisionNote ? <span className="block text-navy/60">MD: {x.voidDecisionNote}</span> : null}</td>
-                <td className="text-xs">
-                  {!x.voidedAt && x.voidStatus !== "REQUESTED" && <form action={requestVoid} className="flex gap-1"><input type="hidden" name="ti" value={x.no} /><input name="reason" required placeholder={u("voidReason")} className={`${inputCls} w-44`} /><button className={btnGhost}>{u("requestVoid")}</button></form>}
-                  {x.voidStatus === "REQUESTED" && me.role === "MD" && <form action={decideVoid} className="flex gap-1"><input type="hidden" name="ti" value={x.no} /><input name="note" placeholder={t("note")} className={`${inputCls} w-36`} /><button name="decision" value="APPROVED" className="min-h-10 rounded-lg border border-alert px-3 text-sm font-semibold text-alert-ink">{u("approveVoid")}</button><button name="decision" value="REJECTED" className={btnGhost}>{u("rejectVoid")}</button></form>}
+                <td className="space-y-1 text-xs no-underline">
+                  {!x.voidedAt && x.voidStatus !== "REQUESTED" && <details><summary className={`${btnGhost} inline-flex cursor-pointer items-center whitespace-nowrap`}>{u("voidBtn")}</summary>
+                    <form action={requestVoid} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="ti" value={x.no} /><input name="reason" required placeholder={u("voidReason")} className={`${inputCls} w-44`} /><button className={`${btnGhost} whitespace-nowrap`}>{u("requestVoid")}</button></form></details>}
+                  {!x.voidedAt && mayCredit && <details><summary className={`${btnGhost} inline-flex cursor-pointer items-center whitespace-nowrap`}>{u("creditBtn")}</summary>
+                    <form action={credit} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="ti" value={x.no} /><input name="subtotal" type="number" step="0.01" min="0.01" inputMode="decimal" required placeholder={u("creditAmountPh")} className={`${inputCls} w-40`} /><input name="reason" required placeholder={u("creditReason")} className={`${inputCls} w-44`} /><button className={`${btnGhost} whitespace-nowrap`}>{u("creditIssue")}</button></form></details>}
+                  {x.voidStatus === "REQUESTED" && me.role === "MD" && <form action={decideVoid} className="flex flex-wrap gap-1"><input type="hidden" name="ti" value={x.no} /><input name="note" placeholder={t("note")} className={`${inputCls} w-36`} /><button name="decision" value="APPROVED" className="min-h-10 whitespace-nowrap rounded-lg border border-alert px-3 text-sm font-semibold text-alert-ink">{u("approveVoid")}</button><button name="decision" value="REJECTED" className={`${btnGhost} whitespace-nowrap`}>{u("rejectVoid")}</button></form>}
                   {x.voidStatus === "REQUESTED" && me.role !== "MD" && <span className="text-navy/60">{u("awaitingMd")}</span>}
                 </td>
               </tr>
             ))}
           </Table>
           <p className="text-xs text-navy/70">{u("voidRules")}</p>
+          {taxInvoices.some((x) => x.creditNotes.length > 0) && <Table head={["CNTH", "TITH", u("issueDate"), u("creditAmount"), t("total"), u("creditReason"), ""]}>
+            {taxInvoices.flatMap((x) => x.creditNotes.map((c) => <tr key={c.id} className={c.voidedAt ? "text-navy/50 line-through" : ""}>
+              <td className="font-mono">{c.no}</td><td className="font-mono text-xs">{x.no}</td><td>{localIso(c.issuedAt)!.slice(0, 10)}</td><td className="text-right">−{Number(c.subtotal).toFixed(2)}</td><td className="text-right">−{c.currency} {Number(c.total).toFixed(2)}</td><td className="text-xs">{c.reason}{c.voidReason ? ` · ${u("tiVoided")}: ${c.voidReason}` : ""}</td>
+              <td className="no-underline">{c.voidedAt ? <Tag hot>{u("tiVoided")}</Tag> : me.role === "MD" ? <details><summary className={`${btnGhost} inline-flex cursor-pointer items-center whitespace-nowrap`}>{u("voidBtn")}</summary><form action={voidCredit} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="cn" value={c.no} /><input name="reason" required placeholder={u("voidReason")} className={`${inputCls} w-44`} /><button className={`${btnGhost} whitespace-nowrap`}>{u("approveVoid")}</button></form></details> : null}</td></tr>))}
+          </Table>}
         </Card>
       )}
+      {businessClosureOn() && !liveNumbers() && <Alert>{u("testSeriesNotice")}</Alert>}
       {!canIssue && <Alert>{u("tiExistsNotice", { no: active!.no })}</Alert>}
       {canIssue && taxInvoices.length > 0 && <Alert>{u("tiReissueNotice")}</Alert>}
       {canIssue && <form id="f" action={save} className="space-y-4">

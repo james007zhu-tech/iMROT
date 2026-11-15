@@ -1306,7 +1306,7 @@
     "approveVoid": "Approve void",
     "rejectVoid": "Reject",
     "awaitingMd": "awaiting the MD",
-    "voidRules": "Voiding a tax invoice needs the MD. A tax invoice with payments cannot be voided (use a credit note). The number is kept and never reused; its unpaid IVTH is cancelled; the order can then be invoiced again.",
+    "voidRules": "Void: anyone may ask, the MD approves. The number is kept, its invoice is cancelled, receipts already recorded are voided with it, receivable and money received go back, and a new one can be issued. Credit note: finance or the MD; the receivable goes down by its amount.",
     "tiExistsNotice": "This order already has the valid tax invoice {no}. To re-issue, request a void and wait for the MD.",
     "tiReissueNotice": "The earlier tax invoice was voided — issue the new TITH and IVTH below.",
     "err_TI_EXISTS": "A valid tax invoice {detail} exists — void it first",
@@ -2327,7 +2327,23 @@
     "matchReleased": "Differs from receipts — released by MD",
     "vatAutoPh": "Blank = computed",
     "supplierInvoiceMatchHint": "The invoice is matched against the POTH and the receipts. A difference above 1 % or 500 needs the MD's release before payment. Once registered, the accrual becomes a real payable.",
-    "err_PAYABLE_ACCRUED": "This is still an accrual — register the supplier's invoice on the POTH first"
+    "err_PAYABLE_ACCRUED": "This is still an accrual — register the supplier's invoice on the POTH first",
+    "testSeriesNotice": "Not live yet: tax invoices, invoices, receipts and credit notes issued now are numbered TEST- and use up no real number.",
+    "voidBtn": "Void",
+    "creditBtn": "Credit note",
+    "creditIssue": "Issue credit note",
+    "creditAmountPh": "Amount to credit (ex VAT)",
+    "creditAmount": "Credited (ex VAT)",
+    "creditReason": "Reason",
+    "nothingToCollect": "Nothing left to collect.",
+    "err_RC_ALREADY_VOID": "{detail} is already void",
+    "err_RC_VOID_PENDING": "{detail}: a void request is already waiting for the MD",
+    "err_RC_VOID_NOT_REQUESTED": "{detail} has no void request",
+    "err_CN_ALREADY_VOID": "{detail} is already void",
+    "err_CREDIT_REASON_REQUIRED": "Give the reason for the credit note",
+    "err_CREDIT_NEEDS_AMOUNT": "Give the amount to credit",
+    "err_CREDIT_EXCEEDS_TI": "More than what is left of the tax invoice ({detail})",
+    "err_PAYMENT_NEEDS_AMOUNT": "Enter the amount received"
   },
   "role": {
     "MD": "Managing Director",
@@ -2475,7 +2491,8 @@
     "k_payrollDue_review": "{ref} payroll is computed — waiting for your review",
     "k_payrollDue_approve": "{ref} payroll is reviewed — waiting for your approval",
     "k_payrollDue_pay": "{ref} payroll is approved — waiting for you to pay",
-    "k_payRelease": "Supplier invoice {ref} is above THB 50,000 — waiting for your release"
+    "k_payRelease": "Supplier invoice {ref} is above THB 50,000 — waiting for your release",
+    "k_voidAsked": "{ref}: a void request is waiting for you"
   },
   "reports": {
     "searchPh": "Report no., machine, serial, customer",

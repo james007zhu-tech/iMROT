@@ -1306,7 +1306,7 @@
     "approveVoid": "批准作废",
     "rejectVoid": "拒绝",
     "awaitingMd": "等待 MD 批准",
-    "voidRules": "税票作废须 MD 批准。已有收款的税票不能作废（应开红字/贷项处理）；作废后编号保留不复用，其未付 IVTH 同步取消，本单可重新开票。",
+    "voidRules": "作废：任何人可以申请，MD 批准。批准后号码保留不再使用，对应的发票取消，已登记的收据一并作废，应收和回款自动改回去，可以重新开票。贷项单：由财务或 MD 开，应收按金额自动减少。",
     "tiExistsNotice": "本单已有有效税票 {no}。如需重开，请先申请作废并由 MD 批准。",
     "tiReissueNotice": "原税票已作废，下面重新开具 TITH 与 IVTH。",
     "err_TI_EXISTS": "已有有效税票 {detail}，请先作废",
@@ -2327,7 +2327,23 @@
     "matchReleased": "与入库不符，MD 已批",
     "vatAutoPh": "不填按税率自动算",
     "supplierInvoiceMatchHint": "系统会把发票和采购单、入库数量对一遍。金额相差超过 1% 或 500 的，要 MD 批准后才能付。登记后，暂估自动转成正式应付。",
-    "err_PAYABLE_ACCRUED": "这笔还是暂估，要先在采购单上登记供应商发票才能付"
+    "err_PAYABLE_ACCRUED": "这笔还是暂估，要先在采购单上登记供应商发票才能付",
+    "testSeriesNotice": "系统还没正式上线：现在开出的税票、发票、收据和贷项单都用 TEST- 开头的号码，不占正式号。",
+    "voidBtn": "作废",
+    "creditBtn": "开贷项单",
+    "creditIssue": "开出贷项单",
+    "creditAmountPh": "冲减金额（不含税）",
+    "creditAmount": "冲减金额（不含税）",
+    "creditReason": "原因",
+    "nothingToCollect": "没有待收的款。",
+    "err_RC_ALREADY_VOID": "{detail} 已经作废",
+    "err_RC_VOID_PENDING": "{detail} 的作废申请正在等 MD 批",
+    "err_RC_VOID_NOT_REQUESTED": "{detail} 没有待批的作废申请",
+    "err_CN_ALREADY_VOID": "{detail} 已经作废",
+    "err_CREDIT_REASON_REQUIRED": "请填写开贷项单的原因",
+    "err_CREDIT_NEEDS_AMOUNT": "请填写冲减金额",
+    "err_CREDIT_EXCEEDS_TI": "冲减金额超过这张税票剩余的金额（{detail}）",
+    "err_PAYMENT_NEEDS_AMOUNT": "请填写收到的金额"
   },
   "role": {
     "MD": "董事总经理 MD",
@@ -2475,7 +2491,8 @@
     "k_payrollDue_review": "{ref} 的工资已算好，等你复核",
     "k_payrollDue_approve": "{ref} 的工资已复核，等你批准",
     "k_payrollDue_pay": "{ref} 的工资已批准，等你发放",
-    "k_payRelease": "供应商发票 {ref} 超过 5 万泰铢，等你复批后财务才能付"
+    "k_payRelease": "供应商发票 {ref} 超过 5 万泰铢，等你复批后财务才能付",
+    "k_voidAsked": "{ref} 申请作废，等你批准"
   },
   "reports": {
     "searchPh": "报告号、设备编号、序列号、客户",

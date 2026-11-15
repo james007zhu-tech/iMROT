@@ -30,7 +30,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ d
       </Table>
     );
   } else if (doc === "rc") {
-    const rows = await prisma.receipt.findMany({ orderBy: { receivedAt: "desc" }, take: 200, include: { invoice: { include: { serviceOrder: { include: { customer: true } } } } } });
+    const rows = await prisma.receipt.findMany({ where: { voidedAt: null }, orderBy: { receivedAt: "desc" }, take: 200, include: { invoice: { include: { serviceOrder: { include: { customer: true } } } } } });
     body = (
       <Table head={[n("receipts"), "IVTH", "TITH", "QTTH", t("customer"), t("date"), <span key="a" className="block text-right">{t("amount")}</span>, <span key="w" className="block text-right">{t("wht")}</span>]}>
         {rows.map((r) => <tr key={r.id}><td className="font-mono">{r.no}</td><td className="font-mono">{r.invoice.no}</td><td className="font-mono">{r.taxInvoiceNo ?? ""}</td><td>{order(r.invoice.serviceOrder.no)}</td><td>{r.invoice.serviceOrder.customer.name}</td><td className="whitespace-nowrap">{day(r.receivedAt)}</td><td className="text-right">{r.currency} {money(r.cashAmount)}</td><td className="text-right">{money(r.whtAmount)}</td></tr>)}

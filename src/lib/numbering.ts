@@ -135,3 +135,16 @@ export function payslipNo(month: string, employeeCode: string): string {
   if (!m || !/^\d{4}-\d{2}$/.test(month)) throw new Error(`Cannot number a payslip for ${employeeCode} ${month}`);
   return `ES${m[1]}${month.slice(2, 4)}${month.slice(5, 7)}E${m[2]}`;
 }
+
+
+/**
+ * TEST 号段 (朱总 2026-11-15): until the system is live, everything that closes the money loop — tax invoice, invoice,
+ * receipt, statement, credit and debit note — is numbered TEST-TITH…, from its own counter, so no real number is used
+ * up and no test paper can be mistaken for a real one. Real numbers start when LIVE_NUMBERS=on is set in .env at launch.
+ */
+export const TEST_MARK = "TEST-";
+export const MONEY_PREFIXES: readonly string[] = ["TI", "IV", "RC", "BL", "CN", "DB"];
+export const liveNumbers = () => (process.env.LIVE_NUMBERS ?? "off").trim().toLowerCase() === "on";
+export const isTestNo = (no: string) => no.startsWith(TEST_MARK);
+/** The country inside one of our numbers, TEST- or not: TEST-TITH26111501 → TH. */
+export const countryOfNo = (no: string) => no.replace(TEST_MARK, "").slice(2, 4);

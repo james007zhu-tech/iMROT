@@ -76,7 +76,7 @@ async function main() {
 
   console.log("4. tax invoice and the trade documents");
   const ti = await issueTaxInvoice({ serviceOrderNo: o.no, actorCode: md.code });
-  assert(/^TITH/.test(ti.no), `tax invoice ${ti.no}`);
+  assert(/^(TEST-)?TITH/.test(ti.no), `tax invoice ${ti.no}`);
   for (const t of ["30", "31"]) {
     const f = await buildFields(o.no, t);
     const json = JSON.stringify(f.values);
