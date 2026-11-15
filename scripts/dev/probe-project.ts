@@ -41,8 +41,9 @@ async function main() {
   assert(ms0.length === 9 && ms0.map((m) => Number(m.payPct ?? 0)).join() === "0.3,0,0,0,0,0.6,0,0.1,0", "nine milestones, 30 % / 60 % / 10 %");
 
   console.log("2. plan: BOM shortage → PRTH; the split must add up to 100 %");
+  const cabPart = await prisma.part.create({ data: { sku: `RIT-VX25-${stamp}`, vendorPartNo: `VX25-${stamp}`, name: "Rittal VX25 cabinet 1200×2000×600", unit: "set" } });
   const plan = { no: o.no, actorCode: md.code, solution: "3 × G120 37 kW in a Rittal VX25 cabinet, PROFINET to the existing S7-1500", deliverables: [{ name: "Drive cabinet +A1", qty: 1 }],
-    bom: [{ sku: vfd.sku, description: vfd.name, qty: 3, unit: "pcs" }, { description: "Rittal VX25 cabinet 1200×2000×600", qty: 1, unit: "set" }],
+    bom: [{ sku: vfd.sku, description: vfd.name, qty: 3, unit: "pcs" }, { sku: cabPart.sku, description: "Rittal VX25 cabinet 1200×2000×600", qty: 1, unit: "set" }],
     labour: [{ description: "Electrical design", hours: 40, costPerHour: 600 }, { description: "Assembly and programming", hours: 80, costPerHour: 500 }, { description: "Site commissioning", hours: 40, costPerHour: 700 }] };
   await refused(() => savePlan({ ...plan, milestones: PHASES.map((p) => ({ phase: p, payPct: p === "CONTRACT" ? 0.3 : p === "DELIVERY" ? 0.5 : null })) }), /PAY_SPLIT:80/, "30 % + 50 % refused");
   const r = await savePlan({ ...plan, milestones: PHASES.map((p) => ({ phase: p, payPct: p === "CONTRACT" ? 0.3 : p === "DELIVERY" ? 0.6 : p === "SAT" ? 0.1 : null, plannedOn: p === "SAT" ? "2027-02-20" : undefined })) });
@@ -65,7 +66,7 @@ async function main() {
   assert(ms[0].doneAt && ms[0].note === `PO-${stamp}`, "the PO completes the contract milestone");
   await refused(() => issueTaxInvoice({ serviceOrderNo: o.no, actorCode: md.code }), /USE_MILESTONE_INVOICE/, "no order-level TITH for a project");
   const i1 = await invoiceMilestone({ no: o.no, actorCode: md.code, seq: 1 });
-  assert(i1.amount === 161400 && /^TITH/.test(i1.taxInvoiceNo) && /^IVTH/.test(i1.invoiceNo), `instalment 1: 30 % = 161,400 + VAT → ${i1.taxInvoiceNo} / ${i1.invoiceNo}`);
+  assert(i1.amount === 161400 && /^(TEST-)?TITH/.test(i1.taxInvoiceNo) && /^(TEST-)?IVTH/.test(i1.invoiceNo), `instalment 1: 30 % = 161,400 + VAT → ${i1.taxInvoiceNo} / ${i1.invoiceNo}`);
   await refused(() => invoiceMilestone({ no: o.no, actorCode: md.code, seq: 1 }), /TI_EXISTS/, "an instalment is invoiced once");
   await refused(() => savePlan({ ...plan, bom: [], milestones: PHASES.map((p) => ({ phase: p, payPct: p === "CONTRACT" ? 1 : null })) }).then(() => prisma.projectMilestone.findFirstOrThrow({ where: { serviceOrderId: o.id, phase: "DELIVERY" } })).then((m) => { if (Number(m.payPct) === 0.6) throw new Error("FROZEN"); }), /FROZEN/, "after the PO the split and BOM stay as contracted");
 

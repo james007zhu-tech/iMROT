@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { countryFromEmployeeCode, formatNumber, periodKey, type CountryCode, type Prefix } from "./numbering";
+import { MONEY_PREFIXES, TEST_MARK, countryFromEmployeeCode, formatNumber, liveNumbers, periodKey, type CountryCode, type Prefix } from "./numbering";
 
 /**
  * Allocate the next number atomically. Call inside the transaction that creates the record,
@@ -22,12 +22,15 @@ export async function allocateNumber(
   // once the country's own entity exists and hand out numbers that were already issued (review 2026-11-07).
   const owner = (await tx.legalEntity.findUnique({ where: { countryCode: country }, select: { id: true } }))?.id;
   if (!owner) throw new Error(`NO_ENTITY_FOR_COUNTRY:${country}`);
+  // TEST 号段: money documents before go-live count on their own row and carry TEST- in front
+  const test = MONEY_PREFIXES.includes(opts.prefix) && !liveNumbers();
+  const key = test ? `${TEST_MARK}${opts.prefix}` : opts.prefix;
   const seq = await tx.docSequence.upsert({
-    where: { entityId_prefix_period: { entityId: owner, prefix: opts.prefix, period } },
-    create: { entityId: owner, prefix: opts.prefix, period, last: 1 },
+    where: { entityId_prefix_period: { entityId: owner, prefix: key, period } },
+    create: { entityId: owner, prefix: key, period, last: 1 },
     update: { last: { increment: 1 } },
     select: { last: true },
   });
 
-  return formatNumber(opts.prefix, country, date, seq.last);
+  return (test ? TEST_MARK : "") + formatNumber(opts.prefix, country, date, seq.last);
 }

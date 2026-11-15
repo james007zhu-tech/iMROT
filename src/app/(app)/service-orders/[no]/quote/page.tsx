@@ -71,6 +71,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
       <form id="f" action={save}>
         <Card title={u("quoteLines")}>
           {fromInth && <Alert>{u("quoteFromInth")}</Alert>}
+          <p className="mb-2 text-xs text-navy/70">{u("quoteSkuOptional")}</p>
           {order.marginPct != null && Number(order.marginPct) < floor && <Alert>{u("marginBelowFloor", { pct: (Number(order.marginPct) * 100).toFixed(1), floor: Math.round(floor * 100) })}</Alert>}
           {partner && <p className="mb-2 text-xs text-navy/70">{u("partnerQuoteNote")}{[...partnerCosts].map(([a, c]) => ` · ${a}: ${c.toFixed(2)}`).join("")}</p>}
           <div className="hidden grid-cols-[120px_150px_2fr_2fr_70px_60px_100px_100px] gap-2 text-xs text-navy/70 md:grid"><span>{t("asset")}</span><span>{u("partSku")}</span><span>{u("descEn")}</span><span>{u("descTh")}</span><span>{t("qty")}</span><span>{u("uom")}</span><span>{t("price")}</span><span>{u("unitCost")}</span></div>

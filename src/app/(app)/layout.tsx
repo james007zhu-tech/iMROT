@@ -1,3 +1,4 @@
+import { VersionTag } from "@/components/ReleaseBanner";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
@@ -39,6 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {/* OPD: the MD sees the employee list; everyone else sees only their own file (decision 2026-11-08). */}
         <Suspense><NavLinks groups={NAV.filter((g) => g.href || g.items.some((i) => (!i.mdOnly || me.role === "MD") && !hidden.has(i.key))).map((g) => ({ key: g.key, label: t(g.key), href: g.href, items: g.items.filter((i) => (!i.mdOnly || me.role === "MD") && !hidden.has(i.key)).map((i) => i.key === "talent" && me.role !== "MD" ? { key: i.key, href: `/people/${me.code}`, label: t("opdSelf") } : { key: i.key, href: i.href, label: t(i.key), soon: i.soon }) }))} /></Suspense>
         <div className="mt-auto flex items-center justify-between border-t border-hair px-4 py-3 text-sm text-navy/70 md:hidden"><Link href="/me" className="text-navy">👤 {c("me")} · {me.name}</Link><form action={out}><button className="text-blue">{c("signOut")}</button></form></div>
+        <VersionTag className="px-4 pb-3 md:mt-auto md:px-5 md:pt-3" />
       </aside>
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-white px-3 py-2 md:static md:px-4">

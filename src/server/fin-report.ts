@@ -21,7 +21,7 @@ export async function financeReport(entityId: string, year: number, opts: { with
   const now = new Date();
   const [tis, rcs, sis, sPaid, exps, runs, openInv, openAp, foreign] = await Promise.all([
     prisma.taxInvoice.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, serviceOrder: { entityId } }, select: { issuedAt: true, subtotal: true, vatAmount: true, serviceOrder: { select: { mode: true, customer: { select: { name: true } } } } } }),
-    prisma.receipt.findMany({ where: { receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: { entityId } } }, select: { receivedAt: true, cashAmount: true, whtAmount: true } }),
+    prisma.receipt.findMany({ where: { voidedAt: null, receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: { entityId } } }, select: { receivedAt: true, cashAmount: true, whtAmount: true } }),
     prisma.supplierInvoice.findMany({ where: { entityId, status: { not: "CANCELLED" }, currency: "THB", invoiceDate: { gte: from, lt: to } }, select: { invoiceDate: true, subtotal: true, vatAmount: true, accrued: true } }),
     prisma.supplierInvoice.findMany({ where: { entityId, status: "PAID", currency: "THB", paidAt: { gte: from, lt: to } }, select: { paidAt: true, payable: true } }),
     prisma.expenseClaim.findMany({ where: { entityId, status: { in: ["APPROVED", "PAID"] }, currency: "THB", spentOn: { gte: from, lt: to } }, select: { spentOn: true, amount: true, vatAmount: true, category: true } }),
@@ -30,9 +30,11 @@ export async function financeReport(entityId: string, year: number, opts: { with
     prisma.supplierInvoice.findMany({ where: { entityId, status: "OPEN" }, select: { invoiceNo: true, dueDate: true, currency: true, payable: true, supplier: { select: { name: true } } } }),
     prisma.invoice.findMany({ where: { cancelledAt: null, currency: { not: "THB" }, issuedAt: { gte: from, lt: to }, serviceOrder: { entityId } }, select: { currency: true, amountDue: true } }),
   ]);
+  const cns = await prisma.creditNote.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, currency: "THB", taxInvoice: { serviceOrder: { entityId } } }, select: { issuedAt: true, subtotal: true, vatAmount: true } });
   const months: MonthRow[] = Array.from({ length: 12 }, (_, i) => ({ month: `${year}-${String(i + 1).padStart(2, "0")}`, revenue: 0, vatOut: 0, collected: 0, whtByCustomers: 0, purchases: 0, vatIn: 0, paidSuppliers: 0, expenses: 0, payroll: 0, result: 0, vatNet: 0 }));
   const at = (d: Date) => months.find((m) => m.month === mk(d));
   for (const x of tis) { const m = at(x.issuedAt); if (m) { m.revenue += Number(x.subtotal); m.vatOut += Number(x.vatAmount); } }
+  for (const x of cns) { const m = at(x.issuedAt); if (m) { m.revenue -= Number(x.subtotal); m.vatOut -= Number(x.vatAmount); } } // 贷项单
   for (const x of rcs) { const m = at(x.receivedAt); if (m) { m.collected += Number(x.cashAmount); m.whtByCustomers += Number(x.whtAmount); } }
   // 暂估: a purchase, but no input VAT until the invoice is in
   for (const x of sis) { const m = at(x.invoiceDate); if (m) { m.purchases += Number(x.subtotal); if (!x.accrued) m.vatIn += Number(x.vatAmount); } }

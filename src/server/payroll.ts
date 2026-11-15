@@ -245,7 +245,7 @@ async function systemActual(employeeId: string, metric: string, period: string):
     const x = await prisma.taxInvoice.aggregate({ _sum: { subtotal: true }, where: { voidedAt: null, issuedAt: { gte: from, lt: to }, serviceOrder: soldBy(employeeId) } });
     return Number(x._sum.subtotal ?? 0);
   }
-  const x = await prisma.receipt.aggregate({ _sum: { cashAmount: true, whtAmount: true }, where: { receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: soldBy(employeeId) } } });
+  const x = await prisma.receipt.aggregate({ _sum: { cashAmount: true, whtAmount: true }, where: { voidedAt: null, receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: soldBy(employeeId) } } });
   return Number(x._sum.cashAmount ?? 0) + Number(x._sum.whtAmount ?? 0);
 }
 

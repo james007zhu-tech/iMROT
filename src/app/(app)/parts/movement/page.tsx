@@ -11,6 +11,8 @@ import { UploadRecognize } from "@/components/UploadRecognize";
 import { FormMemory } from "@/components/FormMemory";
 import { RevealRows } from "@/components/RevealRows";
 import { SkuNames } from "@/components/SkuNames";
+import { ScopedSelect } from "@/components/ScopedSelect";
+import { PoFill, type PoChoice } from "@/components/PoFill";
 import { Alert, Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +24,18 @@ export default async function Movement({ searchParams }: { searchParams: Promise
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [parts, orders, me] = await Promise.all([
     prisma.part.findMany({ orderBy: { sku: "asc" } }),
-    prisma.serviceOrder.findMany({ where: { status: { in: ["ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } }, include: { assets: { include: { asset: true } }, customer: true }, orderBy: { reportedAt: "desc" } }),
+    prisma.serviceOrder.findMany({ where: { status: { in: ["ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } }, include: { customer: true }, orderBy: { reportedAt: "desc" } }),
     currentEmployee(),
   ]);
-  const assetsOfOrder = orders.flatMap((o) => o.assets.map((a) => ({ code: a.asset.code, label: `${a.asset.code} · ${o.no} · ${o.customer.name}` })));
+  // 维修出库: only the machines of the order's own customer (测试报告 P0-03); 贸易出库 picks no machine at all
+  const custIds = [...new Set(orders.map((o) => o.customerId))];
+  const custAssets = await prisma.asset.findMany({ where: { customerId: { in: custIds } }, select: { code: true, customerId: true, serialNumber: true, location: true }, orderBy: { code: "desc" }, take: 3000 });
+  const assetOptions = custAssets.map((a) => ({ value: a.code, label: `${a.code}${a.serialNumber ? ` · S/N ${a.serialNumber}` : ""}${a.location ? ` · ${a.location}` : ""}`, scope: a.customerId ?? "" }));
+  const orderCustomer = Object.fromEntries(orders.map((o) => [o.no, o.customerId]));
+  // 贸易出库从采购单带出: POTHs of trade orders with goods received
+  const pos = await prisma.purchaseOrder.findMany({ where: { kind: "PARTS", status: { in: ["PARTIAL", "RECEIVED"] }, serviceOrder: { mode: { in: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] }, status: { in: ["QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } } }, include: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, supplier: { select: { name: true } } }, orderBy: { orderedAt: "desc" }, take: 60 });
+  const poChoices: PoChoice[] = pos.map((p) => ({ no: p.no, orderNo: p.serviceOrder!.no, customer: p.serviceOrder!.customer.name, label: `${p.no} · ${p.serviceOrder!.customer.name} · ${p.supplier.name}`,
+    lines: ((p.lines as { partSku?: string; receivedQty?: number }[] | null) ?? []).filter((l) => l.partSku && Number(l.receivedQty ?? 0) > 0).map((l) => ({ sku: l.partSku!, qty: Number(l.receivedQty) })) })).filter((c) => c.lines.length > 0);
   const backTo = order ? `/service-orders/${order}` : "/parts";
   async function save(f: FormData) {
     "use server";
@@ -49,12 +59,13 @@ export default async function Movement({ searchParams }: { searchParams: Promise
       <UploadRecognize kind="stock" formId="f" title={u("upStockTitle")} hint={u("upStockHint")} />
       <form id="f" action={save} className="space-y-4">
         <Card title={u("movementDoc")}>
+          <PoFill formId="f" choices={poChoices} sku="s" qty="q" orderField="serviceOrderNo" assetWrap="assetWrap" labels={{ pick: u("poFillPick"), none: u("poFillNone"), filled: u("poFillDone", { order: "{order}", customer: "{customer}", n: "{n}" }) }} />
           <Grid>
             <Field label={u("direction")} required><select name="direction" defaultValue={direction === "OUT" ? "OUT" : "IN"} className={inputCls}><option value="IN">{u("dirIn")}</option><option value="OUT">{u("dirOut")}</option></select></Field>
             <Field label={u("warehouse")}><input name="warehouse" defaultValue="RAYONG" className={inputCls} /></Field>
             <Field label={u("date")}><input name="movedAt" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={inputCls} /></Field>
-            <Field label={u("relatedAsset")}><select name="assetCode" className={inputCls}><option value="">—</option>{assetsOfOrder.map((a) => <option key={a.label} value={a.code}>{a.label}</option>)}</select></Field>
             <Field label={u("relatedOrder")}><select name="serviceOrderNo" defaultValue={order ?? ""} className={inputCls}><option value="">—</option>{orders.map((o) => <option key={o.id} value={o.no}>{o.no} · {o.customer.name}</option>)}</select></Field>
+            <div id="assetWrap"><Field label={u("relatedAssetRepair")}><ScopedSelect name="assetCode" options={assetOptions} follow="serviceOrderNo" via={orderCustomer} className={inputCls} /></Field></div>
             <Field label={u("supplierRef")}><input name="supplierRef" className={inputCls} /></Field>
             <Field label={u("handler")}><div className="min-h-10 rounded-md border bg-white px-2.5 py-2 text-sm">{me.code} {me.name}</div></Field>
           </Grid>

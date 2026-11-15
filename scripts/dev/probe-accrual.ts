@@ -18,6 +18,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
   await prisma.supplier.update({ where: { id: sup.id }, data: { paymentMode: "PER_ORDER" } });
   const sku = `TEST-ACC-${tag}`;
   const pos: string[] = [];
+  await prisma.part.create({ data: { sku: `GEN-${sku}`, vendorPartNo: sku, name: "TEST contactor" } });
   try {
     const po = await createPurchaseOrder({ actorCode: md.code, supplierId: sup.id, vatRate: 0.07, lines: [{ vendorPartNo: sku, description: "TEST contactor", qty: 10, unitPrice: 1000 }] });
     pos.push(po.id);

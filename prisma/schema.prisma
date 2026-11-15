@@ -1430,7 +1430,28 @@ model TaxInvoice {
   voidDecidedAt     DateTime?
   voidDecisionNote  String?
 
-  invoices Invoice[]
+  invoices    Invoice[]
+  creditNotes CreditNote[]
+}
+
+/// CNTH — ใบลดหนี้, a credit note against one tax invoice (朱总 2026-11-15). It lowers what the customer owes on the
+/// IVTH of that tax invoice and the revenue and output VAT of the month it is issued in. Never edited; a wrong one is voided.
+model CreditNote {
+  id           String     @id @default(cuid())
+  no           String     @unique /// CNTH26111501 (TEST-CNTH… before go-live)
+  taxInvoiceId String
+  taxInvoice   TaxInvoice @relation(fields: [taxInvoiceId], references: [id])
+  invoiceId    String? /// the IVTH whose amount due it lowered
+  issuedAt     DateTime
+  reason       String
+  currency     String
+  subtotal     Decimal    @db.Decimal(18, 2)
+  vatAmount    Decimal    @db.Decimal(18, 2)
+  total        Decimal    @db.Decimal(18, 2)
+  createdById  String
+  voidedAt     DateTime?
+  voidReason   String?
+  createdAt    DateTime   @default(now())
 }
 
 enum VoidStatus {
@@ -1484,6 +1505,14 @@ model Receipt {
   whtCertRef    String?
   attachments   Json?
   createdAt     DateTime @default(now())
+  // 作废 (朱总 2026-11-15): anyone may ask, only the MD decides; a voided receipt gives the money back to the receivable
+  voidedAt          DateTime?
+  voidStatus        VoidStatus @default(NONE)
+  voidRequestedById String?
+  voidRequestReason String?
+  voidDecidedById   String?
+  voidDecidedAt     DateTime?
+  voidDecisionNote  String?
 }
 
 /// BLTH — monthly statement for credit customers: the list of IVTH due this month.

@@ -15,7 +15,7 @@ import { daysUntil, salarySummary, type Allowance, type Deduction } from "@/lib/
 import { audit } from "@/server/audit";
 import { cleanBankDetails } from "@/lib/bank";
 
-export const STAFF_ROLES = ["MD", "SALES", "ENGINEER", "WAREHOUSE", "FINANCE", "MANAGER"] as const;
+export const STAFF_ROLES = ["MD", "SALES", "ENGINEER", "WAREHOUSE", "FINANCE", "ADMIN", "MANAGER"] as const; // ADMIN = 内勤: computes the payroll (朱总 2026-11-15)
 export const CONTRACT_TYPES = ["PROBATION", "FIXED_TERM", "PERMANENT", "CONTRACTOR"] as const;
 export const CREDENTIAL_KINDS = ["PASSPORT", "ID_CARD", "VISA", "WORK_PERMIT", "REPORT_90", "CONTRACT", "DEGREE", "CERTIFICATE", "DRIVING_LICENCE", "OTHER"] as const;
 export const REVIEW_KINDS = ["PROBATION", "QUARTERLY", "ANNUAL", "SPECIAL"] as const;

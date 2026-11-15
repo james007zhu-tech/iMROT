@@ -1,3 +1,4 @@
+import { VersionTag } from "@/components/ReleaseBanner";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -31,6 +32,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
         <button type="submit" className="w-full rounded bg-blue py-2 text-white">{t("ok")}</button>
         <div className="flex items-center justify-between text-sm"><Link href="/forgot" className="text-blue">{t("forgotTitle")}</Link><Link href="/portal/login" className="text-navy/60">{t("portalSignInLink")}</Link></div>
       </form>
+      <VersionTag className="mt-3 text-center" />
     </div>
   );
 }

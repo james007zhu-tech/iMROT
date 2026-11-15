@@ -2,6 +2,7 @@
  * Report generation: a registered document number → the DCiT Word template it belongs to → field values from the
  * event data → .docx (and .pdf when LibreOffice is installed). Nothing is typed by hand; the template layout is untouched.
  */
+import { isTestNo } from "@/lib/numbering";
 import { localIso } from "@/lib/dates";
 import { bankLines, type BankDetails } from "@/lib/bank";
 import { PHASE_NAME, paymentScheduleLines, type ProjectInfo } from "@/lib/project";
@@ -334,7 +335,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
         CUSTOMER_NAME_TH: c.nameLocal ?? c.name, CUSTOMER_NAME_EN: c.nameLocal ? c.name : "", CUSTOMER_ADDRESS: c.billingAddress ?? c.addressLocal ?? c.addressEn ?? "", CUSTOMER_TAX_ID: ti.buyerTaxId ?? c.taxId ?? "", CUSTOMER_BRANCH: branchLabel(ti.buyerBranch ?? c.branchCode, o!.plant),
         REFERENCE: [o!.no, o!.customerRef ? `PO ${o!.customerRef}` : ""].filter(Boolean).join("\n"), PAYMENT_TERMS: `${c.paymentTermDays} วัน\ndue ${d(addDays(ti.issuedAt, c.paymentTermDays))}`, DELIVERY_NOTE: dns.map((x) => x.no).join("\n") || "—",
         ...tiLines(ti.lines as TiLine[]), SUBTOTAL: money(ti.subtotal), VAT_LABEL: pctLabel(ti.vatRate), VAT_AMOUNT: money(ti.vatAmount), CURRENCY: ti.currency, TOTAL: money(ti.total),
-        TOTAL_WORDS_TH: thaiAmount(Number(ti.total), ti.currency), TOTAL_WORDS_EN: englishAmount(Number(ti.total), ti.currency), BANK_LINES: bankLines(e.bankDetails as BankDetails | null, ti.currency), NOTES: ti.voidedAt ? `ยกเลิก / VOID ${d(ti.voidedAt)} ${ti.voidReason ?? ""}` : "",
+        TOTAL_WORDS_TH: thaiAmount(Number(ti.total), ti.currency), TOTAL_WORDS_EN: englishAmount(Number(ti.total), ti.currency), BANK_LINES: bankLines(e.bankDetails as BankDetails | null, ti.currency), NOTES: [isTestNo(ti.no) ? "TEST — เอกสารทดสอบระบบ ไม่ใช่ใบกำกับภาษี / system test, not a tax invoice" : "", ti.voidedAt ? `ยกเลิก / VOID ${d(ti.voidedAt)} ${ti.voidReason ?? ""}` : ""].filter(Boolean).join("\n"),
         RECEIVED_BY: "", ISSUED_BY: doc.createdBy.name, AUTHORISED_BY: e.signatoryName ?? "", VAT_REG_DATE: d(e.vatRegisteredFrom) } };
     }
     case "PF": // 国际贸易: the proforma invoice (35); for customs the same PFTH prints as a commercial invoice (33)
@@ -347,7 +348,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
       const vatRate = iv.taxInvoice ? Number(iv.taxInvoice.vatRate) : Number(e.vatRate);
       const vat = iv.taxInvoice ? Number(iv.taxInvoice.vatAmount) : round2(subtotal * vatRate);
       const total = Number(iv.amountDue);
-      const settled = round2(iv.receipts.reduce((s, r) => s + Number(r.settledAmount), 0));
+      const settled = round2(iv.receipts.filter((r) => !r.voidedAt).reduce((s, r) => s + Number(r.settledAmount), 0));
       const wht = settled ? 0 : round2(subtotal * WHT_SERVICE_RATE);
       const lf = tiLines(lines);
       return { template: "21", values: { ...common, ISSUE_DATE: d(iv.issuedAt), DUE_DATE: d(iv.dueAt ?? addDays(iv.issuedAt, c.paymentTermDays)), TAX_INVOICE_NO: iv.taxInvoice?.no ?? "—", REFERENCE: [o!.no, o!.customerRef ? `PO ${o!.customerRef}` : ""].filter(Boolean).join("\n"),
@@ -360,7 +361,7 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
     case "RC": {
       const rc = await prisma.receipt.findUniqueOrThrow({ where: { no }, include: { invoice: { include: { receipts: true, taxInvoice: true } } } });
       const c = o!.customer; const e = doc.entity;
-      const before = rc.invoice.receipts.filter((r) => r.receivedAt <= rc.receivedAt && r.id !== rc.id).reduce((s, r) => s + Number(r.settledAmount), 0);
+      const before = rc.invoice.receipts.filter((r) => !r.voidedAt && r.receivedAt <= rc.receivedAt && r.id !== rc.id).reduce((s, r) => s + Number(r.settledAmount), 0);
       const outstanding = round2(Number(rc.invoice.amountDue) - before - Number(rc.settledAmount));
       return { template: "22", values: { ...common, PAYER_NAME_TH: c.nameLocal ?? c.name, PAYER_NAME_EN: c.nameLocal ? c.name : "", PAYER_BRANCH: branchLabel(c.branchCode, o!.plant), PAYER_TAX_ID: c.taxId ?? "",
         RECEIVED_ON: d(rc.receivedAt), METHOD: rc.bankRef ? "Bank transfer  โอนเงิน" : "Cash  เงินสด", BANK_REF: rc.bankRef ?? "", TAX_INVOICE_NO: rc.taxInvoiceNo ?? rc.invoice.taxInvoice?.no ?? "—", INVOICE_NO: rc.invoice.no, CURRENCY: rc.currency,

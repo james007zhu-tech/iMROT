@@ -4,6 +4,7 @@
  * confirmation render without equipment.
  *   npx tsx scripts/dev/probe-trade.ts
  */
+import { createInquiry, skuGaps } from "../../src/server/purchasing";
 import { prisma } from "../../src/lib/db";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
 import { setQuoteLines } from "../../src/server/slm-docs";
@@ -31,12 +32,19 @@ async function main() {
   const b = await prisma.part.create({ data: { sku: `SIE-CU240-${stamp}`, vendorPartNo: "6SL3244-0BB13-1PA1", name: "CU240E-2 PN", nameLocal: "ชุดควบคุม CU240E-2 PN", lastCost: 9000 } });
   await recordStockDoc({ actorCode: md.code, direction: "IN", lines: [{ partSku: a.sku, qty: 10, unitCost: 30000 }] });
 
+  const cable = await prisma.part.create({ data: { sku: `GEN-CABLE-${stamp}`, vendorPartNo: `CABLE-${stamp}`, name: "Shielded motor cable 4×10 mm²", unit: "m" } });
   console.log("1. trade order: customer + SKU lines, no ATH; shortages raise a PRTH");
+  // 转采购必须有料号 (朱总 2026-11-15): a goods line without a part number raises nothing; the order says which line
+  const bare = await createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, mode: "DOMESTIC_TRADE", requestLines: [{ sku: b.sku, qty: 1, unit: "pcs" }, { description: "Unlisted terminal block", qty: 5, unit: "pcs" }] });
+  const gaps = await skuGaps(bare.no);
+  assert((await prisma.purchaseInquiry.count({ where: { serviceOrderId: bare.id } })) === 0 && gaps.length === 1 && gaps[0].lineNo === 2, `no PRTH while line 2 has no part number (${gaps.map((g) => g.description).join()})`);
+  await refused(() => createInquiry({ actorCode: md.code, serviceOrderNo: bare.no, lines: [{ partSku: b.sku, description: "CU240", qty: 1 }, { description: "Unlisted terminal block", qty: 5 }] }), /BUY_NEEDS_SKU:2/, "an inquiry names the line without a part number");
+  await prisma.serviceOrder.update({ where: { id: bare.id }, data: { status: "CANCELLED" } });
   await refused(() => createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, mode: "DOMESTIC_TRADE", requestLines: [] }), /ITEM_LINES_REQUIRED/, "a trade order needs item lines");
   await refused(() => createServiceOrder({ createdByEmployeeCode: md.code, customerId: customer.id, mode: "INTERNATIONAL_TRADE", requestLines: [{ sku: a.sku, qty: 1 }] }), /TRADE_TERMS_REQUIRED/, "international trade needs its trade terms (probe-intl-trade.ts runs that chain)");
   const o = await createServiceOrder({
     createdByEmployeeCode: md.code, customerId: customer.id, mode: "DOMESTIC_TRADE", customerRef: `RFQ-${stamp}`,
-    requestLines: [{ sku: a.sku, description: a.name, qty: 3, unit: "pcs" }, { sku: b.sku, qty: 2, unit: "pcs" }, { description: "Shielded motor cable 4×10 mm²", qty: 50, unit: "m" }, { description: "", qty: 0 }],
+    requestLines: [{ sku: a.sku, description: a.name, qty: 3, unit: "pcs" }, { sku: b.sku, qty: 2, unit: "pcs" }, { sku: cable.sku, description: "Shielded motor cable 4×10 mm²", qty: 50, unit: "m" }, { description: "", qty: 0 }],
   });
   const row = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id }, include: { assets: true, documents: true, inquiries: true } });
   assert(row.mode === "DOMESTIC_TRADE" && row.kind === "PARTS_SALE" && row.assets.length === 0, "mode 国内贸易, kind PARTS_SALE, no asset");
@@ -44,7 +52,7 @@ async function main() {
   assert(row.documents.find((d) => d.type === "QT")?.templateCode === "30", "QTTH renders as a quotation (30)");
   const prth = row.inquiries[0];
   const prLines = (prth?.lines ?? []) as { partSku?: string; description: string; qty: number }[];
-  assert(row.inquiries.length === 1 && prLines.length === 2 && prLines.some((l) => l.partSku === b.sku && l.qty === 2) && prLines.some((l) => !l.partSku && l.qty === 50), `PRTH ${prth?.no}: CU240 × 2 and the cable × 50 (the G120 is on the shelf)`);
+  assert(row.inquiries.length === 1 && prLines.length === 2 && prLines.some((l) => l.partSku === b.sku && l.qty === 2) && prLines.some((l) => l.partSku === cable.sku && l.qty === 50), `PRTH ${prth?.no}: CU240 × 2 and the cable × 50 (the G120 is on the shelf)`);
 
   console.log("2. quote at the 20 % floor, customer PO");
   const lines = [
@@ -64,7 +72,6 @@ async function main() {
   await recordStockDoc({ actorCode: md.code, direction: "IN", lines: [{ partSku: b.sku, qty: 2, unitCost: 9000 }] }); // the CU240 arrived
   // the cable has no part number on the customer's PO: it is bought for this order, and receiving it makes it a part
   // (since 2026-11-14 goods the store cannot account for are not delivered)
-  const cable = await prisma.part.create({ data: { sku: `GEN-CABLE-${stamp}`, vendorPartNo: `CABLE-${stamp}`, name: "Shielded motor cable 4×10 mm²", unit: "m" } });
   await recordStockDoc({ actorCode: md.code, direction: "IN", serviceOrderNo: o.no, lines: [{ partSku: cable.sku, qty: 50, unitCost: 100 }] });
   await recordStockDoc({ actorCode: md.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: a.sku, qty: 3 }, { partSku: b.sku, qty: 2 }] });
   const plan = await deliveryPlan(o.no);
@@ -76,7 +83,7 @@ async function main() {
 
   console.log("4. tax invoice and the trade documents");
   const ti = await issueTaxInvoice({ serviceOrderNo: o.no, actorCode: md.code });
-  assert(/^TITH/.test(ti.no), `tax invoice ${ti.no}`);
+  assert(/^(TEST-)?TITH/.test(ti.no), `tax invoice ${ti.no}`);
   for (const t of ["30", "31"]) {
     const f = await buildFields(o.no, t);
     const json = JSON.stringify(f.values);
