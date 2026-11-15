@@ -51,7 +51,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
   }
   // 暂估 and 三单匹配: what was received and not yet invoiced, and how each invoice sits against the receipts
   const accrual = po.invoices.find((i) => i.accrued), invoices = po.invoices.filter((i) => !i.accrued);
-  const mayInvoice = po.kind === "PARTS" && po.status !== "DRAFT" && po.status !== "CANCELLED" && invoices.reduce((x, i) => x + Number(i.subtotal), 0) < Number(po.subtotal) - 0.01;
+  const mayInvoice = po.kind === "PARTS" && (po.status === "PARTIAL" || po.status === "RECEIVED") && invoices.reduce((x, i) => x + Number(i.subtotal), 0) < Number(po.subtotal) - 0.01;
   const today = localIso(new Date())!.slice(0, 10);
   // 入库必须有料号: which lines the library does not know yet — those get the 新建料号 fields, filled from the POTH
   const known = await Promise.all(lines.map(async (l) => !!((await findPart(l.partSku).catch(() => null)) ?? (await findPart(l.vendorPartNo).catch(() => null)))));
@@ -117,7 +117,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
                   {lacks && <div className="mt-1 space-y-1 rounded-lg border border-[#E6A23C] bg-white p-2">
                     <div className="text-xs font-semibold text-[#7A4A00]">{u("poLineNewPart", { n: l.lineNo })}</div>
                     <div className="grid grid-cols-1 gap-1 md:grid-cols-3">
-                      <label className="text-xs text-navy/70">{u("newPartBrand")}<select name={`nb${i}`} defaultValue={guessBrand(`${l.description} ${po.supplier.name}`, brands) ?? ""} className={inputCls}><option value="">{u("newPartNoBrand")}</option>{brands.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}</select></label>
+                      <label className="text-xs text-navy/70">{u("newPartBrand")}<select name={`nb${i}`} defaultValue={guessBrand(l.description, brands) ?? ""} className={inputCls}><option value="">{u("newPartNoBrand")}</option>{brands.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}</select></label>
                       <label className="text-xs text-navy/70">{u("newPartVendorNo")} *<input name={`nv${i}`} defaultValue={l.vendorPartNo ?? l.partSku ?? ""} className={`${inputCls} font-mono`} /></label>
                       <label className="text-xs text-navy/70">{u("newPartName")} *<input name={`nn${i}`} defaultValue={l.description} className={inputCls} /></label>
                     </div>

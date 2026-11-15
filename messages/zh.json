@@ -425,7 +425,8 @@
     "staffSignInLink": "DCiT 员工？从这里登录 →",
     "portalSignInLink": "客户门户 →",
     "oneMoreLine": "再加一行",
-    "releaseSoon": "系统更新中，请稍后再保存"
+    "releaseSoon": "系统更新中，请稍后再保存",
+    "versionLine": "版本 {version} · 发版 {at}"
   },
   "ai": {
     "title": "AI 助手",
@@ -2357,7 +2358,22 @@
     "err_BUY_NEEDS_SKU": "第 {detail} 行缺料号，不能转采购：点该行的料号格，从列表里选，或点“原地新建料号”。",
     "buyNeedsSku": "还不能转采购：下面这些零件行没有料号",
     "buyNeedsSkuGo": "去报价单补料号",
-    "quoteSkuOptional": "料号选填：纯维修的行不用填。带零件的行要转采购时必须有料号，点料号格可以从列表选，也可以原地新建。"
+    "quoteSkuOptional": "料号选填：纯维修的行不用填。带零件的行要转采购时必须有料号，点料号格可以从列表选，也可以原地新建。",
+    "poFillPick": "贸易出库：选采购单（POTH），料号、数量和客户自动带出",
+    "poFillNone": "— 不是贸易出库（维修出库 / 入库）—",
+    "poFillDone": "已带出 {n} 行 · 业务单 {order} · 客户 {customer} · 不用选设备",
+    "relatedAssetRepair": "维修的设备（只有维修出库才选，只列本客户的设备）",
+    "fcTop": "还不能保存：{what}",
+    "fcTopEmpty": "还有 {n} 项没填",
+    "fcTopWrong": "{n} 项填得不对",
+    "fcTopJoin": "，",
+    "fcEmpty": "这项必填",
+    "fcMax": "不能超过 {max}",
+    "fcMin": "不能小于 {min}",
+    "fcStep": "小数位数不对",
+    "fcShort": "至少 {n} 个字符",
+    "fcEmail": "邮箱格式不对",
+    "fcFormat": "格式不对"
   },
   "role": {
     "MD": "董事总经理 MD",

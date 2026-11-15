@@ -23,3 +23,12 @@ export function ReleaseBanner() {
   if (!on) return null;
   return <div role="alert" className="fixed inset-x-0 top-0 z-[80] bg-alert px-4 py-2 text-center text-sm font-semibold text-navy shadow">⏳ {text}</div>;
 }
+
+/** 版本号和发版时间, small, wherever it is placed (menu foot, sign-in page, 我的). */
+export function VersionTag({ className = "" }: { className?: string }) {
+  const label = useTranslations("common");
+  const [v, setV] = useState<{ version?: string; releasedAt?: string } | null>(null);
+  useEffect(() => { fetch("/api/release", { cache: "no-store" }).then((r) => r.json()).then(setV).catch(() => null); }, []);
+  if (!v?.version) return null;
+  return <p className={`text-[11px] leading-4 text-navy/50 ${className}`}>{label("versionLine", { version: v.version, at: v.releasedAt || "—" })}</p>;
+}

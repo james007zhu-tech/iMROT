@@ -76,3 +76,7 @@ body[data-saving] :is(button:not([type="button"]), input[type="submit"]) { point
   table.tbl-read > tbody > tr > td.tbl-plain[data-l]::before { content: attr(data-l); display: block; font-weight: 400; }
   table.tbl-read > tbody > tr > td.tbl-plain:empty { display: none; }
 }
+
+/* 漏填的格子标红 (FormCheck) */
+.field-bad { border-color: #C0392B !important; box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.25) !important; background-color: #FFF5F4 !important; }
+.field-msg { display: block; margin-top: 2px; font-size: 12px; font-weight: 600; color: #C0392B; }

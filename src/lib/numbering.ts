@@ -102,7 +102,8 @@ export interface ParsedNumber {
 }
 
 /** Parse any DCiT number back into its parts; returns null when it does not match the rules. */
-export function parseNumber(no: string): ParsedNumber | null {
+export function parseNumber(raw: string): ParsedNumber | null {
+  const no = raw.replace(/^TEST-/, ""); // TEST 号段 parses as the number behind the mark
   const master = /^([ACES])(TH|VN|CN)(\d{4})(\d{3,4})$/.exec(no);
   if (master) {
     const prefix = master[1] as MasterPrefix;

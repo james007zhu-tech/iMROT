@@ -425,7 +425,8 @@
     "staffSignInLink": "DCiT staff? Sign in here →",
     "portalSignInLink": "Customer portal →",
     "oneMoreLine": "One more line",
-    "releaseSoon": "The system is being updated — please wait before saving"
+    "releaseSoon": "The system is being updated — please wait before saving",
+    "versionLine": "Version {version} · released {at}"
   },
   "ai": {
     "title": "AI assistant",
@@ -2357,7 +2358,22 @@
     "err_BUY_NEEDS_SKU": "Line {detail} has no part number and cannot go to purchasing: pick one from the list or use “Create the part here”.",
     "buyNeedsSku": "Cannot go to purchasing yet: these part lines have no part number",
     "buyNeedsSkuGo": "Add them on the quote",
-    "quoteSkuOptional": "The part number is optional: pure repair lines need none. A part line needs one before purchasing — pick from the list or create it there."
+    "quoteSkuOptional": "The part number is optional: pure repair lines need none. A part line needs one before purchasing — pick from the list or create it there.",
+    "poFillPick": "Trade issue: choose the POTH — parts, quantities and customer are filled in",
+    "poFillNone": "— not a trade issue (repair issue / receipt) —",
+    "poFillDone": "{n} lines filled · order {order} · customer {customer} · no machine to choose",
+    "relatedAssetRepair": "Machine repaired (repair issues only; this customer's machines)",
+    "fcTop": "Cannot save yet: {what}",
+    "fcTopEmpty": "{n} box(es) still empty",
+    "fcTopWrong": "{n} box(es) not right",
+    "fcTopJoin": " and ",
+    "fcEmpty": "Required",
+    "fcMax": "Not more than {max}",
+    "fcMin": "Not less than {min}",
+    "fcStep": "Too many decimals",
+    "fcShort": "At least {n} characters",
+    "fcEmail": "Not an e-mail address",
+    "fcFormat": "Wrong format"
   },
   "role": {
     "MD": "Managing Director",

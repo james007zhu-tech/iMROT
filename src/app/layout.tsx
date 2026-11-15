@@ -1,3 +1,4 @@
+import { FormCheck } from "@/components/FormCheck";
 import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
@@ -18,7 +19,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={locale}>
       <body>
-        <NextIntlClientProvider locale={locale} messages={messages}>{children}<Suspense><SubmitGuard /></Suspense><ReleaseBanner /></NextIntlClientProvider>
+        <NextIntlClientProvider locale={locale} messages={messages}>{children}<Suspense><SubmitGuard /></Suspense><ReleaseBanner /><FormCheck /></NextIntlClientProvider>
       </body>
     </html>
   );

@@ -315,7 +315,7 @@ export async function registerSupplierInvoice(input: z.input<typeof SupplierInvo
   const already = po.invoices.reduce((s, i) => s + Number(i.subtotal), 0);
   if (round2(already + d.subtotal) > Number(po.subtotal) + 0.01) throw new Error(`INVOICE_EXCEEDS_PO:${round2(already + d.subtotal)}>${Number(po.subtotal)}`);
   if (po.kind === "SUBCONTRACT" && !po.milestones.some((m) => m.stage === "RETEST_PASSED")) throw new Error(`NOT_ACCEPTED_YET:${po.no}`);
-  if (po.kind === "PARTS" && po.status === "DRAFT") throw new Error(`NOT_RECEIVED_YET:${po.no}`);
+  if (po.kind === "PARTS" && receivedValue(po.lines) <= 0) throw new Error(`NOT_RECEIVED_YET:${po.no}`);
   const vatAmount = d.vatAmount ?? round2(d.subtotal * Number(po.vatRate));
   const whtRate = d.whtRate ?? whtRateFor(po.supplier.countryCode, po.kind);
   const whtAmount = round2(d.subtotal * whtRate), total = round2(d.subtotal + vatAmount);
