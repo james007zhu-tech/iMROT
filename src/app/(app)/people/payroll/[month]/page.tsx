@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
 import { BLOCKING, payrollDetail } from "@/server/payroll";
+import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { payslipNo } from "@/lib/numbering";
 import { DEFAULT_BANDS, type PerfBand, type Withholding } from "@/lib/payroll-run";
 import { localToday } from "@/lib/overtime";
@@ -22,7 +23,8 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
   const { month } = await params;
   const { ok, error } = await searchParams;
   const [t, me] = await Promise.all([getTranslations("ops"), currentEmployee()]);
-  if (me.role !== "MD") notFound();
+  if (!PAYROLL_ROLES.includes(me.role)) notFound();
+  const md = me.role === "MD", prep = me.role === "ADMIN", fin = me.role === "FINANCE";
   const run = await payrollDetail(me.entityId, month);
   if (!run) notFound();
   const x = run.totals as Record<string, number>;
@@ -39,19 +41,23 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
           <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{t("payExport")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">
             {["bank", "sso", "pnd1", "full"].map((k) => <a key={k} href={`/api/payroll/${month}/export?kind=${k}`} className="rounded px-2 py-1 hover:bg-tint">{t(`payExport_${k}`)}</a>)}
           </div></details>
-          {draft && <form action={computeAction.bind(null, month)}><button className={btnGhost}>{t("payRefresh")}</button></form>}
-          {draft && <form action={approveAction.bind(null, month)}><button className={btnBlue} disabled={blocking.length > 0 || !run.taxConfirmedAt} title={blocking.length ? t("payBlocked") : !run.taxConfirmedAt ? t("payTaxFirst") : undefined} style={blocking.length || !run.taxConfirmedAt ? { opacity: 0.5 } : undefined}>{t("payApprove")}</button></form>}
-          {run.status === "APPROVED" && <form action={reopenAction.bind(null, month)}><button className={btnGhost}>{t("payReopen")}</button></form>}
-          {run.status === "APPROVED" && <form action={paidAction.bind(null, month)} className="flex items-center gap-2"><input name="paidAt" type="date" defaultValue={localToday().date} className={`${inputCls} w-40`} aria-label={t("payPaidOn")} /><button className={btnBlue}>{t("payMarkPaid")}</button></form>}
+          {draft && prep && <form action={computeAction.bind(null, month)}><button className={btnGhost}>{t("payRefresh")}</button></form>}
+          {draft && md && <form action={approveAction.bind(null, month)}><button className={btnBlue} disabled={blocking.length > 0 || !run.taxConfirmedAt} title={blocking.length ? t("payBlocked") : !run.taxConfirmedAt ? t("payTaxFirst") : undefined} style={blocking.length || !run.taxConfirmedAt ? { opacity: 0.5 } : undefined}>{t("payApprove")}</button></form>}
+          {run.status === "APPROVED" && md && <form action={reopenAction.bind(null, month)}><button className={btnGhost}>{t("payReopen")}</button></form>}
+          {run.status === "APPROVED" && fin && <form action={paidAction.bind(null, month)} className="flex items-center gap-2"><input name="paidAt" type="date" defaultValue={localToday().date} className={`${inputCls} w-40`} aria-label={t("payPaidOn")} /><button className={btnBlue}>{t("payMarkPaid")}</button></form>}
         </>} />
       <Flash ok={ok} error={error} />
+      <ol className="flex flex-wrap gap-2 text-[13px]">
+        {([["payStepPrep", run.preparedBy, true], ["payStepReview", run.taxConfirmedBy, !!run.taxConfirmedAt], ["payStepApprove", run.approvedBy, !!run.approvedAt], ["payStepPaid", run.paidAt ? localIso(run.paidAt)!.slice(0, 10) : null, !!run.paidAt]] as const).map(([k, who, done], i) =>
+          <li key={k} className={`rounded-full border px-3 py-1 ${done && who ? "border-navy bg-navy text-white" : "border-navy/30 bg-white text-navy/70"}`}>{i + 1}. {t(k)}{done && who ? ` · ${who}` : ""}</li>)}
+      </ol>
       {draft && blocking.length > 0 && <Alert>{t("payBlockedList", { n: blocking.length })} {blocking.map((l) => `${l.employee.name}（${l.missing.filter((m) => BLOCKING.includes(m)).map((m) => t(`miss_${m}`)).join("、")}）`).join("；")}</Alert>}
 
       {skipped.length > 0 && <p className="rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-3 py-2 text-[13px] text-[#7A4A00]">{t("paySkipped", { n: skipped.length })} {skipped.join("、")}</p>}
       {draft && <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-[13px] ${run.taxConfirmedAt ? "border-navy/20 bg-white text-navy" : "border-[#E6A23C] bg-[#FFF4E5] text-[#7A4A00]"}`}>
         <span className="min-w-0 flex-1">{run.taxConfirmedAt ? t("payTaxDone", { who: run.taxConfirmedBy ?? "", date: localIso(run.taxConfirmedAt)!.slice(0, 10) }) : t("payTaxTodo")}</span>
         <a href={`/api/payroll/${month}/export?kind=pnd1`} className={btnGhost}>{t("payExport_pnd1")}</a>
-        <form action={taxAction.bind(null, month, !run.taxConfirmedAt)}><button className={run.taxConfirmedAt ? btnGhost : btnPrimary}>{run.taxConfirmedAt ? t("payTaxUndo") : t("payTaxConfirm")}</button></form>
+        {fin && <form action={taxAction.bind(null, month, !run.taxConfirmedAt)}><button className={run.taxConfirmedAt ? btnGhost : btnPrimary}>{run.taxConfirmedAt ? t("payTaxUndo") : t("payTaxConfirm")}</button></form>}
       </div>}
       <p className="text-xs text-navy/70">{t("payDeadline", { month })}</p>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
@@ -91,7 +97,7 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
                   </div>
                 </div>
                 {w && !l.whtManual && <p className="mt-1 text-[11px] text-navy/60">{t("payWhtHow", { year: money(w.regularYear), allow: money(w.allowances), tax: money(w.regularTaxYear), month: money(w.regularTaxMonth), extra: money(w.irregularTax) })}</p>}
-                {draft ? <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+                {draft && prep ? <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
                   <label className="text-xs text-navy/70">{t("payBonus")}<input name={`bonus_${code}`} type="number" step="0.01" min="0" inputMode="decimal" defaultValue={Number(l.bonus) || ""} className={inputCls} /></label>
                   <label className="text-xs text-navy/70">{t("payOther")}<input name={`other_${code}`} type="number" step="0.01" min="0" inputMode="decimal" defaultValue={Number(l.otherDeduction) || ""} className={inputCls} /></label>
                   <label className="text-xs text-navy/70">{t("payWhtType")}<input name={`wht_${code}`} type="number" step="0.01" min="0" inputMode="decimal" defaultValue={l.whtManual ? Number(l.wht) : ""} placeholder={t("payAuto")} className={inputCls} /></label>
@@ -101,10 +107,10 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
             );
           })}
         </div>
-        {draft && <div className="sticky bottom-3 flex justify-end pr-20"><button className={`${btnPrimary} shadow-lg`}>{t("paySave")}</button></div>}
+        {draft && prep && <div className="sticky bottom-3 flex justify-end pr-20"><button className={`${btnPrimary} shadow-lg`}>{t("paySave")}</button></div>}
       </form>
 
-      {draft && <Card title={t("perfBands")}>
+      {draft && md && <Card title={t("perfBands")}>
         <p className="mb-2 text-xs text-navy/70">{t("perfBandsHint")}</p>
         <form action={bandsAction.bind(null, month)} className="flex flex-wrap items-end gap-2">
           {bands.map((b, i) => <div key={i} className="flex items-center gap-1 rounded-lg border bg-white px-2 py-1 text-sm"><span>≥</span><input name="min" type="number" min={0} max={100} defaultValue={b.min} readOnly={b.min === 0} aria-label={t("perfScore")} className={`${inputCls} w-16`} /><span>→ ×</span><input name="factor" type="number" step="0.05" min={0} max={3} defaultValue={b.factor} aria-label={t("perfFactor")} className={`${inputCls} w-20`} /></div>)}

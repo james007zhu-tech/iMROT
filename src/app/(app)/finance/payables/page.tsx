@@ -5,7 +5,9 @@ import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { Flash } from "@/components/Flash";
 import { PageHeader, Table, Tag, btnBlue, inputCls } from "@/components/ui";
-import { payAction } from "./actions";
+import { payableThb } from "@/server/srm";
+import { MD_LIMIT_THB, overLimit } from "@/lib/pay-rules";
+import { payAction, releaseAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +17,9 @@ export default async function Payables({ searchParams }: { searchParams: Promise
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
   const rows = await prisma.supplierInvoice.findMany({ where: all ? {} : { status: "OPEN" }, orderBy: [{ status: "asc" }, { dueDate: "asc" }], take: 200, include: { supplier: true, purchaseOrder: { select: { no: true, kind: true, serviceOrder: { select: { no: true } } } } } });
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const mayPay = ["MD", "FINANCE", "ADMIN"].includes(me.role);
+  const mayPay = me.role === "FINANCE", md = me.role === "MD";
+  // a payment waits for the MD above the limit, or when the person paying is the one who registered the invoice
+  const waits = new Map(await Promise.all(rows.filter((r) => r.status === "OPEN" && !r.mdApprovedAt).map(async (r) => [r.id, overLimit(await payableThb(r)) || (mayPay && r.createdById === me.id)] as const)));
   const openTotal = rows.filter((r) => r.status === "OPEN").reduce((s, r) => s + Number(r.payable), 0);
   return (
     <div className="space-y-4">
@@ -35,13 +39,19 @@ export default async function Payables({ searchParams }: { searchParams: Promise
               <td className="text-right">{Number(r.whtAmount).toFixed(2)}{Number(r.whtRate) > 0 ? <span className="block text-xs text-navy/60">{(Number(r.whtRate) * 100).toFixed(0)}%</span> : null}</td>
               <td className="text-right font-semibold">{r.currency} {Number(r.payable).toFixed(2)}</td>
               <td><Tag hot={overdue}>{u(`payable_${r.status}`)}</Tag>{r.paymentNo ? <span className="ml-1 font-mono text-xs">{r.paymentNo}</span> : null}</td>
-              <td>{r.status === "OPEN" && mayPay && <form action={payAction} className="flex gap-1"><input type="hidden" name="id" value={r.id} /><input name="paymentRef" placeholder={u("paymentRefPh")} className={`${inputCls} w-32`} /><input name="paidAt" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={`${inputCls} w-36`} /><button className={btnBlue}>{u("payNow")}</button></form>}</td>
+              <td>
+                {r.status === "OPEN" && r.mdApprovedAt && <span className="mb-1 block text-xs text-navy/70">{u("payReleased", { who: r.mdApprovedBy ?? "", date: localIso(r.mdApprovedAt)!.slice(0, 10) })}</span>}
+                {r.status === "OPEN" && waits.get(r.id) && (md
+                  ? <form action={releaseAction.bind(null, r.id)}><button className={`${btnBlue} whitespace-nowrap`}>{u("payRelease")}</button></form>
+                  : <Tag hot>{u("payWaitsMd")}</Tag>)}
+                {r.status === "OPEN" && mayPay && !waits.get(r.id) && <form action={payAction} className="flex flex-wrap gap-1"><input type="hidden" name="id" value={r.id} /><input name="paymentRef" placeholder={u("paymentRefPh")} className={`${inputCls} w-32`} /><input name="paidAt" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={`${inputCls} w-36`} /><button className={`${btnBlue} whitespace-nowrap`}>{u("payNow")}</button></form>}
+              </td>
             </tr>;
           })}
           {rows.length === 0 && <tr><td colSpan={10} className="py-6 text-center text-navy/60">{u("noPayables")}</td></tr>}
         </Table>
       </div>
-      <p className="text-xs text-navy/70">{u("payablesHint")}</p>
+      <p className="text-xs text-navy/70">{u("payablesHint")} {u("payRule", { limit: MD_LIMIT_THB.toLocaleString("en-US") })}</p>
     </div>
   );
 }

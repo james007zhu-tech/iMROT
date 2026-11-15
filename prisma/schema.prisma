@@ -1385,6 +1385,8 @@ model SupplierInvoice {
   paidAt          DateTime?
   paymentNo       String? /// PVTH… issued when paid
   paymentRef      String? /// bank transfer reference, verbatim
+  mdApprovedBy    String? /// the MD's release: needed above 50,000 THB, or when the payer registered the invoice himself
+  mdApprovedAt    DateTime?
   attachments     Json?
   createdById     String
   createdAt       DateTime      @default(now())
@@ -1805,6 +1807,7 @@ model PayrollRun {
   createdBy      String
   createdAt      DateTime      @default(now())
   computedAt     DateTime      @default(now())
+  preparedBy     String? /// 内勤 who computed it. Three people: 内勤 computes, 财务 reviews (taxConfirmedBy), MD approves
   taxConfirmedBy String? /// 朱总 2026-11-11: withholding follows the accountant — approval waits for this
   taxConfirmedAt DateTime?
   approvedBy     String?

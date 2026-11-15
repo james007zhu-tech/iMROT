@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { METRICS, defaultMetric, mySlips, payrollRuns, salesProgress, scorable } from "@/server/payroll";
+import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { payslipNo } from "@/lib/numbering";
 import { localToday } from "@/lib/overtime";
 import { DEFAULT_BANDS, perfFactor, quarterOf, targetFactor, type PerfBand } from "@/lib/payroll-run";
@@ -19,10 +20,10 @@ export const dynamic = "force-dynamic";
 export default async function Payroll({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; month?: string }> }) {
   const sp = await searchParams;
   const [t, me] = await Promise.all([getTranslations("ops"), currentEmployee()]);
-  const md = me.role === "MD";
+  const md = me.role === "MD", seeRuns = PAYROLL_ROLES.includes(me.role), prep = me.role === "ADMIN";
   const { month: thisMonth, previousMonth } = localToday();
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : previousMonth;
-  const [slips, everyone, runs] = await Promise.all([mySlips(me.id), scorable(me.code), md ? payrollRuns(me.entityId) : Promise.resolve([])]);
+  const [slips, everyone, runs] = await Promise.all([mySlips(me.id), scorable(me.code), seeRuns ? payrollRuns(me.entityId) : Promise.resolve([])]);
   // sales are paid on targets, not on a score (朱总 2026-11-11)
   const salesIds = new Set((await prisma.employee.findMany({ where: { id: { in: everyone.map((p) => p.id) }, role: "SALES" }, select: { id: true } })).map((e) => e.id));
   const people = everyone.filter((p) => !salesIds.has(p.id)), sales = md ? everyone.filter((p) => salesIds.has(p.id)) : [];
@@ -39,10 +40,11 @@ export default async function Payroll({ searchParams }: { searchParams: Promise<
   const months = [thisMonth, previousMonth, ...runs.map((r) => r.month)].filter((m, i, a) => a.indexOf(m) === i).sort().reverse();
   return (
     <div className="space-y-4">
-      <PageHeader title={t("payTitle")} actions={md ? <form action={computeAction.bind(null, month)}><button className={btnBlue}>＋ {t("payNew", { month })}</button></form> : null} />
+      <PageHeader title={t("payTitle")} actions={prep ? <form action={computeAction.bind(null, month)}><button className={btnBlue}>＋ {t("payNew", { month })}</button></form> : null} />
       <Flash ok={sp.ok} error={sp.error} />
 
-      {md && <Card title={t("payRuns")}>
+      {seeRuns && <Card title={t("payRuns")}>
+        <p className="mb-2 text-xs text-navy/70">{t("payThree")}</p>
         <Table head={[t("month"), t("status"), t("payPeople"), t("payGross"), "SSO", t("payWht"), t("payNet"), t("payCost"), ""]}>
           {runs.map((r) => { const x = r.totals as Record<string, number>; return (
             <tr key={r.id}><td className="font-mono">{r.month}</td><td><Tag hot={r.status === "DRAFT"}>{t(`pay_${r.status}`)}</Tag></td><td className="text-right">{x.people}</td><td className="text-right tabular-nums">{money(x.gross)}</td><td className="text-right tabular-nums">{money(x.sso)}</td><td className="text-right tabular-nums">{money(x.wht)}</td><td className="text-right font-semibold tabular-nums">{money(x.net)}</td><td className="text-right tabular-nums">{money(x.employerCost)}</td><td><Link href={`/people/payroll/${r.month}`} className="text-blue hover:underline">{t("open")}</Link></td></tr>

@@ -21,6 +21,8 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
   const md = await prisma.employee.findUniqueOrThrow({ where: { code: MD } });
   const tag = Date.now().toString(36);
   const eng = await prisma.employee.create({ data: { code: `ETH18${String((Date.now() + 7) % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe Engineer ${tag}`, role: "ENGINEER", managerId: md.id, joinedAt: new Date("2018-01-01"), taxNo: "1100000000001", ssoNo: "1100000000001", bankAccount: "123-4-56789-0", bankName: "KBANK" } });
+  const mk = (n: number, role: "ADMIN" | "FINANCE") => prisma.employee.create({ data: { code: `ETH17${String((Date.now() + n) % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe ${role} ${tag}`, role, managerId: md.id, joinedAt: new Date("2030-01-01") } });
+  const adm = await mk(11, "ADMIN"), fin = await mk(23, "FINANCE");
   const made: { claim?: string } = {};
   // a salesperson on a 60,000 package: 50 % base, 30 % monthly target, 20 % quarterly target (朱总 2026-11-11)
   const seller = await prisma.employee.create({ data: { code: `ETH19${String(Date.now() % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe Sales ${tag}`, role: "SALES", managerId: md.id, joinedAt: new Date("2018-01-01"), taxNo: "1100000000002", ssoNo: "1100000000002", bankAccount: "123-4-56789-1", bankName: "KBANK" } });
@@ -36,7 +38,7 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
     check("nobody approves their own claim", self === "EXPENSE_NOT_APPROVER");
     await decideExpense({ id: c.id, actorCode: MD, decision: "APPROVED" });
 
-    await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
+    await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code });
     let run = await payrollDetail(md.entityId, MONTH);
     let line = run!.lines.find((l) => l.employeeId === eng.id)!;
     check("the run includes the engineer and flags the missing score", line.missing.includes("PERFORMANCE"), line.missing.join(","));
@@ -48,7 +50,7 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
     // every other person with performance pay and no score would block the probe month: score them all as the MD
     const others = run!.lines.filter((l) => l.missing.includes("PERFORMANCE")).map((l) => ({ code: l.employee.code, score: l.employeeId === eng.id ? 92 : 80 }));
     await saveScores({ actorCode: MD, month: MONTH, scores: others });
-    await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD, edits: { [eng.code]: { bonus: 1000, otherDeduction: 200 } } });
+    await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code, edits: { [eng.code]: { bonus: 1000, otherDeduction: 200 } } });
     run = await payrollDetail(md.entityId, MONTH); line = run!.lines.find((l) => l.employeeId === eng.id)!;
     // 30,000 + 2,000 + 5,000 × 1.2 + 1,000 = 39,000; SSO 875; tax: regular year 384,000 → 3,175/12 = 264.58, irregular 7,000 × 5 % = 350
     check("score 92 → ×1.2, bonus and deduction typed by the MD", Number(line.incentive) === 6000 && Number(line.gross) === 39000 && Number(line.ssoEmployee) === 875, `incentive ${line.incentive} gross ${line.gross}`);
@@ -58,12 +60,12 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
     check("a salesperson without targets blocks the month (it is the quarter's last)", rl().missing.includes("TARGET") && rl().missing.includes("TARGET_Q"), rl().missing.join(","));
     await setSalesTarget({ actorCode: MD, employeeCode: seller.code, period: MONTH, target: 1_000_000, actualManual: 850_000 });
     await setSalesTarget({ actorCode: MD, employeeCode: seller.code, period: "2019-Q1", target: 3_000_000, actualManual: 1_800_000 });
-    await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
+    await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code });
     run = await payrollDetail(md.entityId, MONTH); line = run!.lines.find((l) => l.employeeId === eng.id)!;
     // month 85 % → ×0.75 of 18,000 = 13,500; quarter 60 % (< 70 %) → 0 of 36,000
     check("sales pay: 85 % of the month's target pays 75 %, 60 % of the quarter's pays nothing", Number(rl().incentive) === 13500 && Number(rl().quarterlyPay) === 36000 && Number(rl().quarterIncentive) === 0 && Number(rl().gross) === 43500, `month ${rl().incentive} quarter ${rl().quarterIncentive} gross ${rl().gross}`);
     await setSalesTarget({ actorCode: MD, employeeCode: seller.code, period: "2019-Q1", target: 3_000_000, actualManual: 3_600_000 });
-    await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
+    await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code });
     run = await payrollDetail(md.entityId, MONTH); line = run!.lines.find((l) => l.employeeId === eng.id)!;
     check("above target there is no cap: 120 % of the quarter pays 120 %", Number(rl().quarterIncentive) === 43200, String(rl().quarterIncentive));
     // 销售负责人: an order opened by the MD counts for the salesperson once they are named on it
@@ -87,14 +89,30 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
     else {
       const noTax = await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD }).catch((e) => String(e.message));
       check("approval waits until the withholding is confirmed against the accountant", /PAYROLL_TAX_UNCONFIRMED/.test(String(noTax)), String(noTax).slice(0, 40));
-      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: MD, confirmed: true });
+      // 内勤算、财务核、MD 批：三个人，各管一步
+      const mdComputes = await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD }).catch((e) => String(e.message));
+      check("the MD does not compute the month himself", /PAYROLL_PREPARER_ONLY/.test(String(mdComputes)), String(mdComputes).slice(0, 40));
+      const mdReviews = await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: MD, confirmed: true }).catch((e) => String(e.message));
+      check("only finance reviews", /PAYROLL_REVIEWER_ONLY/.test(String(mdReviews)), String(mdReviews).slice(0, 40));
+      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true });
+      const admApproves = await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code }).catch((e) => String(e.message));
+      check("only the MD approves", /MD_ONLY/.test(String(admApproves)), String(admApproves).slice(0, 40));
       await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
-      const locked = await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD }).catch((e) => String(e.message));
+      const after = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: md.entityId, month: MONTH } } });
+      check("the month names its three people", after.preparedBy === adm.code && after.taxConfirmedBy === fin.code && after.approvedBy === MD, `${after.preparedBy} ${after.taxConfirmedBy} ${after.approvedBy}`);
+      const locked = await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code }).catch((e) => String(e.message));
       check("an approved month cannot be recomputed", /PAYROLL_LOCKED/.test(String(locked)));
       await reopenPayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
-      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: MD, confirmed: true });
+      // a figure moved after the review: the review no longer stands
+      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true });
+      await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code, edits: { [eng.code]: { bonus: 1500, otherDeduction: 200 } } });
+      const stale = await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD }).catch((e) => String(e.message));
+      check("a change after the review sends the month back to finance", /PAYROLL_TAX_UNCONFIRMED/.test(String(stale)), String(stale).slice(0, 40));
+      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true });
       await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
-      await markPayrollPaid({ entityId: md.entityId, month: MONTH, actorCode: MD });
+      const mdPays = await markPayrollPaid({ entityId: md.entityId, month: MONTH, actorCode: MD }).catch((e) => String(e.message));
+      check("the MD approves, finance pays", /FINANCE_PAYS/.test(String(mdPays)), String(mdPays).slice(0, 40));
+      await markPayrollPaid({ entityId: md.entityId, month: MONTH, actorCode: fin.code });
       const paid = await prisma.expenseClaim.findUniqueOrThrow({ where: { id: c.id } });
       check("paying the month settles the claim it carried", paid.status === "PAID" && paid.paidRef === `PAYROLL ${MONTH}`, `${paid.status} ${paid.paidRef}`);
     }
@@ -118,6 +136,7 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
     await prisma.salaryRecord.deleteMany({ where: { employeeId: seller.id } });
     await prisma.auditLog.deleteMany({ where: { target: { startsWith: seller.code } } });
     await prisma.employee.delete({ where: { id: seller.id } });
+    for (const x of [adm, fin]) { await prisma.auditLog.deleteMany({ where: { actorId: x.id } }); await prisma.employee.delete({ where: { id: x.id } }); }
     await prisma.salaryRecord.deleteMany({ where: { employeeId: eng.id } });
     await prisma.auditLog.deleteMany({ where: { OR: [{ actorId: eng.id }, { target: eng.code }] } });
     await prisma.aiAction.deleteMany({ where: { employeeId: eng.id } });
