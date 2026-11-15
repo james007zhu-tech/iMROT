@@ -7,6 +7,7 @@ import { localIso } from "@/lib/dates";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { overLimit } from "@/lib/pay-rules";
 import { audit } from "@/server/audit";
 import { allocateNumber } from "@/lib/numbering-db";
 
@@ -46,6 +47,12 @@ export async function fileExpense(input: z.input<typeof ExpenseInput>) {
   return c;
 }
 
+/** The finance person pays claims, never their own; the finance person's own claim is paid by the MD. */
+export function mayPayClaim(actor: { id: string; role: string }, claim: { employeeId: string; employee: { role: string } }) {
+  if (claim.employeeId === actor.id) return false;
+  return actor.role === "FINANCE" || (actor.role === "MD" && claim.employee.role === "FINANCE");
+}
+
 async function mayDecide(actorId: string, role: string, claim: { employeeId: string; employee: { managerId: string | null } }) {
   if (claim.employeeId === actorId && role !== "MD") return false; // nobody approves their own claim; the MD has no one above
   return role === "MD" || claim.employee.managerId === actorId;
@@ -57,6 +64,8 @@ export async function decideExpense(input: { id: string; actorCode: string; deci
   if (c.status !== "PENDING") throw new Error("EXPENSE_NOT_PENDING");
   if (!(await mayDecide(actor.id, actor.role, c))) throw new Error("EXPENSE_NOT_APPROVER");
   if (input.decision === "REJECTED" && !input.note?.trim()) throw new Error("EXPENSE_REJECT_NEEDS_REASON");
+  // one claim above the limit is the MD's to approve, whoever the manager is (THB; a foreign-currency claim always goes up)
+  if (input.decision === "APPROVED" && actor.role !== "MD" && (c.currency !== "THB" || overLimit(Number(c.amount)))) throw new Error("EXPENSE_NEEDS_MD");
   await prisma.expenseClaim.update({ where: { id: c.id }, data: { status: input.decision, approverId: actor.id, decidedAt: new Date(), decisionNote: input.note?.trim() || null } });
   await audit(actor.id, `EXPENSE_${input.decision}`, c.id, { amount: Number(c.amount) });
 }
@@ -72,8 +81,8 @@ export async function cancelExpense(input: { id: string; actorCode: string }) {
 /** Finance pays an approved claim by hand (not waiting for payroll). A claim already inside an approved payroll is left to it. */
 export async function payExpense(input: { id: string; actorCode: string; paidRef?: string }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  if (!SEE_ALL.includes(actor.role)) throw new Error("FINANCE_ONLY");
-  const c = await prisma.expenseClaim.findUniqueOrThrow({ where: { id: input.id } });
+  const c = await prisma.expenseClaim.findUniqueOrThrow({ where: { id: input.id }, include: { employee: { select: { role: true } } } });
+  if (!mayPayClaim(actor, c)) throw new Error(c.employeeId === actor.id ? "EXPENSE_OWN_PAY" : "FINANCE_PAYS");
   if (c.status !== "APPROVED") throw new Error("EXPENSE_NOT_APPROVED");
   if (c.payrollRunId) {
     const run = await prisma.payrollRun.findUnique({ where: { id: c.payrollRunId } });
@@ -87,6 +96,6 @@ export async function expensesFor(actorCode: string, filter: { status?: string; 
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
   const scope: Prisma.ExpenseClaimWhereInput = filter.mine || !(SEE_ALL.includes(a.role) || a.role === "MANAGER") ? { employeeId: a.id }
     : SEE_ALL.includes(a.role) ? { entityId: a.entityId } : { OR: [{ employeeId: a.id }, { employee: { managerId: a.id } }] };
-  const rows = await prisma.expenseClaim.findMany({ where: { ...scope, ...(filter.status ? { status: filter.status as never } : {}) }, include: { employee: { select: { id: true, code: true, name: true, managerId: true } }, approver: { select: { name: true } } }, orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }], take: 200 });
-  return { me: a, rows: await Promise.all(rows.map(async (r) => ({ ...r, canDecide: r.status === "PENDING" && (await mayDecide(a.id, a.role, r)) }))), seeAll: SEE_ALL.includes(a.role) };
+  const rows = await prisma.expenseClaim.findMany({ where: { ...scope, ...(filter.status ? { status: filter.status as never } : {}) }, include: { employee: { select: { id: true, code: true, name: true, managerId: true, role: true } }, approver: { select: { name: true } } }, orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }], take: 200 });
+  return { me: a, rows: await Promise.all(rows.map(async (r) => ({ ...r, canDecide: r.status === "PENDING" && (await mayDecide(a.id, a.role, r)), canPay: r.status === "APPROVED" && mayPayClaim(a, r) }))), seeAll: SEE_ALL.includes(a.role) };
 }

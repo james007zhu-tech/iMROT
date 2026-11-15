@@ -2,6 +2,7 @@ import { localIso } from "@/lib/dates";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
+import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { currentEmployee } from "@/server/auth";
 import { PageHeader } from "@/components/ui";
 import { payslipNo } from "@/lib/numbering";
@@ -12,8 +13,9 @@ export const dynamic = "force-dynamic";
 export default async function Slip({ params }: { params: Promise<{ month: string; code: string }> }) {
   const { month, code } = await params;
   const [t, me] = await Promise.all([getTranslations("ops"), currentEmployee()]);
-  if (me.role !== "MD" && me.code !== code) notFound();
-  const line = await prisma.payrollLine.findFirst({ where: { employee: { code }, run: { entityId: me.entityId, month, ...(me.role === "MD" ? {} : { status: { not: "DRAFT" } }) } }, include: { employee: true, run: true } });
+  const office = PAYROLL_ROLES.includes(me.role);
+  if (!office && me.code !== code) notFound();
+  const line = await prisma.payrollLine.findFirst({ where: { employee: { code }, run: { entityId: me.entityId, month, ...(office ? {} : { status: { not: "DRAFT" } }) } }, include: { employee: true, run: true } });
   if (!line) notFound();
   const entity = await prisma.legalEntity.findUnique({ where: { id: line.run.entityId } });
   const money = (n: unknown) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -23,7 +25,7 @@ export default async function Slip({ params }: { params: Promise<{ month: string
   const tail = (s: string | null) => (s ? `•••• ${s.replace(/\D/g, "").slice(-4)}` : "—");
   return (
     <div className="space-y-4">
-      <div className="print:hidden"><PageHeader back={{ href: me.role === "MD" ? `/people/payroll/${month}` : "/people/payroll", label: t("payTitle") }} title={t("paySlip")} /></div>
+      <div className="print:hidden"><PageHeader back={{ href: office ? `/people/payroll/${month}` : "/people/payroll", label: t("payTitle") }} title={t("paySlip")} /></div>
       <article className="mx-auto max-w-2xl rounded-xl border bg-white p-6 text-sm print:border-0 print:p-0">
         <header className="flex items-start justify-between gap-4 border-b border-navy pb-3">
           <img src="/brand/dcit-logo.png" alt="DCiT" className="h-10 w-auto" />

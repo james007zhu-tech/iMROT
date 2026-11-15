@@ -2,7 +2,7 @@
 /** 应付 — pay a supplier invoice (issues a PVTH). */
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
-import { paySupplierInvoice } from "@/server/srm";
+import { approvePayment, paySupplierInvoice } from "@/server/srm";
 
 export async function payAction(f: FormData) {
   await guarded(async () => {
@@ -11,4 +11,8 @@ export async function payAction(f: FormData) {
     const inv = await paySupplierInvoice({ id: String(f.get("id")), actorCode: me.code, paidAt: paidAt ? new Date(paidAt) : undefined, paymentRef: String(f.get("paymentRef") ?? "").trim() || undefined });
     return inv.paymentNo ?? "paid";
   }, "/finance/payables");
+}
+
+export async function releaseAction(id: string) {
+  await guarded(async () => { const me = await currentEmployee(); await approvePayment({ id, actorCode: me.code }); }, "/finance/payables");
 }

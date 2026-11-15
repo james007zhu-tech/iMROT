@@ -19,6 +19,9 @@ import { averageScore, custodyOf, defaultPaymentMode, MANUAL_STAGES, missingAcce
 import { canTransitionAsset, canTransitionOrder } from "@/lib/lifecycle";
 import { reopenBlocker } from "@/lib/modes";
 import type { Prisma } from "@prisma/client";
+import { audit } from "@/server/audit";
+import { latestRate } from "@/server/fx";
+import { overLimit } from "@/lib/pay-rules";
 
 const Att = z.object({ name: z.string(), url: z.string(), kind: z.string().optional() });
 type AttT = z.infer<typeof Att>;
@@ -319,15 +322,39 @@ export async function registerSupplierInvoice(input: z.input<typeof SupplierInvo
   return prisma.supplierInvoice.create({ data: { entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: d.invoiceNo.trim(), invoiceDate: d.invoiceDate, currency: po.currency, subtotal: d.subtotal, vatAmount, total, whtRate, whtAmount, payable: round2(total - whtAmount), dueDate: payableDueDate(d.invoiceDate, po.supplier.paymentMode, po.supplier.paymentDays), attachments: d.attachments as Prisma.InputJsonValue | undefined, createdById: actor.id } });
 }
 
-/** Pay a supplier invoice: PVTH number, status PAID. Finance or the MD only. */
-export async function paySupplierInvoice(input: { id: string; actorCode: string; paidAt?: Date; paymentRef?: string }) {
+/** The amount in THB for the limit; null when a foreign invoice has no rate to convert with (then the MD decides). */
+export async function payableThb(inv: { currency: string; payable: unknown }) {
+  if (inv.currency === "THB") return Number(inv.payable);
+  const [a, b] = await Promise.all([latestRate(inv.currency), latestRate("THB")]);
+  return a && b ? round2((Number(inv.payable) * a.rateToCny) / b.rateToCny) : null;
+}
+
+/** Does this payment wait for the MD? Above 50,000 THB, or the payer is the person who registered the invoice. */
+export async function paymentNeedsMd(inv: { currency: string; payable: unknown; createdById: string }, payerId?: string) {
+  return overLimit(await payableThb(inv)) || (!!payerId && inv.createdById === payerId);
+}
+
+/** The MD releases a payment that waits for him. */
+export async function approvePayment(input: { id: string; actorCode: string }) {
   const actor = await actorOf(input.actorCode);
-  if (!["MD", "FINANCE", "ADMIN"].includes(actor.role)) throw new Error("FINANCE_ONLY");
+  if (actor.role !== "MD") throw new Error("MD_ONLY");
   const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
   if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
+  await prisma.supplierInvoice.update({ where: { id: inv.id }, data: { mdApprovedBy: actor.code, mdApprovedAt: new Date() } });
+  await audit(actor.id, "PAYMENT_RELEASED", inv.invoiceNo, { payable: Number(inv.payable), currency: inv.currency });
+}
+
+/** Pay a supplier invoice: PVTH number, status PAID. The finance person only; the MD releases, he does not pay. */
+export async function paySupplierInvoice(input: { id: string; actorCode: string; paidAt?: Date; paymentRef?: string }) {
+  const actor = await actorOf(input.actorCode);
+  if (actor.role !== "FINANCE") throw new Error("FINANCE_PAYS");
+  const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
+  if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
+  if (!inv.mdApprovedAt && (await paymentNeedsMd(inv, actor.id))) throw new Error(`PAY_NEEDS_MD:${inv.invoiceNo}`);
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "PV", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.paidAt });
     await tx.document.create({ data: { no, type: "PV", entityId: inv.entityId, countryCode: no.slice(2, 4), createdById: actor.id, issuedAt: input.paidAt } });
+    await audit(actor.id, "PAYABLE_PAID", inv.invoiceNo, { no, payable: Number(inv.payable), currency: inv.currency }, tx);
     return tx.supplierInvoice.update({ where: { id: inv.id }, data: { status: "PAID", paidAt: input.paidAt ?? new Date(), paymentNo: no, paymentRef: input.paymentRef } });
   });
 }

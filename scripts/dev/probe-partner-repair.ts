@@ -139,8 +139,10 @@ async function main() {
   await refused(() => registerSupplierInvoice({ poNo: po.no, actorCode: md.code, invoiceNo: "INV-1", invoiceDate: new Date("2026-11-08"), subtotal: 7000 }), /INVOICE_EXCEEDS_PO/, "an invoice above the POTH is refused");
   const inv = await registerSupplierInvoice({ poNo: po.no, actorCode: md.code, invoiceNo: "INV-1", invoiceDate: new Date("2026-11-08"), subtotal: 6600 });
   assert(inv.dueDate.toISOString().slice(0, 10) === "2026-12-15" && Number(inv.whtAmount) === 198 && Number(inv.payable) === 6864, `月结 15 天 → due 2026-12-15; WHT 3 % = 198; pay 6600 + 462 − 198 = 6864`);
-  await refused(() => paySupplierInvoice({ id: inv.id, actorCode: eng.code }), /FINANCE_ONLY/, "engineers cannot pay");
-  const paid = await paySupplierInvoice({ id: inv.id, actorCode: md.code, paymentRef: "KBANK 123" });
+  await refused(() => paySupplierInvoice({ id: inv.id, actorCode: eng.code }), /FINANCE_PAYS/, "engineers cannot pay");
+  await refused(() => paySupplierInvoice({ id: inv.id, actorCode: md.code }), /FINANCE_PAYS/, "the MD releases, he does not pay");
+  const fin = await createEmployee({ actorCode: md.code, entityCode: "DCiT", name: `Partner Probe Fin ${stamp}`, role: "FINANCE", email: `pf${stamp}@dcit.test`, password: "probe123" });
+  const paid = await paySupplierInvoice({ id: inv.id, actorCode: fin.code, paymentRef: "KBANK 123" });
   assert(paid.status === "PAID" && /^PVTH/.test(paid.paymentNo ?? ""), `paid on ${paid.paymentNo}`);
   await rateSupplier({ poNo: po.no, actorCode: md.code, quality: 4, onTime: 3, price: 4, cooperation: 5, note: "rework once" });
   const rec2 = await recommendPartners(o.no);

@@ -8,6 +8,7 @@
  */
 import { openResetRequests } from "@/server/password-reset";
 import { ensureCashPlan, mayPlan } from "@/server/cash-plan";
+import { MD_LIMIT_THB, PAYROLL_ROLES } from "@/lib/pay-rules";
 import { prisma } from "@/lib/db";
 import { localToday } from "@/lib/overtime";
 import { maskName } from "@/lib/mask";
@@ -52,12 +53,19 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   for (const e of staff) { const d = daysToBirthday(e.birthDate, today); if (d != null && d <= 7) push("staffBirthday", d, e.name, `/people/${e.code}`); }
   for (const c of creds) { const d = daysUntil(c.expiresAt!, today); if (d <= c.remindDays) push("credential", d, `${c.employee.name} ${c.kind}`, `/people/${c.employee.code}`); }
   // 朱总 2026-11-11: last month's pay goes out by the 5th. From the 1st the MD is reminded until the month is paid.
-  if (me.role === "MD") {
+  // 内勤 computes, 财务 reviews and pays, the MD approves: each is reminded only while the month waits for them.
+  if (PAYROLL_ROLES.includes(me.role)) {
     const { previousMonth, date } = localToday();
     const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
-    const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month: previousMonth } }, select: { status: true } });
+    const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month: previousMonth } }, select: { status: true, preparedBy: true, taxConfirmedAt: true } });
     const started = await prisma.salaryRecord.count({ where: { employee: { entityId, active: true } } });
-    if (started && run?.status !== "PAID") push("payrollDue", 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
+    const turn = !run || !run.preparedBy ? "ADMIN" : run.status === "DRAFT" ? (run.taxConfirmedAt ? "MD" : "FINANCE") : run.status === "APPROVED" ? "FINANCE" : null;
+    if (started && turn === me.role) push(`payrollDue_${!run || !run.preparedBy ? "prep" : run.status === "APPROVED" ? "pay" : turn === "MD" ? "approve" : "review"}`, 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
+  }
+  // 付款复批: payments above the limit wait for the MD
+  if (me.role === "MD") {
+    const waiting = await prisma.supplierInvoice.findMany({ where: { status: "OPEN", mdApprovedAt: null, currency: "THB", payable: { gt: MD_LIMIT_THB } }, select: { invoiceNo: true, dueDate: true, supplier: { select: { name: true } } }, take: 50 });
+    for (const p of waiting) push("payRelease", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
   }
   // 现金计划: the month's plan is written the first time anyone opens the system in that month; finance and the MD
   // are told for the first week

@@ -54,10 +54,10 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
                 {r.paidRef && <span>{r.paidRef}</span>}
                 {r.status === "APPROVED" && r.paidBy === "SELF" && <span>{t("expWithPayroll")}</span>}
               </div>
-              {(r.canDecide || (r.status === "PENDING" && r.employeeId === me.id) || (r.status === "APPROVED" && seeAll)) && <div className="mt-2 flex flex-wrap items-center gap-2">
+              {(r.canDecide || (r.status === "PENDING" && r.employeeId === me.id) || r.canPay) && <div className="mt-2 flex flex-wrap items-center gap-2">
                 {r.canDecide && <form action={decideAction.bind(null, r.id)} className="flex flex-wrap items-center gap-2"><input name="note" placeholder={t("expNote")} className={`${inputCls} w-48`} /><button name="decision" value="APPROVED" className={btnPrimary}>{t("approve")}</button><button name="decision" value="REJECTED" className={btnGhost}>{t("reject")}</button></form>}
                 {r.status === "PENDING" && r.employeeId === me.id && <form action={cancelAction.bind(null, r.id)}><button className={btnGhost}>{t("withdraw")}</button></form>}
-                {r.status === "APPROVED" && seeAll && <form action={payAction.bind(null, r.id)} className="flex flex-wrap items-center gap-2"><input name="paidRef" placeholder={t("expPaidRef")} className={`${inputCls} w-48`} /><button className={btnGhost}>{t("expPayNow")}</button></form>}
+                {r.canPay && <form action={payAction.bind(null, r.id)} className="flex flex-wrap items-center gap-2"><input name="paidRef" placeholder={t("expPaidRef")} className={`${inputCls} w-48`} /><button className={btnGhost}>{t("expPayNow")}</button></form>}
               </div>}
             </li>
           );

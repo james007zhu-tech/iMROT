@@ -1,4 +1,5 @@
 /** Payroll exports (MD only), CSV with a BOM so Excel opens Thai and Chinese correctly: bank list, SSO, ภ.ง.ด.1, full sheet. */
+import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { sessionEmployeeCode } from "@/server/auth";
@@ -12,7 +13,7 @@ const f2 = (n: unknown) => Number(n).toFixed(2);
 export async function GET(req: Request, { params }: { params: Promise<{ month: string }> }) {
   const code = await sessionEmployeeCode();
   const me = code ? await prisma.employee.findUnique({ where: { code } }) : null;
-  if (!me || me.role !== "MD") return NextResponse.json({ error: "MD_ONLY" }, { status: 403 });
+  if (!me || !PAYROLL_ROLES.includes(me.role)) return NextResponse.json({ error: "PAYROLL_OFFICE_ONLY" }, { status: 403 });
   const { month } = await params;
   const kind = new URL(req.url).searchParams.get("kind") ?? "full";
   const run = await payrollDetail(me.entityId, month);
