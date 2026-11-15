@@ -8,6 +8,7 @@ import { z } from "zod";
 import { findPart, resolveParts } from "@/server/scm";
 import { openOrderFor, verifySerial } from "@/server/asset-first";
 import { prisma } from "@/lib/db";
+import { finishGap, workGap } from "@/lib/work-gate";
 import { openJob } from "@/lib/drafts";
 import { allocateNumber } from "@/lib/numbering-db";
 import { totals } from "@/lib/money";
@@ -17,7 +18,7 @@ import { marginFloor } from "@/server/modes";
 import { assertNotLocked, progressOrder } from "@/server/slm";
 import type { AssetStatus, Prisma } from "@prisma/client";
 
-const TestRow = z.object({ test: z.string(), criterion: z.string().optional(), result: z.string().optional(), recordId: z.string().optional(), pass: z.boolean().optional() });
+const TestRow = z.object({ key: z.string().optional(), test: z.string(), criterion: z.string().optional(), result: z.string().optional(), recordId: z.string().optional(), pass: z.boolean().optional() });
 /** What the repair will need, as the engineer sees it at inspection (internal, not on the report). */
 export const NeedRow = z.object({ kind: z.enum(["PART", "LABOUR"]), partSku: z.string().optional(), vendorPartNo: z.string().optional(), description: z.string().min(1), descriptionLocal: z.string().optional(), qty: z.number().positive(), unit: z.string().default("pcs") });
 export type InspectionNeed = z.infer<typeof NeedRow> & { onHand?: number; short?: number };
@@ -243,6 +244,12 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
     prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }),
     prisma.employee.findUniqueOrThrow({ where: { code: d.engineerCode } }),
   ]);
+  // the same wall as the page: no report before the order has reached the work, none after it is over
+  const maintenance = d.kind === "MAINTENANCE";
+  const rework = !!(await prisma.acceptance.findFirst({ where: { serviceOrderId: order.id, status: "REJECTED" }, select: { id: true } }));
+  const gap = workGap(order, { maintenance, rework });
+  if (gap) throw new Error(`WORK_TOO_EARLY_${gap.toUpperCase()}:${order.no}`);
+  if (d.finishedAt && !maintenance) { const f = finishGap(d.tests); if (f) throw new Error(`REPAIR_${f}`); }
   const prefix = d.kind === "MAINTENANCE" ? "PM" : "RP";
   const workStatus: AssetStatus = d.kind === "MAINTENANCE" ? "MAINTENANCE" : d.kind === "OVERHAUL" ? "OVERHAUL" : "REPAIR";
   const target: AssetStatus = d.finishedAt ? "ACCEPTANCE" : workStatus;

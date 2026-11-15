@@ -7,8 +7,11 @@ import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { RevealRows } from "@/components/RevealRows";
 import { openJob } from "@/lib/drafts";
+import { finishGap, workGap, RUN_TESTS } from "@/lib/work-gate";
+import { FinishCheck } from "@/components/FinishCheck";
 import { Card, Field, Grid, Table, Tag, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, num, str } from "../_shell";
+import { WorkGate } from "../_gate";
 
 export const dynamic = "force-dynamic";
 const TESTS = ["visual", "electrical", "noLoad", "load", "extra1"] as const;
@@ -18,7 +21,10 @@ const PARTS = 6;
 export default async function Repair({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ error?: string }> }) {
   const [{ no }, { error }] = await Promise.all([params, searchParams]);
   const order = await loadOrder(no);
-  const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
+  const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
+  // 按工单状态拦住: before the customer's PO (or after the order is over) there is no form here, only the way to the missing step
+  const gap = workGap(order, { maintenance: false, rework: order.acceptance?.status === "REJECTED" });
+  if (gap) return <StepPage order={order} title={u("step_repair")} error={error} saveLabel=""><WorkGate no={no} gap={gap} work="repair" /></StepPage>;
   const engineers = await prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   const catalogue = await prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500, select: { sku: true, name: true, vendorPartNo: true, unit: true } });
   const outs = order.stockMovements.filter((m) => m.direction === "OUT" && m.kind === "PART" && m.part).map((m) => ({ ...m, part: m.part! }));
@@ -34,9 +40,15 @@ export default async function Repair({ params, searchParams }: { params: Promise
     await guarded(async () => {
       const me = await currentEmployee();
       const finished = f.get("draft") !== "1"; // only the "save draft" button posts draft=1
-      const tests = TESTS.map((k) => ({ test: str(f, `t_${k}`) ?? "", criterion: str(f, `c_${k}`), result: str(f, `r_${k}`), recordId: str(f, `id_${k}`), pass: f.get(`p_${k}`) ? f.get(`p_${k}`) === "yes" : undefined })).filter((x) => x.test && (x.criterion || x.result));
+      const tests = TESTS.map((k) => ({ key: k, test: str(f, `t_${k}`) ?? "", criterion: str(f, `c_${k}`), result: str(f, `r_${k}`), recordId: str(f, `id_${k}`), pass: f.get(`p_${k}`) ? f.get(`p_${k}`) === "yes" : undefined })).filter((x) => x.test && (x.criterion || x.result));
       const parts = Array.from({ length: PARTS }, (_, i) => ({ partSku: str(f, `ps${i}`) ?? "", name: str(f, `pn${i}`), qty: num(f, `pq${i}`) ?? 0, newSerial: str(f, `pnew${i}`), oldSerial: str(f, `pold${i}`), obthNo: str(f, `pob${i}`), oldDisposition: (str(f, `pdisp${i}`) as "SCRAP" | undefined) })).filter((p) => p.partSku && p.qty > 0);
-      const job = await createRepairJob({ serviceOrderNo: no, assetCode: String(f.get("assetCode")), engineerCode: str(f, "engineerCode") ?? me.code, kind: (str(f, "kind") as "REPAIR") ?? "REPAIR", location: f.get("location") as "SITE", startedAt: str(f, "startedAt") ? new Date(str(f, "startedAt")!) : undefined, finishedAt: finished ? (str(f, "finishedAt") ? new Date(str(f, "finishedAt")!) : new Date()) : undefined, confirmedFault: str(f, "confirmedFault"), rootCause: str(f, "rootCause"), workPerformed: str(f, "workPerformed"), partsReplaced: parts, configBackupRef: str(f, "configBackupRef"), laborHours: num(f, "laborHours"), travelCost: num(f, "travelCost"), tests, openIssues: str(f, "openIssues"), conclusion: str(f, "conclusion"), attachments: atts(f) });
+      const args = { serviceOrderNo: no, assetCode: String(f.get("assetCode")), engineerCode: str(f, "engineerCode") ?? me.code, kind: (str(f, "kind") as "REPAIR") ?? "REPAIR", location: f.get("location") as "SITE", startedAt: str(f, "startedAt") ? new Date(str(f, "startedAt")!) : undefined, finishedAt: finished ? (str(f, "finishedAt") ? new Date(str(f, "finishedAt")!) : new Date()) : undefined, confirmedFault: str(f, "confirmedFault"), rootCause: str(f, "rootCause"), workPerformed: str(f, "workPerformed"), partsReplaced: parts, configBackupRef: str(f, "configBackupRef"), laborHours: num(f, "laborHours"), travelCost: num(f, "travelCost"), tests, openIssues: str(f, "openIssues"), conclusion: str(f, "conclusion"), attachments: atts(f) };
+      // what was typed is never lost: when the tests do not yet allow finishing, the form is kept as a draft and says why
+      const why = finished ? finishGap(tests) : null;
+      const before = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
+      if (why && ["ASSIGNED", "DIAGNOSING", "IN_PROGRESS"].includes(before.status)) await createRepairJob({ ...args, finishedAt: undefined }).catch(() => null);
+      if (why) throw new Error(`REPAIR_${why}`);
+      const job = await createRepairJob(args);
       const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
       if (finished && cur.status === "IN_PROGRESS") await advanceServiceOrder(no, "ACCEPTANCE_PENDING", me.code);
       return { ok: job.no, to: `/service-orders/${no}` };
@@ -50,11 +62,11 @@ export default async function Repair({ params, searchParams }: { params: Promise
         <Card title={u("basicInfo")}>
           <Grid>
             <Field label={t("asset")} required><select name="assetCode" defaultValue={order.assets.find((l) => l.assetId === draft?.assetId)?.asset.code} className={inputCls}>{order.assets.map((l) => <option key={l.assetId} value={l.asset.code}>{l.asset.code} · S/N {l.asset.serialNumber}</option>)}</select></Field>
-            <Field label={u("engineer")}><select name="engineerCode" defaultValue={engineers.find((e) => e.id === draft?.engineerId)?.code ?? order.assignee?.code} className={inputCls}>{engineers.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select></Field>
+            <Field label={u("engineer")}><select name="engineerCode" defaultValue={engineers.find((e) => e.id === draft?.engineerId)?.code ?? order.assignee?.code ?? me.code} className={inputCls}>{engineers.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select></Field>
             <Field label={u("repairMethod")} required><select name="kind" defaultValue={draft?.kind} className={inputCls}><option value="REPAIR">{u("kindRepair")}</option><option value="OVERHAUL">{u("kindOverhaul")}</option><option value="FIELD_SERVICE">{u("kindField")}</option></select></Field>
             <Field label={u("place")} required><select name="location" defaultValue={draft?.location ?? (order.documents.some((d) => d.type === "ER") ? "WORKSHOP" : "SITE")} className={inputCls}><option value="WORKSHOP">{u("locWorkshop")}</option><option value="SITE">{u("locSite")}</option></select></Field>
             <Field label={u("startedAt")}><input name="startedAt" type="datetime-local" defaultValue={local(draft?.startedAt ?? new Date())} className={inputCls} /></Field>
-            <Field label={u("finishedAt")}><input name="finishedAt" type="datetime-local" className={inputCls} /></Field>
+            <Field label={`${u("finishedAt")}（${u("finishedNowHint")}）`}><input name="finishedAt" type="datetime-local" className={inputCls} /></Field>
           </Grid>
         </Card>
         <Card title={u("repairSteps")}>
@@ -91,6 +103,7 @@ export default async function Repair({ params, searchParams }: { params: Promise
               <td><select name={`p_${k}`} defaultValue={dTests[i]?.pass === true ? "yes" : dTests[i]?.pass === false ? "no" : ""} className={inputCls}><option value="">—</option><option value="yes">{u("yes")}</option><option value="no">{u("no")}</option></select></td>
             </tr>)}
           </Table>
+          <FinishCheck formId="f" run={RUN_TESTS.map((k) => ({ key: k, name: u(`test_${k}`) }))} labels={{ missing: u("finishMissing"), needOne: u("finishNeedOne"), failed: u("finishFailed"), ready: u("finishReady") }} />
           <Grid cols={2}>
             <Field label={u("openIssues")}><input name="openIssues" defaultValue={draft?.openIssues ?? ""} className={inputCls} /></Field>
             <Field label={u("conclusionLimits")}><input name="conclusion" defaultValue={draft?.conclusion ?? ""} className={inputCls} /></Field>
