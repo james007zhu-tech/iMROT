@@ -29,7 +29,10 @@ describe("next step", () => {
     const t = { kind: "PARTS_SALE", hasInspection: false, hasQuote: false, hasJob: false, jobFinished: false, workshop: false, deliveriesSigned: 0, deliveriesOpen: 0, invoicesUnpaid: 0, hasAcceptance: false, trade: true };
     expect(nextSteps({ ...t, status: "RECEIVED" }).primary).toBe("quote");
     expect(nextSteps({ ...t, status: "QUOTE_PENDING" }).primary).toBe("confirm");
-    expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 0 }).primary).toBe("stockOut");
+    // while the goods are still being bought the purchase comes first; then the DNTH, which takes them out of the store itself
+    expect(nextSteps({ ...t, status: "IN_PROGRESS", buying: "QUOTE" }).primary).toBe("buy");
+    expect(nextSteps({ ...t, status: "IN_PROGRESS", buying: "RECEIVE" }).primary).toBe("buy");
+    expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 0 }).primary).toBe("deliver");
     expect(nextSteps({ ...t, status: "IN_PROGRESS", stockOuts: 2 }).primary).toBe("deliver");
     expect(nextSteps({ ...t, status: "ACCEPTED" }).primary).toBe("invoice");
   });

@@ -423,7 +423,8 @@
     "staffSignIn": "เข้าสู่ระบบพนักงาน",
     "portalSignIn": "เข้าสู่ระบบลูกค้า (พอร์ทัล)",
     "staffSignInLink": "พนักงาน DCiT? เข้าสู่ระบบที่นี่ →",
-    "portalSignInLink": "ลูกค้า: พอร์ทัล →"
+    "portalSignInLink": "ลูกค้า: พอร์ทัล →",
+    "oneMoreLine": "เพิ่มอีกบรรทัด"
   },
   "ai": {
     "title": "ผู้ช่วย AI",
@@ -1049,7 +1050,7 @@
     "receivedOn": "วันที่รับ",
     "receiveNow": "รับครั้งนี้",
     "noSkuYet": "ยังไม่มี SKU",
-    "poLineNeedsSku": "ต้องสร้างรหัสชิ้นส่วนก่อนจึงรับเข้าได้",
+    "poLineNeedsSku": "บรรทัดนี้ไม่มีรหัสผู้ผลิต กรอกรหัสใน PO ก่อนรับเข้า",
     "receiveNote": "บันทึกแล้วระบบออก IBTH หนึ่งใบ (หลายรายการได้) ต้นทุน = ราคาใน PO และอัปเดตต้นทุนล่าสุดของชิ้นส่วน",
     "saveReceipt": "บันทึกรับเข้า",
     "err_INQUIRY_NEEDS_LINE": "ใบขอราคาต้องมีอย่างน้อยหนึ่งรายการ",
@@ -2268,7 +2269,24 @@
     "cashFixedAdd": "เพิ่มรายจ่ายประจำ",
     "cashFixedPurposePh": "ค่าเช่าสำนักงาน",
     "cashFixedFrom": "เริ่มเดือน",
-    "cashFixedTo": "ถึงเดือน (เว้นว่าง = ไม่มีกำหนด)"
+    "cashFixedTo": "ถึงเดือน (เว้นว่าง = ไม่มีกำหนด)",
+    "quoteCost": "ต้นทุน",
+    "quoteMargin": "กำไรขั้นต้น",
+    "quoteBelowFloor": "ต่ำกว่า {floor}% ต้องให้ MD อนุมัติ",
+    "quoteNoCost": "ยังไม่ครบต้นทุน",
+    "quoteTotal": "รวมภาษี",
+    "quoteSubtotal": "ก่อนภาษี",
+    "step_buy_QUOTE": "จัดซื้อ: บันทึกราคาผู้ขาย",
+    "step_buy_ORDER": "จัดซื้อ: ออกใบสั่งซื้อ POTH",
+    "step_buy_RECEIVE": "รับสินค้าเข้าคลัง",
+    "step_buy": "จัดซื้อ",
+    "vatRatePct": "VAT %",
+    "poLineAutoPart": "รับเข้าแล้วระบบจะสร้างรหัสอะไหล่จากรหัสผู้ผลิต {no}",
+    "dnInStock": "ในคลังมี {n} จากที่ค้างส่ง {due} — ส่งเท่าที่มีก่อน",
+    "dnNoPartYet": "สินค้ายังไม่เข้าคลัง",
+    "receiverNew": "ชื่อผู้รับสินค้า",
+    "receiverNewOr": "หรือพิมพ์ชื่อผู้รับคนใหม่",
+    "err_DELIVERY_NEEDS_RECEIVER": "เลือกหรือพิมพ์ชื่อผู้รับสินค้า"
   },
   "role": {
     "MD": "กรรมการผู้จัดการ (MD)",

@@ -82,7 +82,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         await advanceServiceOrder(order.no, "ASSIGNED", me.code, [s("plannedAt") ? `📅 ${s("plannedAt")!.replace("T", " ")}` : "", s("internalNote") ?? ""].filter(Boolean).join(" · ") || undefined, s("assigneeCode"));
       }
       return { ok: order.no, to: `/service-orders/${order.no}` };
-    }, "/service-orders/new");
+    }, `/service-orders/new?mode=${encodeURIComponent(String(form.get("mode") ?? "REPAIR"))}`); // an error comes back to the same form, with what was typed
   }
 
   const pick = assets.map((a) => ({ code: a.code, serial: a.serialNumber, location: a.location ?? "", customer: a.customer?.name ?? "", plant: a.plant ? `${a.plant.code} ${a.plant.name}` : "", label: `${a.code} · ${a.location ?? ""} · ${a.customer?.name ?? ""}${a.plant ? ` ${a.plant.code}` : ""} · S/N ${a.serialNumber}` }));
@@ -105,7 +105,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           <Grid>
             <CustomerPicker customers={customers} contacts={contacts.map((c) => ({ id: c.id, customerId: c.customerId, label: maskName(c.name) }))} initialId={customers.find((c) => c.code === customer)?.id}
               newHref={`/customers/new?back=${encodeURIComponent(`/service-orders/new?mode=${initialMode}`)}${intl ? "&overseas=1" : ""}`} inputCls={inputCls}
-              labels={{ customer: t("customer"), searchPh: u("customerSearchPh"), contact: u("inquiryContact"), none: "—", newCustomer: u("newCustomer"), notFound: u("customerNotFound"), newContact: u("newContactInline"), contactName: t("name"), phone: t("phone"), email: t("email"), newContactHint: u("newContactHint"), pickFirst: u("customerPickFirst") }} />
+              labels={{ customer: t("customer"), searchPh: u("customerSearchPh"), contact: u("inquiryContact"), none: "—", newCustomer: u("newCustomer"), notFound: u("customerNotFound"), newContact: u("newContactInline"), contactName: u("personName"), phone: t("phone"), email: t("email"), newContactHint: u("newContactHint"), pickFirst: u("customerPickFirst") }} />
             <Field label={u("customerInquiryRef")}><input name="customerRef" className={`${inputCls} font-mono`} /></Field>
             <Field label={u("inquiryDate")}><input name="reportedAt" type="datetime-local" defaultValue={now} className={inputCls} /></Field>
           </Grid>

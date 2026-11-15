@@ -423,7 +423,8 @@
     "staffSignIn": "Staff sign-in",
     "portalSignIn": "Customer portal sign-in",
     "staffSignInLink": "DCiT staff? Sign in here →",
-    "portalSignInLink": "Customer portal →"
+    "portalSignInLink": "Customer portal →",
+    "oneMoreLine": "One more line"
   },
   "ai": {
     "title": "AI assistant",
@@ -1049,7 +1050,7 @@
     "receivedOn": "Received on",
     "receiveNow": "Receive now",
     "noSkuYet": "no SKU",
-    "poLineNeedsSku": "Create the part before receiving",
+    "poLineNeedsSku": "No maker's number on this line: add it to the PO before receiving",
     "receiveNote": "Saving posts one IBTH (several lines allowed) at the PO price and updates each part's last cost",
     "saveReceipt": "Save receipt",
     "err_INQUIRY_NEEDS_LINE": "An inquiry needs at least one line",
@@ -2268,7 +2269,24 @@
     "cashFixedAdd": "Add a fixed payment",
     "cashFixedPurposePh": "Office rent",
     "cashFixedFrom": "First month",
-    "cashFixedTo": "Last month (empty = until stopped)"
+    "cashFixedTo": "Last month (empty = until stopped)",
+    "quoteCost": "Cost",
+    "quoteMargin": "Margin",
+    "quoteBelowFloor": "below {floor}% — needs the MD",
+    "quoteNoCost": "cost missing",
+    "quoteTotal": "Total incl. VAT",
+    "quoteSubtotal": "Before VAT",
+    "step_buy_QUOTE": "Purchase: enter supplier quotes",
+    "step_buy_ORDER": "Purchase: raise the POTH",
+    "step_buy_RECEIVE": "Receive the goods",
+    "step_buy": "Purchase",
+    "vatRatePct": "VAT %",
+    "poLineAutoPart": "The part is created from the maker's number {no} on receipt",
+    "dnInStock": "{n} in the store of {due} owed — deliver what is there",
+    "dnNoPartYet": "Not in the store yet",
+    "receiverNew": "Receiver's name",
+    "receiverNewOr": "or type a new receiver",
+    "err_DELIVERY_NEEDS_RECEIVER": "Choose or type who receives the goods"
   },
   "role": {
     "MD": "Managing Director",

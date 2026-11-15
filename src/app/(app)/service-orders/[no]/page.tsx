@@ -52,6 +52,11 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   } : null;
   const declineOpen = decShape ? declineCloseBlockers(decShape) : undefined;
   const msShape = order.milestones.map((m) => ({ seq: m.seq, phase: m.phase, payPct: m.payPct == null ? null : Number(m.payPct), doneAt: m.doneAt, taxInvoiceNo: m.taxInvoiceNo }));
+  // 贸易: where the purchase for this order stands — the first thing still open decides the next step
+  const openInq = order.inquiries.find((x) => x.status === "OPEN"), toOrder = order.inquiries.find((x) => x.status === "COMPARED");
+  const openPo = order.purchaseOrders.find((x) => !["RECEIVED", "CANCELLED"].includes(x.status));
+  const buying = !isTradeMode(order.mode) ? undefined : openInq ? ("QUOTE" as const) : toOrder ? ("ORDER" as const) : openPo ? ("RECEIVE" as const) : undefined;
+  const buyHref = openInq ? `/purchasing/inquiries/${openInq.no}` : toOrder ? `/purchasing/inquiries/${toOrder.no}` : openPo ? `/purchasing/orders/${openPo.no}` : "";
   const shape = {
     status: order.status, kind: order.kind, hasInspection: order.inspections.length > 0, hasQuote: order.lines.length > 0, hasJob: jobs.length > 0, jobFinished: jobs.some((j) => j.finishedAt),
     workshop: jobs.some((j) => j.location === "WORKSHOP") || order.documents.some((d) => d.type === "ER"),
@@ -60,14 +65,16 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     partner: order.mode === "PARTNER_REPAIR",
     project: order.mode === "AUTOMATION_PROJECT" ? { planned: !!(order.project as ProjectInfo | null)?.solution || ((order.requestLines as unknown[] | null) ?? []).length > 0, invoiceDue: invoiceDue(msShape).length } : undefined,
     trade: isTradeMode(order.mode), intl: order.mode === "INTERNATIONAL_TRADE", stockOuts: order.stockMovements.filter((m) => m.direction === "OUT").length,
-    declineOpen,
+    declineOpen, buying,
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
   const money = (k: StepKey) => k === "invoice" || k === "payment";
   const steps = nextSteps(shape);
+  const waitsMargin = order.marginApproval === "PENDING";
   const primary = businessClosureOn() || !steps.primary || !money(steps.primary) ? steps.primary : undefined;
   const also = businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k));
-  const stepLabel = (s: StepKey) => u(`step_${s}`);
+  const stepLabel = (s: StepKey) => (s === "buy" ? u(`step_buy_${buying ?? "QUOTE"}`) : u(`step_${s}`));
+  const hrefOf = (s: StepKey) => (s === "buy" ? buyHref : stepHref(order.no, s));
   // a quote for machines is declined (its own step), not cancelled; a declined order closes from its own card
   const transitions = dec ? [] : ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CLOSED" || (s === "CANCELLED" && !(order.status === "QUOTE_PENDING" && !quoteJustCancels(order.mode))));
   // "项目完成" (flow step 10): the person confirms the close once the money is in; the system no longer closes by itself.
@@ -167,7 +174,9 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             </form>
           </details>}
           {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
-          {primary && primary !== "assign" && primary !== "contractDirect" && <Link href={stepHref(order.no, primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
+          {/* a quote under the margin floor goes nowhere until the MD has decided: say so here, not after the next form is filled */}
+          {waitsMargin ? (me.role === "MD" ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-alert bg-alert/10 px-3 py-2 text-sm font-semibold text-alert-ink">{u("marginWaitingMd")}</span>)
+            : primary && primary !== "assign" && primary !== "contractDirect" && <Link href={hrefOf(primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
       <DocChain order={order.no} slots={chain} />
@@ -246,7 +255,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>
             {order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: localIso(order.lockedAt)!.slice(0, 10) })}` : ""}</p>}
             {order.marginApproval === "PENDING" && me.role === "MD" && (
-              <form action={decideMargin} className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">
+              <form id="margin" action={decideMargin} className="mt-2 flex scroll-mt-24 flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">
                 <span className="text-sm font-semibold text-alert-ink">{u("marginDecision")}</span>
                 <input name="note" placeholder={u("marginNotePh")} className={`${inputCls} max-w-xs`} />
                 <button name="decision" value="APPROVED" className={btnBlue}>{u("marginApprove")}</button>
@@ -259,12 +268,12 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
         <div className="space-y-4">
           <Card title={u("salesOwner")}>
             {canSetSales ? <form action={setSales} className="flex gap-2">
-              <select name="sales" defaultValue={owner?.code ?? ""} aria-label={u("salesOwner")} className={inputCls}><option value="">{u("salesOwnerNone", { name: (opener?.name ?? "") })}</option>{salesPeople.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select>
+              <select name="sales" defaultValue={owner?.code ?? ""} aria-label={u("salesOwner")} className={`${inputCls} min-w-0 flex-1`}><option value="">{u("salesOwnerNone", { name: (opener?.name ?? "") })}</option>{salesPeople.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select>
               <button className={btnGhost}>{t("save")}</button>
             </form> : <p className="text-sm">{owner ? `${owner.code} ${owner.name}` : u("salesOwnerNone", { name: (opener?.name ?? "") })}</p>}
             <p className="mt-1 text-xs text-navy/60">{u("salesOwnerHint")}</p>
           </Card>
-          {primary && <Card title={`${u("nextStep")}: ${stepLabel(primary)}`} accent>
+          {primary && !waitsMargin && <Card title={`${u("nextStep")}: ${stepLabel(primary)}`} accent>
             {primary === "assign" ? (
               <form action={assign} id="assign" className="space-y-2">
                 <select name="assignee" className={inputCls}>{engineers.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select>
@@ -273,7 +282,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               </form>
             ) : primary === "contractDirect" ? (
               <form action={contractDirect}><button className={btnBlue}>{stepLabel("contractDirect")} →</button></form>
-            ) : <Link href={stepHref(order.no, primary)} className={btnBlue}>{stepLabel(primary)} →</Link>}
+            ) : <Link href={hrefOf(primary)} className={btnBlue}>{stepLabel(primary)} →</Link>}
           </Card>}
           {order.mode === "PARTNER_REPAIR" && <Card title={u("partnerRepair")}>
             <p className="text-sm">{order.partnerReason}</p>
@@ -295,7 +304,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </Card>}
           {order.transferredTo && <Alert>{u("transferredTo", { no: order.transferredTo.no })} <Link href={`/service-orders/${order.transferredTo.no}`} className="font-mono text-blue underline">{order.transferredTo.no}</Link></Alert>}
           {(also.length > 0 || canBuy) && <Card title={u("alsoPossible")}>
-            <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={stepHref(order.no, s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
+            <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={hrefOf(s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
           </Card>}
           {transitions.length > 0 && <Card title={t("status")}>
             {settledAwaitingClose && <Alert>{u("settledAwaitingClose")}</Alert>}

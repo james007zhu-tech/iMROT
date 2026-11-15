@@ -8,6 +8,7 @@ import { catchUpOrder } from "@/server/slm";
 import { partnerCostByAsset, setQuoteLines } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
+import { QuoteSum } from "@/components/QuoteSum";
 import { RevealRows } from "@/components/RevealRows";
 import { Alert, Card, Field, inputCls } from "@/components/ui";
 import { marginFloor } from "@/server/modes";
@@ -46,6 +47,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   }
   const partner = order.mode === "PARTNER_REPAIR";
   const floor = await marginFloor(order.mode);
+  const vatRate = Number((await prisma.legalEntity.findUnique({ where: { id: order.entityId }, select: { vatRate: true } }))?.vatRate ?? 0.07);
   const partnerCosts = partner ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
   if (partner && !lines.length) {
     // 合作维修: one repair line per machine, its cost = the selected partner quote
@@ -86,6 +88,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
               </div>); })}
           </RevealRows>
           <PartDropdown formId="f" sku="s" name="d" local="l" unit="u" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, nameLocal: p.nameLocal, unit: p.unit }))} />
+          <QuoteSum rows={ROWS} vatRate={vatRate} floor={floor} currency={order.currency} labels={{ subtotal: u("quoteSubtotal"), vat: t("vat"), total: u("quoteTotal"), cost: u("quoteCost"), margin: u("quoteMargin"), below: u("quoteBelowFloor", { floor: Math.round(floor * 100) }), noCost: u("quoteNoCost") }} />
           <p className="text-xs text-navy/70">{u("quoteVatNote")} {u("marginRuleNote", { floor: Math.round(floor * 100) })}</p>
           <div className="mt-2 max-w-xs"><Field label={u("customerWarrantyDays")}><input name="warrantyDays" type="number" min="0" defaultValue={order.warrantyDays ?? ""} placeholder={partner ? u("warrantyBackToBack") : ""} className={inputCls} /></Field></div>
           {!rate ? (

@@ -62,6 +62,10 @@ async function main() {
 
   console.log("3. stock out, delivery note signed = accepted and locked");
   await recordStockDoc({ actorCode: md.code, direction: "IN", lines: [{ partSku: b.sku, qty: 2, unitCost: 9000 }] }); // the CU240 arrived
+  // the cable has no part number on the customer's PO: it is bought for this order, and receiving it makes it a part
+  // (since 2026-11-14 goods the store cannot account for are not delivered)
+  const cable = await prisma.part.create({ data: { sku: `GEN-CABLE-${stamp}`, vendorPartNo: `CABLE-${stamp}`, name: "Shielded motor cable 4×10 mm²", unit: "m" } });
+  await recordStockDoc({ actorCode: md.code, direction: "IN", serviceOrderNo: o.no, lines: [{ partSku: cable.sku, qty: 50, unitCost: 100 }] });
   await recordStockDoc({ actorCode: md.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: a.sku, qty: 3 }, { partSku: b.sku, qty: 2 }] });
   const plan = await deliveryPlan(o.no);
   const dn = await issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: Object.fromEntries(plan.lines.map((l) => [l.key, l.expected - l.deliveredBefore])) });

@@ -423,7 +423,8 @@
     "staffSignIn": "员工登录",
     "portalSignIn": "客户门户登录",
     "staffSignInLink": "DCiT 员工？从这里登录 →",
-    "portalSignInLink": "客户门户 →"
+    "portalSignInLink": "客户门户 →",
+    "oneMoreLine": "再加一行"
   },
   "ai": {
     "title": "AI 助手",
@@ -1049,7 +1050,7 @@
     "receivedOn": "到货日期",
     "receiveNow": "本次入库",
     "noSkuYet": "无料号",
-    "poLineNeedsSku": "需先建料号才能入库",
+    "poLineNeedsSku": "这一行没有厂家料号，先在采购单里补上才能入库",
     "receiveNote": "保存后生成一张 IBTH（可多行），成本取 PO 单价，并更新料号最近成本",
     "saveReceipt": "保存入库",
     "err_INQUIRY_NEEDS_LINE": "询价单至少要有一行",
@@ -2268,7 +2269,24 @@
     "cashFixedAdd": "新增固定付款",
     "cashFixedPurposePh": "办公室房租",
     "cashFixedFrom": "从哪个月开始",
-    "cashFixedTo": "到哪个月结束（空 = 一直付）"
+    "cashFixedTo": "到哪个月结束（空 = 一直付）",
+    "quoteCost": "成本",
+    "quoteMargin": "毛利率",
+    "quoteBelowFloor": "低于 {floor}%，需 MD 审批",
+    "quoteNoCost": "成本没填全",
+    "quoteTotal": "含税合计",
+    "quoteSubtotal": "未税金额",
+    "step_buy_QUOTE": "采购：录供应商报价",
+    "step_buy_ORDER": "采购：下采购单 POTH",
+    "step_buy_RECEIVE": "收货入库",
+    "step_buy": "采购",
+    "vatRatePct": "VAT 税率（%）",
+    "poLineAutoPart": "入库时按厂家料号 {no} 自动建料号",
+    "dnInStock": "库里现有 {n}，还欠 {due}——先送现有的",
+    "dnNoPartYet": "这行货还没入库",
+    "receiverNew": "收货人姓名",
+    "receiverNewOr": "或填新的收货人姓名",
+    "err_DELIVERY_NEEDS_RECEIVER": "请选择或填写收货联系人"
   },
   "role": {
     "MD": "董事总经理 MD",
