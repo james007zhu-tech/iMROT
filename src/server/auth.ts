@@ -25,7 +25,9 @@ function verify(token: string | undefined): string | null {
   return sign(payload) === token ? payload : null;
 }
 
-export async function signInEmployee(email: string, password: string): Promise<boolean> {
+/** Why a sign-in failed is told to the person (an internal system: knowing "no such address" from "wrong password" ends the guessing). */
+export type SignIn = "ok" | "no-account" | "inactive" | "wrong-password";
+export async function signInEmployee(email: string, password: string): Promise<SignIn> {
   // a phone keyboard may capitalise the first letter or leave a space: the address is matched whatever its case
   const e = await prisma.employee.findFirst({ where: { email: { equals: email.trim(), mode: "insensitive" } } });
   // what a phone keyboard does to a password: a space after it, full-width letters from a Chinese input method.
@@ -36,11 +38,11 @@ export async function signInEmployee(email: string, password: string): Promise<b
     // why a sign-in failed, without the password itself (2026-11-15: "same name, same password" failed on a phone only)
     const h = await headers();
     console.warn(`[login-fail] ${new Date().toISOString()} why=${!e ? "no-account" : !e.active ? "inactive" : "wrong-password"} email=${JSON.stringify(email)} pw.len=${password.length} pw.plain.len=${plain.length} pw.nonAscii=${/[^\x20-\x7e]/.test(password)} ua=${JSON.stringify((h.get("user-agent") ?? "").slice(0, 140))}`);
-    return false;
+    return !e ? "no-account" : !e.active ? "inactive" : "wrong-password";
   }
-  (await cookies()).set(COOKIE, sign(`${e.code}|${Date.now()}`), { httpOnly: true, sameSite: "lax", secure: await overHttps(), path: "/", maxAge: 7 * 86400 });
-  await prisma.employee.update({ where: { id: e.id }, data: { lastLoginAt: new Date() } }).catch(() => undefined); // shown on the ETH file
-  return true;
+  (await cookies()).set(COOKIE, sign(`${e!.code}|${Date.now()}`), { httpOnly: true, sameSite: "lax", secure: await overHttps(), path: "/", maxAge: 7 * 86400 });
+  await prisma.employee.update({ where: { id: e!.id }, data: { lastLoginAt: new Date() } }).catch(() => undefined); // shown on the ETH file
+  return "ok";
 }
 export async function signOut() { (await cookies()).delete(COOKIE); }
 

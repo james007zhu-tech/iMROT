@@ -26,17 +26,20 @@ export const DEFAULT_CATEGORIES = [
   { code: "MOTOR", nameTh: "มอเตอร์", nameZh: "电机", nameEn: "Motor", sortOrder: 50 },
   { code: "HMI", nameTh: "HMI", nameZh: "HMI", nameEn: "HMI", sortOrder: 60 },
   { code: "SOFT_STARTER", nameTh: "ซอฟต์สตาร์ทเตอร์", nameZh: "软启动", nameEn: "Soft starter", sortOrder: 70 },
+  { code: "MV_VFD", nameTh: "อินเวอร์เตอร์แรงดันปานกลาง", nameZh: "中压变频器", nameEn: "Medium-voltage drive", sortOrder: 12 },
+  { code: "DC_DRIVE", nameTh: "ดีซีไดรฟ์", nameZh: "直流调速器", nameEn: "DC drive", sortOrder: 14 },
+  { code: "STEPPER", nameTh: "สเต็ปเปอร์ไดรฟ์", nameZh: "步进驱动器", nameEn: "Stepper drive", sortOrder: 35 },
   { code: "OTHER", nameTh: "อื่น ๆ", nameZh: "其他", nameEn: "Other", sortOrder: 99 },
 ];
 export async function ensureCategories() {
   for (const c of DEFAULT_CATEGORIES) await prisma.productCategory.upsert({ where: { code: c.code }, update: {}, create: c });
 }
 
-export async function listSeries(filter: { brandId?: string; q?: string; all?: boolean } = {}) {
+export async function listSeries(filter: { brandId?: string; q?: string; all?: boolean; lifecycle?: string } = {}) {
   const series = await prisma.series.findMany({
-    where: { ...(filter.brandId ? { brandId: filter.brandId } : {}), ...(filter.all ? {} : { active: true }), ...(filter.q ? { OR: [{ name: { contains: filter.q, mode: "insensitive" } }, { code: { contains: filter.q, mode: "insensitive" } }, { aliases: { has: filter.q } }] } : {}) },
+    where: { ...(filter.brandId ? { brandId: filter.brandId } : {}), ...(filter.lifecycle && (LIFECYCLES as readonly string[]).includes(filter.lifecycle) ? { lifecycle: filter.lifecycle as LifecycleStatus } : {}), ...(filter.all ? {} : { active: true }), ...(filter.q ? { OR: [{ name: { contains: filter.q, mode: "insensitive" } }, { code: { contains: filter.q, mode: "insensitive" } }, { aliases: { has: filter.q } }] } : {}) },
     include: { brand: true, category: true, successor: { select: { name: true } }, models: { select: { _count: { select: { assets: true } } } }, _count: { select: { models: true, faultCodes: true } } },
-    orderBy: [{ brand: { sortOrder: "asc" } }, { brand: { name: "asc" } }, { name: "asc" }],
+    orderBy: [{ installedBase: { sort: "desc", nulls: "last" } }, { brand: { sortOrder: "asc" } }, { brand: { name: "asc" } }, { name: "asc" }],
   });
   const counts = await prisma.faultCode.groupBy({ by: ["seriesId", "status", "isPublic"], _count: { _all: true }, where: { seriesId: { in: series.map((s) => s.id) } } });
   return series.map((s) => {
@@ -50,7 +53,10 @@ export async function getSeries(id: string) {
   return prisma.series.findUniqueOrThrow({ where: { id }, include: { brand: true, category: true, successor: true, models: { orderBy: { code: "asc" }, include: { _count: { select: { assets: true } } } } } });
 }
 
-export interface SeriesInput { brandId: string; code: string; name: string; categoryCode?: string; lifecycle?: "ACTIVE" | "MATURE" | "DISCONTINUED"; successorId?: string; aliases?: string[]; codePattern?: string; codeRule?: string; notes?: string; publicVisible?: boolean; active?: boolean; slug?: string; documents?: Source[] }
+export const LIFECYCLES = ["ACTIVE", "GROWTH", "MATURE", "DECLINING", "DISCONTINUED", "UNVERIFIED"] as const;
+export type LifecycleStatus = (typeof LIFECYCLES)[number];
+
+export interface SeriesInput { brandId: string; code: string; name: string; categoryCode?: string; lifecycle?: LifecycleStatus; lifecycleDates?: string; successorNote?: string; lifecycleGrade?: string; lifecycleUrl?: string; lifecycleCheckedAt?: Date; lifecycleRemark?: string; successorId?: string; aliases?: string[]; codePattern?: string; codeRule?: string; notes?: string; publicVisible?: boolean; active?: boolean; slug?: string; documents?: Source[] }
 
 export async function saveSeries(id: string | null, d: SeriesInput, actorCode: string) {
   const me = await actor(actorCode);
@@ -62,6 +68,8 @@ export async function saveSeries(id: string | null, d: SeriesInput, actorCode: s
   const data = {
     brandId: d.brandId, code: d.code.trim(), name: d.name.trim(), categoryCode: d.categoryCode || null, lifecycle: d.lifecycle ?? "ACTIVE",
     successorId: d.successorId || null, aliases: (d.aliases ?? []).map((a) => a.trim()).filter(Boolean), codePattern: d.codePattern?.trim() || null,
+    lifecycleDates: d.lifecycleDates?.trim() || null, successorNote: d.successorNote?.trim() || null, lifecycleGrade: d.lifecycleGrade?.trim() || null,
+    lifecycleUrl: d.lifecycleUrl?.trim() || null, lifecycleCheckedAt: d.lifecycleCheckedAt ?? null, lifecycleRemark: d.lifecycleRemark?.trim() || null,
     codeRule: d.codeRule?.trim() || null, notes: d.notes?.trim() || null, publicVisible: d.publicVisible ?? true, active: d.active ?? true,
     slug: (d.slug?.trim() && slugify(d.slug)) || slugify(d.name),
     ...(d.documents ? { documents: d.documents as Prisma.InputJsonValue } : {}),

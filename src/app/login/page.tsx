@@ -2,19 +2,21 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { signInEmployee } from "@/server/auth";
-import { blocked, clientAddress, noteFailure, noteSuccess } from "@/server/login-guard";
+import { blocked, clientAddress, noteFailure, noteSuccess, triesLeft } from "@/server/login-guard";
+import { PasswordInput } from "@/components/PasswordInput";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
-export default async function Login({ searchParams }: { searchParams: Promise<{ e?: string }> }) {
-  const { e } = await searchParams;
+export default async function Login({ searchParams }: { searchParams: Promise<{ e?: string; left?: string }> }) {
+  const { e, left } = await searchParams;
   const t = await getTranslations("common");
   async function login(form: FormData) {
     "use server";
     const email = String(form.get("email")).trim(), from = await clientAddress();
     if (blocked(email, from)) { console.warn(`[login-fail] ${new Date().toISOString()} why=locked email=${JSON.stringify(email)}`); redirect("/login?e=wait"); }
-    const ok = await signInEmployee(email, String(form.get("password")));
-    if (ok) noteSuccess(email); else noteFailure(email, from);
-    redirect(ok ? "/home" : "/login?e=1");
+    const r = await signInEmployee(email, String(form.get("password")));
+    if (r === "ok") { noteSuccess(email); redirect("/home"); }
+    noteFailure(email, from);
+    redirect(`/login?e=${r}&left=${triesLeft(email, from)}`);
   }
   return (
     <div className="flex min-h-screen items-center justify-center bg-navy p-4">
@@ -23,8 +25,8 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
           <h1><img src="/brand/dcit-logo.png" alt={t("appName")} className="h-12 w-auto" /></h1><LanguageSwitcher tone="light" /></div>
         <p className="text-xs text-navy/70">DUCHENG INDUSTRIAL (THAILAND) CO., LTD.</p>
         <input name="email" type="email" autoCapitalize="none" autoCorrect="off" autoComplete="username" placeholder={t("email")} className="w-full rounded border px-3 py-2" required />
-        <input name="password" type="password" autoComplete="current-password" placeholder={t("password")} className="w-full rounded border px-3 py-2" required />
-        {e === "reset" ? <p className="rounded bg-tint p-2 text-sm text-navy">{t("resetDone")}</p> : e && <p className="text-sm text-alert-ink">{t(e === "wait" ? "loginWait" : "invalidLogin")}</p>}
+        <PasswordInput name="password" autoComplete="current-password" placeholder={t("password")} className="w-full rounded border px-3 py-2" required label={{ show: t("pwShow"), hide: t("pwHide") }} />
+        {e === "reset" ? <p className="rounded bg-tint p-2 text-sm text-navy">{t("resetDone")}</p> : e && <p className="text-sm text-alert-ink">{t(e === "wait" ? "loginWait" : e === "no-account" ? "loginNoAccount" : e === "inactive" ? "loginInactive" : e === "wrong-password" ? "loginWrongPassword" : "invalidLogin", { left: left ?? "" })}</p>}
         <button type="submit" className="w-full rounded bg-blue py-2 text-white">{t("ok")}</button>
         <Link href="/forgot" className="block text-center text-sm text-blue">{t("forgotTitle")}</Link>
       </form>

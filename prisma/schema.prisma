@@ -392,6 +392,7 @@ model Brand {
   id        String   @id @default(cuid())
   code      String   @unique /// SIE
   name      String /// SIEMENS
+  nameZh    String? /// 西门子
   slug      String?  @unique /// public URL part: siemens
   website   String?
   active    Boolean  @default(true)
@@ -411,25 +412,34 @@ model ProductCategory {
 }
 
 model Series {
-  id            String           @id @default(cuid())
-  brandId       String
-  brand         Brand            @relation(fields: [brandId], references: [id])
-  code          String /// S120
-  name          String /// SINAMICS S120
-  notes         String? /// structure, shared fault-code system, shared maintenance standards live here
-  slug          String? /// public URL part, unique per brand: sinamics-s120
-  categoryCode  String?
-  category      ProductCategory? @relation(fields: [categoryCode], references: [code])
-  lifecycle     LifecycleStatus  @default(ACTIVE)
-  successorId   String? /// the series that replaces a discontinued one
-  successor     Series?          @relation("SeriesSuccessor", fields: [successorId], references: [id])
-  predecessors  Series[]         @relation("SeriesSuccessor")
-  aliases       String[]         @default([])
-  codePattern   String? /// regex the series' fault codes follow, e.g. ^[FA]\d{5}$ (S120), ^[0-9A-F]{4}$ (ACS880)
-  codeRule      String? /// the same in words, for people and the AI
-  documents     Json? /// manuals: [{title, docId, revision, date, url, sha256}]
-  publicVisible Boolean          @default(true) /// shown on the public site when it has published codes
-  active        Boolean          @default(true)
+  id                 String           @id @default(cuid())
+  brandId            String
+  brand              Brand            @relation(fields: [brandId], references: [id])
+  code               String /// S120
+  name               String /// SINAMICS S120
+  notes              String? /// structure, shared fault-code system, shared maintenance standards live here
+  slug               String? /// public URL part, unique per brand: sinamics-s120
+  categoryCode       String?
+  category           ProductCategory? @relation(fields: [categoryCode], references: [code])
+  lifecycle          LifecycleStatus  @default(ACTIVE)
+  successorId        String? /// the series that replaces a discontinued one
+  successor          Series?          @relation("SeriesSuccessor", fields: [successorId], references: [id])
+  predecessors       Series[]         @relation("SeriesSuccessor")
+  aliases            String[]         @default([])
+  codePattern        String? /// regex the series' fault codes follow, e.g. ^[FA]\d{5}$ (S120), ^[0-9A-F]{4}$ (ACS880)
+  codeRule           String? /// the same in words, for people and the AI
+  documents          Json? /// manuals: [{title, docId, revision, date, url, sha256}]
+  publicVisible      Boolean          @default(true) /// shown on the public site when it has published codes
+  active             Boolean          @default(true)
+  /// 系列生命周期主表 (series_lifecycle_master, 2026-11-14): where the status comes from and how sure it is
+  masterNo           String?          @unique /// S00065 — the number in the master list
+  installedBase      Int? /// 装机台数 in the plants DCiT has met (registered, not all verified)
+  lifecycleGrade     String? /// A = maker's announcement / end-of-life table · B = maker's product page
+  lifecycleUrl       String?
+  lifecycleCheckedAt DateTime?
+  lifecycleDates     String? /// 关键日期 in the maker's words: end of production, repair until …
+  successorNote      String? /// 官方替代 as the maker states it, when it is not (only) a series in this list
+  lifecycleRemark    String? /// 核实说明: scope and limits of the evidence
 
   models               Model[]
   faultCodes           FaultCode[]
@@ -440,9 +450,12 @@ model Series {
 }
 
 enum LifecycleStatus {
-  ACTIVE
-  MATURE
-  DISCONTINUED
+  ACTIVE /// 在售
+  GROWTH /// 成长期
+  MATURE /// 成熟期
+  DECLINING /// 衰退: classic / limited / made to order, not yet at its end date
+  DISCONTINUED /// 停产 or 停售; with successorNote / successor when the maker names a replacement
+  UNVERIFIED /// 待核实: looked for, no official evidence either way
 }
 
 model Model {

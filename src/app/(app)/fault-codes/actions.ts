@@ -97,7 +97,7 @@ export async function saveSeriesAction(id: string, f: FormData) {
     const me = await currentEmployee();
     const s = await saveSeries(id || null, {
       brandId: String(f.get("brandId") ?? ""), code: String(f.get("code") ?? ""), name: String(f.get("name") ?? ""), categoryCode: str(f, "categoryCode"),
-      lifecycle: (str(f, "lifecycle") ?? "ACTIVE") as never, successorId: str(f, "successorId"), aliases: (str(f, "aliases") ?? "").split(/[,，]+/),
+      lifecycle: (str(f, "lifecycle") ?? "ACTIVE") as never, successorId: str(f, "successorId"), lifecycleDates: str(f, "lifecycleDates"), successorNote: str(f, "successorNote"), lifecycleGrade: str(f, "lifecycleGrade"), lifecycleUrl: str(f, "lifecycleUrl"), lifecycleCheckedAt: str(f, "lifecycleCheckedAt") ? new Date(str(f, "lifecycleCheckedAt")!) : undefined, lifecycleRemark: str(f, "lifecycleRemark"), aliases: (str(f, "aliases") ?? "").split(/[,，]+/),
       codePattern: str(f, "codePattern"), codeRule: str(f, "codeRule"), notes: str(f, "notes"), slug: str(f, "slug"),
       publicVisible: f.get("publicVisible") === "on", active: f.get("active") === "on",
     }, me.code);
