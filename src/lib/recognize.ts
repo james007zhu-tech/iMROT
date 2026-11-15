@@ -175,8 +175,10 @@ export function normalizeDate(v: string): string {
 export function normalizeNumber(v: string, field?: string): string {
   // "2x4.0 kW" on a double-axis module is two axes of 4.0 kW, not 24 (trial finding 2026-11-14): the rating is the
   // value after the multiplier, per axis; the count stays visible in the model number
-  const multi = v.match(/^\s*\d+\s*[x×*]\s*(\d[\d.,]*)/i);
-  const s = (multi ? multi[1] : v).replace(/[^\d.,%-]/g, "");
+  const multi = v.match(/^\s*(\d+)\s*[x×*]\s*(\d[\d.,]*)/i);
+  // the power box keeps the count: 2x4.0 kW is written 2x4 (朱总 2026-11-15); other ratings keep the per-axis value
+  if (multi && field === "ratedPowerKw") { const n = Number(multi[2].replace(/,/g, ".")); if (Number.isFinite(n)) return `${multi[1]}x${n}`; }
+  const s = (multi ? multi[2] : v).replace(/[^\d.,%-]/g, "");
   const pct = /%$/.test(s);
   const n = Number(s.replace(/%/g, "").replace(/,/g, ""));
   if (!Number.isFinite(n)) return v.trim();

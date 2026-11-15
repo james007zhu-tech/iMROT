@@ -84,7 +84,7 @@ const refused = async (fn: () => Promise<unknown>) => { try { await fn(); return
   check("a new model without brand and series is asked for them", d.startsWith("MODEL_NEEDS_BRAND_SERIES"), d);
 
   // ── 3. small ones
-  check('"2x4.0 kW" reads as 4, not 24', normalizeNumber("2x4.0 kW", "ratedPowerKw") === "4" && normalizeNumber("4.0 kW", "ratedPowerKw") === "4" && normalizeNumber("1,234.5") === "1234.5");
+  check('"2x4.0 kW" reads as 2x4 — two axes of 4 kW, not 24', normalizeNumber("2x4.0 kW", "ratedPowerKw") === "2x4" && normalizeNumber("2x9 A", "ratedCurrentA") === "9" && normalizeNumber("4.0 kW", "ratedPowerKw") === "4" && normalizeNumber("1,234.5") === "1234.5");
   check("times are written as the local clock shows them", localIso(new Date(2026, 10, 14, 9, 5, 7)) === "2026-11-14T09:05:07");
 
   console.log(failed ? `\n${failed} FAILED` : "\nall passed");

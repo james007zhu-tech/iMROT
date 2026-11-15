@@ -1,3 +1,4 @@
+import { parsePower, powerLabel } from "@/lib/power";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { listModelTree, upsertBrand, upsertModel, upsertSeries } from "@/server/models";
@@ -31,7 +32,7 @@ export default async function Models({ searchParams }: { searchParams: Promise<{
             {b.series.map((s) => (
               <div key={s.id} className="mt-2 pl-3">
                 <div className="font-semibold">{s.name} <span className="font-mono text-xs text-navy/70">{s.code}</span></div>
-                <ul className="grid gap-1 pl-3 text-sm md:grid-cols-3">{s.models.map((m) => <li key={m.id}><Link href={`/models/${m.id}`} className="font-mono text-blue underline">{m.code}</Link> <span className="text-navy/70">{m.ratedPowerKw ? `${Number(m.ratedPowerKw)} kW` : ""} · {m._count.assets} {t("assets")}</span></li>)}</ul>
+                <ul className="grid gap-1 pl-3 text-sm md:grid-cols-3">{s.models.map((m) => <li key={m.id}><Link href={`/models/${m.id}`} className="font-mono text-blue underline">{m.code}</Link> <span className="text-navy/70">{m.ratedPowerKw ? powerLabel(Number(m.ratedPowerKw), m.axes) : ""} · {m._count.assets} {t("assets")}</span></li>)}</ul>
               </div>
             ))}
           </section>

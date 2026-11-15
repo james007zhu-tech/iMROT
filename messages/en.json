@@ -2286,7 +2286,8 @@
     "dnNoPartYet": "Not in the store yet",
     "receiverNew": "Receiver's name",
     "receiverNewOr": "or type a new receiver",
-    "err_DELIVERY_NEEDS_RECEIVER": "Choose or type who receives the goods"
+    "err_DELIVERY_NEEDS_RECEIVER": "Choose or type who receives the goods",
+    "ratedPowerPh": "e.g. 4, or 2x4 for a double-axis module"
   },
   "role": {
     "MD": "Managing Director",

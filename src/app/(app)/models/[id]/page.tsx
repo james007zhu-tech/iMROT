@@ -1,3 +1,4 @@
+import { powerLabel } from "@/lib/power";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
@@ -25,7 +26,7 @@ export default async function ModelPage({ params, searchParams }: { params: Prom
   const stds = [...m.series.maintenanceStandards, ...m.maintenanceStandards];
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3"><Link href="/models" className="text-sm text-blue">← ALM</Link><h1 className="font-mono text-2xl font-bold">{m.code}</h1><span>{m.series.brand.name} {m.series.name}</span><span className="text-navy/70">{m.ratedPowerKw ? `${Number(m.ratedPowerKw)} kW` : ""} {m.ratedVoltageV ? `${m.ratedVoltageV} V` : ""} {m.ratedCurrentA ? `${Number(m.ratedCurrentA)} A` : ""} · {m.lifecycle}</span></div>
+      <div className="flex flex-wrap items-center gap-3"><Link href="/models" className="text-sm text-blue">← ALM</Link><h1 className="font-mono text-2xl font-bold">{m.code}</h1><span>{m.series.brand.name} {m.series.name}</span><span className="text-navy/70">{m.ratedPowerKw ? powerLabel(Number(m.ratedPowerKw), m.axes) : ""} {m.ratedVoltageV ? `${m.ratedVoltageV} V` : ""} {m.ratedCurrentA ? `${Number(m.ratedCurrentA)} A` : ""} · {m.lifecycle}</span></div>
       <Flash ok={ok} error={error} />
       <div className="grid gap-4 md:grid-cols-2">
         <section className="rounded-xl border bg-white p-4"><h2 className="mb-2 font-bold text-navy">{t("faultCodes")} ({faults.length})</h2>

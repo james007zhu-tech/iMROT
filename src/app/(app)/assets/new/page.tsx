@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { assetBySerial, attachProjectAsset } from "@/server/asset-first";
 import { ScopedSelect } from "@/components/ScopedSelect";
+import { parsePower } from "@/lib/power";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { ensureModel, onboardAsset, relateAssets } from "@/server/alm";
@@ -42,8 +43,9 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
       const atts = JSON.parse(String(form.get("attachments") || "[]")) as { name: string; url: string; kind: string }[];
       const num = (k: string) => (form.get(k) ? Number(form.get(k)) : undefined);
       const txt = (k: string) => String(form.get(k) ?? "").trim() || undefined;
+      const power = parsePower(txt("ratedPowerKw")); // "2x4" = a double-axis module, two axes of 4 kW
       // a model the library does not have yet is added to it here, from the same form
-      const model = modelCode ? (await ensureModel({ brand: txt("brand") ?? "", series: txt("series") ?? "", modelCode, assetType: txt("type"), ratedPowerKw: num("ratedPowerKw"), ratedVoltageV: num("ratedVoltageV"), ratedCurrentA: num("ratedCurrentA"), actorId: me.id })).model : null;
+      const model = modelCode ? (await ensureModel({ brand: txt("brand") ?? "", series: txt("series") ?? "", modelCode, assetType: txt("type"), ratedPowerKw: power.kw, axes: power.axes, ratedVoltageV: num("ratedVoltageV"), ratedCurrentA: num("ratedCurrentA"), actorId: me.id })).model : null;
       const asset = await onboardAsset({
         createdByEmployeeCode: me.code,
         type: form.get("type") as "VFD",
@@ -58,7 +60,7 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
         customerAssetNo: txt("customerAssetNo"),
         installedAt: form.get("installedAt") ? new Date(String(form.get("installedAt"))) : undefined,
         nameplatePhoto: atts[0]?.url,
-        configuration: { ratedPowerKw: num("ratedPowerKw"), ratedVoltageV: num("ratedVoltageV"), ratedCurrentA: num("ratedCurrentA"), options: txt("options"), photos: atts },
+        configuration: { ratedPowerKw: power.kw, axes: power.axes, ratedVoltageV: num("ratedVoltageV"), ratedCurrentA: num("ratedCurrentA"), options: txt("options"), photos: atts },
         operatingConditions: { loadType: txt("loadType"), hoursPerDay: num("hoursPerDay"), environment: txt("environment"), grid: txt("grid") },
       });
       for (const rel of ["DRIVES", "INSTALLED_IN", "CONTROLLED_BY"] as const) {
@@ -101,7 +103,7 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
         </Card>
         <Card title={u("configConditions")}>
           <Grid>
-            <Field label={u("ratedPower")}><input name="ratedPowerKw" type="number" step="0.01" className={inputCls} /></Field>
+            <Field label={u("ratedPower")}><input name="ratedPowerKw" inputMode="decimal" placeholder={u("ratedPowerPh")} className={inputCls} /></Field>
             <Field label={u("ratedVoltage")}><input name="ratedVoltageV" type="number" className={inputCls} /></Field>
             <Field label={u("ratedCurrent")}><input name="ratedCurrentA" type="number" step="0.01" className={inputCls} /></Field>
             <Field label={u("options")}><input name="options" className={inputCls} /></Field>
