@@ -88,22 +88,23 @@ enum EmployeeRole {
 }
 
 model Employee {
-  passwordResets PasswordReset[]
-  id             String          @id @default(cuid())
-  code           String          @unique /// ETH2610001 — the first letter+country of this code decides the country of everything this person creates
-  entityId       String
-  entity         LegalEntity     @relation(fields: [entityId], references: [id])
-  name           String
-  nameLocal      String?
-  role           EmployeeRole
-  email          String?         @unique
-  phone          String?
-  passwordHash   String?
-  shortcuts      Json? /// 常用功能: the entry keys this person pinned (src/lib/nav.ts SHORTCUTS); null = the role's default
-  locale         String          @default("th") /// th | zh | en — UI language, switchable any time
-  active         Boolean         @default(true)
-  createdAt      DateTime        @default(now())
-  lastLoginAt    DateTime?
+  passwordResets    PasswordReset[]
+  id                String          @id @default(cuid())
+  code              String          @unique /// ETH2610001 — the first letter+country of this code decides the country of everything this person creates
+  entityId          String
+  entity            LegalEntity     @relation(fields: [entityId], references: [id])
+  name              String
+  nameLocal         String?
+  role              EmployeeRole
+  email             String?         @unique
+  phone             String?
+  passwordHash      String?
+  passwordChangedAt DateTime? /// every session older than this is signed out (2026-11-15)
+  shortcuts         Json? /// 常用功能: the entry keys this person pinned (src/lib/nav.ts SHORTCUTS); null = the role's default
+  locale            String          @default("th") /// th | zh | en — UI language, switchable any time
+  active            Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  lastLoginAt       DateTime?
 
   // ── ETH employee file (2026-11-08): the MD sees and edits everything; the person sees their own file
   //    without salary and may change their own contact details. Contacts are masked until the password is re-entered.

@@ -112,7 +112,7 @@ export async function updateEmployee(input: { actorCode: string; code: string; r
   return prisma.$transaction(async (tx) => {
     const cur = await tx.employee.findUniqueOrThrow({ where: { code: input.code } });
     const atts = input.attachments?.length ? ([...((cur.attachments as unknown[] | null) ?? []), ...input.attachments] as Prisma.InputJsonValue) : undefined;
-    const e = await tx.employee.update({ where: { code: input.code }, data: { ...p, ...contacts, name: input.name, nameLocal: input.nameLocal, role: input.role, active: input.active, locale: input.locale, managerId: managerCode === undefined ? undefined : managerCode === "" ? null : await managerId(tx, managerCode), passwordHash: input.password ? hashPassword(input.password) : undefined, attachments: atts } });
+    const e = await tx.employee.update({ where: { code: input.code }, data: { ...p, ...contacts, name: input.name, nameLocal: input.nameLocal, role: input.role, active: input.active, locale: input.locale, managerId: managerCode === undefined ? undefined : managerCode === "" ? null : await managerId(tx, managerCode), passwordHash: input.password ? hashPassword(input.password) : undefined, passwordChangedAt: input.password ? new Date() : undefined, attachments: atts } });
     await audit(actor.id, "EMPLOYEE_UPDATE", input.code, { role: input.role, active: input.active, passwordReset: !!input.password, leftAt: input.leftAt ? String(input.leftAt) : undefined }, tx);
     return e;
   });
@@ -340,7 +340,7 @@ export async function changeOwnPassword(actorCode: string, current: string, next
   if (next !== again) throw new Error("PASSWORD_MISMATCH");
   if (next === current) throw new Error("PASSWORD_SAME");
   await prisma.$transaction(async (tx) => {
-    await tx.employee.update({ where: { id: actor.id }, data: { passwordHash: hashPassword(next) } });
+    await tx.employee.update({ where: { id: actor.id }, data: { passwordHash: hashPassword(next), passwordChangedAt: new Date() } });
     await tx.passwordReset.deleteMany({ where: { employeeId: actor.id, usedAt: null } }); // an open reset link is for the old password
     await audit(actor.id, "PASSWORD_CHANGE", actor.code, { by: "self" }, tx);
   });

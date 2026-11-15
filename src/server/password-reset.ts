@@ -57,7 +57,7 @@ export async function completeReset(token: string, password: string, again: stri
   await prisma.$transaction(async (tx) => {
     const used = await tx.passwordReset.updateMany({ where: { id: t.id, usedAt: null }, data: { usedAt: new Date() } });
     if (used.count !== 1) throw new Error("RESET_LINK_DEAD"); // two tabs: the first one wins
-    await tx.employee.update({ where: { id: t.employee.id }, data: { passwordHash: hashPassword(password) } });
+    await tx.employee.update({ where: { id: t.employee.id }, data: { passwordHash: hashPassword(password), passwordChangedAt: new Date() } });
     await tx.passwordReset.deleteMany({ where: { employeeId: t.employee.id, usedAt: null } });
     await tx.auditLog.create({ data: { actorId: t.employee.id, action: "PASSWORD_RESET", target: t.employee.code, detail: { by: "link" } } });
   });
