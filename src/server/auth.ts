@@ -44,6 +44,10 @@ export async function signInEmployee(email: string, password: string): Promise<S
   await prisma.employee.update({ where: { id: e!.id }, data: { lastLoginAt: new Date() } }).catch(() => undefined); // shown on the ETH file
   return "ok";
 }
+/** Whether an address belongs to a member of staff (the portal door sends staff to their own sign-in). */
+export async function isStaffEmail(email: string): Promise<boolean> {
+  return !!(await prisma.employee.findFirst({ where: { email: { equals: email.trim(), mode: "insensitive" } }, select: { id: true } }));
+}
 export async function signOut() { (await cookies()).delete(COOKIE); }
 
 /**
@@ -60,7 +64,17 @@ async function devEmployeeCode(): Promise<string | null> {
 /** Signed-in employee code without redirecting (for API routes). */
 export async function sessionEmployeeCode(): Promise<string | null> {
   const payload = verify((await cookies()).get(COOKIE)?.value);
-  return payload?.split("|")[0] ?? (await devEmployeeCode());
+  if (!payload) return devEmployeeCode();
+  // A session ends when its owner's password changes after it began, or the account is switched off
+  // (朱总 2026-11-15: after a password change the other devices stayed signed in — the old password kept "working").
+  const [code, at] = payload.split("|");
+  const e = await prisma.employee.findUnique({ where: { code }, select: { active: true, passwordChangedAt: true } });
+  if (!e || !e.active || (e.passwordChangedAt && Number(at) < e.passwordChangedAt.getTime())) return null;
+  return code;
+}
+/** After its owner changed the password on this device: this device stays signed in, with a session newer than the change. */
+export async function renewSession(code: string) {
+  (await cookies()).set(COOKIE, sign(`${code}|${Date.now() + 1000}`), { httpOnly: true, sameSite: "lax", secure: await overHttps(), path: "/", maxAge: 7 * 86400 });
 }
 /** Signed-in portal contact id without redirecting. */
 export async function sessionContactId(): Promise<string | null> {

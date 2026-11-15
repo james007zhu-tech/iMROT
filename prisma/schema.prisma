@@ -88,22 +88,23 @@ enum EmployeeRole {
 }
 
 model Employee {
-  passwordResets PasswordReset[]
-  id             String          @id @default(cuid())
-  code           String          @unique /// ETH2610001 — the first letter+country of this code decides the country of everything this person creates
-  entityId       String
-  entity         LegalEntity     @relation(fields: [entityId], references: [id])
-  name           String
-  nameLocal      String?
-  role           EmployeeRole
-  email          String?         @unique
-  phone          String?
-  passwordHash   String?
-  shortcuts      Json? /// 常用功能: the entry keys this person pinned (src/lib/nav.ts SHORTCUTS); null = the role's default
-  locale         String          @default("th") /// th | zh | en — UI language, switchable any time
-  active         Boolean         @default(true)
-  createdAt      DateTime        @default(now())
-  lastLoginAt    DateTime?
+  passwordResets    PasswordReset[]
+  id                String          @id @default(cuid())
+  code              String          @unique /// ETH2610001 — the first letter+country of this code decides the country of everything this person creates
+  entityId          String
+  entity            LegalEntity     @relation(fields: [entityId], references: [id])
+  name              String
+  nameLocal         String?
+  role              EmployeeRole
+  email             String?         @unique
+  phone             String?
+  passwordHash      String?
+  passwordChangedAt DateTime? /// every session older than this is signed out (2026-11-15)
+  shortcuts         Json? /// 常用功能: the entry keys this person pinned (src/lib/nav.ts SHORTCUTS); null = the role's default
+  locale            String          @default("th") /// th | zh | en — UI language, switchable any time
+  active            Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  lastLoginAt       DateTime?
 
   // ── ETH employee file (2026-11-08): the MD sees and edits everything; the person sees their own file
   //    without salary and may change their own contact details. Contacts are masked until the password is re-entered.
@@ -1886,4 +1887,39 @@ model PasswordReset {
   issuedById  String?
 
   @@index([employeeId, requestedAt])
+}
+
+/// 固定付款 (朱总 2026-11-15): what the company pays every month whatever happens — rent, accounting fee, leases,
+/// insurance instalments. The cash plan lists each one on its day.
+model RecurringPayment {
+  id          String   @id @default(cuid())
+  entityId    String
+  payee       String
+  purpose     String
+  amount      Decimal  @db.Decimal(14, 2)
+  currency    String   @default("THB")
+  dayOfMonth  Int /// 1–31; a month that is shorter pays on its last day
+  startMonth  String /// "2026-11", first month it is paid
+  endMonth    String? /// last month it is paid; empty = until switched off
+  active      Boolean  @default(true)
+  note        String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@index([entityId, active])
+}
+
+/// 现金计划 — the month's plan as it stood when the month began (kept, so the month can be measured against it).
+/// The page itself always shows the plan as it is now.
+model CashPlan {
+  id             String   @id @default(cuid())
+  entityId       String
+  month          String /// "2026-12"
+  generatedAt    DateTime @default(now())
+  lines          Json
+  totals         Json
+  openingBalance Decimal? @db.Decimal(18, 2) /// bank balance on the 1st, typed by finance
+  note           String?
+
+  @@unique([entityId, month])
 }

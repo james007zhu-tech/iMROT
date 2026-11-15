@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { localIso } from "@/lib/dates";
-import { currentEmployee } from "@/server/auth";
+import { currentEmployee, renewSession } from "@/server/auth";
 import { changeOwnPassword, updateOwnContacts } from "@/server/opd";
 import { guarded } from "@/lib/action-result";
 import { PasswordInput } from "@/components/PasswordInput";
@@ -29,6 +29,7 @@ export default async function Me({ searchParams }: { searchParams: Promise<{ ok?
     await guarded(async () => {
       const who = await currentEmployee();
       await changeOwnPassword(who.code, String(f.get("current") ?? ""), String(f.get("next") ?? ""), String(f.get("again") ?? ""));
+      await renewSession(who.code); // this device stays signed in; every other one is signed out
       return "passwordChanged";
     }, "/me");
   }

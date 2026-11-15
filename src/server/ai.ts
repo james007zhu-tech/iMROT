@@ -3,6 +3,7 @@
  * Provider is switchable (decision: Claude API primary, others per specialty); calls go through one `complete()`.
  * Every output carries the record numbers it was built from, so a person can check before saving.
  */
+import { buildCashPlan, mayPlan, thisMonth } from "@/server/cash-plan";
 import { prisma } from "@/lib/db";
 import { ACTION_TOOLS, documentChain, runAction } from "@/server/ai-actions";
 import { offlineAssist } from "./ai-offline";
@@ -179,6 +180,16 @@ const FAULT_TOOL: Tool = { name: "lookup_fault_code", description: "DCiT's own k
 
 const CHAIN_TOOL: Tool = { name: "order_chain", description: "The document chain of one order: every numbered document (quote, inspection, delivery note, invoice, tax invoice, receipt …) with dates, plus supplier inquiries and purchase orders.", input_schema: { type: "object", properties: { no: { type: "string" } }, required: ["no"] }, run: async ({ no }) => documentChain(String(no)) };
 
+/** 现金计划 for the assistant: "这个月要付多少钱、付给谁" — only for the people who may open the plan itself. */
+const CASH_TOOL: Tool = { name: "cash_plan", description: "The cash plan of a month (default: this month): every payment due — supplier invoices, fixed payments, payroll, social security, taxes, expense claims — and every customer payment expected, each with its day, party and amount, plus totals. Use for 'what do we pay this month / this week', 'who do we owe', 'when is rent due', 'will cash be enough'. MD and finance only.", input_schema: { type: "object", properties: { month: { type: "string", description: "YYYY-MM" } } },
+  run: async ({ month }, ctx) => {
+    const me = ctx.employeeCode ? await prisma.employee.findUnique({ where: { code: ctx.employeeCode } }) : null;
+    if (!me || !mayPlan(me.role)) return { error: "only the MD and finance may see the cash plan" };
+    const m = /^\d{4}-\d{2}$/.test(String(month ?? "")) ? String(month) : thisMonth();
+    const plan = await buildCashPlan(me.entityId, m);
+    return { month: m, href: `/finance/cash-plan?month=${m}`, totals: plan.totals, warnings: plan.warnings, lines: plan.lines.slice(0, 80).map((l) => ({ ...l, href: undefined })) };
+  } };
+
 export const PORTAL_TOOLS = new Set(["get_asset", "search_assets", "get_order", "list_orders"]);
 
 /**
@@ -202,7 +213,7 @@ export async function assist(messages: { role: "user" | "assistant"; content: st
   // Portal contacts get only the four customer-filtered read tools; similar_cases and metric read across all customers.
   if (!ctx.employeeCode && !ctx.customerId) throw new Error("assistant needs a staff or customer scope");
   const actionTools: Tool[] = ctx.employeeCode ? ACTION_TOOLS.map((a) => ({ name: a.name, description: a.description, input_schema: a.input_schema, run: async (input) => runAction(a.name, input, { employeeCode: ctx.employeeCode! }) })) : [];
-  const allowed = ctx.employeeCode ? [...TOOLS, FAULT_TOOL, CHAIN_TOOL, ...actionTools] : TOOLS.filter((t) => PORTAL_TOOLS.has(t.name));
+  const allowed = ctx.employeeCode ? [...TOOLS, FAULT_TOOL, CHAIN_TOOL, CASH_TOOL, ...actionTools] : TOOLS.filter((t) => PORTAL_TOOLS.has(t.name));
   const cards: AssistAction[] = [];
   // 朱总 2026-11-14: the assistant searches the public web too (company registration, manuals, fault codes, suppliers).
   // Staff only — a customer's portal assistant answers from that customer's own records. WEB_SEARCH=off turns it off.
