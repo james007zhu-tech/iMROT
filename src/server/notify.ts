@@ -7,6 +7,7 @@
  *  FINANCE (+MD):   customer invoices due, supplier invoices to pay
  */
 import { openResetRequests } from "@/server/password-reset";
+import { ensureCashPlan, mayPlan } from "@/server/cash-plan";
 import { prisma } from "@/lib/db";
 import { localToday } from "@/lib/overtime";
 import { maskName } from "@/lib/mask";
@@ -57,6 +58,14 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month: previousMonth } }, select: { status: true } });
     const started = await prisma.salaryRecord.count({ where: { employee: { entityId, active: true } } });
     if (started && run?.status !== "PAID") push("payrollDue", 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
+  }
+  // 现金计划: the month's plan is written the first time anyone opens the system in that month; finance and the MD
+  // are told for the first week
+  if (mayPlan(me.role)) {
+    const { date } = localToday(), month = date.slice(0, 7);
+    const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
+    const made = await ensureCashPlan(entityId, month).catch(() => null);
+    if (made && Number(date.slice(8, 10)) <= 7) push("cashPlanReady", 7 - Number(date.slice(8, 10)), month, `/finance/cash-plan?month=${month}`, Number((made.plan.totals as { out?: number }).out ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 }));
   }
   // 忘记密码: someone asked on the sign-in page; an MD issues the link from that person's ETH file
   if (me.role === "MD") for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
