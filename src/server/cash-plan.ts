@@ -22,11 +22,18 @@ export async function buildCashPlan(entityId: string, month: string) {
   const prev = prevMonth(month), prevFirst = new Date(`${monthStart(prev)}T00:00:00`);
   const lines: CashLine[] = [];
   const warnings: string[] = [];
-  const within = (d: Date) => (d < first ? { date: monthStart(month), overdue: true } : { date: day(d), overdue: false });
+  // Every sum appears once: in the month it falls due. What fell due earlier and is still unpaid is carried into the
+  // month we are in now — and only there (test report 2026-11-15, P0-11: an unpaid claim showed in every month looked at).
+  const carries = month === thisMonth();
+  // (a month already over shows nothing still unpaid — that has moved on into the current month; its plan as it began is kept)
+  const past = month < thisMonth();
+  const place = (d: Date): { date: string; overdue: boolean } | null => (past || d >= next ? null : d >= first ? { date: day(d), overdue: false } : carries ? { date: monthStart(month), overdue: true } : null);
 
   // ── suppliers: every open invoice due by the end of the month (what was due earlier is owed on the 1st)
-  for (const s of await prisma.supplierInvoice.findMany({ where: { entityId, status: "OPEN", dueDate: { lt: next } }, include: { supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } } }))
-    lines.push({ ...within(s.dueDate), dir: "OUT", kind: "SUPPLIER", party: s.supplier.name, what: s.invoiceNo, amount: Number(s.payable), currency: s.currency, ref: s.purchaseOrder.no, href: "/finance/payables", fixed: true });
+  for (const s of await prisma.supplierInvoice.findMany({ where: { entityId, status: "OPEN", dueDate: { lt: next } }, include: { supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } } })) {
+    const at = place(s.dueDate);
+    if (at) lines.push({ ...at, dir: "OUT", kind: "SUPPLIER", party: s.supplier.name, what: s.invoiceNo, amount: Number(s.payable), currency: s.currency, ref: s.purchaseOrder.no, href: "/finance/payables", fixed: true });
+  }
 
   // ── the fixed payments
   for (const r of await prisma.recurringPayment.findMany({ where: { entityId, active: true } }))
@@ -51,8 +58,13 @@ export async function buildCashPlan(entityId: string, month: string) {
   }
 
   // ── approved expense claims the payroll does not carry
-  for (const x of await prisma.expenseClaim.findMany({ where: { entityId, status: "APPROVED", paidAt: null, paidBy: "SELF", payrollRunId: null }, include: { employee: { select: { name: true } } } }))
-    lines.push({ date: dayIn(month, 5), dir: "OUT", kind: "EXPENSE", party: x.employee.name, what: x.description, amount: Number(x.amount), currency: x.currency, ref: x.no ?? undefined, href: "/finance/expenses", fixed: true });
+  // … each is paid on the 5th after it was approved
+  for (const x of await prisma.expenseClaim.findMany({ where: { entityId, status: "APPROVED", paidAt: null, paidBy: "SELF", payrollRunId: null }, include: { employee: { select: { name: true } } } })) {
+    const ok = x.decidedAt ?? x.createdAt, okDay = localIso(ok)!.slice(0, 10);
+    const dueMonth = okDay.slice(8, 10) <= "05" ? okDay.slice(0, 7) : nextMonth(okDay.slice(0, 7));
+    const at = place(new Date(`${dayIn(dueMonth, 5)}T00:00:00`));
+    if (at) lines.push({ ...at, dir: "OUT", kind: "EXPENSE", party: x.employee.name, what: x.description, amount: Number(x.amount), currency: x.currency, ref: x.no ?? undefined, href: "/finance/expenses", fixed: true });
+  }
 
   // ── last month's taxes
   const span = { gte: prevFirst, lt: first };
@@ -69,9 +81,10 @@ export async function buildCashPlan(entityId: string, month: string) {
   // ── customers: what is invoiced and not yet paid, by its due date
   for (const i of await prisma.invoice.findMany({ where: { serviceOrder: { entityId }, cancelledAt: null, paidAt: null }, include: { serviceOrder: { select: { no: true, customer: { select: { name: true, paymentTermDays: true } } } } } })) {
     const due = i.dueAt ?? new Date(i.issuedAt.getTime() + (i.serviceOrder.customer.paymentTermDays ?? 30) * 86_400_000);
-    if (due >= next) continue;
+    const at = place(due);
+    if (!at) continue;
     const open = r2(Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0));
-    if (open > 0) lines.push({ ...within(due), dir: "IN", kind: "RECEIVABLE", party: i.serviceOrder.customer.name, what: i.no, amount: open, currency: i.currency, ref: i.serviceOrder.no, href: `/service-orders/${i.serviceOrder.no}` });
+    if (open > 0) lines.push({ ...at, dir: "IN", kind: "RECEIVABLE", party: i.serviceOrder.customer.name, what: i.no, amount: open, currency: i.currency, ref: i.serviceOrder.no, href: `/service-orders/${i.serviceOrder.no}` });
   }
   const sorted = sortLines(lines);
   return { month, lines: sorted, totals: totalsOf(sorted), warnings };
@@ -105,4 +118,11 @@ export async function stopRecurring(actor: { id: string; role: string }, id: str
   if (!mayPlan(actor.role)) throw new Error("FORBIDDEN");
   const r = await prisma.recurringPayment.update({ where: { id }, data: { active: false } });
   await prisma.auditLog.create({ data: { actorId: actor.id, action: "FIXED_PAYMENT_STOPPED", target: r.payee, detail: { purpose: r.purpose } } });
+}
+
+/** The month's plan is written as the month begins (hourly check from the server's start hook), for every company. */
+export async function autoCashPlans() {
+  const made: string[] = [];
+  for (const e of await prisma.legalEntity.findMany({ select: { id: true, code: true } })) { const r = await ensureCashPlan(e.id).catch(() => null); if (r?.created) made.push(`${e.code} ${thisMonth()}`); }
+  return made;
 }

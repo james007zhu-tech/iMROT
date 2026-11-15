@@ -424,7 +424,8 @@
     "portalSignIn": "Customer portal sign-in",
     "staffSignInLink": "DCiT staff? Sign in here →",
     "portalSignInLink": "Customer portal →",
-    "oneMoreLine": "One more line"
+    "oneMoreLine": "One more line",
+    "releaseSoon": "The system is being updated — please wait before saving"
   },
   "ai": {
     "title": "AI assistant",

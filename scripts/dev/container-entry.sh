@@ -17,6 +17,8 @@
 #   .dev-ops/mode          containing "prod" -> `next build` + `next start` instead of `next dev` (the system is on the
 #                          internet at os.i-mrot.com: no dev overlay, no source maps, no dev login bypass). A restart
 #                          rebuilds. If the build fails the previous build keeps serving, or next dev when there is none.
+#   .dev-ops/maintenance   leave this file a few minutes before a release: every open page shows「系统更新中，请稍后再
+#                          保存」; it is removed when the restart is done
 #   .dev-ops/tunnel-token  the Cloudflare Tunnel token (one line) -> cloudflared runs inside this container and
 #                          publishes http://localhost:3000. The token is read from the file and never logged.
 set -uo pipefail
@@ -123,7 +125,7 @@ while true; do
   sleep 5
   start_tunnel # picks the token up as soon as the file appears, and restarts the tunnel if it died
   if [ -f "$OPS/restart" ]; then
-    rm -f "$OPS/restart"; stop_app; setup; start_app; log "restart done"
+    rm -f "$OPS/restart"; stop_app; setup; start_app; rm -f "$OPS/maintenance"; log "restart done"
   fi
   if [ -f "$OPS/seed" ]; then
     rm -f "$OPS/seed"; log "seed"; npx tsx prisma/seed.ts >"$OPS/seed.out" 2>&1; log "seed done"

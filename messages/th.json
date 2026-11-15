@@ -424,7 +424,8 @@
     "portalSignIn": "เข้าสู่ระบบลูกค้า (พอร์ทัล)",
     "staffSignInLink": "พนักงาน DCiT? เข้าสู่ระบบที่นี่ →",
     "portalSignInLink": "ลูกค้า: พอร์ทัล →",
-    "oneMoreLine": "เพิ่มอีกบรรทัด"
+    "oneMoreLine": "เพิ่มอีกบรรทัด",
+    "releaseSoon": "ระบบกำลังอัปเดต กรุณารอสักครู่ก่อนบันทึก"
   },
   "ai": {
     "title": "ผู้ช่วย AI",

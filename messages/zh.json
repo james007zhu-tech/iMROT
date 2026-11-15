@@ -424,7 +424,8 @@
     "portalSignIn": "客户门户登录",
     "staffSignInLink": "DCiT 员工？从这里登录 →",
     "portalSignInLink": "客户门户 →",
-    "oneMoreLine": "再加一行"
+    "oneMoreLine": "再加一行",
+    "releaseSoon": "系统更新中，请稍后再保存"
   },
   "ai": {
     "title": "AI 助手",
