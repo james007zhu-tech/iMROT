@@ -4,7 +4,7 @@
  *   npx tsx scripts/dev/probe-cash-plan.ts
  */
 import { prisma } from "../../src/lib/db";
-import { buildCashPlan, ensureCashPlan, saveRecurring, stopRecurring } from "../../src/server/cash-plan";
+import { buildCashPlan, ensureCashPlan, saveRecurring, stopRecurring, thisMonth } from "../../src/server/cash-plan";
 
 let failed = 0;
 const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) failed++; };
@@ -45,6 +45,15 @@ const refused = async (fn: () => Promise<unknown>) => { try { await fn(); return
     check("once paid, the pay leaves the plan; the tax and social security stay until their day", !paid.lines.some((l) => l.kind === "PAYROLL") && paid.lines.some((l) => l.kind === "PND1") && paid.lines.some((l) => l.kind === "SSO"));
     await prisma.payrollRun.delete({ where: { id: made.id } });
   }
+  // every sum once (test report P0-11): an approved claim is in the month of its 5th, an old unpaid one only in the month we are in
+  const mk = (decidedAt: Date, description: string) => prisma.expenseClaim.create({ data: { entityId: md.entityId, employeeId: md.id, spentOn: decidedAt, category: "OTHER", description, amount: 1341, status: "APPROVED", approverId: md.id, decidedAt } });
+  const fresh = await mk(new Date("2031-01-20T10:00:00"), `Probe claim ${stamp} new`), old = await mk(new Date("2019-03-10T10:00:00"), `Probe claim ${stamp} old`);
+  const has = async (m: string, d: string) => (await buildCashPlan(md.entityId, m)).lines.filter((l) => l.what === d);
+  const cur = thisMonth();
+  check("an approved claim is due on the 5th after its approval, in that month only", (await has("2031-02", fresh.description))[0]?.date === "2031-02-05" && !(await has("2031-01", fresh.description)).length && !(await has("2031-03", fresh.description)).length && !(await has(cur, fresh.description)).length);
+  const carried = await has(cur, old.description);
+  check("an old unpaid one is carried into the month we are in, once, marked overdue — and into no other", carried.length === 1 && !!carried[0].overdue && carried[0].date === `${cur}-01` && !(await has("2031-02", old.description)).length && !(await has("2019-04", old.description)).length);
+  await prisma.expenseClaim.deleteMany({ where: { id: { in: [fresh.id, old.id] } } });
   await stopRecurring(md, rent.id);
   check("a stopped payment leaves the plan", !(await buildCashPlan(md.entityId, month)).lines.some((l) => l.party === payee));
   await prisma.recurringPayment.updateMany({ where: { payee: { startsWith: payee } }, data: { active: false } });

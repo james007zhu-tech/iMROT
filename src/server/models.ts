@@ -17,7 +17,7 @@ export async function upsertSeries(brandCode: string, code: string, name: string
   const brand = await prisma.brand.findUniqueOrThrow({ where: { code: brandCode } });
   return prisma.series.upsert({ where: { brandId_code: { brandId: brand.id, code } }, update: { name, notes }, create: { brandId: brand.id, code, name, notes } });
 }
-export async function upsertModel(seriesId: string, data: { code: string; ratedPowerKw?: number; ratedVoltageV?: number; ratedCurrentA?: number; overloadClass?: string; controlMode?: string; designLifeYears?: number }) {
+export async function upsertModel(seriesId: string, data: { code: string; ratedPowerKw?: number; axes?: number; ratedVoltageV?: number; ratedCurrentA?: number; overloadClass?: string; controlMode?: string; designLifeYears?: number }) {
   return prisma.model.upsert({ where: { seriesId_code: { seriesId, code: data.code } }, update: { ...data }, create: { seriesId, ...data } });
 }
 /** From the model page: a draft in the knowledge base (origin CASE), so it goes through review before it can be public. */

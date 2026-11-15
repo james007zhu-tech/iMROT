@@ -188,7 +188,7 @@ const codeFrom = (name: string, len: number) => name.normalize("NFKD").toUpperCa
  * code, whatever the case; what is missing is created from what the nameplate form already says. The fault codes and
  * maintenance standards of the series are filled in later in the library — the machine does not wait for them.
  */
-export async function ensureModel(input: { brand: string; series: string; modelCode: string; assetType?: string; ratedPowerKw?: number; ratedVoltageV?: number; ratedCurrentA?: number; actorId?: string }) {
+export async function ensureModel(input: { brand: string; series: string; modelCode: string; assetType?: string; ratedPowerKw?: number; axes?: number; ratedVoltageV?: number; ratedCurrentA?: number; actorId?: string }) {
   const code = input.modelCode.trim();
   const known = await findModelByCode(code);
   if (known) return { model: known, created: false };
@@ -209,7 +209,7 @@ export async function ensureModel(input: { brand: string; series: string; modelC
     series = await prisma.series.create({ data: { brandId: brand.id, code: sc, name: seriesName, categoryCode: cat?.code, publicVisible: false } });
   }
   const model = await prisma.model.create({
-    data: { seriesId: series.id, code, ratedPowerKw: input.ratedPowerKw, ratedVoltageV: input.ratedVoltageV ? Math.round(input.ratedVoltageV) : undefined, ratedCurrentA: input.ratedCurrentA, specs: { createdWhileFiling: true } },
+    data: { seriesId: series.id, code, ratedPowerKw: input.ratedPowerKw, axes: input.axes, ratedVoltageV: input.ratedVoltageV ? Math.round(input.ratedVoltageV) : undefined, ratedCurrentA: input.ratedCurrentA, specs: { createdWhileFiling: true } },
     include: { series: { include: { brand: true } } },
   });
   if (input.actorId) await prisma.auditLog.create({ data: { actorId: input.actorId, action: "MODEL_CREATED_INLINE", target: code, detail: { brand: brand.name, series: series.name } } });

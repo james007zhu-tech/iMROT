@@ -424,7 +424,8 @@
     "portalSignIn": "客户门户登录",
     "staffSignInLink": "DCiT 员工？从这里登录 →",
     "portalSignInLink": "客户门户 →",
-    "oneMoreLine": "再加一行"
+    "oneMoreLine": "再加一行",
+    "releaseSoon": "系统更新中，请稍后再保存"
   },
   "ai": {
     "title": "AI 助手",
@@ -2286,7 +2287,8 @@
     "dnNoPartYet": "这行货还没入库",
     "receiverNew": "收货人姓名",
     "receiverNewOr": "或填新的收货人姓名",
-    "err_DELIVERY_NEEDS_RECEIVER": "请选择或填写收货联系人"
+    "err_DELIVERY_NEEDS_RECEIVER": "请选择或填写收货联系人",
+    "ratedPowerPh": "如 4；双轴填 2x4"
   },
   "role": {
     "MD": "董事总经理 MD",

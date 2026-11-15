@@ -464,7 +464,8 @@ model Model {
   seriesId        String
   series          Series          @relation(fields: [seriesId], references: [id])
   code            String /// vendor's own model string, verbatim: 6SL3120-2TE41-0AA1
-  ratedPowerKw    Decimal?        @db.Decimal(10, 2)
+  ratedPowerKw    Decimal?        @db.Decimal(10, 2) /// per axis
+  axes            Int? /// 2 for a double-axis module: the nameplate reads 2x4.0 kW
   ratedVoltageV   Int?
   ratedCurrentA   Decimal?        @db.Decimal(10, 2)
   overloadClass   String?

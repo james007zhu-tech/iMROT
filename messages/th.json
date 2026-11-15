@@ -424,7 +424,8 @@
     "portalSignIn": "เข้าสู่ระบบลูกค้า (พอร์ทัล)",
     "staffSignInLink": "พนักงาน DCiT? เข้าสู่ระบบที่นี่ →",
     "portalSignInLink": "ลูกค้า: พอร์ทัล →",
-    "oneMoreLine": "เพิ่มอีกบรรทัด"
+    "oneMoreLine": "เพิ่มอีกบรรทัด",
+    "releaseSoon": "ระบบกำลังอัปเดต กรุณารอสักครู่ก่อนบันทึก"
   },
   "ai": {
     "title": "ผู้ช่วย AI",
@@ -2286,7 +2287,8 @@
     "dnNoPartYet": "สินค้ายังไม่เข้าคลัง",
     "receiverNew": "ชื่อผู้รับสินค้า",
     "receiverNewOr": "หรือพิมพ์ชื่อผู้รับคนใหม่",
-    "err_DELIVERY_NEEDS_RECEIVER": "เลือกหรือพิมพ์ชื่อผู้รับสินค้า"
+    "err_DELIVERY_NEEDS_RECEIVER": "เลือกหรือพิมพ์ชื่อผู้รับสินค้า",
+    "ratedPowerPh": "เช่น 4 หรือ 2x4 (สองแกน)"
   },
   "role": {
     "MD": "กรรมการผู้จัดการ (MD)",
