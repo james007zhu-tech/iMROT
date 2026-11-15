@@ -5,6 +5,7 @@ import { localIso } from "@/lib/dates";
 import { currentEmployee } from "@/server/auth";
 import { changeOwnPassword, updateOwnContacts } from "@/server/opd";
 import { guarded } from "@/lib/action-result";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Flash } from "@/components/Flash";
 import { readContacts } from "@/components/EmployeeFormFields";
 import { PageHeader, Card, Grid, Field, Value, inputCls, btnPrimary, btnGhost } from "@/components/ui";
@@ -65,9 +66,9 @@ export default async function Me({ searchParams }: { searchParams: Promise<{ ok?
       </Card>
       <Card title={u("mePassword")}>
         <form action={password} className="max-w-md space-y-3">
-          <Field label={u("mePasswordNow")} required><input name="current" type="password" autoComplete="current-password" required className={inputCls} /></Field>
-          <Field label={u("mePasswordNew")} required><input name="next" type="password" autoComplete="new-password" minLength={8} required className={inputCls} /></Field>
-          <Field label={u("mePasswordAgain")} required><input name="again" type="password" autoComplete="new-password" minLength={8} required className={inputCls} /></Field>
+          <Field label={u("mePasswordNow")} required><PasswordInput label={{ show: c("pwShow"), hide: c("pwHide") }} name="current" autoComplete="current-password" required className={inputCls} /></Field>
+          <Field label={u("mePasswordNew")} required><PasswordInput label={{ show: c("pwShow"), hide: c("pwHide") }} name="next" autoComplete="new-password" minLength={8} required className={inputCls} /></Field>
+          <Field label={u("mePasswordAgain")} required><PasswordInput label={{ show: c("pwShow"), hide: c("pwHide") }} name="again" autoComplete="new-password" minLength={8} required className={inputCls} /></Field>
           <button className={btnGhost}>{u("mePasswordSave")}</button>
         </form>
       </Card>

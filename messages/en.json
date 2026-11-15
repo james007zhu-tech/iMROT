@@ -397,7 +397,7 @@
     "yes": "Yes",
     "no": "No",
     "open": "Open",
-    "loginWait": "Too many wrong tries. Wait 15 minutes and try again.",
+    "loginWait": "Too many wrong tries from this device. Wait 15 minutes, or use “Forgot password”.",
     "savingNow": "Saving — hold on, or the page will jump…",
     "forgotTitle": "Forgot password",
     "forgotHelp": "Enter your sign-in email. The managers with the MD role are notified and send you a link to set a new password yourself.",
@@ -413,7 +413,12 @@
     "resetDead": "This link no longer works (used, or older than 30 minutes). Please ask again.",
     "resetDone": "The new password is set. Please sign in.",
     "assistFilling": "Filling it in for you — hold on, or the page will jump…",
-    "me": "Me"
+    "me": "Me",
+    "pwShow": "Show",
+    "pwHide": "Hide",
+    "loginNoAccount": "No account uses this email. Check the spelling.",
+    "loginInactive": "This account is switched off. Contact the MD.",
+    "loginWrongPassword": "The email is right, the password is not. Press “Show” to see what you typed. {left} tries left."
   },
   "ai": {
     "title": "AI assistant",

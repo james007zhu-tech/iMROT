@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { completeReset, MIN_PASSWORD, resetTarget } from "@/server/password-reset";
 import { noteSuccess } from "@/server/login-guard";
+import { PasswordInput } from "@/components/PasswordInput";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 /** 忘记密码, step 3: the link's owner types a new password. The link works once, for 30 minutes. */
@@ -28,8 +29,8 @@ export default async function Reset({ params, searchParams }: { params: Promise<
         <h2 className="text-base font-semibold text-navy">{t("resetTitle")}</h2>
         {!target ? <p className="rounded bg-tint p-3 text-sm text-navy">{t("resetDead")}</p> : (<>
           <p className="text-sm text-navy/70">{target.employee.name} · <span className="font-mono">{target.employee.code}</span></p>
-          <input name="password" type="password" autoComplete="new-password" minLength={MIN_PASSWORD} placeholder={t("resetNew", { n: MIN_PASSWORD })} className="w-full rounded border px-3 py-2" required />
-          <input name="again" type="password" autoComplete="new-password" minLength={MIN_PASSWORD} placeholder={t("resetAgain")} className="w-full rounded border px-3 py-2" required />
+          <PasswordInput label={{ show: t("pwShow"), hide: t("pwHide") }} name="password" autoComplete="new-password" minLength={MIN_PASSWORD} placeholder={t("resetNew", { n: MIN_PASSWORD })} className="w-full rounded border px-3 py-2" required />
+          <PasswordInput label={{ show: t("pwShow"), hide: t("pwHide") }} name="again" autoComplete="new-password" minLength={MIN_PASSWORD} placeholder={t("resetAgain")} className="w-full rounded border px-3 py-2" required />
           {e && <p className="text-sm text-alert-ink">{t(e === "PASSWORD_SHORT" ? "resetShort" : e === "PASSWORD_MISMATCH" ? "resetMismatch" : "resetDead", { n: MIN_PASSWORD })}</p>}
           <button type="submit" className="w-full rounded bg-blue py-2 text-white">{t("resetSave")}</button>
         </>)}
