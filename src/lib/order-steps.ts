@@ -2,7 +2,7 @@
  * What an order needs next, and which report each document produces. Pure, shared by the order page and tests.
  * Report names are shown to people; template numbers (04…19) stay internal.
  */
-export type StepKey = "assign" | "inspect" | "quote" | "confirm" | "decline" | "receive" | "repair" | "maintain" | "stockOut" | "deliver" | "accept" | "invoice" | "payment" | "archive" | "contractDirect" | "partner" | "ship" | "plan" | "project";
+export type StepKey = "assign" | "inspect" | "quote" | "confirm" | "decline" | "receive" | "repair" | "maintain" | "stockOut" | "deliver" | "accept" | "invoice" | "payment" | "archive" | "contractDirect" | "partner" | "ship" | "plan" | "project" | "buy";
 
 export interface OrderShape {
   status: string; kind: string;
@@ -13,6 +13,7 @@ export interface OrderShape {
   stockOuts?: number; /// OBTH lines issued against the order
   project?: { planned: boolean; invoiceDue: number }; /// 自动化项目: plan saved? done instalments not yet invoiced
   intl?: boolean; /// 国际贸易: after the OBTH comes the shipment (CI + PL), then the B/L — no customer signature, no TITH
+  buying?: "QUOTE" | "ORDER" | "RECEIVE"; /// 贸易: goods for this order are still on their way — supplier quotes awaited, a POTH to raise, or a POTH to receive
   declineOpen?: string[]; /// 客户拒绝报价: what still blocks closing (declineCloseBlockers) — present only on a declined order
 }
 
@@ -58,7 +59,9 @@ export function nextSteps(o: OrderShape): { primary: StepKey | null; also: StepK
     switch (o.status) {
       case "RECEIVED": case "ASSIGNED": case "DIAGNOSING": return { primary: "quote", also: [] };
       case "QUOTE_PENDING": return { primary: "confirm", also: ["quote"] };
-      case "IN_PROGRESS": return o.stockOuts ? { primary: "deliver", also: ["stockOut"] } : { primary: "stockOut", also: ["deliver"] };
+      // while the goods are being bought the next thing is the purchase, not the store (walk-through 2026-11-15: the
+      // button said "出库备件" for goods that had not been ordered yet); the DNTH itself takes them out of the store
+      case "IN_PROGRESS": return o.buying ? { primary: "buy", also: ["deliver"] } : { primary: "deliver", also: ["stockOut"] };
       case "ACCEPTANCE_PENDING": return { primary: "deliver", also: ["stockOut"] };
       default: break; // ACCEPTED onwards: invoice, payment, archive as for every order
     }

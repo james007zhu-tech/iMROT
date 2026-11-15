@@ -74,7 +74,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
               <Field label={u("receivedOn")}><input name="movedAt" type="date" defaultValue={today} className={inputCls} /></Field>
             </Grid>
             <Table head={["#", t("description"), u("outstanding"), u("receiveNow"), u("batch")]}>
-              {lines.map((l, i) => { const due = l.qty - l.receivedQty; return <tr key={l.lineNo}><td>{l.lineNo}</td><td>{l.description}{!l.partSku ? <span className="block text-xs text-alert-ink">{u("poLineNeedsSku")}</span> : null}</td><td>{due}</td><td><input name={`r${i}`} type="number" step="0.001" max={due} defaultValue={due > 0 ? due : ""} disabled={!l.partSku || due <= 0} className={inputCls} /></td><td><input name={`b${i}`} className={inputCls} /></td></tr>; })}
+              {lines.map((l, i) => { const due = l.qty - l.receivedQty; return <tr key={l.lineNo}><td>{l.lineNo}</td><td>{l.description}{!l.partSku ? (l.vendorPartNo ? <span className="block text-xs text-navy/60">{u("poLineAutoPart", { no: l.vendorPartNo })}</span> : <span className="block text-xs text-alert-ink">{u("poLineNeedsSku")}</span>) : null}</td><td>{due}</td><td><input name={`r${i}`} type="number" step="0.001" max={due} defaultValue={due > 0 ? due : ""} disabled={(!l.partSku && !l.vendorPartNo) || due <= 0} className={inputCls} /></td><td><input name={`b${i}`} className={inputCls} /></td></tr>; })}
             </Table>
             <p className="text-xs text-navy/70">{u("receiveNote")}</p>
             <div className="mt-2 text-right"><button className={btnPrimary}>{u("saveReceipt")}</button></div>

@@ -11,9 +11,9 @@ import Link from "next/link";
 export const inputCls = "w-full rounded-md border px-2.5 py-2 text-sm";
 /** For filter rows: natural width. */
 export const filterCls = "min-h-10 rounded-md border px-2.5 py-2 text-sm";
-export const btnPrimary = "inline-flex min-h-10 items-center justify-center gap-1 rounded-lg bg-navy px-4 text-sm font-semibold text-white hover:bg-navy/90";
-export const btnBlue = "inline-flex min-h-10 items-center justify-center gap-1 rounded-lg bg-blue px-4 text-sm font-semibold text-white hover:bg-blue/90";
-export const btnGhost = "inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy hover:bg-tint";
+export const btnPrimary = "whitespace-nowrap inline-flex min-h-10 items-center justify-center gap-1 rounded-lg bg-navy px-4 text-sm font-semibold text-white hover:bg-navy/90";
+export const btnBlue = "whitespace-nowrap inline-flex min-h-10 items-center justify-center gap-1 rounded-lg bg-blue px-4 text-sm font-semibold text-white hover:bg-blue/90";
+export const btnGhost = "whitespace-nowrap inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy hover:bg-tint";
 
 export function PageHeader({ title, badge, back, actions, newHref, newLabel }: {
   title: React.ReactNode; badge?: React.ReactNode; back?: { href: string; label: string }; actions?: React.ReactNode; newHref?: string; newLabel?: string;

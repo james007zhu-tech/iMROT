@@ -52,3 +52,27 @@ input::placeholder, textarea::placeholder { color: rgb(11 45 83 / 0.38); font-st
 @media (prefers-reduced-motion: reduce) { .ai-fab-ring, .ai-fab-pulse, .ai-fab-dot { animation: none; } .ai-fab-pulse { display: none; } }
 /* a save is on its way (SubmitGuard): the save buttons, inside the form or tied to it from the page header, stop answering */
 body[data-saving] :is(button:not([type="button"]), input[type="submit"]) { pointer-events: none; opacity: 0.55; }
+
+/* PhoneTables: on a narrow screen a table of boxes is a stack of cards, each box under its column's name */
+@media (max-width: 640px) {
+  table.tbl-stack { display: block; }
+  table.tbl-stack > thead { display: none; }
+  table.tbl-stack > tbody { display: block; }
+  table.tbl-stack > tbody > tr { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 10px; padding: 10px; border: 1px solid var(--color-line) !important; border-radius: 12px; background: #fff; }
+  table.tbl-stack > tbody > tr > td { display: block; flex: 1 1 42%; min-width: 0; width: auto !important; padding: 0 !important; }
+  table.tbl-stack > tbody > tr > td.tbl-wide, table.tbl-stack > tbody > tr > td[colspan] { flex-basis: 100%; }
+  table.tbl-stack > tbody > tr > td.tbl-plain { flex: 0 1 auto; align-self: center; font-weight: 600; }
+  table.tbl-stack > tbody > tr > td[data-l]:not(.tbl-plain)::before { content: attr(data-l); display: block; margin-bottom: 2px; font-size: 11px; color: rgb(11 45 83 / 0.65); }
+  table.tbl-stack > tbody > tr > td.tbl-plain[data-l]::before { content: attr(data-l) " "; font-weight: 400; font-size: 11px; color: rgb(11 45 83 / 0.65); }
+  table.tbl-stack tr.tbl-later { display: none; }
+  button.tbl-more { margin-top: 2px; width: 100%; border: 1px dashed var(--color-blue); border-radius: 12px; padding: 10px; color: var(--color-blue); font-size: 14px; background: #fff; }
+  table.tbl-stack > tfoot, table.tbl-stack > tfoot > tr { display: block; }
+  table.tbl-stack > tfoot > tr > td { display: inline-block; padding: 4px 6px !important; }
+}
+@media (max-width: 640px) {
+  /* a list to read: every value under its heading, the first one (the number or name) across the top */
+  table.tbl-read > tbody > tr > td.tbl-plain { flex: 1 1 42%; align-self: flex-start; font-weight: 400; overflow-wrap: anywhere; }
+  table.tbl-read > tbody > tr > td.tbl-plain:first-child { flex-basis: 100%; font-weight: 600; }
+  table.tbl-read > tbody > tr > td.tbl-plain[data-l]::before { content: attr(data-l); display: block; font-weight: 400; }
+  table.tbl-read > tbody > tr > td.tbl-plain:empty { display: none; }
+}

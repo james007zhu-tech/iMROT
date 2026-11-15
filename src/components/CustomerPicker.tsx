@@ -77,6 +77,8 @@ export function CustomerPicker({ customers, contacts, initialId, newHref, inputC
           </div>
         )}
         {typed && !open && <span className="text-xs text-alert-ink">{labels.pickFirst}</span>}
+        {/* typed a few letters and the system knew who was meant: say so, in full */}
+        {chosen && <span className="text-xs text-blue">✓ <span className="font-mono">{chosen.code}</span> · {chosen.name}</span>}
       </div>
       <label className="flex flex-col gap-1 text-[13px]">
         <span className="text-navy/80">{labels.contact}</span>
@@ -85,15 +87,16 @@ export function CustomerPicker({ customers, contacts, initialId, newHref, inputC
           {mine.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
         </select>
       </label>
-      <div className="flex flex-col gap-1 text-[13px] md:col-span-2">
-        <span className="text-navy/80">{labels.newContact}</span>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+      {/* three more boxes only for the person who needs them */}
+      <details className="text-[13px] md:col-span-2">
+        <summary className="cursor-pointer py-1 text-blue">＋ {labels.newContact}</summary>
+        <div className="mt-1 grid grid-cols-1 gap-2 md:grid-cols-3">
           <input name="contactName" placeholder={labels.contactName} className={inputCls} />
-          <input name="contactPhone" placeholder={labels.phone} className={inputCls} />
+          <input name="contactPhone" inputMode="tel" placeholder={labels.phone} className={inputCls} />
           <input name="contactEmail" type="email" placeholder={labels.email} className={inputCls} />
         </div>
         <span className="text-xs text-navy/60">{labels.newContactHint}</span>
-      </div>
+      </details>
     </>
   );
 }

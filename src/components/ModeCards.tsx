@@ -26,14 +26,15 @@ export function ModeCards({ form, cards, initial, kinds, labels, inputCls }: {
   };
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 md:grid-cols-3">
+      {/* phone: six compact tiles, two across — the words of the chosen one are shown once, under them */}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3">
         {cards.map((c) => (
-          <label key={c.mode} className={`relative flex flex-col rounded-xl border-[1.5px] bg-white px-3.5 py-3 ${c.open ? "cursor-pointer" : "cursor-not-allowed opacity-60"} ${mode === c.mode ? "border-blue ring-3 ring-blue/15" : "border-navy/15"}`}>
+          <label key={c.mode} className={`relative flex flex-col rounded-xl border-[1.5px] bg-white px-3 py-2.5 md:px-3.5 md:py-3 ${c.open ? "cursor-pointer" : "cursor-not-allowed opacity-60"} ${mode === c.mode ? "border-blue ring-3 ring-blue/15" : "border-navy/15"}`}>
             <input type="radio" form={form} name="mode" value={c.mode} checked={mode === c.mode} disabled={!c.open} onChange={() => pick(c.mode)} className="absolute right-3 top-3 size-4 accent-blue" />
             <span className="pr-6 text-base font-bold text-navy">{c.name}</span>
-            <span className="text-[11px] text-navy/60">{c.sub}</span>
-            <span className="my-2 min-h-9 text-[13px] text-navy/90">{c.desc}</span>
-            <span className="flex flex-wrap gap-1.5 text-[11px]">
+            <span className="hidden text-[11px] text-navy/60 md:inline">{c.sub}</span>
+            <span className="my-2 hidden min-h-9 text-[13px] text-navy/90 md:inline">{c.desc}</span>
+            <span className="hidden flex-wrap gap-1.5 text-[11px] md:flex">
               <span className="rounded-md bg-tint px-1.5 py-0.5 text-navy">{c.floor}</span>
               <span className="rounded-md bg-tint px-1.5 py-0.5 text-navy">{c.assetNote}</span>
               {!c.open && <span className="rounded-md bg-alert/15 px-1.5 py-0.5 text-alert-ink">{labels.soon}</span>}
@@ -41,6 +42,7 @@ export function ModeCards({ form, cards, initial, kinds, labels, inputCls }: {
           </label>
         ))}
       </div>
+      {(() => { const c = cards.find((x) => x.mode === mode); return c ? <p className="rounded-lg bg-tint px-3 py-2 text-[13px] text-navy md:hidden">{c.desc} <span className="text-navy/60">· {c.floor} · {c.assetNote}</span></p> : null; })()}
       {mode === "MAINTENANCE" && (
         <label className="flex max-w-xs flex-col gap-1 text-[13px]"><span className="text-navy/80">{labels.kind}<span className="text-alert"> *</span></span>
           <select form={form} name="kind" className={inputCls}>{kinds.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}</select>

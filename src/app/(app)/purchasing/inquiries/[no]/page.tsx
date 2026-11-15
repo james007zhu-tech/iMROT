@@ -33,7 +33,8 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
       const me = await currentEmployee();
       const qlines = lines.map((l, i) => ({ lineNo: l.lineNo, vendorPartNo: str(f, `v${i}`), qty: Number(str(f, `q${i}`) ?? l.qty), unit: l.unit, unitPrice: Number(str(f, `p${i}`) ?? -1) })).filter((l) => l.unitPrice >= 0);
       if (!qlines.length) throw new Error("QUOTE_NEEDS_LINE");
-      const vat = str(f, "vatRate");
+      const vatTyped = str(f, "vatRate");
+      const vat = vatTyped != null && Number(vatTyped) >= 1 ? String(Number(vatTyped) / 100) : vatTyped; // typed as per cent (7); a fraction (0.07) still reads
       await addSupplierQuote({ inquiryNo: no, actorCode: me.code, supplierId: String(f.get("supplierId")), quoteNo: str(f, "quoteNo"), quoteDate: str(f, "quoteDate") ? new Date(str(f, "quoteDate")!) : undefined, validUntil: str(f, "validUntil") ? new Date(str(f, "validUntil")!) : undefined, currency: str(f, "currency") ?? "THB", vatRate: vat ? Number(vat) : undefined, leadTimeDays: str(f, "leadTime") ? Number(str(f, "leadTime")) : undefined, paymentTerms: str(f, "paymentTerms"), warrantyDays: str(f, "warrantyDays") ? Number(str(f, "warrantyDays")) : undefined, solution: str(f, "solution"), lines: qlines, attachments: JSON.parse(String(f.get("attachments") || "[]")) });
       return { ok: no, to: `/purchasing/inquiries/${no}` };
     }, `/purchasing/inquiries/${no}`);
@@ -93,10 +94,10 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
             <Grid>
               <Field label={u("supplier")} required><select name="supplierId" required className={inputCls}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.code} · {s.name}</option>)}</select></Field>
               <Field label={u("quoteNo")}><input name="quoteNo" className={`${inputCls} font-mono`} /></Field>
-              <Field label={u("quoteDate")}><input name="quoteDate" type="date" className={inputCls} /></Field>
+              <Field label={u("quoteDate")}><input name="quoteDate" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={inputCls} /></Field>
               <Field label={u("validUntil")}><input name="validUntil" type="date" className={inputCls} /></Field>
               <Field label={t("currency")}><select name="currency" className={inputCls}>{["THB", "USD", "CNY", "EUR", "JPY"].map((c) => <option key={c}>{c}</option>)}</select></Field>
-              <Field label={u("vatRateDec")}><input name="vatRate" type="number" step="0.0001" defaultValue="0.07" className={inputCls} /></Field>
+              <Field label={u("vatRatePct")}><input name="vatRate" type="number" step="0.01" min="0" max="30" defaultValue="7" className={inputCls} /></Field>
               <Field label={u("leadTime")}><input name="leadTime" type="number" className={inputCls} /></Field>
               <Field label={u("paymentTerms")}><input name="paymentTerms" className={inputCls} /></Field>
               {sub && <Field label={u("partnerWarranty")} required><input name="warrantyDays" type="number" min="0" required defaultValue={inq.serviceOrder?.warrantyDays ?? ""} className={inputCls} /></Field>}

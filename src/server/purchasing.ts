@@ -10,7 +10,7 @@ import { totals, round2 } from "@/lib/money";
 import { assertNotLocked } from "@/server/slm";
 import { recomputeMargin, partnerCostByAsset } from "@/server/slm-docs";
 import { paymentTermsText } from "@/lib/srm";
-import { findPart, normPartNo, recordStockDoc, resolveParts } from "@/server/scm";
+import { findPart, normPartNo, recordStockDoc, resolveParts, createPart } from "@/server/scm";
 import type { Prisma } from "@prisma/client";
 
 const Att = z.object({ name: z.string(), url: z.string(), kind: z.string().optional() });
@@ -247,6 +247,14 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
     if (!l) throw new Error(`PO_LINE_NOT_FOUND:${r.lineNo}`);
     if (!l.partSku && !l.vendorPartNo) throw new Error(`PO_LINE_NO_SKU:${r.lineNo}`); // a line needs a part number — ours or the maker's — before it can be stocked
     if (r.qty > l.qty - l.receivedQty + 1e-9) throw new Error(`RECEIPT_OVER:${r.lineNo}`);
+  }
+  // A maker's number the library has never seen becomes a part here, from the line itself (walk-through 2026-11-15:
+  // goods at the door, and the form said "create the part first" — one more form for what the line already says).
+  for (const r of take) {
+    const l = lines.find((x) => x.lineNo === r.lineNo)!;
+    if (l.partSku || !l.vendorPartNo || (await findPart(l.vendorPartNo))) continue;
+    const made = await createPart({ vendorPartNo: l.vendorPartNo, name: l.description || l.vendorPartNo, unit: l.unit });
+    await prisma.auditLog.create({ data: { actorId: (await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } })).id, action: "PART_CREATED_ON_RECEIPT", target: made.sku, detail: { po: po.no, line: l.lineNo } } });
   }
   const ib = await recordStockDoc({ actorCode: input.actorCode, direction: "IN", serviceOrderNo: po.serviceOrder?.no, supplierRef: input.supplierRef ?? po.supplierRef ?? undefined, costCurrency: po.currency, movedAt: input.movedAt, lines: take.map((r) => { const l = lines.find((x) => x.lineNo === r.lineNo)!; return { partSku: (l.partSku || l.vendorPartNo)!, qty: r.qty, batch: r.batch, unitCost: l.unitPrice }; }) });
   // the line keeps the library's SKU from now on, so the next receipt and the stock page agree on the part

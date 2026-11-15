@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { isTradeMode } from "@/lib/modes";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { deliveryPlan, issueDelivery } from "@/server/delivery";
+import { deliveryPlan, issueDelivery, tradeAvailable } from "@/server/delivery";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { maskName } from "@/lib/mask";
@@ -26,6 +27,9 @@ export default async function Deliver({ params, searchParams }: { params: Promis
     prisma.contact.findMany({ where: { customerId: order.customerId }, orderBy: { name: "asc" } }),
   ]);
   const plants = await prisma.plant.findMany({ where: { customerId: order.customerId } });
+  // 贸易: what the store can really give each line — the form starts from that, and says when it is less than is owed
+  const stock = isTradeMode(order.mode) ? await tradeAvailable(order.id, lines) : null;
+  const shortNow = !!stock && lines.some((l) => !l.isService && (stock.get(l.key)?.available ?? 0) < l.expected - l.deliveredBefore);
   const draft = order.deliveries.find((d) => d.status === "DRAFT");
   const saved = new Map(((draft?.lines as { key: string; delivered: number }[] | undefined) ?? []).map((l) => [l.key, l.delivered]));
   const day = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -35,9 +39,18 @@ export default async function Deliver({ params, searchParams }: { params: Promis
     await guarded(async () => {
       const me = await currentEmployee();
       const asDraft = f.get("draft") === "1"; // only the "save draft" button posts draft=1
+      // the person who signs for the goods may be new: a name typed here joins the customer's contacts
+      let contactId = str(f, "contactId");
+      const newName = str(f, "newReceiver");
+      if (!contactId && newName) {
+        const o = await loadOrder(no);
+        const known = await prisma.contact.findFirst({ where: { customerId: o.customerId, name: { equals: newName, mode: "insensitive" } } });
+        contactId = (known ?? await prisma.contact.create({ data: { customerId: o.customerId, name: newName, phone: str(f, "newReceiverPhone") } })).id;
+      }
+      if (!asDraft && !contactId) throw new Error("DELIVERY_NEEDS_RECEIVER");
       const { lines } = await deliveryPlan(no);
       const delivered = Object.fromEntries(lines.map((l) => [l.key, Number(f.get(`q_${l.key}`) || 0)]));
-      const dn = await issueDelivery({ serviceOrderNo: no, actorCode: me.code, deliverOn: dayNow(String(f.get("deliverOn")))!, plantId: str(f, "plantId"), address: str(f, "address"), contactId: str(f, "contactId"), driverCode: str(f, "driverCode"), vehicle: str(f, "vehicle"), delivered, partial: f.get("partial") === "on", overrideReason: str(f, "overrideReason"), remark: str(f, "remark"), draft: asDraft });
+      const dn = await issueDelivery({ serviceOrderNo: no, actorCode: me.code, deliverOn: dayNow(String(f.get("deliverOn")))!, plantId: str(f, "plantId"), address: str(f, "address"), contactId, driverCode: str(f, "driverCode"), vehicle: str(f, "vehicle"), delivered, partial: f.get("partial") === "on", overrideReason: str(f, "overrideReason"), remark: str(f, "remark"), draft: asDraft });
       return asDraft ? { ok: dn.no, to: `/service-orders/${no}/deliver` } : { ok: dn.no, to: `/service-orders/${no}/deliver/${dn.no}` };
     }, `/service-orders/${no}/deliver`);
   }
@@ -55,7 +68,7 @@ export default async function Deliver({ params, searchParams }: { params: Promis
         <td>{l.assetCode ? <span className="font-mono">{l.assetCode}</span> : l.partSku ?? ""}</td>
         <td>{l.isService ? "—" : l.expected}</td>
         <td>{l.isService ? "—" : l.deliveredBefore}</td>
-        <td>{l.isService ? <Tag>{u("serviceNoDelivery")}</Tag> : <QtyCheck name={`q_${l.key}`} due={due} defaultValue={saved.get(l.key) ?? Math.max(due, 0)} labels={check} className={`${inputCls} w-20! shrink-0`} />}</td>
+        <td>{l.isService ? <Tag>{u("serviceNoDelivery")}</Tag> : <><QtyCheck name={`q_${l.key}`} due={due} defaultValue={saved.get(l.key) ?? (stock?.get(l.key) ? stock.get(l.key)!.available : Math.max(due, 0))} labels={check} className={`${inputCls} w-20! shrink-0`} />{stock?.get(l.key) && stock.get(l.key)!.available < due ? <span className="block text-xs text-alert-ink">{u("dnInStock", { n: stock.get(l.key)!.available, due })}</span> : null}{stock && !stock.get(l.key) ? <span className="block text-xs text-alert-ink">{u("dnNoPartYet")}</span> : null}</>}</td>
       </tr>
     );
   };
@@ -69,13 +82,17 @@ export default async function Deliver({ params, searchParams }: { params: Promis
         <Card title={u("deliverWhere")}>
           <Grid>
             <Field label={t("customer")}><div className="min-h-10 rounded-md border bg-white px-2.5 py-2 text-sm">{order.customer.name}</div></Field>
-            <Field label={u("deliverToPlant")} required><select name="plantId" defaultValue={draft?.plantId ?? order.plantId ?? ""} className={inputCls}>{plants.map((p) => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>
+            {plants.length > 0 && <Field label={u("deliverToPlant")} required><select name="plantId" defaultValue={draft?.plantId ?? order.plantId ?? ""} className={inputCls}>{plants.map((p) => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>}
             <Field label={u("deliverOn")} required><input name="deliverOn" type="date" required defaultValue={day(draft?.deliverOn ?? new Date())} className={inputCls} /></Field>
-            <Field label={u("receiverContact")} required><select name="contactId" required defaultValue={draft?.contactId ?? ""} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)}{c.title ? ` · ${c.title}` : ""}</option>)}</select></Field>
+            <Field label={u("receiverContact")} required>
+              {contacts.length > 0 && <select name="contactId" defaultValue={draft?.contactId ?? (contacts.length === 1 ? contacts[0].id : "")} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)}{c.title ? ` · ${c.title}` : ""}</option>)}</select>}
+              {/* nobody on file, or somebody new at the gate: type the name, it joins the customer's contacts */}
+              <div className={`grid grid-cols-2 gap-2 ${contacts.length ? "mt-1.5" : ""}`}><input name="newReceiver" placeholder={u(contacts.length ? "receiverNewOr" : "receiverNew")} className={inputCls} /><input name="newReceiverPhone" inputMode="tel" placeholder={t("phone")} className={inputCls} /></div>
+            </Field>
             <Field label={u("driver")} required><select name="driverCode" defaultValue={staff.find((e) => e.id === draft?.driverId)?.code ?? me.code} className={inputCls}>{staff.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select></Field>
             <Field label={u("vehicle")}><input name="vehicle" defaultValue={draft?.vehicle ?? ""} className={inputCls} /></Field>
           </Grid>
-          <Field label={u("addressOverride")}><input name="address" defaultValue={draft?.address ?? ""} className={inputCls} /></Field>
+          <Field label={u("addressOverride")}><input name="address" defaultValue={draft?.address ?? (plants.length ? "" : order.customer.addressLocal ?? order.customer.addressEn ?? "")} className={inputCls} /></Field>
         </Card>
         <Card title={u(declined ? "returnUnrepaired" : "deliveryVsPo")}>
           {declined && <p className="text-xs text-navy/70">{u("declinedReturnNotice")}</p>}
@@ -85,7 +102,7 @@ export default async function Deliver({ params, searchParams }: { params: Promis
             <div className="pt-2 text-[13px] font-semibold text-navy">{u("mustReturn")}</div>
             <Table head={[u("source"), u("item"), t("asset"), u("toReturn"), u("deliveredBefore"), u("deliverNowCheck")]}>{back.map(row)}</Table>
           </>}
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="partial" /> {u("partialDelivery")}</label>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="partial" defaultChecked={shortNow} /> {u("partialDelivery")}</label>
           {error?.startsWith("DELIVERY_MISMATCH") && <Alert>{u("mismatchBlocked", { detail: error.split(":").slice(1).join(":") })}</Alert>}
           <Grid cols={2}>
             <Field label={u("overrideReason")}><input name="overrideReason" placeholder={u("overrideReasonPh")} className={inputCls} /></Field>

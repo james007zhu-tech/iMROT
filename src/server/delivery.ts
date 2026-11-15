@@ -84,6 +84,29 @@ async function tradeParts(orderId: string, plan: DeliveryLine[]) {
   return map;
 }
 
+/**
+ * What the store can give each goods line of a trade order right now (the delivery form starts from it: a line is
+ * offered what is really there, not what is still owed). Lines without a part yet are left out.
+ */
+export async function tradeAvailable(orderId: string, plan: DeliveryLine[]): Promise<Map<string, { sku: string; available: number }>> {
+  const parts = await tradeParts(orderId, plan);
+  const left = new Map<string, number>();
+  const out = new Map<string, { sku: string; available: number }>();
+  for (const l of plan) {
+    const part = parts.get(l.key);
+    if (!part) continue;
+    if (!left.has(part.sku)) {
+      const taken = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: orderId } });
+      const before = plan.filter((x) => parts.get(x.key)?.sku === part.sku).reduce((n, x) => n + x.deliveredBefore, 0);
+      left.set(part.sku, Math.max(0, (await stockOnHand(part.sku)) + Math.max(0, Number(taken._sum.qty ?? 0) - before)));
+    }
+    const due = Math.max(0, l.expected - l.deliveredBefore), give = Math.min(due, left.get(part.sku)!);
+    out.set(l.key, { sku: part.sku, available: give });
+    left.set(part.sku, left.get(part.sku)! - give);
+  }
+  return out;
+}
+
 /** Per part on a trade order: what this note delivers against what the store has plus what already left it for this order. */
 async function tradeStock(orderId: string, plan: DeliveryLine[], delivered: Record<string, number>) {
   const parts = await tradeParts(orderId, plan);
