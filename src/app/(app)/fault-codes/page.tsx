@@ -40,7 +40,7 @@ export default async function FaultCodes({ searchParams }: { searchParams: Promi
         <select name="pub" defaultValue={sp.pub ?? ""} className={filterCls}><option value="">{u("kbPublicAny")}</option><option value="public">{u("kbPublic")}</option><option value="internal">{u("kbInternal")}</option></select>
         <button className={btnPrimary}>{t("search")}</button>
       </form>
-      {canPublish(me.role) && (
+      {canPublish(me) && (
         <Card title={u("kbPublishTitle")} accent={pending > 0}>
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <span>{u("kbPublishPending", { n: pending })}</span>
@@ -50,7 +50,7 @@ export default async function FaultCodes({ searchParams }: { searchParams: Promi
         </Card>
       )}
       <div className="rounded-xl border bg-white p-2">
-        <CodeTable rows={rows} back={back} showSeries={!sp.series} canReview={canApprove(me.role)} />
+        <CodeTable rows={rows} back={back} showSeries={!sp.series} canReview={canApprove(me)} />
       </div>
       <Pager page={page} total={total} size={SIZE} href={(n) => qs({ page: n })} prev={u("prevPage")} next={u("nextPage")} />
     </div>

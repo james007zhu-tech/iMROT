@@ -25,8 +25,8 @@ export default async function Documents({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const me = await currentEmployee();
   const scope = await orderScope(me);
-  const kinds = DOC_TYPES.filter((k) => docTypeAllowed(me.role, k));
-  const mine: Prisma.DocumentWhereInput = can.allOrders(me.role) ? {} : { OR: [{ serviceOrder: scope }, { createdById: me.id, serviceOrderId: null }] };
+  const kinds = DOC_TYPES.filter((k) => docTypeAllowed(me, k));
+  const mine: Prisma.DocumentWhereInput = can.allOrders(me) ? {} : { OR: [{ serviceOrder: scope }, { createdById: me.id, serviceOrderId: null }] };
   const type = sp.type === "AC" || DOC_TYPES.includes(sp.type ?? "") ? sp.type! : undefined;
   const q = sp.q?.trim();
   const page = Math.max(1, Number(sp.page) || 1);

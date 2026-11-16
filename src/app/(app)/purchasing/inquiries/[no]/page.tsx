@@ -23,7 +23,7 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
   if (!inq) notFound();
   const me = await currentEmployee();
   // 供应商价格 only for those who see cost: the others see what was asked for and where it stands
-  const seeCost = can.cost(me.role);
+  const seeCost = can.cost(me);
   if (!seeCost) { inq.quotes = inq.quotes.filter(() => false); }
   const sub = inq.kind === "SUBCONTRACT"; // 合作维修: partners only, warranty + repair plan, warranty back-to-back on the POTH
   const suppliers = await prisma.supplier.findMany({ where: { active: true, ...(sub ? { isPartner: true } : {}) }, orderBy: { name: "asc" } });

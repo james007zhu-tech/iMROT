@@ -86,6 +86,7 @@ enum EmployeeRole {
   FINANCE
   WAREHOUSE
   HR /// 人事: staff files, attendance, computes the payroll; no sales money, no bank, no invoices (需求清单 v3 P0-12)
+  PURCHASING /// PUR 采购和供应链 (六角色, 朱总 2026-11-16). ADMIN, MANAGER, WAREHOUSE above are no longer given to anyone.
 }
 
 model Employee {
@@ -97,6 +98,8 @@ model Employee {
   name              String
   nameLocal         String?
   role              EmployeeRole
+  extraRoles        EmployeeRole[]  @default([]) /// further roles of the same person; what they may do is the union (六角色)
+  approver          Boolean         @default(false) /// 本组审批人 (主管): approves for the people who report to them; sees money as their role does
   email             String?         @unique
   phone             String?
   passwordHash      String?

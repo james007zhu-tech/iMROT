@@ -5,6 +5,7 @@ import { DICT_KEYS, dictItems, saveDictItem } from "@/server/dict";
 import { DOC_PREFIXES, MASTER_PREFIXES } from "@/lib/numbering";
 import { Flash } from "@/components/Flash";
 import { Card, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
+import { can } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 const BACK = "/admin/dictionary";
@@ -16,7 +17,7 @@ const BACK = "/admin/dictionary";
 export default async function Dictionary({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { ok, error } = await searchParams;
   const [t, n, me] = await Promise.all([getTranslations("ops"), getTranslations("nav"), currentEmployee()]);
-  const edit = ["MD", "ADMIN"].includes(me.role);
+  const edit = can.purchase(me);
   const groups = await Promise.all(DICT_KEYS.map(async (g) => ({ key: g, items: await dictItems(g, true) })));
   async function save(group: string, f: FormData) {
     "use server";

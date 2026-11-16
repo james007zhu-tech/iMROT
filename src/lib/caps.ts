@@ -1,40 +1,71 @@
 /**
- * 统一角色权限表 (需求清单 v3 第 1 节, 朱总 2026-11-16). One table for what each role may see and do; every page, server
- * action, PDF, export and the assistant ask here. Enforced on the server: a number a role may not see is never sent.
+ * 六角色权限表 (需求清单 v3 第 1 节, 朱总 2026-11-16 16:31 定稿 — 取代旧的七角色表). One table for what each role may see
+ * and do; every page, server action, PDF, export and the assistant ask here. Enforced on the server: a number a role may
+ * not see is never sent.
  *
- *   MD        everything
- *   FINANCE   money documents, tax, payables, reports, payroll review; sees price, cost, margin, bank
- *   HR        staff files, pay, attendance, payroll computing; no sales money, no bank, no invoices, no payments
- *   SALES     customers, orders, quotes: sees and edits price, sees cost and margin; no payments, no issuing
- *   ADMIN     内勤: clerical — sees price (cannot change it); no cost, margin, bank, other people's pay
- *   ENGINEER  the work assigned to them; no price, cost, margin, supplier price, bank
- *   MANAGER   主管: their team's work and its approvals; money exactly as the engineer (MD 2026-11-16 08:12)
- *   WAREHOUSE quantities in and out; no price, cost, margin
+ *   MD          everything; releases payments above THB 50,000; approves the payroll. Does not make payments.
+ *   HR          组织发展: staff files, hiring, attendance, overtime, computes the payroll, training. No customer price,
+ *               cost, margin, company bank; no invoices, no payments, no payroll approval.
+ *   FINANCE     (FIN) everything about money: invoices, receipts, receivables, payables, payments, cash plan, reports,
+ *               rates, legal entities and bank, payroll review. Does not compute or approve payroll, does not change quotes.
+ *   PURCHASING  (PUR) 采购和供应链: requisitions, POTH, suppliers, inquiries, stock in and out, parts. Sees purchase
+ *               cost; never the customer's price or the margin; no invoices, payments, pay.
+ *   SALES       customers and orders through to collection: quotes, customer PO, delivery, acceptance, receivables
+ *               follow-up. Sees price, cost and margin. Cannot issue invoices or record money.
+ *   ENGINEER    (ENG) inspection, repair, maintenance, site hours, parts issue and return, asset files, knowledge
+ *               drafts. No price, cost, margin, supplier price, bank.
+ *
+ * A person may hold several roles (Employee.role + extraRoles): what they may do is the union.
+ * 主管 is not a role: it is an ENGINEER with `approver` — they approve their team's overtime, leave, expenses, reports
+ * and knowledge entries, and see money exactly as any engineer.
+ * The old roles 内勤 ADMIN, 仓库 WAREHOUSE, 经理 MANAGER are gone (ADMIN → SALES, WAREHOUSE → PURCHASING,
+ * MANAGER → ENGINEER + approver; scripts/dev/backfill.ts). They stay in the database enum only so old audit rows read.
  */
-export type Role = "MD" | "FINANCE" | "HR" | "SALES" | "ADMIN" | "ENGINEER" | "MANAGER" | "WAREHOUSE";
+export type Role = "MD" | "HR" | "FINANCE" | "PURCHASING" | "SALES" | "ENGINEER";
+export const ROLES6: Role[] = ["MD", "HR", "FINANCE", "PURCHASING", "SALES", "ENGINEER"];
+/** How the six are written on screen, in every language (朱总's own names). */
+export const ROLE_SHORT: Record<Role, string> = { MD: "MD", HR: "HR", FINANCE: "FIN", PURCHASING: "PUR", SALES: "Sales", ENGINEER: "ENG" };
+const OLD: Record<string, Role> = { ADMIN: "SALES", WAREHOUSE: "PURCHASING", MANAGER: "ENGINEER" };
 
-const is = (...roles: Role[]) => (role: string) => (roles as string[]).includes(role);
+/** Who is asking: a role, a list of roles, or a person (their role, extra roles and whether they approve for a team). */
+export type Who = string | readonly string[] | { role: string; extraRoles?: readonly string[] | null; approver?: boolean | null };
+export function rolesOf(who: Who): Role[] {
+  const raw = typeof who === "string" ? [who] : Array.isArray(who) ? who : [(who as { role: string }).role, ...((who as { extraRoles?: readonly string[] | null }).extraRoles ?? [])];
+  return [...new Set((raw as string[]).map((r) => OLD[r] ?? (r as Role)))];
+}
+export const hasRole = (who: Who, ...roles: string[]) => rolesOf(who).some((r) => roles.includes(r));
+/** 本组审批人: the MD, or a person marked as approver for the people who report to them. */
+export const isApprover = (who: Who) => hasRole(who, "MD") || (typeof who === "object" && !Array.isArray(who) && !!(who as { approver?: boolean | null }).approver);
+
+const is = (...roles: Role[]) => (who: Who) => hasRole(who, ...roles);
 
 export const can = {
   /** see what the customer is charged */
-  price: is("MD", "FINANCE", "SALES", "ADMIN"),
-  /** set or change what the customer is charged; send a quote to the customer; confirm or refuse the customer's PO */
+  price: is("MD", "FINANCE", "SALES"),
+  /** set or change what the customer is charged; send a quote to the customer */
   editPrice: is("MD", "SALES"),
-  confirmPo: is("MD", "SALES", "ADMIN"),
-  /** cost, purchase price, unit cost, last cost, margin, margin thresholds, supplier prices */
-  cost: is("MD", "FINANCE", "SALES"),
-  /** the company's bank accounts, /admin legal entities, exchange rates */
+  /** confirm or refuse the customer's PO, deliver, accept */
+  confirmPo: is("MD", "SALES"),
+  /** purchase price, unit cost, last cost, supplier prices */
+  cost: is("MD", "FINANCE", "PURCHASING", "SALES"),
+  /** margin, margin thresholds, and cost where it stands next to the customer's price (quotes, orders, plans) */
+  margin: is("MD", "FINANCE", "SALES"),
+  /** the company's bank accounts, /admin legal entities; maintain exchange rates */
   bank: is("MD", "FINANCE"),
   /** issue tax invoices and invoices, record receipts, credit notes, close an order */
   invoice: is("MD", "FINANCE"),
   /** see that an order has been invoiced and paid (status and numbers, no issuing) */
-  invoiceStatus: is("MD", "FINANCE", "SALES", "ADMIN"),
-  /** every order of the company; the others see the ones assigned to them (MANAGER: to their team) */
-  allOrders: is("MD", "FINANCE", "SALES", "ADMIN"),
+  invoiceStatus: is("MD", "FINANCE", "SALES"),
+  /** every order of the company; engineers see the ones assigned to them (approvers: to their team); HR none */
+  allOrders: is("MD", "FINANCE", "SALES", "PURCHASING"),
   /** create customers and edit their master data */
-  customers: is("MD", "FINANCE", "SALES", "ADMIN"),
-  /** suppliers, purchase orders */
-  purchasing: is("MD", "FINANCE", "SALES", "ADMIN", "WAREHOUSE", "MANAGER"),
+  customers: is("MD", "SALES"),
+  /** every customer with tax id, terms, receivables */
+  customersAll: is("MD", "FINANCE", "SALES"),
+  /** see suppliers and purchase orders (Sales: arrival status) */
+  purchasing: is("MD", "FINANCE", "PURCHASING", "SALES"),
+  /** suppliers, inquiries, purchase orders, receiving, parts master: create and change */
+  purchase: is("MD", "PURCHASING"),
   /** everyone's staff file and pay */
   staff: is("MD", "HR"),
   /** staff pay figures (finance reviews the payroll) */
@@ -42,55 +73,71 @@ export const can = {
   /** money cards on the dashboard, the finance pages */
   finance: is("MD", "FINANCE"),
   /** a team to approve for */
-  team: is("MD", "MANAGER"),
+  team: isApprover,
+  /** inspection / repair / maintenance reports */
+  reports: is("MD", "SALES", "ENGINEER"),
+  /** the knowledge base and fault codes */
+  knowledge: is("MD", "PURCHASING", "SALES", "ENGINEER"),
 };
 
-/** Roles that work on the shop floor and see their own (or their team's) orders only. */
-export const scoped = (role: string) => !can.allOrders(role) && role !== "HR";
+/** People who work on the shop floor and see their own (or their team's) orders only. */
+export const scoped = (who: Who) => !can.allOrders(who) && hasRole(who, "ENGINEER");
+/** People who see no order at all (HR alone). */
+export const noOrders = (who: Who) => !can.allOrders(who) && !hasRole(who, "ENGINEER");
 
 /**
  * The menu each role gets, by nav key (src/lib/nav.ts). Not in the list = not in the menu and the page behind it is
- * refused. The MD may hide more for a role on 权限管理, never show more.
+ * refused. Several roles: the union. The MD may hide more for a role on 权限管理, never show more.
  */
 const HOME = ["dash", "shortcuts", "documents"], SELF = ["talent", "overtime", "payroll", "training", "expenses"];
-const ALM = ["series", "assets", "knowledge"], LEAN = ["receiving", "inspectionReports", "repairReports", "maintenanceReports", "projects", "deliveryNotes", "acceptance"];
+const ALM = ["series", "assets", "knowledge"], LEAN = ["inspectionReports", "repairReports", "maintenanceReports", "projects"];
 export const ROLE_MENU: Record<Exclude<Role, "MD">, string[]> = {
-  FINANCE: [...HOME, ...SELF, ...ALM, "customers", "opportunities", "suppliers", "purchaseOrders", "stock", "stockIn", "stockOut", "ledger", "paymentVouchers", "statements", "cashPlan", "finReports", "proforma", "billing", "taxInvoices", "receipts", "entities"],
   HR: [...HOME, ...SELF],
-  SALES: [...HOME, ...SELF, ...ALM, ...LEAN, "customers", "opportunities", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut", "proforma"],
-  ADMIN: [...HOME, ...SELF, ...ALM, ...LEAN, "customers", "opportunities", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut", "dictionary"],
-  ENGINEER: [...HOME, ...SELF, ...ALM, ...LEAN, "customers", "opportunities", "inquiries", "stock", "stockIn", "stockOut"],
-  MANAGER: [...HOME, ...SELF, ...ALM, ...LEAN, "customers", "opportunities", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut"],
-  WAREHOUSE: [...HOME, ...SELF, ...ALM, "receiving", "deliveryNotes", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut"],
+  FINANCE: [...HOME, ...SELF, "customers", "opportunities", "suppliers", "purchaseOrders", "stock", "ledger", "cashPlan", "finReports", "billing", "taxInvoices", "receipts", "entities"],
+  PURCHASING: [...HOME, ...SELF, "knowledge", "opportunities", "suppliers", "inquiries", "purchaseOrders", "stock", "dictionary"],
+  SALES: [...HOME, ...SELF, ...ALM, ...LEAN, "customers", "opportunities", "inquiries", "purchaseOrders", "stock", "billing"],
+  ENGINEER: [...HOME, ...SELF, ...ALM, ...LEAN, "customers", "opportunities", "inquiries", "stock"],
 };
-export const menuAllows = (role: string, key: string) => role === "MD" || (ROLE_MENU[role as Exclude<Role, "MD">] ?? HOME).includes(key);
+export const menuAllows = (who: Who, key: string) => rolesOf(who).some((r) => r === "MD" || (ROLE_MENU[r as Exclude<Role, "MD">] ?? HOME).includes(key));
+/** The roles a menu entry belongs to — for 「无权限，此功能属于 XX 角色」. */
+export const menuOwners = (key: string): Role[] => ROLES6.filter((r) => r !== "MD" && menuAllows(r, key));
 
 /** Pages that are not menu entries of their own but belong to a capability. First match decides. */
-const PATH_RULES: [RegExp, (role: string) => boolean][] = [
+const PATH_RULES: [RegExp, (who: Who) => boolean][] = [
   [/^\/customers\/new/, can.customers],
-  [/^\/suppliers\/new/, is("MD", "FINANCE", "SALES", "ADMIN")],
-  [/^\/purchasing\/orders\/new/, is("MD", "FINANCE", "SALES", "ADMIN")],
+  [/^\/suppliers\/new/, can.purchase],
+  [/^\/purchasing\/orders\/new/, can.purchase],
+  [/^\/purchasing\/inquiries\/new/, is("MD", "PURCHASING", "SALES", "ENGINEER")],
+  [/^\/parts\/new/, can.purchase],
+  [/^\/parts\/movement/, is("MD", "PURCHASING", "ENGINEER")],
+  [/^\/service-orders\/new/, is("MD", "SALES", "ENGINEER")],
   [/^\/service-orders\/[^/]+\/(invoice|payment)/, can.invoiceStatus],
-  [/^\/finance\/(payables|cash-plan|reports)/, can.finance],
+  [/^\/service-reports/, can.reports],
   [/^\/finance\/expenses/, () => true],
   [/^\/finance/, can.finance],
-  [/^\/tax/, can.finance],
+  [/^\/tax/, can.invoiceStatus],
   [/^\/admin\/permissions/, is("MD")],
-  [/^\/admin\/dictionary/, is("MD", "ADMIN")],
+  [/^\/admin\/dictionary/, can.purchase],
   [/^\/admin/, can.bank],
   [/^\/people\/new/, can.staff],
   [/^\/statements/, can.invoiceStatus],
 ];
-export function pathAllows(role: string, path: string): boolean {
-  if (role === "MD") return true;
-  for (const [re, ok] of PATH_RULES) if (re.test(path)) return ok(role);
+export function pathAllows(who: Who, path: string): boolean {
+  if (hasRole(who, "MD")) return true;
+  for (const [re, ok] of PATH_RULES) if (re.test(path)) return ok(who);
   return true;
+}
+/** The roles a path belongs to, when a rule above decides it. */
+export function pathOwners(path: string): Role[] {
+  for (const [re, ok] of PATH_RULES) if (re.test(path)) return ROLES6.filter((r) => r !== "MD" && ok(r));
+  return [];
 }
 
 // ── What leaves the server (API answers, the assistant's look-ups) ──────────────────────────────────────────────
 
 const PRICE_KEYS = new Set(["unitPrice", "amount", "subtotal", "vatAmount", "total", "totalCny", "fxRateToCny", "amountDue", "paidAmount", "whtAmount", "cashAmount", "settledAmount", "payable", "creditLimit", "price", "fee", "fees", "payPct"]);
-const COST_KEYS = new Set(["unitCost", "costRef", "costTotal", "marginPct", "marginApproval", "marginNote", "marginApprovedAt", "marginApprovedById", "lastCost", "lastCostCurrency", "costPerHour", "travelCost"]);
+const COST_KEYS = new Set(["unitCost", "costRef", "costTotal", "lastCost", "lastCostCurrency", "costPerHour", "travelCost"]);
+const MARGIN_KEYS = new Set(["marginPct", "marginApproval", "marginNote", "marginApprovedAt", "marginApprovedById"]);
 const BANK_KEYS = new Set(["bankAccount", "bankAccounts", "bankName", "bankBranch", "swift", "accountNo", "accountName"]);
 /** Asset events whose summary and payload speak of money. */
 export const MONEY_EVENTS = ["QUOTED", "INVOICED", "PAID", "ORDER_CONFIRMED", "QUOTE_DECLINED"];
@@ -99,9 +146,9 @@ export const MONEY_EVENTS = ["QUOTED", "INVOICED", "PAID", "ORDER_CONFIRMED", "Q
  * A copy of `value` without the figures this role may not see — by field name, at any depth, so a look-up written
  * tomorrow is covered too. Dates and Decimals pass through untouched.
  */
-export function stripMoney<T>(value: T, role: string): T {
-  const price = can.price(role), cost = can.cost(role), bank = can.bank(role);
-  if (price && cost && bank) return value;
+export function stripMoney<T>(value: T, who: Who): T {
+  const price = can.price(who), cost = can.cost(who), margin = can.margin(who), bank = can.bank(who);
+  if (price && cost && margin && bank) return value;
   const walk = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(walk);
     if (!v || typeof v !== "object" || v instanceof Date || typeof (v as { toFixed?: unknown }).toFixed === "function") return v;
@@ -109,7 +156,7 @@ export function stripMoney<T>(value: T, role: string): T {
     const moneyEvent = !price && typeof o.type === "string" && MONEY_EVENTS.includes(o.type) && ("summary" in o || "payload" in o);
     const out: Record<string, unknown> = {};
     for (const [k, x] of Object.entries(o)) {
-      if ((!price && PRICE_KEYS.has(k)) || (!cost && COST_KEYS.has(k)) || (!bank && BANK_KEYS.has(k))) continue;
+      if ((!price && PRICE_KEYS.has(k)) || (!cost && COST_KEYS.has(k)) || (!margin && MARGIN_KEYS.has(k)) || (!bank && BANK_KEYS.has(k))) continue;
       if (moneyEvent && (k === "summary" || k === "payload")) continue;
       out[k] = walk(x);
     }

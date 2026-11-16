@@ -2,7 +2,7 @@
  * SCM Phase 1 slice: stock movements. An OUT movement into an asset writes PART_REPLACED on that asset.
  * Parts are keyed by brand + vendor part no, never by customer, so the same SKU can be matched across customers.
  */
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertNotLocked } from "@/server/slm";
@@ -71,6 +71,7 @@ export async function findPart(key: string | null | undefined) {
 export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
   const d = StockDocInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
+  if (!hasRole(actor, "MD", "PURCHASING", "ENGINEER")) throw new Error("NO_PERMISSION"); // 六角色: 出入库归 PUR; ENG 领料、退料
   const { found, unknown, ambiguous } = await resolveParts(d.lines.map((l) => l.partSku));
   if (ambiguous.length) throw new Error(`AMBIGUOUS_SKU:${ambiguous.join("; ")}`);
   if (unknown.length) throw new Error(`UNKNOWN_SKU:${unknown.join(",")}`);
@@ -96,7 +97,7 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
     if (short.length) throw new Error(`STOCK_SHORT:${short.join("; ")}`);
   }
   // 成本只给看得到成本的人填: a unit cost typed by anyone else is not taken (采购或财务补)
-  if (!can.cost(actor.role)) for (const l of d.lines) l.unitCost = undefined;
+  if (!can.cost(actor)) for (const l of d.lines) l.unitCost = undefined;
 
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: d.direction === "IN" ? "IB" : "OB", createdByEmployeeCode: actor.code, entityId: actor.entityId, date: d.movedAt });

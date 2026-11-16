@@ -3,7 +3,7 @@
  */
 import { actorWith } from "@/server/guard";
 import { mayOpenOrder } from "@/server/scope";
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { createMilestones } from "@/server/project";
 import { adoptLooseDocs } from "@/server/asset-first";
 import { tradeTermsFrom } from "@/lib/export";
@@ -53,7 +53,7 @@ export async function approveMargin(input: { no: string; actorCode: string; deci
     prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: true } }),
     prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } }),
   ]);
-  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  if (!hasRole(actor, "MD")) throw new Error("MD_ONLY");
   if (order.marginApproval !== "PENDING" && order.marginApproval !== "REJECTED") throw new Error(`MARGIN_NOT_PENDING:${order.no}`);
   return prisma.$transaction(async (tx) => {
     const u = await tx.serviceOrder.update({ where: { id: order.id }, data: { marginApproval: input.decision, marginApprovedById: actor.id, marginApprovedAt: new Date(), marginNote: input.note } });
@@ -127,7 +127,7 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
         reportedAlarm: data.reportedAlarm,
         productionImpact: data.productionImpact,
         reportedById: data.reportedByContactId,
-        createdById: creator.id, salesId: creator.role === "SALES" ? creator.id : null,
+        createdById: creator.id, salesId: hasRole(creator, "SALES") ? creator.id : null,
         customerRef: keepCustomerRef(data.customerRef),
         currency: terms?.currency ?? data.currency,
         tradeTerms: terms as Prisma.InputJsonValue | undefined,
@@ -175,7 +175,7 @@ export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, ac
   if (order.status === to) return order; // documents may already have moved the order there (progressOrder)
   // 关闭服务单 is finance's and the MD's; every other move is for people who may open the order at all
   { const who = await prisma.employee.findUniqueOrThrow({ where: { code: actorEmployeeCode } });
-    if (to === "CLOSED" ? !can.invoice(who.role) : !(await mayOpenOrder(who, order.id))) throw new Error("NO_PERMISSION"); }
+    if (to === "CLOSED" ? !can.invoice(who) : !(await mayOpenOrder(who, order.id))) throw new Error("NO_PERMISSION"); }
   if (!canTransitionOrder(order.status, to)) throw new Error(`${no}: ${order.status} → ${to} not allowed`);
   // 客户拒绝报价 (2026-11-09) has its own form: a quote for machines is declined, not cancelled, so the machine goes back
   // on a DNTH and the inspection fee is invoiced or waived; undo goes through undoDecline.

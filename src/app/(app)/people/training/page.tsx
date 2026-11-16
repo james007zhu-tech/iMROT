@@ -6,6 +6,7 @@ import { dictMap } from "@/server/dict";
 import { Flash } from "@/components/Flash";
 import { Card, PageHeader, Tag, btnGhost } from "@/components/ui";
 import { removeAction } from "./actions";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,7 @@ export default async function Training({ searchParams }: { searchParams: Promise
                 {files.map((a) => <a key={a.url} href={a.url} target="_blank" className="text-blue hover:underline">📄 {a.name}</a>)}
               </div>
               {r.note && <p className="mt-1 text-xs text-navy/80">{r.note}</p>}
-              {(me.role === "MD" || r.createdById === me.id) && <form action={removeAction.bind(null, r.id)} className="mt-2"><button className={`${btnGhost} !min-h-8 !px-3 text-xs`}>{t("remove")}</button></form>}
+              {(hasRole(me, "MD") || r.createdById === me.id) && <form action={removeAction.bind(null, r.id)} className="mt-2"><button className={`${btnGhost} !min-h-8 !px-3 text-xs`}>{t("remove")}</button></form>}
             </li>
           );
         })}

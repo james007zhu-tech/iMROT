@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { PageHeader, Card, btnPrimary } from "@/components/ui";
 import { NAV, SHORTCUTS, shortcutsOf } from "@/lib/nav";
+import { pathAllows } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export default async function Shortcuts() {
   const t = await getTranslations("home");
   const s = await getTranslations("shortcut");
   const n = await getTranslations("nav");
-  const pins = shortcutsOf(me.shortcuts, me.role);
+  const pins = shortcutsOf(me.shortcuts, me.role).filter((s) => pathAllows(me, s.href.split("?")[0]));
   const on = new Set(pins.map((p) => p.key));
   async function save(f: FormData) {
     "use server";

@@ -63,7 +63,7 @@ export const SHORTCUTS: { key: string; href: string; group: string }[] = [
 
 /** What a new person sees before pinning anything. */
 export function defaultShortcuts(role: string): string[] {
-  if (role === "ENGINEER" || role === "WAREHOUSE") return ["newAsset", "newRepair", "stockMovement", "newFaultCode", "overtime", "newExpense"];
+  if (role === "ENGINEER" || role === "PURCHASING") return ["newAsset", "newRepair", "stockMovement", "newFaultCode", "overtime", "newExpense"];
   if (role === "SALES") return ["newCustomer", "newOrder", "quotesWaiting", "newAsset", "newExpense"];
   return ["newCustomer", "newAsset", "newOrder", "newInquiry", "newInvoice", "payables"];
 }

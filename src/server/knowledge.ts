@@ -60,7 +60,7 @@ export interface SeriesInput { brandId: string; code: string; name: string; cate
 
 export async function saveSeries(id: string | null, d: SeriesInput, actorCode: string) {
   const me = await actor(actorCode);
-  need(canEditDictionary(me.role), "FORBIDDEN");
+  need(canEditDictionary(me), "FORBIDDEN");
   need(!!d.brandId && !!d.code.trim() && !!d.name.trim(), "INVALID_INPUT");
   const bad = patternError(d.codePattern);
   if (bad) throw new Error(bad);
@@ -81,7 +81,7 @@ export async function saveSeries(id: string | null, d: SeriesInput, actorCode: s
 
 export async function saveBrand(id: string | null, d: { code: string; name: string; website?: string; active?: boolean; sortOrder?: number }, actorCode: string) {
   const me = await actor(actorCode);
-  need(canEditDictionary(me.role), "FORBIDDEN");
+  need(canEditDictionary(me), "FORBIDDEN");
   need(!!d.code.trim() && !!d.name.trim(), "INVALID_INPUT");
   const data = { code: d.code.trim().toUpperCase(), name: d.name.trim(), slug: slugify(d.name), website: d.website?.trim() || null, active: d.active ?? true, sortOrder: d.sortOrder ?? 100 };
   return id ? prisma.brand.update({ where: { id }, data }) : prisma.brand.create({ data });
@@ -165,7 +165,7 @@ export async function reviewCodes(input: { ids: string[]; action: "submit" | "ap
   const me = await actor(input.actorCode);
   const codes = await prisma.faultCode.findMany({ where: { id: { in: input.ids } } });
   need(codes.length > 0, "INVALID_INPUT");
-  if (["approve", "reject", "public", "internal", "retire"].includes(input.action)) need(canApprove(me.role), "FORBIDDEN");
+  if (["approve", "reject", "public", "internal", "retire"].includes(input.action)) need(canApprove(me), "FORBIDDEN");
   if (input.action === "reject") need(!!input.note?.trim(), "REJECT_NEEDS_NOTE");
   let changed = 0;
   const skipped: string[] = [];
@@ -301,7 +301,7 @@ function deriveRule(rows: ImportRow[]): { codePattern: string | null; codeRule: 
 /** Preview (dryRun) or commit an import. New rows land as REVIEW (待审核); approved codes are never overwritten. */
 export async function importFaultCodes(input: { fileName: string; text: string; actorCode: string; dryRun: boolean; createMissing?: boolean; categoryCode?: string; seriesId?: string }) {
   const me = await actor(input.actorCode);
-  need(canApprove(me.role) || canEditDictionary(me.role), "FORBIDDEN");
+  need(canApprove(me) || canEditDictionary(me), "FORBIDDEN");
   const parsed = parseImport(input.fileName, input.text);
   if (input.seriesId) {
     const s = await prisma.series.findUniqueOrThrow({ where: { id: input.seriesId }, include: { brand: true } });
@@ -315,10 +315,10 @@ export async function importFaultCodes(input: { fileName: string; text: string; 
     const [brand, series] = key.split("|");
     let { b, s } = await resolveSeries(brand, series);
     const derived = deriveRule(rows);
-    if ((!b || !s) && !input.dryRun && input.createMissing && canEditDictionary(me.role)) {
+    if ((!b || !s) && !input.dryRun && input.createMissing && canEditDictionary(me)) {
       b ??= await prisma.brand.create({ data: { code: brand.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12) || "BRAND", name: brand, slug: slugify(brand) } });
       s = await prisma.series.create({ data: { brandId: b.id, code: series, name: series, slug: slugify(series), categoryCode: input.categoryCode || null, ...derived, documents: parsed.manual ? [parsed.manual] as Prisma.InputJsonValue : undefined } });
-    } else if (s && !input.dryRun && canEditDictionary(me.role)) {
+    } else if (s && !input.dryRun && canEditDictionary(me)) {
       // an existing series keeps what people wrote; the import only fills what is still blank
       const fill: Prisma.SeriesUpdateInput = {};
       if (!s.codePattern && derived.codePattern) { fill.codePattern = derived.codePattern; fill.codeRule = s.codeRule ?? derived.codeRule; }
@@ -374,7 +374,7 @@ export async function importFaultCodes(input: { fileName: string; text: string; 
 /** MD only: copy every approved + public code (of an active, publicly visible series and brand) into the published table. */
 export async function publishKnowledge(actorCode: string) {
   const me = await actor(actorCode);
-  need(canPublish(me.role), "FORBIDDEN");
+  need(canPublish(me), "FORBIDDEN");
   const codes = await prisma.faultCode.findMany({
     where: { status: "APPROVED", isPublic: true, series: { active: true, publicVisible: true, brand: { active: true } } },
     include: { series: { include: { brand: true, category: true } } },

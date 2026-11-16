@@ -10,6 +10,7 @@ import { DEFAULT_BANDS, perfFactor, quarterOf, targetFactor, type PerfBand } fro
 import { Flash } from "@/components/Flash";
 import { Card, PageHeader, Table, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { computeAction, scoresAction, targetAction } from "./actions";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
 export default async function Payroll({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; month?: string }> }) {
   const sp = await searchParams;
   const [t, me] = await Promise.all([getTranslations("ops"), currentEmployee()]);
-  const md = me.role === "MD", seeRuns = PAYROLL_ROLES.includes(me.role), prep = me.role === "HR";
+  const md = hasRole(me, "MD"), seeRuns = hasRole(me, ...PAYROLL_ROLES), prep = hasRole(me, "HR");
   const { month: thisMonth, previousMonth } = localToday();
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : previousMonth;
   const [slips, everyone, runs] = await Promise.all([mySlips(me.id), scorable(me.code), seeRuns ? payrollRuns(me.entityId) : Promise.resolve([])]);

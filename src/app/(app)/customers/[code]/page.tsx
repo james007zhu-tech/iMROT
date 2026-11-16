@@ -25,7 +25,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   const { code } = await params;
   const { ok, error } = await searchParams;
   const me0 = await currentEmployee();
-  const full = can.customers(me0.role); // 工程师、主管: name, plants, site contacts, machines, their own orders — no tax id, terms, receivables
+  const full = can.customersAll(me0), mayEdit = can.customers(me0); // 工程师、主管: name, plants, site contacts, machines, their own orders — no tax id, terms, receivables
   const oScope = await orderScope(me0);
   const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: { include: { plant: true } }, assets: { include: { model: true, plant: true }, orderBy: { code: "asc" } }, serviceOrders: { where: oScope, orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
   if (!c) notFound();
@@ -68,12 +68,12 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   // Historical inquiry files (decision 2026-11-08): every INQUIRY attachment on this customer's orders, newest first.
   const inquiryFiles = !full ? [] : (await prisma.serviceOrder.findMany({ where: { customerId: c.id }, select: { no: true, reportedAt: true, attachments: true }, orderBy: { reportedAt: "desc" } }))
     .flatMap((o) => (((o.attachments as { name: string; url: string; kind: string }[] | null) ?? []).filter((a) => a.kind === "INQUIRY").map((a) => ({ ...a, orderNo: o.no, at: o.reportedAt }))));
-  const statements = c.monthlyStatement && can.invoiceStatus(me0.role) ? await prisma.monthlyStatement.findMany({ where: { customerId: c.id }, orderBy: { issuedAt: "desc" }, take: 12, include: { _count: { select: { invoices: true } } } }) : [];
+  const statements = c.monthlyStatement && can.invoiceStatus(me0) ? await prisma.monthlyStatement.findMany({ where: { customerId: c.id }, orderBy: { issuedAt: "desc" }, take: 12, include: { _count: { select: { invoices: true } } } }) : [];
   const errorCode = error === "WRONG_PASSWORD" ? u("wrongPassword") : error;
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/customers", label: u("backToCustomers") }} title={<><span className="font-mono">{c.code}</span> <span className="text-lg font-semibold">{c.name}</span></>} badge={c.dbdStatus ? <Tag>DBD · {c.dbdStatus}</Tag> : undefined}
-        actions={!full ? undefined : <>{c.taxId && isThaiTaxId(c.taxId) && (!c.addressLocal || !c.addressEn || !c.billingAddress || !c.phone || !c.nameLocal) && <form action={complete}><button className={btnGhost}>🔎 {u("completeByTaxId")}</button></form>}{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
+        actions={!mayEdit ? undefined : <>{c.taxId && isThaiTaxId(c.taxId) && (!c.addressLocal || !c.addressEn || !c.billingAddress || !c.phone || !c.nameLocal) && <form action={complete}><button className={btnGhost}>🔎 {u("completeByTaxId")}</button></form>}{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
         newHref={`/service-orders/new?customer=${c.code}`} newLabel={u("newServiceOrder")} />
       <Flash ok={ok === "revealed" ? u("revealedFor5") : ok?.startsWith("completed:") ? u("completedN", { n: ok.split(":")[1] }) : ok === "completedNone" ? u("completedNone") : ok} error={errorCode} />
       <Card title={u("company")}>
@@ -127,8 +127,8 @@ export default async function CustomerDetail({ params, searchParams }: { params:
         </Table>
       </Card>
       <Card title={t("serviceOrders")}>
-        <Table head={["QTTH", t("status"), t("symptom"), ...(can.price(me0.role) ? [t("amount")] : [])]}>
-          {c.serviceOrders.map((o) => <tr key={o.id}><td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link></td><td><OrderStatusBadge status={o.status} /></td><td className="text-fault">{o.reportedSymptom ?? ""}</td>{can.price(me0.role) && <td>{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : ""}</td>}</tr>)}
+        <Table head={["QTTH", t("status"), t("symptom"), ...(can.price(me0) ? [t("amount")] : [])]}>
+          {c.serviceOrders.map((o) => <tr key={o.id}><td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link></td><td><OrderStatusBadge status={o.status} /></td><td className="text-fault">{o.reportedSymptom ?? ""}</td>{can.price(me0) && <td>{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : ""}</td>}</tr>)}
         </Table>
       </Card>
       {full && <Card title={<>{u("inquiryHistory")} <Tag>{inquiryFiles.length}</Tag></>}>

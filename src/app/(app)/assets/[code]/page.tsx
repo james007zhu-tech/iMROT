@@ -35,11 +35,11 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
   if (!asset) notFound();
   // 统一角色权限表: the machine's history is for everyone; what it cost and what was charged is not
   const me = await currentEmployee();
-  asset.events = stripMoney(asset.events, me.role);
-  const seePrice = can.price(me.role);
+  asset.events = stripMoney(asset.events, me);
+  const seePrice = can.price(me);
   const t = await getTranslations("common");
   const u = await getTranslations("ui");
-  const orderDocs = (await prisma.document.findMany({ where: { serviceOrderId: { in: asset.orderLinks.map((l) => l.serviceOrderId) }, voidedAt: null }, include: { serviceOrder: { select: { no: true, acceptance: { select: { id: true } } } } }, orderBy: { issuedAt: "asc" } })).filter((d) => docTypeAllowed(me.role, d.type));
+  const orderDocs = (await prisma.document.findMany({ where: { serviceOrderId: { in: asset.orderLinks.map((l) => l.serviceOrderId) }, voidedAt: null }, include: { serviceOrder: { select: { no: true, acceptance: { select: { id: true } } } } }, orderBy: { issuedAt: "asc" } })).filter((d) => docTypeAllowed(me, d.type));
   const [customers, others] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" }, include: { plants: true } }),
     prisma.asset.findMany({ where: { customerId: asset.customerId ?? undefined, NOT: { code } }, select: { code: true, type: true, location: true }, orderBy: { code: "asc" }, take: 200 }),

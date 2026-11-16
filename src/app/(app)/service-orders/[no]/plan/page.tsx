@@ -1,5 +1,5 @@
 import { assertOrderAccess } from "@/server/scope";
-import { can } from "@/lib/caps";
+import { can, isApprover } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
@@ -28,7 +28,7 @@ export default async function Plan({ params, searchParams }: { params: Promise<{
   if (order.mode !== "AUTOMATION_PROJECT") notFound();
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
   // 统一角色权限表: cost per hour is for those who see cost; the payment split is set by sales and the MD, the shop floor does not see it (主管 reads it)
-  const seeCost = can.cost(me.role), editSplit = can.editPrice(me.role), seeSplit = editSplit || can.price(me.role) || me.role === "MANAGER";
+  const seeCost = can.margin(me), editSplit = can.editPrice(me), seeSplit = editSplit || can.price(me) || isApprover(me);
   const [parts, milestones] = await Promise.all([
     prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { sku: true, name: true, vendorPartNo: true, unit: true } }),
     prisma.projectMilestone.findMany({ where: { serviceOrderId: order.id }, orderBy: { seq: "asc" } }),
@@ -50,8 +50,8 @@ export default async function Plan({ params, searchParams }: { params: Promise<{
         no, actorCode: me.code, solution: str(f, "solution"), dueDate: str(f, "projectDue"), scope: str(f, "projectScope"),
         deliverables: Array.from({ length: DLV_ROWS }, (_, i) => ({ name: str(f, `vn${i}`) ?? "", qty: num(f, `vq${i}`) ?? 0 })),
         bom: Array.from({ length: BOM_ROWS }, (_, i) => ({ sku: str(f, `bs${i}`), description: str(f, `bd${i}`), qty: num(f, `bq${i}`), unit: str(f, `bu${i}`), neededBy: str(f, `bn${i}`) })),
-        labour: Array.from({ length: LAB_ROWS }, (_, i) => ({ description: str(f, `ld${i}`) ?? "", hours: num(f, `lh${i}`) ?? 0, costPerHour: can.cost(me.role) ? num(f, `lc${i}`) : keptLabour[i]?.costPerHour })),
-        milestones: PHASES.map((p) => ({ phase: p, payPct: !can.editPrice(me.role) ? (cur.milestones.find((m) => m.phase === p)?.payPct != null ? Number(cur.milestones.find((m) => m.phase === p)!.payPct) : null) : num(f, `mp_${p}`) ? (num(f, `mp_${p}`) as number) / 100 : null, plannedOn: str(f, `md_${p}`) })),
+        labour: Array.from({ length: LAB_ROWS }, (_, i) => ({ description: str(f, `ld${i}`) ?? "", hours: num(f, `lh${i}`) ?? 0, costPerHour: can.cost(me) ? num(f, `lc${i}`) : keptLabour[i]?.costPerHour })),
+        milestones: PHASES.map((p) => ({ phase: p, payPct: !can.editPrice(me) ? (cur.milestones.find((m) => m.phase === p)?.payPct != null ? Number(cur.milestones.find((m) => m.phase === p)!.payPct) : null) : num(f, `mp_${p}`) ? (num(f, `mp_${p}`) as number) / 100 : null, plannedOn: str(f, `md_${p}`) })),
       });
       return { ok: [r.no, r.prth].filter(Boolean).join(" · "), to: `/service-orders/${no}` };
     }, `/service-orders/${no}/plan`);

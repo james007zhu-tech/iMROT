@@ -6,6 +6,7 @@ import { currentEmployee } from "@/server/auth";
 import { AGE_KEYS, financeReport, type MonthRow } from "@/server/fin-report";
 import { dictMap } from "@/server/dict";
 import { Card, PageHeader, Tag } from "@/components/ui";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +14,10 @@ export const dynamic = "force-dynamic";
 export default async function Reports({ searchParams }: { searchParams: Promise<{ year?: string }> }) {
   const sp = await searchParams;
   const [t, u, n, me, locale] = await Promise.all([getTranslations("ops"), getTranslations("ui"), getTranslations("nav"), currentEmployee(), getLocale()]);
-  if (!["MD", "FINANCE"].includes(me.role)) notFound();
+  if (!hasRole(me, "MD", "FINANCE")) notFound();
   const thisYear = new Date(Date.now() + 7 * 3600_000).getUTCFullYear();
   const year = /^\d{4}$/.test(sp.year ?? "") ? Number(sp.year) : thisYear;
-  const md = me.role === "MD";
+  const md = hasRole(me, "MD");
   const [r, cats] = await Promise.all([financeReport(me.entityId, year, { withPayroll: md }), dictMap("expenseCategory", locale)]);
   const money = (v: number) => (v === 0 ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 }));
   const cols: (keyof MonthRow)[] = ["revenue", "purchases", "expenses", ...(md ? ["payroll" as const] : []), "result", "collected", "paidSuppliers", "vatOut", "vatIn", "vatNet"];

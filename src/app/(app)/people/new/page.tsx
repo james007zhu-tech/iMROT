@@ -1,4 +1,4 @@
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -20,7 +20,7 @@ const plain = (v: string | null | undefined) => v ?? "";
 export default async function NewEmployee({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   const me = await currentEmployee();
-  if (!can.staff(me.role)) return <Forbidden />;
+  if (!can.staff(me)) return <Forbidden />;
   const [t, c, r] = await Promise.all([getTranslations("ui"), getTranslations("common"), getTranslations("role")]);
   const [entities, managers] = await Promise.all([prisma.legalEntity.findMany({ orderBy: { createdAt: "asc" } }), prisma.employee.findMany({ where: { active: true }, orderBy: { code: "asc" }, select: { code: true, name: true } })]);
   async function save(f: FormData) {
@@ -28,7 +28,7 @@ export default async function NewEmployee({ searchParams }: { searchParams: Prom
     await guarded(async () => {
       const me = await currentEmployee();
       const { profile, careers, quick, attachments } = readEmployeeForm(f);
-      const e = await createEmployee({ ...profile, actorCode: me.code, entityCode: String(f.get("entityCode")), name: profile.name ?? "", role: f.get("role") as "ENGINEER", email: String(f.get("email")), locale: f.get("locale") as "th", attachments });
+      const e = await createEmployee({ ...profile, actorCode: me.code, entityCode: String(f.get("entityCode")), name: profile.name ?? "", role: f.get("role") as "ENGINEER", ...(hasRole(me, "MD") ? { extraRoles: f.getAll("extraRoles").map(String) as "ENGINEER"[], approver: f.get("approver") === "on" } : {}), email: String(f.get("email")), locale: f.get("locale") as "th", attachments });
       if (careers.length) await setCareers(me.code, e.code, careers);
       await addQuickCredentials(me.code, e.code, quick);
       return { ok: e.code, to: `/people/${e.code}` };
@@ -45,7 +45,8 @@ export default async function NewEmployee({ searchParams }: { searchParams: Prom
         <Card title={t("empAccount")} accent>
           <Grid>
             <Field label={t("legalEntity")} required><select name="entityCode" className={inputCls} defaultValue={entities.find((e) => e.id === me.entityId)?.code ?? entities[0]?.code}>{entities.map((e) => <option key={e.id} value={e.code}>{entityLabel(e, t)}</option>)}</select></Field>
-            <Field label={c("role")} required><select name="role" className={inputCls} defaultValue="ENGINEER">{STAFF_ROLES.filter((x) => x !== "MD" || me.role === "MD").map((x) => <option key={x} value={x}>{r(x)}</option>)}</select></Field>
+            <Field label={c("role")} required><select name="role" className={inputCls} defaultValue="ENGINEER">{STAFF_ROLES.filter((x) => x !== "MD" || hasRole(me, "MD")).map((x) => <option key={x} value={x}>{r(x)}</option>)}</select></Field>
+            {hasRole(me, "MD") && <Field label={t("extraRolesLabel")}><div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">{STAFF_ROLES.filter((x) => x !== "MD").map((x) => <label key={x} className="flex items-center gap-1.5"><input type="checkbox" name="extraRoles" value={x} />{r(x)}</label>)}<label className="flex items-center gap-1.5 font-semibold"><input type="checkbox" name="approver" />{t("approverTag")}</label></div></Field>}
             <Field label={t("uiLanguage")}><select name="locale" className={inputCls} defaultValue="th"><option value="th">ไทย</option><option value="zh">中文</option><option value="en">English</option></select></Field>
             <Field label={t("emailLogin")} required><input name="email" type="email" required className={inputCls} /></Field>
             <div className="self-end text-xs text-navy/70 md:col-span-2">{t("noInitialPassword")}</div>

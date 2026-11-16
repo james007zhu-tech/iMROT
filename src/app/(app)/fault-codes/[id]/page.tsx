@@ -127,11 +127,11 @@ export default async function FaultCodePage({ params, searchParams }: { params: 
                 <input type="hidden" name="id" value={c.id} />
                 <div className="flex flex-wrap gap-2">
                   {c.status === "DRAFT" && <button formAction={op("submit")} className={btnGhost}>{u("kbSubmit")}</button>}
-                  {canApprove(me.role) && c.status !== "APPROVED" && c.status !== "RETIRED" && <button formAction={op("approve")} className={btnPrimary}>{u("kbApprove")}</button>}
-                  {canApprove(me.role) && !c.isPublic && !blocker && <button formAction={op("public")} className={btnGhost}>{u("kbMakePublic")}</button>}
-                  {canApprove(me.role) && c.isPublic && <button formAction={op("internal")} className={btnGhost}>{u("kbMakeInternal")}</button>}
+                  {canApprove(me) && c.status !== "APPROVED" && c.status !== "RETIRED" && <button formAction={op("approve")} className={btnPrimary}>{u("kbApprove")}</button>}
+                  {canApprove(me) && !c.isPublic && !blocker && <button formAction={op("public")} className={btnGhost}>{u("kbMakePublic")}</button>}
+                  {canApprove(me) && c.isPublic && <button formAction={op("internal")} className={btnGhost}>{u("kbMakeInternal")}</button>}
                 </div>
-                {canApprove(me.role) && c.status !== "RETIRED" && <div className="flex gap-2"><input name="note" placeholder={u("kbRejectNote")} className={`${inputCls} min-w-0 flex-1`} /><button formAction={op("reject")} className={`${btnGhost} shrink-0 whitespace-nowrap`}>{u("kbReject")}</button></div>}
+                {canApprove(me) && c.status !== "RETIRED" && <div className="flex gap-2"><input name="note" placeholder={u("kbRejectNote")} className={`${inputCls} min-w-0 flex-1`} /><button formAction={op("reject")} className={`${btnGhost} shrink-0 whitespace-nowrap`}>{u("kbReject")}</button></div>}
                 {blocker && !c.isPublic && <p className="text-xs text-navy/60">{u(`err_${blocker}`)}</p>}
               </form>
             </Card>

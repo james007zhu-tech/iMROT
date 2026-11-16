@@ -6,6 +6,7 @@ import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { currentEmployee } from "@/server/auth";
 import { PageHeader } from "@/components/ui";
 import { payslipNo } from "@/lib/numbering";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function Slip({ params }: { params: Promise<{ month: string; code: string }> }) {
   const { month, code } = await params;
   const [t, me] = await Promise.all([getTranslations("ops"), currentEmployee()]);
-  const office = PAYROLL_ROLES.includes(me.role);
+  const office = hasRole(me, ...PAYROLL_ROLES);
   if (!office && me.code !== code) notFound();
   const line = await prisma.payrollLine.findFirst({ where: { employee: { code }, run: { entityId: me.entityId, month, ...(office ? {} : { status: { not: "DRAFT" } }) } }, include: { employee: true, run: true } });
   if (!line) notFound();

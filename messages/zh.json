@@ -394,7 +394,7 @@
     "saved": "已保存",
     "edit": "编辑",
     "payablesLink": "应付",
-    "noAccess": "无权限：您的角色不能打开这个页面。如确有需要，请联系 MD。",
+    "noAccess": "无权限，此功能属于 {roles} 角色。",
     "yes": "是",
     "no": "否",
     "open": "打开",
@@ -2458,17 +2458,21 @@
     "err_FIXED_RANGE": "结束月不能早于开始月。",
     "cashFixedStopped": "已停用",
     "cashFixedShowStopped": "显示已停用",
-    "cashFixedHideStopped": "隐藏已停用"
+    "cashFixedHideStopped": "隐藏已停用",
+    "extraRolesLabel": "再加的角色（权限取并集）",
+    "approverLabel": "本组审批人（主管）：批本组的加班、请假、报销、报告和知识库；金额可见范围不变",
+    "approverTag": "本组审批人"
   },
   "role": {
-    "MD": "董事总经理 MD",
-    "ADMIN": "内勤（行政）",
-    "MANAGER": "主管",
-    "ENGINEER": "工程师",
-    "SALES": "销售",
-    "FINANCE": "财务",
-    "WAREHOUSE": "仓库",
-    "HR": "人事 HR"
+    "MD": "MD 董事总经理",
+    "ADMIN": "（已取消）内勤",
+    "MANAGER": "（已取消）主管",
+    "ENGINEER": "ENG 工程师",
+    "SALES": "Sales 销售",
+    "FINANCE": "FIN 财务",
+    "WAREHOUSE": "（已取消）仓库",
+    "HR": "HR 人事",
+    "PURCHASING": "PUR 采购和供应链"
   },
   "inquiryStatus": {
     "OPEN": "询价中",
@@ -2900,6 +2904,8 @@
     "payReviewNoted": "其他缺失项（{n} 人）——勾“已知悉”后可以复核",
     "payReviewAck": "已知悉上面的缺失项",
     "payGoConfirmOt": "去确认加班",
-    "miss_JOINED": "缺入职日期，个税按全年估算"
+    "miss_JOINED": "缺入职日期，个税按全年估算",
+    "extraRolesLabel": "再加的角色",
+    "approverTag": "本组审批人"
   }
 }

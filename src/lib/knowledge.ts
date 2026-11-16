@@ -1,3 +1,4 @@
+import { can, hasRole, isApprover, type Who } from "./caps";
 /**
  * Equipment knowledge: product series dictionary + per-series fault-code library with a public read-only query
  * (朱总 2026-11-09/10; architecture doc "设备知识库架构方案", mockup docs/mockups/equipment-knowledge-v0.1.html).
@@ -24,9 +25,9 @@ export const STATUSES = ["DRAFT", "REVIEW", "APPROVED", "RETIRED"] as const;
 export type FaultStatus = (typeof STATUSES)[number];
 
 /** Who may approve codes (the "技术负责人" role does not exist yet) and who may publish. */
-export const canApprove = (role: string) => role === "MD" || role === "MANAGER";
-export const canPublish = (role: string) => role === "MD";
-export const canEditDictionary = (role: string) => role === "MD" || role === "ADMIN";
+export const canApprove = (who: Who) => isApprover(who); // the MD, and the approver of a team (主管)
+export const canPublish = (who: Who) => hasRole(who, "MD");
+export const canEditDictionary = (who: Who) => can.purchase(who);
 
 export function slugify(s: string): string {
   return s.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "x";

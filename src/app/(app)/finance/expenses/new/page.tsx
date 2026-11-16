@@ -8,6 +8,7 @@ import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { Card, Field, Grid, PageHeader, btnPrimary, inputCls } from "@/components/ui";
 import { fileAction } from "../actions";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function NewExpense({ searchParams }: { searchParams: Promise<{ error?: string; order?: string }> }) {
   const { error, order } = await searchParams;
   const [t, me, locale] = await Promise.all([getTranslations("ops"), currentEmployee(), getLocale()]);
-  const all = ["MD", "FINANCE"].includes(me.role);
+  const all = hasRole(me, "MD", "FINANCE");
   const [cats, staff, orders] = await Promise.all([
     dictItems("expenseCategory"),
     all ? prisma.employee.findMany({ where: { active: true, entityId: me.entityId }, orderBy: { code: "asc" }, select: { code: true, name: true } }) : Promise.resolve([]),

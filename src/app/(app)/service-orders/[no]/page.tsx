@@ -1,5 +1,5 @@
 import { assertOrderAccess } from "@/server/scope";
-import { can } from "@/lib/caps";
+import { can, hasRole, isApprover } from "@/lib/caps";
 import { skuGaps } from "@/server/purchasing";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
@@ -44,7 +44,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   // 转采购必须有料号: the part lines that still have none, while the order is still before delivery
   const gaps = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"].includes(order.status) ? await skuGaps(no).catch(() => []) : [];
   const [t, u, ts, te, locale, tInq, tPo] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getTranslations("eventType"), getLocale(), getTranslations("inquiryStatus"), getTranslations("poStatus")]);
-  const engineers = await prisma.employee.findMany({ where: { active: true, role: { in: ["ENGINEER", "MANAGER", "MD", "ADMIN"] } }, orderBy: { name: "asc" } });
+  const engineers = await prisma.employee.findMany({ where: { active: true, OR: [{ role: { in: ["ENGINEER", "MD"] } }, { extraRoles: { has: "ENGINEER" } }] }, orderBy: { name: "asc" } });
   const stamp = (d: Date) => new Intl.DateTimeFormat(locale, { ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}), month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
 
   const jobs = order.repairJobs;
@@ -76,8 +76,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
   const money = (k: StepKey) => k === "invoice" || k === "payment";
   // 统一角色权限表: what this person sees of the money on the order, and which steps are theirs
-  const seePrice = can.price(me.role), seeCost = can.cost(me.role), seeInv = can.invoiceStatus(me.role), mayClose = can.invoice(me.role);
-  const mine = (k: StepKey) => !(money(k) && !seeInv) && !(k === "confirm" && !can.confirmPo(me.role));
+  const seePrice = can.price(me), seeCost = can.margin(me), seeInv = can.invoiceStatus(me), mayClose = can.invoice(me);
+  const mine = (k: StepKey) => !(money(k) && !seeInv) && !(k === "confirm" && !can.confirmPo(me));
   const steps = nextSteps(shape);
   const waitsMargin = order.marginApproval === "PENDING";
   const primary0 = businessClosureOn() || !steps.primary || !money(steps.primary) ? steps.primary : undefined;
@@ -95,7 +95,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   // 销售负责人: whose target this order counts toward
   const [owner, salesPeople, opener] = await Promise.all([
     order.salesId ? prisma.employee.findUnique({ where: { id: order.salesId }, select: { code: true, name: true } }) : null,
-    prisma.employee.findMany({ where: { active: true, role: { in: ["SALES", "MANAGER", "MD"] } }, orderBy: { code: "asc" }, select: { id: true, code: true, name: true } }),
+    prisma.employee.findMany({ where: { active: true, OR: [{ role: { in: ["SALES", "MD"] } }, { extraRoles: { has: "SALES" } }] }, orderBy: { code: "asc" }, select: { id: true, code: true, name: true } }),
     prisma.employee.findUnique({ where: { id: order.createdById }, select: { name: true } }),
   ]);
   async function setSales(form: FormData) {
@@ -121,7 +121,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     "use server";
     await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await approveMargin({ no, actorCode: me.code, decision: form.get("decision") as "APPROVED" | "REJECTED", note: String(form.get("note") || "") || undefined }); }, `/service-orders/${no}`);
   }
-  const canSetSales = ["MD", "MANAGER", "ADMIN", "SALES"].includes(me.role);
+  const canSetSales = (hasRole(me, "MD", "SALES") || isApprover(me));
   const floor = await marginFloor(order.mode);
   const marginLow = order.marginPct != null && Number(order.marginPct) < floor;
   // 转合作维修 (2026-11-09): a REPAIR order is closed and reopened as 合作维修 — the mode itself never changes.
@@ -187,7 +187,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </details>}
           {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
           {/* a quote under the margin floor goes nowhere until the MD has decided: say so here, not after the next form is filled */}
-          {waitsMargin && seeCost ? (me.role === "MD" ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-alert bg-alert/10 px-3 py-2 text-sm font-semibold text-alert-ink">{u("marginWaitingMd")}</span>)
+          {waitsMargin && seeCost ? (hasRole(me, "MD") ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-alert bg-alert/10 px-3 py-2 text-sm font-semibold text-alert-ink">{u("marginWaitingMd")}</span>)
             : handedToFinance ? <span className="rounded-lg border border-navy/25 bg-white px-3 py-2 text-sm text-navy">✓ {u("handedToFinance")}</span>
             : primary && primary !== "assign" && primary !== "contractDirect" && <Link href={hrefOf(primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
@@ -195,7 +195,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
       <DocChain order={order.no} slots={chain} />
       <Flash ok={ok} error={error} />
       {gaps.length > 0 && <Alert>{u("buyNeedsSku")}：{gaps.map((g) => `${g.lineNo ? `#${g.lineNo} ` : ""}${g.description}`).join("；")}。 <Link href={`/service-orders/${no}/quote`} className="font-semibold underline">{u("buyNeedsSkuGo")} →</Link></Alert>}
-      {order.poStaleAt && !dec && <Alert>{u("poStale")} {can.confirmPo(me.role) && <Link href={`/service-orders/${no}/confirm`} className="font-semibold underline">{u("poStaleGo")}</Link>}</Alert>}
+      {order.poStaleAt && !dec && <Alert>{u("poStale")} {can.confirmPo(me) && <Link href={`/service-orders/${no}/confirm`} className="font-semibold underline">{u("poStaleGo")}</Link>}</Alert>}
       {dec && <Alert>{u("declinedBanner", { date: localIso(dec.toldAt)!.slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {!seePrice ? "" : dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -269,14 +269,14 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             </Table>
             {seePrice && <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>}
             {seeCost && order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: localIso(order.lockedAt)!.slice(0, 10) })}` : ""}</p>}
-            {order.marginApproval === "PENDING" && me.role === "MD" && (
+            {order.marginApproval === "PENDING" && hasRole(me, "MD") && (
               <form id="margin" action={decideMargin} className="mt-2 flex scroll-mt-24 flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">
                 <span className="text-sm font-semibold text-alert-ink">{u("marginDecision")}</span>
                 <input name="note" placeholder={u("marginNotePh")} className={`${inputCls} max-w-xs`} />
                 <button name="decision" value="APPROVED" className={btnBlue}>{u("marginApprove")}</button>
                 <button name="decision" value="REJECTED" className={btnGhost}>{u("marginReject")}</button>
               </form>)}
-            {seeCost && order.marginApproval === "PENDING" && me.role !== "MD" && <p className="mt-2 rounded-lg border border-alert bg-alert/10 p-2 text-sm text-alert-ink">{u("marginWaitingMd")}</p>}
+            {seeCost && order.marginApproval === "PENDING" && !hasRole(me, "MD") && <p className="mt-2 rounded-lg border border-alert bg-alert/10 p-2 text-sm text-alert-ink">{u("marginWaitingMd")}</p>}
           </Card>}
         </div>
 

@@ -12,6 +12,7 @@ import { fillDocx } from "@/lib/docx/fill";
 import { convertToPdf } from "@/server/office";
 import { fmtDate, fmtMonth, money, payday, salaryChange, salutationFor, type LetterDetails } from "@/lib/salary-letter";
 import type { Prisma } from "@prisma/client";
+import { hasRole } from "@/lib/caps";
 
 const TEMPLATES = path.join(process.cwd(), "templates", "word");
 const OUT = path.join(process.cwd(), "uploads", "documents");
@@ -19,7 +20,7 @@ export const SALARY_LETTER_TEMPLATE = "32_Salary_Adjustment_Notice.docx";
 
 async function mdOnly(actorCode: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  if (a.role !== "MD") throw new Error("MD_ONLY");
+  if (!hasRole(a, "MD")) throw new Error("MD_ONLY");
   return a;
 }
 

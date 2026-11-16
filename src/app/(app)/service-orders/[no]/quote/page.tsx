@@ -1,5 +1,5 @@
 import { assertOrderAccess } from "@/server/scope";
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
@@ -25,8 +25,8 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   const order = await loadOrder(no);
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
   // 统一角色权限表: sales and the MD set the price; 内勤 and finance see it; the shop floor works on parts, quantities and wording only
-  const seePrice = can.price(me.role), seeCost = can.cost(me.role), edit = can.editPrice(me.role);
-  const items = !edit && ["ENGINEER", "MANAGER", "ADMIN", "WAREHOUSE"].includes(me.role) && ["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(order.status);
+  const seePrice = can.price(me), seeCost = can.margin(me), edit = can.editPrice(me);
+  const items = !edit && hasRole(me, "ENGINEER") && ["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(order.status);
   const [parts, rate] = await Promise.all([prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500 }), latestRate(order.currency)]);
   refreshIfStale(rate?.ageDays); // a missing or day-old BoC rate is fetched again in the background
   // No quote yet → start from what the inspections said the repair needs (parts with their last cost, labour in hours).
@@ -66,7 +66,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
       const rows = Array.from({ length: ROWS }, (_, i) => ({ assetCode: str(f, `a${i}`), partSku: str(f, `s${i}`), description: str(f, `d${i}`) ?? "", descriptionLocal: str(f, `l${i}`), qty: num(f, `q${i}`) ?? 0, unit: str(f, `u${i}`) ?? "pcs", unitPrice: num(f, `p${i}`) ?? 0, unitCost: num(f, `c${i}`) })).filter((l) => l.description && l.qty > 0);
       if (!rows.length) throw new Error("QUOTE_NEEDS_LINE");
       await setQuoteLines({ serviceOrderNo: no, actorCode: me.code, lines: rows, warrantyDays: num(f, "warrantyDays") });
-      if (!can.editPrice(me.role)) return { ok: "quoteItemsSaved", to: `/service-orders/${no}/quote` }; // saved for sales to price; the order does not move
+      if (!can.editPrice(me)) return { ok: "quoteItemsSaved", to: `/service-orders/${no}/quote` }; // saved for sales to price; the order does not move
       const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
       if (["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(cur.status)) await catchUpOrder(no, "QUOTE_PENDING", me.code);
       return { ok: no, to: `/service-orders/${no}` };

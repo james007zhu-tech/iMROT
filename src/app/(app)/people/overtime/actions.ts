@@ -4,6 +4,7 @@ import { localIso } from "@/lib/dates";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { cancelOvertime, closeOvertimeMonth, confirmActualHours, decideOvertime, reopenOvertimeMonth, requestOvertime } from "@/server/overtime";
+import { hasRole } from "@/lib/caps";
 
 const str = (f: FormData, k: string) => { const v = String(f.get(k) ?? "").trim(); return v || undefined; };
 const BACK = "/people/overtime";
@@ -25,7 +26,7 @@ export async function cancelAction(id: string) {
   await guarded(async () => { const me = await currentEmployee(); await cancelOvertime({ id, actorCode: me.code }); }, BACK);
 }
 export async function closeMonthAction(entityId: string, month: string) {
-  await guarded(async () => { const me = await currentEmployee(); if (me.role !== "MD") throw new Error("MD_ONLY"); await closeOvertimeMonth({ entityId, month, closedBy: me.code }); return { ok: month, to: `${BACK}/${month}` }; }, BACK);
+  await guarded(async () => { const me = await currentEmployee(); if (!hasRole(me, "MD")) throw new Error("MD_ONLY"); await closeOvertimeMonth({ entityId, month, closedBy: me.code }); return { ok: month, to: `${BACK}/${month}` }; }, BACK);
 }
 export async function reopenMonthAction(entityId: string, month: string) {
   await guarded(async () => { const me = await currentEmployee(); await reopenOvertimeMonth({ entityId, month, actorCode: me.code }); return { ok: month, to: BACK }; }, `${BACK}/${month}`);

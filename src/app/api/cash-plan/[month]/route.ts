@@ -8,7 +8,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ month: str
   const { month } = await params;
   const code = await sessionEmployeeCode();
   const me = code ? await prisma.employee.findUnique({ where: { code } }) : null;
-  if (!me || !mayPlan(me.role)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!me || !mayPlan(me)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   if (!/^\d{4}-\d{2}$/.test(month)) return NextResponse.json({ error: "bad month" }, { status: 400 });
   const plan = await buildCashPlan(me.entityId, month);
   const cell = (v: unknown) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };

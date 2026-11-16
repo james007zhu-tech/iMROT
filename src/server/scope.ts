@@ -4,35 +4,35 @@
  */
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { can, scoped } from "@/lib/caps";
+import { can, hasRole, noOrders, isApprover, rolesOf, type Who } from "@/lib/caps";
 
-type Me = { id: string; role: string };
+type Me = { id: string; role: string; extraRoles?: string[] | null; approver?: boolean | null };
 const NONE = "__none__";
 
 /** The people whose work this person sees: themselves, and for a supervisor everyone who reports to them. */
 export async function teamIds(me: Me): Promise<string[]> {
-  if (me.role !== "MANAGER") return [me.id];
+  if (!isApprover(me) || hasRole(me, "MD")) return [me.id];
   const team = await prisma.employee.findMany({ where: { managerId: me.id }, select: { id: true } });
   return [me.id, ...team.map((t) => t.id)];
 }
 
 /** Prisma filter for the service orders this person may see. `{}` = all. */
 export async function orderScope(me: Me): Promise<Prisma.ServiceOrderWhereInput> {
-  if (can.allOrders(me.role)) return {};
-  if (me.role === "HR") return { id: NONE };
+  if (can.allOrders(me)) return {};
+  if (noOrders(me)) return { id: NONE };
   const ids = await teamIds(me);
   return { OR: [{ assigneeId: { in: ids } }, { createdById: { in: ids } }, { repairJobs: { some: { engineerId: { in: ids } } } }, { inspections: { some: { engineerId: { in: ids } } } }] };
 }
 
 /** Customers this person may see: for the shop floor, those of their orders. */
 export async function customerScope(me: Me): Promise<Prisma.CustomerWhereInput> {
-  if (can.allOrders(me.role)) return {};
-  if (me.role === "HR") return { id: NONE };
+  if (can.customersAll(me)) return {};
+  if (!hasRole(me, "ENGINEER")) return { id: NONE }; // HR, PUR: no customers
   return { serviceOrders: { some: await orderScope(me) } };
 }
 
 export async function mayOpenOrder(me: Me, orderId: string): Promise<boolean> {
-  if (!scoped(me.role) && me.role !== "HR") return true;
+  if (can.allOrders(me)) return true;
   return (await prisma.serviceOrder.count({ where: { id: orderId, ...(await orderScope(me)) } })) > 0;
 }
 
@@ -44,10 +44,10 @@ export async function assertOrderAccess(me: Me, orderNo: string) {
 
 /** Numbered documents a role may list, open and print. Financial papers and papers that carry the customer's price are not for the shop floor. */
 const FIN_DOCS = ["TI", "IV", "RC", "BL", "PV", "CN", "DB", "PF"], PRICE_DOCS = ["QT", "PO"];
-export function docTypeAllowed(role: string, type: string): boolean {
-  if (role === "MD" || role === "FINANCE") return true;
-  if (role === "HR") return false;
-  if (role === "SALES") return type !== "PV";
-  if (role === "ADMIN") return !FIN_DOCS.includes(type);
-  return !FIN_DOCS.includes(type) && !PRICE_DOCS.includes(type);
+export function docTypeAllowed(who: Who, type: string): boolean {
+  if (hasRole(who, "MD", "FINANCE")) return true;
+  const ok = (r: string) => r === "SALES" ? type !== "PV"
+    : r === "PURCHASING" ? !FIN_DOCS.includes(type) && type !== "QT" // POTH is theirs; the customer's price is not
+    : r === "ENGINEER" ? !FIN_DOCS.includes(type) && !PRICE_DOCS.includes(type) : false; // HR: none
+  return rolesOf(who).some(ok);
 }

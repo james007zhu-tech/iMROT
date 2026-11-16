@@ -9,6 +9,7 @@ import { audit } from "@/server/audit";
 import { monthRange } from "@/lib/overtime";
 import type { Allowance } from "@/lib/payroll";
 import { DEFAULT_BANDS, computeLine, isQuarterEnd, periodsInYear, quarterOf, type PerfBand, type TaxProfile } from "@/lib/payroll-run";
+import { hasRole, isApprover } from "@/lib/caps";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -20,14 +21,14 @@ export const REVIEW_NOTED = ["TAX_ID", "SSO_NO", "JOINED"];
 
 async function md(actorCode: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  if (a.role !== "MD") throw new Error("MD_ONLY");
+  if (!hasRole(a, "MD")) throw new Error("MD_ONLY");
   return a;
 }
 
 /** 内勤 computes, 财务 reviews and pays, the MD approves — three different people (朱总 2026-11-15). */
 async function roleOf(actorCode: string, role: "HR" | "FINANCE", err: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  if (a.role !== role) throw new Error(err);
+  if (!hasRole(a, role)) throw new Error(err);
   return a;
 }
 
@@ -80,7 +81,7 @@ export async function computePayroll(input: { entityId: string; month: string; a
     const variablePay = Number(salary?.variablePay ?? 0);
     const missing: string[] = [];
     // sales are paid on targets (朱总 2026-11-11), everyone else on the manager's monthly score
-    const sales = e.role === "SALES";
+    const sales = hasRole(e, "SALES");
     const mt = targets.find((t) => t.employeeId === e.id && t.period === input.month), qt = targets.find((t) => t.employeeId === e.id && t.period === quarter);
     const quarterlyPay = qEnd ? r2(Number(salary.quarterlyPay ?? 0) * 3) : 0;
     if (sales ? variablePay > 0 && !mt : variablePay > 0 && !review) missing.push(sales ? "TARGET" : "PERFORMANCE");
@@ -182,7 +183,7 @@ export async function markPayrollPaid(input: { entityId: string; month: string; 
 /** 月度绩效: who may score whom — the MD everyone, a manager the people who report to them; nobody scores themselves. */
 export async function scorable(actorCode: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  return prisma.employee.findMany({ where: { active: true, entityId: a.entityId, id: { not: a.id }, ...(a.role === "MD" ? {} : { managerId: a.id }) }, orderBy: { code: "asc" }, select: { id: true, code: true, name: true, position: true, managerId: true } });
+  return prisma.employee.findMany({ where: { active: true, entityId: a.entityId, id: { not: a.id }, ...(hasRole(a, "MD") ? {} : { managerId: a.id }) }, orderBy: { code: "asc" }, select: { id: true, code: true, name: true, position: true, managerId: true } });
 }
 
 export async function saveScores(input: { actorCode: string; month: string; scores: { code: string; score: number; conclusion?: string }[] }) {
@@ -289,7 +290,7 @@ export async function setSalesTarget(input: { actorCode: string; employeeCode: s
 /** 销售负责人 of an order: set by the MD, a manager, the administrator, or a salesperson (taking or handing over an order). */
 export async function setOrderSales(input: { no: string; actorCode: string; salesCode: string | null }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  if (!["MD", "MANAGER", "ADMIN", "SALES"].includes(actor.role)) throw new Error("SALES_OWNER_NOT_ALLOWED");
+  if (!(hasRole(actor, "MD", "SALES") || isApprover(actor))) throw new Error("SALES_OWNER_NOT_ALLOWED");
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, select: { id: true, salesId: true } });
   const to = input.salesCode ? await prisma.employee.findUniqueOrThrow({ where: { code: input.salesCode } }) : null;
   await prisma.serviceOrder.update({ where: { id: order.id }, data: { salesId: to?.id ?? null } });

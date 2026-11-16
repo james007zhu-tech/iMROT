@@ -11,6 +11,7 @@ import { localToday } from "@/lib/overtime";
 import { Flash } from "@/components/Flash";
 import { Alert, Card, PageHeader, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { taxAction, approveAction, bandsAction, computeAction, paidAction, reopenAction, saveLinesAction } from "../actions";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,8 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
   const { month } = await params;
   const { ok, error } = await searchParams;
   const [t, me] = await Promise.all([getTranslations("ops"), currentEmployee()]);
-  if (!PAYROLL_ROLES.includes(me.role)) notFound();
-  const md = me.role === "MD", prep = me.role === "HR", fin = me.role === "FINANCE";
+  if (!hasRole(me, ...PAYROLL_ROLES)) notFound();
+  const md = hasRole(me, "MD"), prep = hasRole(me, "HR"), fin = hasRole(me, "FINANCE");
   const run = await payrollDetail(me.entityId, month);
   if (!run) notFound();
   const x = run.totals as Record<string, number>;

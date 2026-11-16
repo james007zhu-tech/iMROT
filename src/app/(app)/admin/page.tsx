@@ -1,4 +1,4 @@
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -27,7 +27,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
     prisma.fxRate.findMany({ orderBy: [{ rateDate: "desc" }, { currency: "asc" }], take: 40 }),
     prisma.docSequence.findMany({ orderBy: [{ prefix: "asc" }, { period: "desc" }], take: 100, include: { entity: true } }),
   ]);
-  const md = me.role === "MD"; // legal entities: MD only (decision 2026-11-03)
+  const md = hasRole(me, "MD"); // legal entities: MD only (decision 2026-11-03)
   const floors = await modeRules();
   async function saveFloors(f: FormData) {
     "use server";
@@ -41,7 +41,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
     "use server";
     await guarded(async () => {
       const me = await currentEmployee();
-      if (!can.bank(me.role)) throw new Error("NO_PERMISSION");
+      if (!can.bank(me)) throw new Error("NO_PERMISSION");
       try { const r = await refreshBocRates(); return `${r.rateDate} · ${r.count}`; } catch (e) { throw new Error(`FX_FETCH_FAILED:${(e as Error).message}`); }
     }, "/admin");
   }

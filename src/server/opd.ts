@@ -11,28 +11,28 @@ import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { randomBytes } from "node:crypto";
-import { can } from "@/lib/caps";
+import { can, hasRole, type Who } from "@/lib/caps";
 import type { CountryCode } from "@/lib/numbering";
 import { daysUntil, salarySummary, type Allowance, type Deduction } from "@/lib/payroll";
 import { audit } from "@/server/audit";
 import { cleanBankDetails } from "@/lib/bank";
 
-export const STAFF_ROLES = ["MD", "SALES", "ENGINEER", "WAREHOUSE", "FINANCE", "HR", "ADMIN", "MANAGER"] as const; // HR computes the payroll; ADMIN = 内勤 (需求清单 v3)
+export const STAFF_ROLES = ["MD", "HR", "FINANCE", "PURCHASING", "SALES", "ENGINEER"] as const; // 六角色 (朱总 2026-11-16)
 export const CONTRACT_TYPES = ["PROBATION", "FIXED_TERM", "PERMANENT", "CONTRACTOR"] as const;
 export const CREDENTIAL_KINDS = ["PASSPORT", "ID_CARD", "VISA", "WORK_PERMIT", "REPORT_90", "CONTRACT", "DEGREE", "CERTIFICATE", "DRIVING_LICENCE", "OTHER"] as const;
 export const REVIEW_KINDS = ["PROBATION", "QUARTERLY", "ANNUAL", "SPECIAL"] as const;
 
-export function assertMd(role: string) {
-  if (role !== "MD") throw new Error("MD_ONLY");
+export function assertMd(who: Who) {
+  if (!hasRole(who, "MD")) throw new Error("MD_ONLY");
 }
 /** Staff files are kept by the MD and HR (需求清单 v3 第 1 节). */
-export function assertStaff(role: string) {
-  if (!can.staff(role)) throw new Error("STAFF_ONLY");
+export function assertStaff(who: Who) {
+  if (!can.staff(who)) throw new Error("STAFF_ONLY");
 }
 
 /** Who may open an employee file: the MD any file, everyone else only their own. */
 export function mayViewEmployee(me: { role: string; code: string }, code: string): boolean {
-  return can.staff(me.role) || me.code === code;
+  return can.staff(me) || me.code === code;
 }
 
 const Attachments = z.array(z.object({ name: z.string(), url: z.string(), kind: z.string().optional() })).optional();
@@ -79,6 +79,8 @@ export const EmployeeInput = z.object({
   name: z.string().min(1),
   nameLocal: z.string().optional(),
   role: z.enum(STAFF_ROLES),
+  extraRoles: z.array(z.enum(STAFF_ROLES)).optional(), /// further roles: the person may do what any of their roles may
+  approver: z.boolean().optional(), /// 本组审批人 (主管)
   email: z.string().email(),
   locale: z.enum(["th", "zh", "en"]).default("th"),
   password: z.string().min(6).optional(), /// none: the person sets it through a reset link — nobody else ever knows it
@@ -89,34 +91,35 @@ async function managerId(tx: Prisma.TransactionClient, code?: string) {
   if (!code) return undefined;
   const m = await tx.employee.findUnique({ where: { code } });
   if (!m) throw new Error(`MANAGER_UNKNOWN:${code}`);
+  if (!m.approver) await tx.employee.update({ where: { id: m.id }, data: { approver: true } }); // 直属主管 = 本组审批人
   return m.id;
 }
 
 export async function createEmployee(input: z.input<typeof EmployeeInput>) {
   const d = EmployeeInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
-  assertStaff(actor.role);
+  assertStaff(actor);
   // HR keeps the files but hands out neither the MD role nor passwords
-  if (actor.role !== "MD" && (d.role === "MD" || d.password)) throw new Error("MD_ONLY");
+  if (!hasRole(actor, "MD") && (d.role === "MD" || d.password || d.extraRoles?.length || d.approver)) throw new Error("MD_ONLY");
   const entity = await prisma.legalEntity.findUniqueOrThrow({ where: { code: d.entityCode } });
   return prisma.$transaction(async (tx) => {
     const code = await allocateNumber(tx, { prefix: "E", createdByEmployeeCode: actor.code, entityId: entity.id, country: entity.countryCode as CountryCode, date: d.joinedAt });
-    const { actorCode: _a, entityCode: _e, password, managerCode, attachments, ...rest } = d;
+    const { actorCode: _a, entityCode: _e, password, managerCode, attachments, extraRoles, ...rest } = d;
     void _a; void _e;
-    const e = await tx.employee.create({ data: { ...rest, code, entityId: entity.id, passwordHash: hashPassword(password ?? randomBytes(24).toString("base64url")), managerId: await managerId(tx, managerCode), attachments: attachments as Prisma.InputJsonValue | undefined } });
-    await audit(actor.id, "EMPLOYEE_CREATE", code, { role: d.role, entity: entity.code }, tx);
+    const e = await tx.employee.create({ data: { ...rest, extraRoles: (extraRoles ?? []).filter((x) => x !== d.role && x !== "MD"), code, entityId: entity.id, passwordHash: hashPassword(password ?? randomBytes(24).toString("base64url")), managerId: await managerId(tx, managerCode), attachments: attachments as Prisma.InputJsonValue | undefined } });
+    await audit(actor.id, "EMPLOYEE_CREATE", code, { role: d.role, extraRoles, approver: d.approver, entity: entity.code }, tx);
     return e;
   });
 }
 
 /** MD edit of the whole file: system fields, profile, contacts, and new archived files (appended). */
-export async function updateEmployee(input: { actorCode: string; code: string; role?: (typeof STAFF_ROLES)[number]; active?: boolean; password?: string; locale?: string; name?: string; nameLocal?: string; attachments?: { name: string; url: string; kind?: string }[] } & z.input<typeof ProfileInput> & z.input<typeof OwnContactInput>) {
+export async function updateEmployee(input: { actorCode: string; code: string; role?: (typeof STAFF_ROLES)[number]; extraRoles?: (typeof STAFF_ROLES)[number][]; approver?: boolean; active?: boolean; password?: string; locale?: string; name?: string; nameLocal?: string; attachments?: { name: string; url: string; kind?: string }[] } & z.input<typeof ProfileInput> & z.input<typeof OwnContactInput>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  assertStaff(actor.role);
+  assertStaff(actor);
   if (input.code === actor.code && input.role && input.role !== "MD") throw new Error("MD_SELF_DEMOTE");
-  if (actor.role !== "MD") { // HR: the file, not the keys — role, password and the MD's own file stay with the MD
-    const target = await prisma.employee.findUniqueOrThrow({ where: { code: input.code }, select: { role: true } });
-    if (target.role === "MD" || input.password || (input.role && input.role !== target.role)) throw new Error("MD_ONLY");
+  if (!hasRole(actor, "MD")) { // HR: the file, not the keys — role, password and the MD's own file stay with the MD
+    const target = await prisma.employee.findUniqueOrThrow({ where: { code: input.code }, select: { role: true, extraRoles: true } });
+    if (hasRole(target, "MD") || input.password || (input.role && input.role !== target.role) || input.extraRoles || input.approver != null) throw new Error("MD_ONLY");
   }
   const profile = ProfileInput.parse(input);
   const contacts = OwnContactInput.parse(input);
@@ -124,8 +127,8 @@ export async function updateEmployee(input: { actorCode: string; code: string; r
   return prisma.$transaction(async (tx) => {
     const cur = await tx.employee.findUniqueOrThrow({ where: { code: input.code } });
     const atts = input.attachments?.length ? ([...((cur.attachments as unknown[] | null) ?? []), ...input.attachments] as Prisma.InputJsonValue) : undefined;
-    const e = await tx.employee.update({ where: { code: input.code }, data: { ...p, ...contacts, name: input.name, nameLocal: input.nameLocal, role: input.role, active: input.active, locale: input.locale, managerId: managerCode === undefined ? undefined : managerCode === "" ? null : await managerId(tx, managerCode), passwordHash: input.password ? hashPassword(input.password) : undefined, passwordChangedAt: input.password ? new Date() : undefined, attachments: atts } });
-    await audit(actor.id, "EMPLOYEE_UPDATE", input.code, { role: input.role, active: input.active, passwordReset: !!input.password, leftAt: input.leftAt ? String(input.leftAt) : undefined }, tx);
+    const e = await tx.employee.update({ where: { code: input.code }, data: { ...p, ...contacts, name: input.name, nameLocal: input.nameLocal, role: input.role, extraRoles: input.extraRoles ? input.extraRoles.filter((x) => x !== (input.role ?? cur.role) && x !== "MD") : undefined, approver: input.approver, active: input.active, locale: input.locale, managerId: managerCode === undefined ? undefined : managerCode === "" ? null : await managerId(tx, managerCode), passwordHash: input.password ? hashPassword(input.password) : undefined, passwordChangedAt: input.password ? new Date() : undefined, attachments: atts } });
+    await audit(actor.id, "EMPLOYEE_UPDATE", input.code, { role: input.role, extraRoles: input.extraRoles, approver: input.approver, active: input.active, passwordReset: !!input.password, leftAt: input.leftAt ? String(input.leftAt) : undefined }, tx);
     return e;
   });
 }
@@ -144,7 +147,7 @@ export async function authorizeEmployeeReveal(actorCode: string, password: strin
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
   if (!mayViewEmployee(actor, code)) throw new Error("FORBIDDEN");
   if (!verifyPassword(password, actor.passwordHash)) throw new Error("WRONG_PASSWORD");
-  await audit(actor.id, actor.role === "MD" ? "EMPLOYEE_REVEAL" : "CONTACT_REVEAL", code, {});
+  await audit(actor.id, hasRole(actor, "MD") ? "EMPLOYEE_REVEAL" : "CONTACT_REVEAL", code, {});
 }
 
 // ── careers ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -153,7 +156,7 @@ export const CareerInput = z.object({ fromYm: z.string().regex(/^\d{4}-\d{2}$/, 
 
 export async function setCareers(actorCode: string, code: string, rows: z.input<typeof CareerInput>[]) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertStaff(actor.role);
+  assertStaff(actor);
   const lines = rows.map((r) => CareerInput.parse(r));
   return prisma.$transaction(async (tx) => {
     const e = await tx.employee.findUniqueOrThrow({ where: { code } });
@@ -169,7 +172,7 @@ export const CredentialInput = z.object({ kind: z.enum(CREDENTIAL_KINDS), title:
 
 export async function addCredential(actorCode: string, code: string, input: z.input<typeof CredentialInput>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertStaff(actor.role);
+  assertStaff(actor);
   const d = CredentialInput.parse(input);
   const e = await prisma.employee.findUniqueOrThrow({ where: { code } });
   const c = await prisma.employeeCredential.create({ data: { ...d, employeeId: e.id, file: d.file as Prisma.InputJsonValue | undefined } });
@@ -181,7 +184,7 @@ export async function addCredential(actorCode: string, code: string, input: z.in
 export async function addQuickCredentials(actorCode: string, code: string, quick: { kind: (typeof CREDENTIAL_KINDS)[number]; number?: string; expiresAt?: string; title?: string }[]) {
   if (!quick.length) return 0;
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertStaff(actor.role);
+  assertStaff(actor);
   const e = await prisma.employee.findUniqueOrThrow({ where: { code }, include: { credentials: true } });
   let n = 0;
   for (const q of quick) {
@@ -197,7 +200,7 @@ export async function addQuickCredentials(actorCode: string, code: string, quick
 
 export async function removeCredential(actorCode: string, id: string) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertStaff(actor.role);
+  assertStaff(actor);
   const c = await prisma.employeeCredential.delete({ where: { id }, include: { employee: true } });
   await audit(actor.id, "EMPLOYEE_UPDATE", c.employee.code, { credentialRemoved: c.kind });
 }
@@ -243,7 +246,7 @@ export const SalaryInputSchema = z.object({
 /** MD only. Writes the structure as entered plus the derived figures (gross, SSO amounts, net estimate). */
 export async function addSalaryRecord(actorCode: string, code: string, input: z.input<typeof SalaryInputSchema>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertStaff(actor.role);
+  assertStaff(actor);
   const d = SalaryInputSchema.parse(input);
   const e = await prisma.employee.findUniqueOrThrow({ where: { code }, include: { entity: true } });
   const approver = d.approvedByCode ? await prisma.employee.findUniqueOrThrow({ where: { code: d.approvedByCode } }) : actor;
@@ -263,13 +266,13 @@ export async function addSalaryRecord(actorCode: string, code: string, input: z.
 /** Every look at salary figures is logged (decision 2026-11-08). Call from the page when amounts are shown in full. */
 export async function auditSalaryView(actorCode: string, code: string) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertStaff(actor.role);
+  assertStaff(actor);
   await audit(actor.id, "SALARY_VIEW", code, {});
 }
 
 /** MD only: all salary rows, newest first (the first row is the current salary). */
 export async function salaryHistory(viewer: { role: string }, employeeId: string) {
-  if (!can.pay(viewer.role)) return [];
+  if (!can.pay(viewer)) return [];
   return prisma.salaryRecord.findMany({ where: { employeeId }, orderBy: { effectiveFrom: "desc" }, include: { approvedBy: { select: { name: true } } } });
 }
 
@@ -284,7 +287,7 @@ export const ReviewInput = z.object({ period: z.string().min(1), kind: z.enum(RE
 
 export async function addReview(actorCode: string, code: string, input: z.input<typeof ReviewInput>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertStaff(actor.role);
+  assertStaff(actor);
   const d = ReviewInput.parse(input);
   return prisma.$transaction(async (tx) => {
     const e = await tx.employee.findUniqueOrThrow({ where: { code } });
@@ -298,7 +301,7 @@ export async function addReview(actorCode: string, code: string, input: z.input<
 /** The whole file for the page. Salary rows only for the MD; reviews filtered for the person. */
 export async function getEmployeeFile(viewer: { role: string; code: string }, code: string) {
   if (!mayViewEmployee(viewer, code)) throw new Error("FORBIDDEN");
-  const md = can.staff(viewer.role);
+  const md = can.staff(viewer);
   const e = await prisma.employee.findUnique({ where: { code }, include: {
     entity: true, manager: { select: { code: true, name: true } },
     careers: { orderBy: [{ sort: "asc" }, { fromYm: "desc" }] },
@@ -334,7 +337,7 @@ export const EntityInput = z.object({
 export async function saveLegalEntity(input: z.input<typeof EntityInput>) {
   const { actorCode, countryCode, bankDetails, ...rest } = EntityInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertMd(actor.role);
+  assertMd(actor);
   const bank = bankDetails === undefined ? undefined : cleanBankDetails(bankDetails);
   const data = { ...rest, ...(bank === undefined ? {} : { bankDetails: bank ? (bank as Prisma.InputJsonValue) : Prisma.JsonNull }) };
   const clash = await prisma.legalEntity.findFirst({ where: { code: data.code, NOT: { countryCode } } });

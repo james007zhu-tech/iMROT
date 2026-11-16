@@ -24,7 +24,7 @@ export const SupplierInput = z.object({
   currency: z.string().default("THB"), paymentTerms: z.string().optional(), leadTimeDays: z.number().int().optional(),
 });
 export async function createSupplier(input: z.input<typeof SupplierInput> & { actorCode: string }) {
-  await actorWith(input.actorCode, (r) => ["MD", "FINANCE", "SALES", "ADMIN"].includes(r)); // 统一角色权限表
+  await actorWith(input.actorCode, can.purchase); // 六角色: 供应商归 PUR
   const { actorCode, ...rest } = input;
   const d = SupplierInput.parse(rest);
   if (d.taxId && (await prisma.supplier.findUnique({ where: { taxId: d.taxId } }))) throw new Error(`SUPPLIER_EXISTS:${d.taxId}`);
@@ -149,7 +149,7 @@ export const QuoteInput = z.object({
   attachments: z.array(Att).optional(),
 });
 export async function addSupplierQuote(input: z.input<typeof QuoteInput>) {
-  await actorWith(input.actorCode, can.cost); // 统一角色权限表
+  await actorWith(input.actorCode, can.purchase); // 统一角色权限表
   const d = QuoteInput.parse(input);
   const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: d.inquiryNo } });
   if (inq.status === "CANCELLED" || inq.status === "ORDERED") throw new Error(`INQUIRY_CLOSED:${inq.no}`);
@@ -161,7 +161,7 @@ export async function addSupplierQuote(input: z.input<typeof QuoteInput>) {
 
 /** Pick the winning quote; its prices become the costs on the service order's quote lines (margin recomputed). */
 export async function selectSupplierQuote(input: { inquiryNo: string; quoteId: string; actorCode: string }) {
-  await actorWith(input.actorCode, can.cost); // 统一角色权限表
+  await actorWith(input.actorCode, can.purchase); // 统一角色权限表
   const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: input.inquiryNo }, include: { quotes: true, serviceOrder: { include: { lines: { include: { part: true } } } } } });
   const q = inq.quotes.find((x) => x.id === input.quoteId);
   if (!q) throw new Error("QUOTE_NOT_FOUND");
@@ -212,7 +212,7 @@ export const PurchaseOrderInput = z.object({
 });
 /** `system`: raised by the system itself as the next step of a flow (the customer's PO came in) — the draft still waits for purchasing. */
 export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInput>, system = false) {
-  if (!system) await actorWith(input.actorCode, can.cost); // 统一角色权限表
+  if (!system) await actorWith(input.actorCode, can.purchase); // 统一角色权限表
   const d = PurchaseOrderInput.parse(input);
   if (d.kind === "PARTS" && !d.inquiryNo) d.lines = await withSkus(d.lines);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode }, include: { entity: true } });
@@ -279,7 +279,7 @@ export async function raisePurchaseOrdersForOrder(no: string, actorCode: string)
 
 /** Goods arrived: one IBTH (one or more lines) against the POTH; the PO goes PARTIAL or RECEIVED. */
 export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; newParts?: { lineNo: number; brandCode?: string; vendorPartNo: string; name: string }[]; confirmedLines?: number[]; attachments?: { name: string; url: string; kind?: string }[] }) {
-  await actorWith(input.actorCode, (r) => ["MD", "FINANCE", "SALES", "ADMIN", "WAREHOUSE"].includes(r)); // 统一角色权限表
+  await actorWith(input.actorCode, can.purchase); // 六角色: 入库归 PUR
   const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.poNo }, include: { serviceOrder: true } });
   if (po.status === "CANCELLED" || po.status === "RECEIVED") throw new Error(`PO_CLOSED:${po.no}`);
   if (po.kind === "SUBCONTRACT") throw new Error(`PO_IS_SUBCONTRACT:${po.no}`); // the machine comes back on a 外协返回 IBTH (srm.returnFromPartner)
