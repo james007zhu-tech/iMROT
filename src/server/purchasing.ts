@@ -210,8 +210,9 @@ export const PurchaseOrderInput = z.object({
   lines: z.array(z.object({ partSku: z.string().optional(), vendorPartNo: z.string().optional(), description: z.string().min(1), qty: z.number().positive(), unit: z.string().default("pcs"), unitPrice: z.number().min(0) })).min(1, "PO_NEEDS_LINE"),
   attachments: z.array(Att).optional(),
 });
-export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInput>) {
-  await actorWith(input.actorCode, can.cost); // 统一角色权限表
+/** `system`: raised by the system itself as the next step of a flow (the customer's PO came in) — the draft still waits for purchasing. */
+export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInput>, system = false) {
+  if (!system) await actorWith(input.actorCode, can.cost); // 统一角色权限表
   const d = PurchaseOrderInput.parse(input);
   if (d.kind === "PARTS" && !d.inquiryNo) d.lines = await withSkus(d.lines);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode }, include: { entity: true } });
@@ -260,7 +261,6 @@ export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInp
 
 /** 客户回签 → 按 PRTH 生成 POTH: one draft POTH per compared inquiry of the order (from its selected quote). */
 export async function raisePurchaseOrdersForOrder(no: string, actorCode: string) {
-  await actorWith(actorCode, can.cost); // 统一角色权限表
   const inqs = await prisma.purchaseInquiry.findMany({ where: { serviceOrder: { no }, status: "COMPARED" }, include: { quotes: { where: { selected: true }, include: { supplier: true } }, serviceOrder: { select: { warrantyDays: true } } } });
   const made: string[] = [];
   for (const inq of inqs) {
@@ -271,7 +271,7 @@ export async function raisePurchaseOrdersForOrder(no: string, actorCode: string)
     const sub = inq.kind === "SUBCONTRACT";
     const expectedAt = sub && q.leadTimeDays ? new Date(Date.now() + q.leadTimeDays * 86_400_000) : undefined;
     // goods the order already buys on another POTH are not bought again by this automatic step
-    const po = await createPurchaseOrder({ actorCode, supplierId: q.supplierId, inquiryNo: inq.no, kind: inq.kind, warrantyDays: sub ? (inq.serviceOrder?.warrantyDays ?? q.warrantyDays ?? undefined) : undefined, scope: sub ? (q.solution ?? undefined) : undefined, expectedAt, currency: q.currency, vatRate: q.vatRate != null ? Number(q.vatRate) : undefined, paymentTerms: q.paymentTerms ?? undefined, supplierRef: q.quoteNo ?? undefined, lines }).catch((e: Error) => { if (/^PO_REPEAT/.test(e.message)) return null; throw e; });
+    const po = await createPurchaseOrder({ actorCode, supplierId: q.supplierId, inquiryNo: inq.no, kind: inq.kind, warrantyDays: sub ? (inq.serviceOrder?.warrantyDays ?? q.warrantyDays ?? undefined) : undefined, scope: sub ? (q.solution ?? undefined) : undefined, expectedAt, currency: q.currency, vatRate: q.vatRate != null ? Number(q.vatRate) : undefined, paymentTerms: q.paymentTerms ?? undefined, supplierRef: q.quoteNo ?? undefined, lines }, true).catch((e: Error) => { if (/^PO_REPEAT/.test(e.message)) return null; throw e; });
     if (po) made.push(po.no);
   }
   return made;

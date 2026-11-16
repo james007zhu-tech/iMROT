@@ -4,6 +4,7 @@
  * DBD data is stored with the record and fields a person changed afterwards are listed in `editedFields`.
  */
 import { can } from "@/lib/caps";
+import { actorWith } from "@/server/guard";
 import { z } from "zod";
 import { cleanBirthday } from "@/lib/notify";
 import type { Prisma } from "@prisma/client";
@@ -47,6 +48,7 @@ export const CustomerInput = z.object({
 });
 
 export async function createCustomer(input: z.input<typeof CustomerInput>) {
+  await actorWith(input.actorCode, can.customers); // 新建客户: MD, 财务, 销售, 内勤
   const d = CustomerInput.parse(input);
   if (isClosedStatus(d.dbd?.status)) throw new Error(`DBD_CLOSED:${d.dbd?.status}`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
