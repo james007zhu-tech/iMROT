@@ -31,7 +31,8 @@ export async function hiddenFor(who: Who): Promise<Set<string>> {
 export function ownersOf(pathWithQuery: string): string {
   const key = menuKeyOf(pathWithQuery);
   const byPath = pathOwners(pathWithQuery.split("?")[0]);
-  const owners = byPath.length ? byPath : key ? (MD_ONLY.has(key) ? [] : menuOwners(key)) : [];
+  const byMenu = key ? (MD_ONLY.has(key) ? [] : menuOwners(key)) : null;
+  const owners = byPath.length && byMenu ? byPath.filter((r) => byMenu.includes(r)) : byPath.length ? byPath : byMenu ?? [];
   return ["MD", ...owners.map((r) => ROLE_SHORT[r])].join(" / ");
 }
 

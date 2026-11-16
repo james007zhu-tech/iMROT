@@ -2461,7 +2461,9 @@
     "cashFixedHideStopped": "ซ่อนรายการที่หยุดแล้ว",
     "extraRolesLabel": "บทบาทเพิ่มเติม (สิทธิ์รวมกัน)",
     "approverLabel": "ผู้อนุมัติของทีม (หัวหน้า): อนุมัติ OT ลา เบิกจ่าย รายงาน ของคนในทีม — เห็นตัวเลขเงินเท่ากับบทบาทของตน",
-    "approverTag": "ผู้อนุมัติทีม"
+    "approverTag": "ผู้อนุมัติทีม",
+    "ok_paySubmitted": "ส่งให้การเงินตรวจแล้ว",
+    "err_PAYROLL_NOT_SUBMITTED": "HR ยังไม่ได้ส่งเงินเดือน {detail} ให้ตรวจ"
   },
   "role": {
     "MD": "MD กรรมการผู้จัดการ",
@@ -2615,7 +2617,11 @@
     "k_voidAsked": "{ref} มีคำขอยกเลิก รอคุณอนุมัติ",
     "k_needsPrice": "{ref} รอคุณกำหนดราคา",
     "k_priceHint": "{ref} หน้างานมีข้อเสนอเรื่องราคา",
-    "k_payableNoInvoice": "{ref} รับของแล้ว ยังไม่มีใบแจ้งหนี้ — ทวงผู้ขาย"
+    "k_payableNoInvoice": "{ref} รับของแล้ว ยังไม่มีใบแจ้งหนี้ — ทวงผู้ขาย",
+    "k_otApprove": "OT ของ {ref} รอคุณอนุมัติ",
+    "k_expenseApprove": "เบิกจ่าย {ref} รอคุณอนุมัติ",
+    "k_payrollReview": "เงินเดือน {ref} รอคุณตรวจ",
+    "k_payrollApprove": "เงินเดือน {ref} รอคุณอนุมัติ"
   },
   "reports": {
     "searchPh": "เลขที่รายงาน เครื่อง ลูกค้า",
@@ -2788,7 +2794,7 @@
     "payBlockedList": "ยังอนุมัติไม่ได้ {n} คน:",
     "miss_SALARY": "ไม่มีข้อมูลเงินเดือน",
     "miss_PERFORMANCE": "ยังไม่ประเมินผลงาน",
-    "miss_OVERTIME_OPEN": "ค่าล่วงเวลายังไม่ปิดเดือน",
+    "miss_OVERTIME_OPEN": "มี OT ที่ยังรอหัวหน้าอนุมัติ",
     "miss_TAX_ID": "ไม่มีเลขผู้เสียภาษี",
     "miss_SSO_NO": "ไม่มีเลขประกันสังคม",
     "miss_BANK": "ไม่มีบัญชีธนาคาร",
@@ -2906,6 +2912,13 @@
     "payGoConfirmOt": "ไปยืนยันค่าล่วงเวลา",
     "miss_JOINED": "ไม่มีวันเริ่มงาน ภาษีคิดเต็มปี",
     "extraRolesLabel": "บทบาทเพิ่มเติม",
-    "approverTag": "ผู้อนุมัติทีม"
+    "approverTag": "ผู้อนุมัติทีม",
+    "payStage_COMPUTING": "HR กำลังคำนวณ",
+    "payStage_REVIEW": "รอการเงินตรวจ",
+    "payStage_APPROVE": "รอ MD อนุมัติ",
+    "payStage_APPROVED": "อนุมัติแล้ว",
+    "payStage_PAID": "จ่ายแล้ว",
+    "paySubmit": "ส่งให้การเงินตรวจ",
+    "payNotSubmitted": "HR ยังไม่ได้ส่งให้ตรวจ"
   }
 }

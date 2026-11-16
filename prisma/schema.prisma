@@ -1847,6 +1847,7 @@ model PayrollRun {
   createdAt      DateTime      @default(now())
   computedAt     DateTime      @default(now())
   preparedBy     String? /// 内勤 who computed it. Three people: 内勤 computes, 财务 reviews (taxConfirmedBy), MD approves
+  submittedAt    DateTime? /// HR pressed 提交财务复核 (需求清单 v3 P2-21): from here it waits for finance, then for the MD
   taxConfirmedBy String? /// 朱总 2026-11-11: withholding follows the accountant — approval waits for this
   taxConfirmedAt DateTime?
   approvedBy     String?

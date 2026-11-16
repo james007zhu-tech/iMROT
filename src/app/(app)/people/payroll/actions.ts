@@ -1,7 +1,7 @@
 "use server";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
-import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, reopenPayroll, saveScores, setBands, setSalesTarget, type LineEdit } from "@/server/payroll";
+import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, reopenPayroll, saveScores, setBands, setSalesTarget, type LineEdit, submitPayroll } from "@/server/payroll";
 
 const BACK = "/people/payroll";
 const num = (v: FormDataEntryValue | null) => { const s = String(v ?? "").trim(); return s === "" ? undefined : Number(s); };
@@ -43,6 +43,9 @@ export async function scoresAction(month: string, f: FormData) {
   }, `${BACK}?month=${month}`);
 }
 
+export async function submitAction(month: string) {
+  await guarded(async () => { const me = await currentEmployee(); await submitPayroll({ entityId: me.entityId, month, actorCode: me.code }); return "paySubmitted"; }, `${BACK}/${month}`);
+}
 export async function taxAction(month: string, confirmed: boolean, f?: FormData) {
   await guarded(async () => { const me = await currentEmployee(); await confirmTax({ entityId: me.entityId, month, actorCode: me.code, confirmed, acknowledged: f?.get("ack") === "on" }); return confirmed ? "payReviewed" : "payReviewUndone"; }, `${BACK}/${month}`);
 }

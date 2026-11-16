@@ -6,7 +6,7 @@
 import { prisma } from "@/lib/db";
 import { addSalaryRecord } from "@/server/opd";
 import { decideExpense, fileExpense } from "@/server/expense";
-import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, payrollDetail, reopenPayroll, salesProgress, saveScores, setOrderSales, setSalesTarget } from "@/server/payroll";
+import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, payrollDetail, reopenPayroll, salesProgress, saveScores, setOrderSales, setSalesTarget, submitPayroll, payrollStage } from "@/server/payroll";
 import { payslipNo } from "@/lib/numbering";
 import { runAction } from "@/server/ai-actions";
 import { hiddenFor, menuKeyOf, setRoleMenu } from "@/server/perm";
@@ -95,6 +95,10 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
       check("the MD does not compute the month himself", /PAYROLL_PREPARER_ONLY/.test(String(mdComputes)), String(mdComputes).slice(0, 40));
       const mdReviews = await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: MD, confirmed: true }).catch((e) => String(e.message));
       check("only finance reviews", /PAYROLL_REVIEWER_ONLY/.test(String(mdReviews)), String(mdReviews).slice(0, 40));
+      const early = await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true, acknowledged: true }).catch((e) => String(e.message));
+      check("finance reviews only what HR has submitted (P2-21)", /PAYROLL_NOT_SUBMITTED|PAYROLL_REVIEW_BLOCKED/.test(String(early)), String(early).slice(0, 40));
+      await submitPayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code });
+      check("submitted: the month waits for finance", payrollStage(await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: md.entityId, month: MONTH } } })) === "REVIEW");
       // 复核须拦住缺失项 (需求清单 v3 P1-25): no review while someone has no bank account; other gaps need a tick
       const noBank = await prisma.employee.findMany({ where: { id: { in: (await prisma.payrollLine.findMany({ where: { run: { entityId: md.entityId, month: MONTH } }, select: { employeeId: true } })).map((l) => l.employeeId) }, OR: [{ bankAccount: null }, { bankAccount: "" }] }, select: { id: true } });
       if (noBank.length) {

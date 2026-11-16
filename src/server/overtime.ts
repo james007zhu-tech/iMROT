@@ -137,9 +137,11 @@ export async function previewOvertimeMonth(entityId: string, month: string) {
  * 月结: freeze the month's overtime pay per employee and mark the requests paid. Only after the month has ended (Bangkok).
  * Idempotent — a second close returns the first one. `closedBy` is an employee code or "SYSTEM".
  */
-export async function closeOvertimeMonth(input: { entityId: string; month: string; closedBy: string; now?: Date }) {
+export async function closeOvertimeMonth(input: { entityId: string; month: string; closedBy: string; now?: Date; early?: boolean }) {
   if (!/^\d{4}-\d{2}$/.test(input.month)) throw new Error(`BAD_MONTH:${input.month}`);
-  if (input.month >= localToday(input.now).month) throw new Error(`OT_MONTH_NOT_ENDED:${input.month}`);
+  // `early`: the payroll of this month is being approved before the month is over — what is approved by now is frozen
+  // with it; overtime approved later is paid with the next month (需求清单 v3 P0-10, 第 7 轮).
+  if (!input.early && input.month >= localToday(input.now).month) throw new Error(`OT_MONTH_NOT_ENDED:${input.month}`);
   const existing = await prisma.overtimeMonth.findUnique({ where: { entityId_month: { entityId: input.entityId, month: input.month } } });
   if (existing) return existing;
   const lines = await linesFor(await payableFor(input.entityId, input.month), input.month);

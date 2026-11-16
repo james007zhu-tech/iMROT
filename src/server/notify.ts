@@ -6,7 +6,7 @@
  *  MD/ADMIN/MANAGER: all orders; margin approvals; staff birthdays and expiring documents (MD)
  *  FINANCE (+MD):   customer invoices due, supplier invoices to pay
  */
-import { can, scoped, hasRole } from "@/lib/caps";
+import { can, scoped, hasRole, isApprover } from "@/lib/caps";
 import { paymentHold } from "@/server/srm";
 import { orderScope, teamIds } from "@/server/scope";
 import { openResetRequests } from "@/server/password-reset";
@@ -77,6 +77,14 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     const turn = !run || !run.preparedBy ? "HR" : run.status === "DRAFT" ? (run.taxConfirmedAt ? "MD" : "FINANCE") : run.status === "APPROVED" ? "FINANCE" : null;
     if (started && turn && hasRole(me, turn)) push(`payrollDue_${!run || !run.preparedBy ? "prep" : run.status === "APPROVED" ? "pay" : turn === "MD" ? "approve" : "review"}`, 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
   }
+  // 工资每一步都推给下一位 (需求清单 v3 P2-21): whatever the month, a payroll handed on waits in the next person's list
+  if (hasRole(me, "FINANCE", "MD")) {
+    const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
+    for (const r of await prisma.payrollRun.findMany({ where: { entityId, status: "DRAFT", submittedAt: { not: null } }, select: { month: true, taxConfirmedAt: true } })) {
+      if (!r.taxConfirmedAt && hasRole(me, "FINANCE")) push("payrollReview", 0, r.month, `/people/payroll/${r.month}`);
+      if (r.taxConfirmedAt && hasRole(me, "MD")) push("payrollApprove", 0, r.month, `/people/payroll/${r.month}`);
+    }
+  }
   // 付款复批: payments above the limit wait for the MD
   if (hasRole(me, "MD")) {
     // 作废待批: a tax invoice or a receipt someone asked to void
@@ -93,9 +101,19 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     if (made && Number(date.slice(8, 10)) <= 7) push("cashPlanReady", 7 - Number(date.slice(8, 10)), month, `/finance/cash-plan?month=${month}`, Number((made.plan.totals as { out?: number }).out ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 }));
   }
   // 忘记密码: someone asked on the sign-in page; an MD issues the link from that person's ETH file
+  // 待我审批 (需求清单 v3 P2-24): overtime and expense claims of the people who report to me — the bell counts them the
+  // moment they are filed. The MD also gets those of people who have nobody else above them.
+  if (isApprover(me)) {
+    const md = hasRole(me, "MD");
+    const whose = md ? { OR: [{ managerId: me.id }, { managerId: null }] } : { managerId: me.id };
+    for (const r of await prisma.overtimeRequest.findMany({ where: { status: "PENDING", employeeId: { not: me.id }, employee: whose }, select: { id: true, workDate: true, employee: { select: { name: true } } }, orderBy: { workDate: "asc" }, take: 50 }))
+      push("otApprove", 0, `${r.employee.name} ${r.workDate.toISOString().slice(5, 10)}`, "/people/overtime", r.employee.name);
+    for (const c of await prisma.expenseClaim.findMany({ where: { status: "PENDING", employeeId: { not: me.id }, employee: whose }, select: { no: true, employee: { select: { name: true } } }, take: 50 }))
+      push("expenseApprove", 0, c.no ?? "", "/finance/expenses", c.employee.name);
+  }
   if (hasRole(me, "MD")) for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked";
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "payrollApprove";
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
 }
