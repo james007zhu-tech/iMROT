@@ -7,6 +7,7 @@
  *  FINANCE (+MD):   customer invoices due, supplier invoices to pay
  */
 import { can, scoped } from "@/lib/caps";
+import { paymentHold } from "@/server/srm";
 import { orderScope, teamIds } from "@/server/scope";
 import { openResetRequests } from "@/server/password-reset";
 import { ensureCashPlan, mayPlan } from "@/server/cash-plan";
@@ -34,7 +35,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     me.role === "HR" || me.role === "FINANCE" ? [] : prisma.repairJob.findMany({ where: { nextDueAt: { gte: soon(-60), lte: soon(14) }, ...(team ? { engineerId: { in: team } } : {}) }, orderBy: { nextDueAt: "desc" }, select: { no: true, assetId: true, nextDueAt: true, finishedAt: true, asset: { select: { code: true, customer: { select: { name: true } } } } }, take: 200 }),
     !can.customers(me.role) || me.role === "FINANCE" ? [] : prisma.contact.findMany({ where: { birthday: { not: null } }, select: { id: true, name: true, birthday: true, customer: { select: { code: true, name: true } } } }),
     money ? prisma.invoice.findMany({ where: { paidAt: null, cancelledAt: null, dueAt: { lte: soon(3) } }, select: { no: true, dueAt: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } }, take: 200 }) : [],
-    money ? prisma.supplierInvoice.findMany({ where: { status: "OPEN", dueDate: { lte: soon(7) } }, select: { invoiceNo: true, dueDate: true, supplier: { select: { name: true } } }, take: 200 }) : [],
+    money ? prisma.supplierInvoice.findMany({ where: { status: "OPEN" }, select: { invoiceNo: true, invoiceDate: true, dueDate: true, accrued: true, mdApprovedAt: true, currency: true, payable: true, subtotal: true, matchDiff: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } }, take: 300 }) : [],
     can.staff(me.role) ? prisma.employee.findMany({ where: { active: true, birthDate: { not: null } }, select: { code: true, name: true, birthDate: true } }) : [],
     can.staff(me.role) ? prisma.employeeCredential.findMany({ where: { expiresAt: { not: null, lte: soon(180) }, employee: { active: true } }, select: { kind: true, expiresAt: true, remindDays: true, employee: { select: { code: true, name: true } } } }) : [],
   ]);
@@ -56,7 +57,14 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   for (const j of pm) { if (seen.has(j.assetId)) continue; seen.add(j.assetId); push("maintenanceDue", daysUntil(j.nextDueAt!, today), j.asset.code, `/assets/${j.asset.code}`, j.asset.customer?.name); }
   for (const c of contacts) { const d = daysToBirthday(c.birthday, today); if (d != null && d <= 7) push("contactBirthday", d, maskName(c.name), `/customers/${c.customer.code}`, c.customer.name); }
   for (const i of invoices) push("receivable", daysUntil(i.dueAt!, today), i.no, `/service-orders/${i.serviceOrder.no}/payment`, i.serviceOrder.customer.name);
-  for (const p of payables) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
+  // 应付提醒分三类 (需求清单 v3 P1-23): 票未到 — chase the supplier for the invoice; 待 MD 复批 — the MD's, not finance's;
+  // 该付款了 — only what may be paid and falls due within 3 days.
+  for (const p of payables) {
+    if (p.accrued) { const waited = -daysUntil(p.invoiceDate, today); if (me.role === "FINANCE" && waited >= 7) push("payableNoInvoice", -waited, p.purchaseOrder.no, `/purchasing/orders/${p.purchaseOrder.no}`, p.supplier.name); continue; }
+    const hold = p.mdApprovedAt ? null : await paymentHold(p);
+    if (hold) { if (me.role === "MD") push("payRelease", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name); continue; }
+    if (me.role === "FINANCE" && daysUntil(p.dueDate, today) <= 3) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
+  }
   for (const e of staff) { const d = daysToBirthday(e.birthDate, today); if (d != null && d <= 7) push("staffBirthday", d, e.name, `/people/${e.code}`); }
   for (const c of creds) { const d = daysUntil(c.expiresAt!, today); if (d <= c.remindDays) push("credential", d, `${c.employee.name} ${c.kind}`, `/people/${c.employee.code}`); }
   // 朱总 2026-11-11: last month's pay goes out by the 5th. From the 1st the MD is reminded until the month is paid.
@@ -74,8 +82,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     // 作废待批: a tax invoice or a receipt someone asked to void
     for (const x of await prisma.taxInvoice.findMany({ where: { voidStatus: "REQUESTED" }, select: { no: true, voidRequestReason: true, serviceOrder: { select: { no: true } } }, take: 30 })) push("voidAsked", 0, x.no, `/service-orders/${x.serviceOrder.no}/invoice`, x.voidRequestReason ?? "");
     for (const x of await prisma.receipt.findMany({ where: { voidStatus: "REQUESTED", voidedAt: null }, select: { no: true, voidRequestReason: true, invoice: { select: { serviceOrder: { select: { no: true } } } } }, take: 30 })) push("voidAsked", 0, x.no, `/service-orders/${x.invoice.serviceOrder.no}/payment`, x.voidRequestReason ?? "");
-    const waiting = await prisma.supplierInvoice.findMany({ where: { status: "OPEN", accrued: false, mdApprovedAt: null, currency: "THB", payable: { gt: MD_LIMIT_THB } }, select: { invoiceNo: true, dueDate: true, supplier: { select: { name: true } } }, take: 50 });
-    for (const p of waiting) push("payRelease", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
+    // (payments waiting for the MD are raised above, with the payables)
   }
   // 现金计划: the month's plan is written the first time anyone opens the system in that month; finance and the MD
   // are told for the first week

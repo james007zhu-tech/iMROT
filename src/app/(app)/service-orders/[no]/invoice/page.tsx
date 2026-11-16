@@ -3,7 +3,7 @@ import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { decideTaxInvoiceVoid, issueCreditNote, issueInvoice, issueTaxInvoice, requestTaxInvoiceVoid, voidCreditNote } from "@/server/to";
+import { decideTaxInvoiceVoid, issueCreditNote, issueInvoice, issueTaxInvoice, requestTaxInvoiceVoid, voidCreditNote, withdrawVoidRequest } from "@/server/to";
 import { liveNumbers } from "@/lib/numbering";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
@@ -67,9 +67,13 @@ export default async function Invoice({ params, searchParams }: { params: Promis
     "use server";
     await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await voidCreditNote({ no: String(f.get("cn")), actorCode: me.code, reason: String(f.get("reason") ?? "") }); return { ok: String(f.get("cn")), to: `/service-orders/${no}/invoice` }; }, `/service-orders/${no}/invoice`);
   }
+  async function withdrawVoid(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await withdrawVoidRequest({ no: String(f.get("docNo")), actorCode: me.code }); return "voidWithdrawn"; }, `/service-orders/${no}/invoice`);
+  }
   const voidTag = (x: (typeof taxInvoices)[number]) => x.voidedAt ? <Tag hot>{u("tiVoided")}</Tag> : x.voidStatus === "REQUESTED" ? <Tag hot>{u("tiVoidRequested")}</Tag> : x.voidStatus === "REJECTED" ? <Tag>{u("tiVoidRejected")}</Tag> : <Tag>{u("tiValid")}</Tag>;
   return (
-    <StepPage order={order} title={feeLines ? u("step_invoiceFee") : u("step_invoice")} ok={ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} saveLabel={businessClosureOn() && canIssue ? u("issueTiIv") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
+    <StepPage order={order} title={feeLines ? u("step_invoiceFee") : u("step_invoice")} ok={ok === "voidWithdrawn" ? u("voidWithdrawn") : ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} saveLabel={businessClosureOn() && canIssue ? u("issueTiIv") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
       {taxInvoices.length > 0 && (
         <Card title={<>{u("taxInvoicesIssued")} <Tag>{taxInvoices.length}</Tag></>}>
           <Table head={["TITH", u("bookNo"), u("issueDate"), t("total"), "IVTH", t("status"), u("voidReason"), ""]}>
@@ -88,6 +92,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
                     <form action={credit} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="ti" value={x.no} /><input name="subtotal" type="number" step="0.01" min="0.01" inputMode="decimal" required placeholder={u("creditAmountPh")} className={`${inputCls} w-40`} /><input name="reason" required placeholder={u("creditReason")} className={`${inputCls} w-44`} /><button className={`${btnGhost} whitespace-nowrap`}>{u("creditIssue")}</button></form></details>}
                   {x.voidStatus === "REQUESTED" && me.role === "MD" && <form action={decideVoid} className="flex flex-wrap gap-1"><input type="hidden" name="ti" value={x.no} /><input name="note" placeholder={t("note")} className={`${inputCls} w-36`} /><button name="decision" value="APPROVED" className="min-h-10 whitespace-nowrap rounded-lg border border-alert px-3 text-sm font-semibold text-alert-ink">{u("approveVoid")}</button><button name="decision" value="REJECTED" className={`${btnGhost} whitespace-nowrap`}>{u("rejectVoid")}</button></form>}
                   {x.voidStatus === "REQUESTED" && me.role !== "MD" && <span className="text-navy/60">{u("awaitingMd")}</span>}
+                  {x.voidStatus === "REQUESTED" && !x.voidedAt && (x.voidRequestedById === me.id || can.invoice(me.role)) && <form action={withdrawVoid}><input type="hidden" name="docNo" value={x.no} /><button className="text-xs text-blue underline">{u("voidWithdraw")}</button></form>}
                 </td>
               </tr>
             ))}

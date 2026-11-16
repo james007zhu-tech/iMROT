@@ -14,6 +14,9 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 /** What stops approval: a missing score or sales target, or overtime not yet closed. */
 export const BLOCKING = ["PERFORMANCE", "TARGET", "TARGET_Q", "OVERTIME_OPEN"];
+/** What stops the finance review (需求清单 v3 P1-25): pay cannot go to an empty bank account, nor leave overtime out. The rest is listed and acknowledged. */
+export const REVIEW_BLOCKING = ["BANK", "OVERTIME_OPEN"];
+export const REVIEW_NOTED = ["TAX_ID", "SSO_NO", "JOINED"];
 
 async function md(actorCode: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
@@ -55,7 +58,8 @@ export async function computePayroll(input: { entityId: string; month: string; a
   ]);
   const quarter = quarterOf(input.month), qEnd = isQuarterEnd(input.month);
   const targets = await salesProgress(input.entityId, [input.month, ...(qEnd ? [quarter] : [])], ids);
-  const otOpen = !otMonth && (await prisma.overtimeRequest.count({ where: { entityId: input.entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to } } })) > 0;
+  // 加班费未月结 is said only of people who have overtime waiting (需求清单 v3 P1-16) — not of the whole company
+  const otWaiting = new Set(otMonth ? [] : (await prisma.overtimeRequest.findMany({ where: { entityId: input.entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to } }, select: { employeeId: true } })).map((r) => r.employeeId));
 
   const lines: (Prisma.PayrollLineUncheckedCreateWithoutRunInput & { claimIds: string[] })[] = [];
   const skipped: string[] = [];
@@ -81,10 +85,11 @@ export async function computePayroll(input: { entityId: string; month: string; a
     const quarterlyPay = qEnd ? r2(Number(salary.quarterlyPay ?? 0) * 3) : 0;
     if (sales ? variablePay > 0 && !mt : variablePay > 0 && !review) missing.push(sales ? "TARGET" : "PERFORMANCE");
     if (quarterlyPay > 0 && !qt) missing.push("TARGET_Q");
-    if (otOpen) missing.push("OVERTIME_OPEN");
+    if (otWaiting.has(e.id)) missing.push("OVERTIME_OPEN");
     if (!e.taxNo) missing.push("TAX_ID");
     if (!e.ssoNo) missing.push("SSO_NO");
     if (!e.bankAccount) missing.push("BANK");
+    if (!e.joinedAt) missing.push("JOINED"); // 个税按全年估算 without it (P2-12)
     const allowances = ((salary?.allowances as Allowance[] | null) ?? []);
     const num = (d: unknown) => (d == null ? null : Number(d));
     const c = computeLine({
@@ -213,9 +218,15 @@ export async function mySlips(employeeId: string) {
 }
 
 /** 财务复核: the finance person ticks that the month is right and every withholding figure matches the accountant's. Not the person who computed it. */
-export async function confirmTax(input: { entityId: string; month: string; actorCode: string; confirmed: boolean }) {
+export async function confirmTax(input: { entityId: string; month: string; actorCode: string; confirmed: boolean; acknowledged?: boolean }) {
   const actor = await roleOf(input.actorCode, "FINANCE", "PAYROLL_REVIEWER_ONLY");
-  const run = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: input.entityId, month: input.month } } });
+  const run = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: input.entityId, month: input.month } }, include: { lines: { select: { missing: true, employee: { select: { code: true } } } } } });
+  if (input.confirmed) {
+    // 复核须拦住缺失项: no review while anyone lacks a bank account or has overtime not yet settled; other gaps are acknowledged
+    const stop = run.lines.filter((l) => l.missing.some((m) => REVIEW_BLOCKING.includes(m)));
+    if (stop.length) throw new Error(`PAYROLL_REVIEW_BLOCKED:${stop.map((l) => l.employee.code).join("、")}`);
+    if (run.lines.some((l) => l.missing.some((m) => REVIEW_NOTED.includes(m))) && !input.acknowledged) throw new Error("PAYROLL_REVIEW_ACK");
+  }
   if (run.status !== "DRAFT") throw new Error(`PAYROLL_LOCKED:${input.month}`);
   if (run.preparedBy === actor.code) throw new Error("PAYROLL_SAME_PERSON");
   await prisma.payrollRun.update({ where: { id: run.id }, data: input.confirmed ? { taxConfirmedBy: actor.code, taxConfirmedAt: new Date() } : { taxConfirmedBy: null, taxConfirmedAt: null } });

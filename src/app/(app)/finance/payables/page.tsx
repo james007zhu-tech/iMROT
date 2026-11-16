@@ -4,10 +4,11 @@ import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
 import { Flash } from "@/components/Flash";
-import { PageHeader, Table, Tag, btnBlue, inputCls } from "@/components/ui";
-import { payableThb } from "@/server/srm";
-import { MD_LIMIT_THB, mismatch, overLimit } from "@/lib/pay-rules";
-import { payAction, releaseAction } from "./actions";
+import { PageHeader, Table, Tag, btnBlue, btnGhost, inputCls } from "@/components/ui";
+import { MD_LIMIT_THB, mismatch } from "@/lib/pay-rules";
+import { payAction, releaseAction, withdrawAction } from "./actions";
+import { paymentHold } from "@/server/srm";
+import { can } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,8 @@ export default async function Payables({ searchParams }: { searchParams: Promise
   const rows = await prisma.supplierInvoice.findMany({ where: all ? {} : { status: "OPEN" }, orderBy: [{ status: "asc" }, { dueDate: "asc" }], take: 200, include: { supplier: true, purchaseOrder: { select: { no: true, kind: true, serviceOrder: { select: { no: true } } } } } });
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const mayPay = me.role === "FINANCE", md = me.role === "MD";
-  // a payment waits for the MD above the limit, or when the person paying is the one who registered the invoice
-  const waits = new Map(await Promise.all(rows.filter((r) => r.status === "OPEN" && !r.mdApprovedAt).map(async (r) => [r.id, !r.accrued && (overLimit(await payableThb(r)) || (mayPay && r.createdById === me.id) || (r.matchDiff != null && mismatch(Number(r.matchDiff), Number(r.subtotal) - Number(r.matchDiff))))] as const)));
+  // why a payment waits for the MD — only above the limit or when the invoice does not match the receipts (需求清单 v3 P1-24)
+  const holds = new Map(await Promise.all(rows.filter((r) => r.status === "OPEN" && !r.mdApprovedAt && !r.accrued).map(async (r) => [r.id, await paymentHold(r)] as const)));
   const openTotal = rows.filter((r) => r.status === "OPEN").reduce((s, r) => s + Number(r.payable), 0);
   return (
     <div className="space-y-4">
@@ -41,10 +42,13 @@ export default async function Payables({ searchParams }: { searchParams: Promise
               <td><Tag hot={overdue}>{r.accrued ? u("accruedWaits") : u(`payable_${r.status}`)}</Tag>{!r.accrued && r.matchDiff != null && mismatch(Number(r.matchDiff), Number(r.subtotal) - Number(r.matchDiff)) && !r.mdApprovedAt ? <span className="ml-1 text-xs font-semibold text-alert-ink">{u("matchOff", { diff: Number(r.matchDiff).toFixed(2) })}</span> : null}{r.paymentNo ? <span className="ml-1 font-mono text-xs">{r.paymentNo}</span> : null}</td>
               <td>
                 {r.status === "OPEN" && r.mdApprovedAt && <span className="mb-1 block text-xs text-navy/70">{u("payReleased", { who: r.mdApprovedBy ?? "", date: localIso(r.mdApprovedAt)!.slice(0, 10) })}</span>}
-                {r.status === "OPEN" && waits.get(r.id) && (md
+                {r.status === "OPEN" && holds.get(r.id) && <span className="mb-1 block text-xs font-semibold text-alert-ink">{u(`payHold_${holds.get(r.id)}`, { limit: MD_LIMIT_THB.toLocaleString("en-US") })}</span>}
+                {r.status === "OPEN" && holds.get(r.id) && (md
                   ? <form action={releaseAction.bind(null, r.id)}><button className={`${btnBlue} whitespace-nowrap`}>{u("payRelease")}</button></form>
                   : <Tag hot>{u("payWaitsMd")}</Tag>)}
-                {r.status === "OPEN" && !r.accrued && mayPay && !waits.get(r.id) && <form action={payAction} className="flex flex-wrap gap-1"><input type="hidden" name="id" value={r.id} /><input name="paymentRef" placeholder={u("paymentRefPh")} className={`${inputCls} w-32`} /><input name="paidAt" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={`${inputCls} w-36`} /><button className={`${btnBlue} whitespace-nowrap`}>{u("payNow")}</button></form>}
+                {r.status === "OPEN" && !r.accrued && mayPay && !holds.get(r.id) && r.createdById === me.id && <span className="mb-1 block text-xs text-navy/70">{u("paySamePerson")}</span>}
+                {r.status === "OPEN" && !r.accrued && can.finance(me.role) && <details className="mb-1"><summary className="cursor-pointer text-xs text-blue">{u("withdrawBtn")}</summary><form action={withdrawAction} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="id" value={r.id} /><input name="reason" required placeholder={u("withdrawReason")} className={`${inputCls} w-44`} /><button className={`${btnGhost} whitespace-nowrap`}>{u("withdrawGo")}</button></form></details>}
+                {r.status === "OPEN" && !r.accrued && mayPay && !holds.get(r.id) && <form action={payAction} className="flex flex-wrap gap-1"><input type="hidden" name="id" value={r.id} /><input name="paymentRef" placeholder={u("paymentRefPh")} className={`${inputCls} w-32`} /><input name="paidAt" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={`${inputCls} w-36`} /><button className={`${btnBlue} whitespace-nowrap`}>{u("payNow")}</button></form>}
               </td>
             </tr>;
           })}

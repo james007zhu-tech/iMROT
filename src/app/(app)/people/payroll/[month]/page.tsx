@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
-import { BLOCKING, payrollDetail } from "@/server/payroll";
+import { BLOCKING, REVIEW_BLOCKING, REVIEW_NOTED, payrollDetail } from "@/server/payroll";
 import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { payslipNo } from "@/lib/numbering";
 import { DEFAULT_BANDS, type PerfBand, type Withholding } from "@/lib/payroll-run";
@@ -33,13 +33,15 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
   const draft = run.status === "DRAFT";
   const money = (n: unknown) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const blocking = run.lines.filter((l) => l.missing.some((m) => BLOCKING.includes(m)));
+  const reviewStop = run.lines.filter((l) => l.missing.some((m) => REVIEW_BLOCKING.includes(m))), reviewNoted = run.lines.filter((l) => l.missing.some((m) => REVIEW_NOTED.includes(m)));
+  const bankGap = run.lines.some((l) => l.missing.includes("BANK"));
   const Row = ({ k, v, strong = false, minus = false }: { k: string; v: unknown; strong?: boolean; minus?: boolean }) => Number(v) === 0 && !strong ? null : <div className={`flex justify-between gap-3 ${strong ? "font-semibold text-navy" : ""}`}><span>{k}</span><span className="tabular-nums">{minus && Number(v) !== 0 ? "−" : ""}{money(v)}</span></div>;
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/people/payroll", label: t("payTitle") }} title={<span className="font-mono">{month}</span>} badge={<Tag hot={draft}>{t(`pay_${run.status}`)}</Tag>}
         actions={<>
           <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{t("payExport")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">
-            {["bank", "sso", "pnd1", "full"].map((k) => <a key={k} href={`/api/payroll/${month}/export?kind=${k}`} className="rounded px-2 py-1 hover:bg-tint">{t(`payExport_${k}`)}</a>)}
+            {["bank", "sso", "pnd1", "full"].filter((k) => !(k === "bank" && bankGap)).map((k) => <a key={k} href={`/api/payroll/${month}/export?kind=${k}`} className="rounded px-2 py-1 hover:bg-tint">{t(`payExport_${k}`)}</a>)}
           </div></details>
           {draft && prep && <form action={computeAction.bind(null, month)}><button className={btnGhost}>{t("payRefresh")}</button></form>}
           {draft && md && <form action={approveAction.bind(null, month)}><button className={btnBlue} disabled={blocking.length > 0 || !run.taxConfirmedAt} title={blocking.length ? t("payBlocked") : !run.taxConfirmedAt ? t("payTaxFirst") : undefined} style={blocking.length || !run.taxConfirmedAt ? { opacity: 0.5 } : undefined}>{t("payApprove")}</button></form>}
@@ -51,13 +53,20 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
         {([["payStepPrep", run.preparedBy, true], ["payStepReview", run.taxConfirmedBy, !!run.taxConfirmedAt], ["payStepApprove", run.approvedBy, !!run.approvedAt], ["payStepPaid", run.paidAt ? localIso(run.paidAt)!.slice(0, 10) : null, !!run.paidAt]] as const).map(([k, who, done], i) =>
           <li key={k} className={`rounded-full border px-3 py-1 ${done && who ? "border-navy bg-navy text-white" : "border-navy/30 bg-white text-navy/70"}`}>{i + 1}. {t(k)}{done && who ? ` · ${who}` : ""}</li>)}
       </ol>
+      {draft && (reviewStop.length > 0 || reviewNoted.length > 0) && <div className="rounded-xl border border-[#E6A23C] bg-[#FFF4E5] p-3 text-[13px] text-[#7A4A00]">
+        {reviewStop.length > 0 && <><div className="font-semibold">{t("payReviewStop", { n: reviewStop.length })}</div><ul className="mt-1 list-disc pl-5">{reviewStop.map((l) => <li key={l.id}><Link href={`/people/${l.employee.code}`} className="underline">{l.employee.code} {l.employee.name}</Link>：{l.missing.filter((m) => REVIEW_BLOCKING.includes(m)).map((m) => t(`miss_${m}`)).join("、")}{l.missing.includes("OVERTIME_OPEN") ? <> · <Link href="/people/overtime" className="underline">{t("payGoConfirmOt")}</Link></> : null}</li>)}</ul></>}
+        {reviewNoted.length > 0 && <><div className={`font-semibold ${reviewStop.length ? "mt-2" : ""}`}>{t("payReviewNoted", { n: reviewNoted.length })}</div><ul className="mt-1 list-disc pl-5">{reviewNoted.map((l) => <li key={l.id}>{l.employee.code} {l.employee.name}：{l.missing.filter((m) => REVIEW_NOTED.includes(m)).map((m) => t(`miss_${m}`)).join("、")}</li>)}</ul></>}
+      </div>}
       {draft && blocking.length > 0 && <Alert>{t("payBlockedList", { n: blocking.length })} {blocking.map((l) => `${l.employee.name}（${l.missing.filter((m) => BLOCKING.includes(m)).map((m) => t(`miss_${m}`)).join("、")}）`).join("；")}</Alert>}
 
       {skipped.length > 0 && <p className="rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-3 py-2 text-[13px] text-[#7A4A00]">{t("paySkipped", { n: skipped.length })} {skipped.join("、")}</p>}
       {draft && <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-[13px] ${run.taxConfirmedAt ? "border-navy/20 bg-white text-navy" : "border-[#E6A23C] bg-[#FFF4E5] text-[#7A4A00]"}`}>
         <span className="min-w-0 flex-1">{run.taxConfirmedAt ? t("payTaxDone", { who: run.taxConfirmedBy ?? "", date: localIso(run.taxConfirmedAt)!.slice(0, 10) }) : t("payTaxTodo")}</span>
         <a href={`/api/payroll/${month}/export?kind=pnd1`} className={btnGhost}>{t("payExport_pnd1")}</a>
-        {fin && <form action={taxAction.bind(null, month, !run.taxConfirmedAt)}><button className={run.taxConfirmedAt ? btnGhost : btnPrimary}>{run.taxConfirmedAt ? t("payTaxUndo") : t("payTaxConfirm")}</button></form>}
+        {fin && <form action={taxAction.bind(null, month, !run.taxConfirmedAt)} className="flex flex-wrap items-center gap-2">
+          {!run.taxConfirmedAt && reviewStop.length === 0 && reviewNoted.length > 0 && <label className="flex items-center gap-1.5 text-[13px]"><input type="checkbox" name="ack" required className="h-4 w-4" />{t("payReviewAck")}</label>}
+          <button disabled={!run.taxConfirmedAt && reviewStop.length > 0} className={`${run.taxConfirmedAt ? btnGhost : btnPrimary} disabled:cursor-not-allowed disabled:opacity-40`}>{run.taxConfirmedAt ? t("payTaxUndo") : t("payTaxConfirm")}</button>
+        </form>}
       </div>}
       <p className="text-xs text-navy/70">{t("payDeadline", { month })}</p>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-6">

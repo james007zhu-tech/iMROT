@@ -30,18 +30,19 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     const acc2 = await prisma.supplierInvoice.findMany({ where: { purchaseOrderId: po.id, accrued: true } });
     check("the second receipt moves the same accrual to 10,000 (one row per POTH)", acc2.length === 1 && Number(acc2[0].subtotal) === 10000 && Number(acc2[0].payable) === 10700, `${acc2.length} rows, ${acc2[0]?.payable}`);
     check("an accrual cannot be paid", /PAYABLE_ACCRUED/.test(await msg(paySupplierInvoice({ id: acc2[0].id, actorCode: fin.code }))));
-    const month = localIso(new Date())!.slice(0, 7);
+    const bookMonth = localIso(new Date())!.slice(0, 7);
+    const month = localIso(acc2[0].dueDate)!.slice(0, 7); // 账期缺省 30 天: the accrual falls due a month after the receipt
     const plan = await buildCashPlan(md.entityId, month);
     const line = plan.lines.find((l) => l.ref === po.no);
     check("the cash plan of the due month carries it once, VAT included", !!line && line.amount === 10700 && plan.lines.filter((l) => l.ref === po.no).length === 1, String(line?.amount));
     const rep0 = await financeReport(md.entityId, new Date().getFullYear(), { withPayroll: false });
-    const m0 = rep0.months.find((m) => m.month === month)!;
+    const m0 = rep0.months.find((m) => m.month === bookMonth)!;
 
     const inv = await registerSupplierInvoice({ poNo: po.no, actorCode: md.code, invoiceNo: `TEST-INV-${tag}`, invoiceDate: new Date(), subtotal: 10000 });
     const left = await prisma.supplierInvoice.count({ where: { purchaseOrderId: po.id, accrued: true } });
     check("the invoice replaces the accrual: 已到票, matched", left === 0 && Number(inv.matchDiff) === 0 && Number(inv.payable) === 10700, `diff ${inv.matchDiff}`);
     const rep1 = await financeReport(md.entityId, new Date().getFullYear(), { withPayroll: false });
-    const m1 = rep1.months.find((m) => m.month === month)!;
+    const m1 = rep1.months.find((m) => m.month === bookMonth)!;
     check("purchases counted once (accrual, then invoice); input VAT only once the invoice is in", Math.abs(m1.purchases - m0.purchases) < 0.01 && Math.abs(m1.vatIn - m0.vatIn - 700) < 0.01, `purchases ${m0.purchases}→${m1.purchases}, vatIn +${(m1.vatIn - m0.vatIn).toFixed(2)}`);
     check("a matched invoice is paid by finance", (await msg(paySupplierInvoice({ id: inv.id, actorCode: fin.code }))) === "ok");
 

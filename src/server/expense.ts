@@ -86,7 +86,8 @@ export async function payExpense(input: { id: string; actorCode: string; paidRef
   if (c.status !== "APPROVED") throw new Error("EXPENSE_NOT_APPROVED");
   if (c.payrollRunId) {
     const run = await prisma.payrollRun.findUnique({ where: { id: c.payrollRunId } });
-    if (run && run.status !== "DRAFT") throw new Error(`EXPENSE_IN_PAYROLL:${run.month}`);
+    // 一条路 (需求清单 v3 P1-31): a claim that has gone into a payroll is paid with that payroll and nowhere else
+    if (run) throw new Error(`EXPENSE_IN_PAYROLL:${run.month}`);
   }
   await prisma.expenseClaim.update({ where: { id: c.id }, data: { status: "PAID", paidAt: new Date(), paidRef: input.paidRef?.trim() || null, payrollRunId: null } });
   await audit(actor.id, "EXPENSE_PAID", c.id, { amount: Number(c.amount) });
@@ -97,5 +98,6 @@ export async function expensesFor(actorCode: string, filter: { status?: string; 
   const scope: Prisma.ExpenseClaimWhereInput = filter.mine || !(SEE_ALL.includes(a.role) || a.role === "MANAGER") ? { employeeId: a.id }
     : SEE_ALL.includes(a.role) ? { entityId: a.entityId } : { OR: [{ employeeId: a.id }, { employee: { managerId: a.id } }] };
   const rows = await prisma.expenseClaim.findMany({ where: { ...scope, ...(filter.status ? { status: filter.status as never } : {}) }, include: { employee: { select: { id: true, code: true, name: true, managerId: true, role: true } }, approver: { select: { name: true } } }, orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }], take: 200 });
-  return { me: a, rows: await Promise.all(rows.map(async (r) => ({ ...r, canDecide: r.status === "PENDING" && (await mayDecide(a.id, a.role, r)), canPay: r.status === "APPROVED" && mayPayClaim(a, r) }))), seeAll: SEE_ALL.includes(a.role) };
+  const runs = new Map((await prisma.payrollRun.findMany({ where: { id: { in: rows.map((r) => r.payrollRunId).filter((x): x is string => !!x) } }, select: { id: true, month: true } })).map((x) => [x.id, x.month]));
+  return { me: a, rows: await Promise.all(rows.map(async (r) => ({ ...r, payrollMonth: r.payrollRunId ? runs.get(r.payrollRunId) ?? null : null, canDecide: r.status === "PENDING" && (await mayDecide(a.id, a.role, r)), canPay: r.status === "APPROVED" && !r.payrollRunId && mayPayClaim(a, r) }))), seeAll: SEE_ALL.includes(a.role) };
 }
