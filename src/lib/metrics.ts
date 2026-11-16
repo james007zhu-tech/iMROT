@@ -8,7 +8,9 @@ import type { prisma as PrismaLike } from "@/lib/db";
 type Db = typeof PrismaLike;
 export type ChartKind = "kpi" | "bar" | "line" | "donut" | "table";
 export interface Series { labels: string[]; values: number[]; unit?: string; secondary?: number[] }
-export interface MetricDef { id: string; title: { th: string; zh: string; en: string }; charts: ChartKind[]; params?: { months?: number; top?: number }; run: (db: Db, params: Record<string, number>) => Promise<Series> }
+/** Whose numbers: `orders` narrows every order-based metric (the shop floor sees its own, 主管 the team's); `money` false drops the money metrics. */
+export interface MetricScope { orders?: object; money?: boolean }
+export interface MetricDef { id: string; title: { th: string; zh: string; en: string }; charts: ChartKind[]; /** receivables, revenue: MD, finance (sales: their own later) */ money?: boolean; /** counts the company's whole installed base: not narrowed, shown to all */ params?: { months?: number; top?: number }; run: (db: Db, params: Record<string, number>, scope?: MetricScope) => Promise<Series> }
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 function lastMonths(n: number): string[] {
@@ -25,18 +27,19 @@ const top = (m: Map<string, number>, n: number): Series => { const e = [...m.ent
 
 export const METRICS: MetricDef[] = [
   { id: "open_orders", title: { th: "งานบริการที่เปิดอยู่", zh: "进行中的服务单", en: "Open service orders" }, charts: ["kpi"],
-    run: async (db) => ({ labels: ["open"], values: [await db.serviceOrder.count({ where: { status: { notIn: ["CLOSED", "CANCELLED"] } } })] }) },
+    run: async (db, _p, sc) => ({ labels: ["open"], values: [await db.serviceOrder.count({ where: { ...(sc?.orders ?? {}), status: { notIn: ["CLOSED", "CANCELLED"] } } })] }) },
   { id: "assets_in_service", title: { th: "อุปกรณ์ที่ใช้งาน", zh: "在役设备", en: "Assets in service" }, charts: ["kpi"],
     run: async (db) => ({ labels: ["in service"], values: [await db.asset.count({ where: { status: "IN_SERVICE" } })] }) },
   { id: "assets_total", title: { th: "อุปกรณ์ทั้งหมด", zh: "设备总数", en: "Total assets" }, charts: ["kpi"],
     run: async (db) => ({ labels: ["assets"], values: [await db.asset.count({ where: { status: { not: "RETIRED" } } })] }) },
-  { id: "receivables_outstanding", title: { th: "ลูกหนี้คงค้าง", zh: "应收未收", en: "Receivables outstanding" }, charts: ["kpi"],
-    run: async (db) => { const inv = await db.invoice.findMany({ where: { paidAt: null } }); return { labels: ["outstanding"], values: [inv.reduce((s, i) => s + Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0), 0)], unit: inv[0]?.currency ?? "THB" }; } },
+  { id: "receivables_outstanding", title: { th: "ลูกหนี้คงค้าง", zh: "应收未收", en: "Receivables outstanding" }, charts: ["kpi"], money: true,
+    // 未收 = 发票 − 贷项 − 实收 − 预扣 (需求清单 v3 P0-16): every live invoice with something left, paid in part or not at all; cancelled ones never
+    run: async (db) => { const inv = (await db.invoice.findMany({ where: { cancelledAt: null } })).filter((i) => Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0) > 0.005); return { labels: ["outstanding"], values: [inv.reduce((s, i) => s + Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0), 0)], unit: inv[0]?.currency ?? "THB" }; } },
   { id: "orders_by_status", title: { th: "งานบริการตามสถานะ", zh: "服务单按状态", en: "Orders by status" }, charts: ["donut", "bar", "table"],
-    run: async (db) => { const o = await db.serviceOrder.findMany({ select: { status: true } }); const m = tally(o, (r) => r.status); return { labels: [...m.keys()], values: [...m.values()] }; } },
+    run: async (db, _p, sc) => { const o = await db.serviceOrder.findMany({ where: sc?.orders, select: { status: true } }); const m = tally(o, (r) => r.status); return { labels: [...m.keys()], values: [...m.values()] }; } },
   { id: "orders_per_month", title: { th: "งานบริการต่อเดือน", zh: "每月服务单", en: "Orders per month" }, charts: ["bar", "line"], params: { months: 12 },
-    run: async (db, p) => { const months = lastMonths(p.months ?? 12); const o = await db.serviceOrder.findMany({ select: { reportedAt: true } }); const m = tally(o, (r) => monthKey(r.reportedAt)); return { labels: months, values: months.map((k) => m.get(k) ?? 0) }; } },
-  { id: "revenue_cny_per_month", title: { th: "รายได้ (CNY) ต่อเดือน", zh: "每月开票收入（CNY）", en: "Invoiced revenue per month (CNY)" }, charts: ["bar", "line"], params: { months: 12 },
+    run: async (db, p, sc) => { const months = lastMonths(p.months ?? 12); const o = await db.serviceOrder.findMany({ where: sc?.orders, select: { reportedAt: true } }); const m = tally(o, (r) => monthKey(r.reportedAt)); return { labels: months, values: months.map((k) => m.get(k) ?? 0) }; } },
+  { id: "revenue_cny_per_month", title: { th: "รายได้ (CNY) ต่อเดือน", zh: "每月开票收入（CNY）", en: "Invoiced revenue per month (CNY)" }, charts: ["bar", "line"], money: true, params: { months: 12 },
     run: async (db, p) => { const months = lastMonths(p.months ?? 12); const t = await db.taxInvoice.findMany({ where: { voidedAt: null }, select: { issuedAt: true, totalCny: true } }); const m = tally(t, (r) => monthKey(r.issuedAt), (r) => Number(r.totalCny)); return { labels: months, values: months.map((k) => Math.round(m.get(k) ?? 0)), unit: "CNY" }; } },
   { id: "assets_by_status", title: { th: "อุปกรณ์ตามสถานะ", zh: "设备按状态", en: "Assets by status" }, charts: ["donut", "bar", "table"],
     run: async (db) => { const a = await db.asset.findMany({ select: { status: true } }); const m = tally(a, (r) => r.status); return { labels: [...m.keys()], values: [...m.values()] }; } },
@@ -45,15 +48,15 @@ export const METRICS: MetricDef[] = [
   { id: "assets_by_brand", title: { th: "อุปกรณ์ตามยี่ห้อ", zh: "设备按品牌", en: "Assets by brand" }, charts: ["donut", "bar", "table"], params: { top: 8 },
     run: async (db, p) => { const a = await db.asset.findMany({ select: { model: { select: { series: { select: { brand: { select: { name: true } } } } } } } }); return top(tally(a, (r) => r.model?.series.brand.name ?? "—"), p.top ?? 8); } },
   { id: "orders_by_kind", title: { th: "งานตามประเภท", zh: "服务单按类型", en: "Orders by kind" }, charts: ["donut", "bar"],
-    run: async (db) => { const o = await db.serviceOrder.findMany({ select: { kind: true } }); const m = tally(o, (r) => r.kind); return { labels: [...m.keys()], values: [...m.values()] }; } },
+    run: async (db, _p, sc) => { const o = await db.serviceOrder.findMany({ where: sc?.orders, select: { kind: true } }); const m = tally(o, (r) => r.kind); return { labels: [...m.keys()], values: [...m.values()] }; } },
   { id: "parts_replaced_top", title: { th: "อะไหล่ที่เปลี่ยนบ่อย", zh: "更换最多的部件", en: "Most replaced parts" }, charts: ["bar", "table"], params: { top: 10 },
     run: async (db, p) => { const e = await db.assetEvent.findMany({ where: { type: "PART_REPLACED" }, select: { payload: true } }); return top(tally(e, (r) => (r.payload as { partSku?: string } | null)?.partSku, (r) => Number((r.payload as { qty?: number } | null)?.qty ?? 1)), p.top ?? 10); } },
   { id: "repairs_per_customer", title: { th: "งานซ่อมต่อลูกค้า", zh: "各客户维修次数", en: "Repairs per customer" }, charts: ["bar", "table"], params: { top: 10 },
-    run: async (db, p) => { const o = await db.serviceOrder.findMany({ where: { kind: "REPAIR" }, select: { customer: { select: { name: true } } } }); return top(tally(o, (r) => r.customer.name), p.top ?? 10); } },
+    run: async (db, p, sc) => { const o = await db.serviceOrder.findMany({ where: { ...(sc?.orders ?? {}), kind: "REPAIR" }, select: { customer: { select: { name: true } } } }); return top(tally(o, (r) => r.customer.name), p.top ?? 10); } },
   { id: "avg_days_report_to_accept", title: { th: "วันเฉลี่ยแจ้งซ่อมถึงตรวจรับ", zh: "报修到验收平均天数", en: "Avg days report → acceptance" }, charts: ["kpi"],
-    run: async (db) => { const a = await db.acceptance.findMany({ where: { status: "ACCEPTED" }, select: { acceptedAt: true, serviceOrder: { select: { reportedAt: true } } } }); const d = a.filter((x) => x.acceptedAt).map((x) => (x.acceptedAt!.getTime() - x.serviceOrder.reportedAt.getTime()) / 86400000); return { labels: ["days"], values: [d.length ? Math.round((d.reduce((s, v) => s + v, 0) / d.length) * 10) / 10 : 0], unit: "days" }; } },
+    run: async (db, _p, sc) => { const a = await db.acceptance.findMany({ where: { status: "ACCEPTED", ...(sc?.orders ? { serviceOrder: sc.orders } : {}) }, select: { acceptedAt: true, serviceOrder: { select: { reportedAt: true } } } }); const d = a.filter((x) => x.acceptedAt).map((x) => (x.acceptedAt!.getTime() - x.serviceOrder.reportedAt.getTime()) / 86400000); return { labels: ["days"], values: [d.length ? Math.round((d.reduce((s, v) => s + v, 0) / d.length) * 10) / 10 : 0], unit: "days" }; } },
   { id: "orders_by_engineer", title: { th: "งานต่อวิศวกร", zh: "各工程师在办服务单", en: "Open orders per engineer" }, charts: ["bar", "table"],
-    run: async (db) => { const o = await db.serviceOrder.findMany({ where: { status: { notIn: ["CLOSED", "CANCELLED"] } }, select: { assignee: { select: { name: true } } } }); return top(tally(o, (r) => r.assignee?.name ?? "unassigned"), 20); } },
+    run: async (db, _p, sc) => { const o = await db.serviceOrder.findMany({ where: { ...(sc?.orders ?? {}), status: { notIn: ["CLOSED", "CANCELLED"] } }, select: { assignee: { select: { name: true } } } }); return top(tally(o, (r) => r.assignee?.name ?? "unassigned"), 20); } },
 ];
 
 export const metricById = (id: string) => METRICS.find((m) => m.id === id);
@@ -74,6 +77,7 @@ export function sanitizeSpec(input: unknown): DashboardSpec {
   return { widgets: widgets.slice(0, 12) };
 }
 
-export async function runSpec(db: Db, spec: DashboardSpec) {
-  return Promise.all(spec.widgets.map(async (w) => ({ ...w, def: metricById(w.metric)!, data: await metricById(w.metric)!.run(db, w.params ?? {}) })));
+export async function runSpec(db: Db, spec: DashboardSpec, scope?: MetricScope) {
+  const widgets = spec.widgets.filter((w) => scope?.money !== false || !metricById(w.metric)!.money);
+  return Promise.all(widgets.map(async (w) => ({ ...w, def: metricById(w.metric)!, data: await metricById(w.metric)!.run(db, w.params ?? {}, scope) })));
 }

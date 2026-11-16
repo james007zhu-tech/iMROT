@@ -22,7 +22,7 @@ async function md(actorCode: string) {
 }
 
 /** 内勤 computes, 财务 reviews and pays, the MD approves — three different people (朱总 2026-11-15). */
-async function roleOf(actorCode: string, role: "ADMIN" | "FINANCE", err: string) {
+async function roleOf(actorCode: string, role: "HR" | "FINANCE", err: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
   if (a.role !== role) throw new Error(err);
   return a;
@@ -34,7 +34,7 @@ export interface LineEdit { bonus?: number; otherDeduction?: number; whtManual?:
 export async function computePayroll(input: { entityId: string; month: string; actorCode: string; edits?: Record<string, LineEdit> }, internal = false) {
   if (!MONTH.test(input.month)) throw new Error(`BAD_MONTH:${input.month}`);
   // `internal`: the MD's own steps (bands, approval) re-run the sums without becoming the preparer
-  const actor = internal ? await md(input.actorCode) : await roleOf(input.actorCode, "ADMIN", "PAYROLL_PREPARER_ONLY");
+  const actor = internal ? await md(input.actorCode) : await roleOf(input.actorCode, "HR", "PAYROLL_PREPARER_ONLY");
   const { from, to } = monthRange(input.month);
   const lastDay = new Date(to.getTime() - 1);
   const existing = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId: input.entityId, month: input.month } }, include: { lines: true } });

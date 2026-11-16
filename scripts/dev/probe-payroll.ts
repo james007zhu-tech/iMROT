@@ -21,8 +21,8 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
   const md = await prisma.employee.findUniqueOrThrow({ where: { code: MD } });
   const tag = Date.now().toString(36);
   const eng = await prisma.employee.create({ data: { code: `ETH18${String((Date.now() + 7) % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe Engineer ${tag}`, role: "ENGINEER", managerId: md.id, joinedAt: new Date("2018-01-01"), taxNo: "1100000000001", ssoNo: "1100000000001", bankAccount: "123-4-56789-0", bankName: "KBANK" } });
-  const mk = (n: number, role: "ADMIN" | "FINANCE") => prisma.employee.create({ data: { code: `ETH17${String((Date.now() + n) % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe ${role} ${tag}`, role, managerId: md.id, joinedAt: new Date("2030-01-01") } });
-  const adm = await mk(11, "ADMIN"), fin = await mk(23, "FINANCE");
+  const mk = (n: number, role: "HR" | "FINANCE") => prisma.employee.create({ data: { code: `ETH17${String((Date.now() + n) % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe ${role} ${tag}`, role, managerId: md.id, joinedAt: new Date("2030-01-01") } });
+  const adm = await mk(11, "HR"), fin = await mk(23, "FINANCE");
   const made: { claim?: string } = {};
   // a salesperson on a 60,000 package: 50 % base, 30 % monthly target, 20 % quarterly target (朱总 2026-11-11)
   const seller = await prisma.employee.create({ data: { code: `ETH19${String(Date.now() % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe Sales ${tag}`, role: "SALES", managerId: md.id, joinedAt: new Date("2018-01-01"), taxNo: "1100000000002", ssoNo: "1100000000002", bankAccount: "123-4-56789-1", bankName: "KBANK" } });

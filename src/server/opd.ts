@@ -10,12 +10,14 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
 import { hashPassword, verifyPassword } from "@/lib/password";
+import { randomBytes } from "node:crypto";
+import { can } from "@/lib/caps";
 import type { CountryCode } from "@/lib/numbering";
 import { daysUntil, salarySummary, type Allowance, type Deduction } from "@/lib/payroll";
 import { audit } from "@/server/audit";
 import { cleanBankDetails } from "@/lib/bank";
 
-export const STAFF_ROLES = ["MD", "SALES", "ENGINEER", "WAREHOUSE", "FINANCE", "ADMIN", "MANAGER"] as const; // ADMIN = 内勤: computes the payroll (朱总 2026-11-15)
+export const STAFF_ROLES = ["MD", "SALES", "ENGINEER", "WAREHOUSE", "FINANCE", "HR", "ADMIN", "MANAGER"] as const; // HR computes the payroll; ADMIN = 内勤 (需求清单 v3)
 export const CONTRACT_TYPES = ["PROBATION", "FIXED_TERM", "PERMANENT", "CONTRACTOR"] as const;
 export const CREDENTIAL_KINDS = ["PASSPORT", "ID_CARD", "VISA", "WORK_PERMIT", "REPORT_90", "CONTRACT", "DEGREE", "CERTIFICATE", "DRIVING_LICENCE", "OTHER"] as const;
 export const REVIEW_KINDS = ["PROBATION", "QUARTERLY", "ANNUAL", "SPECIAL"] as const;
@@ -23,10 +25,14 @@ export const REVIEW_KINDS = ["PROBATION", "QUARTERLY", "ANNUAL", "SPECIAL"] as c
 export function assertMd(role: string) {
   if (role !== "MD") throw new Error("MD_ONLY");
 }
+/** Staff files are kept by the MD and HR (需求清单 v3 第 1 节). */
+export function assertStaff(role: string) {
+  if (!can.staff(role)) throw new Error("STAFF_ONLY");
+}
 
 /** Who may open an employee file: the MD any file, everyone else only their own. */
 export function mayViewEmployee(me: { role: string; code: string }, code: string): boolean {
-  return me.role === "MD" || me.code === code;
+  return can.staff(me.role) || me.code === code;
 }
 
 const Attachments = z.array(z.object({ name: z.string(), url: z.string(), kind: z.string().optional() })).optional();
@@ -75,7 +81,7 @@ export const EmployeeInput = z.object({
   role: z.enum(STAFF_ROLES),
   email: z.string().email(),
   locale: z.enum(["th", "zh", "en"]).default("th"),
-  password: z.string().min(6),
+  password: z.string().min(6).optional(), /// none: the person sets it through a reset link — nobody else ever knows it
   attachments: Attachments,
 }).merge(ProfileInput).merge(OwnContactInput);
 
@@ -89,13 +95,15 @@ async function managerId(tx: Prisma.TransactionClient, code?: string) {
 export async function createEmployee(input: z.input<typeof EmployeeInput>) {
   const d = EmployeeInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
-  assertMd(actor.role);
+  assertStaff(actor.role);
+  // HR keeps the files but hands out neither the MD role nor passwords
+  if (actor.role !== "MD" && (d.role === "MD" || d.password)) throw new Error("MD_ONLY");
   const entity = await prisma.legalEntity.findUniqueOrThrow({ where: { code: d.entityCode } });
   return prisma.$transaction(async (tx) => {
     const code = await allocateNumber(tx, { prefix: "E", createdByEmployeeCode: actor.code, entityId: entity.id, country: entity.countryCode as CountryCode, date: d.joinedAt });
     const { actorCode: _a, entityCode: _e, password, managerCode, attachments, ...rest } = d;
     void _a; void _e;
-    const e = await tx.employee.create({ data: { ...rest, code, entityId: entity.id, passwordHash: hashPassword(password), managerId: await managerId(tx, managerCode), attachments: attachments as Prisma.InputJsonValue | undefined } });
+    const e = await tx.employee.create({ data: { ...rest, code, entityId: entity.id, passwordHash: hashPassword(password ?? randomBytes(24).toString("base64url")), managerId: await managerId(tx, managerCode), attachments: attachments as Prisma.InputJsonValue | undefined } });
     await audit(actor.id, "EMPLOYEE_CREATE", code, { role: d.role, entity: entity.code }, tx);
     return e;
   });
@@ -104,8 +112,12 @@ export async function createEmployee(input: z.input<typeof EmployeeInput>) {
 /** MD edit of the whole file: system fields, profile, contacts, and new archived files (appended). */
 export async function updateEmployee(input: { actorCode: string; code: string; role?: (typeof STAFF_ROLES)[number]; active?: boolean; password?: string; locale?: string; name?: string; nameLocal?: string; attachments?: { name: string; url: string; kind?: string }[] } & z.input<typeof ProfileInput> & z.input<typeof OwnContactInput>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  assertMd(actor.role);
+  assertStaff(actor.role);
   if (input.code === actor.code && input.role && input.role !== "MD") throw new Error("MD_SELF_DEMOTE");
+  if (actor.role !== "MD") { // HR: the file, not the keys — role, password and the MD's own file stay with the MD
+    const target = await prisma.employee.findUniqueOrThrow({ where: { code: input.code }, select: { role: true } });
+    if (target.role === "MD" || input.password || (input.role && input.role !== target.role)) throw new Error("MD_ONLY");
+  }
   const profile = ProfileInput.parse(input);
   const contacts = OwnContactInput.parse(input);
   const { managerCode, ...p } = profile;
@@ -141,7 +153,7 @@ export const CareerInput = z.object({ fromYm: z.string().regex(/^\d{4}-\d{2}$/, 
 
 export async function setCareers(actorCode: string, code: string, rows: z.input<typeof CareerInput>[]) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertMd(actor.role);
+  assertStaff(actor.role);
   const lines = rows.map((r) => CareerInput.parse(r));
   return prisma.$transaction(async (tx) => {
     const e = await tx.employee.findUniqueOrThrow({ where: { code } });
@@ -157,7 +169,7 @@ export const CredentialInput = z.object({ kind: z.enum(CREDENTIAL_KINDS), title:
 
 export async function addCredential(actorCode: string, code: string, input: z.input<typeof CredentialInput>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertMd(actor.role);
+  assertStaff(actor.role);
   const d = CredentialInput.parse(input);
   const e = await prisma.employee.findUniqueOrThrow({ where: { code } });
   const c = await prisma.employeeCredential.create({ data: { ...d, employeeId: e.id, file: d.file as Prisma.InputJsonValue | undefined } });
@@ -169,7 +181,7 @@ export async function addCredential(actorCode: string, code: string, input: z.in
 export async function addQuickCredentials(actorCode: string, code: string, quick: { kind: (typeof CREDENTIAL_KINDS)[number]; number?: string; expiresAt?: string; title?: string }[]) {
   if (!quick.length) return 0;
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertMd(actor.role);
+  assertStaff(actor.role);
   const e = await prisma.employee.findUniqueOrThrow({ where: { code }, include: { credentials: true } });
   let n = 0;
   for (const q of quick) {
@@ -185,7 +197,7 @@ export async function addQuickCredentials(actorCode: string, code: string, quick
 
 export async function removeCredential(actorCode: string, id: string) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertMd(actor.role);
+  assertStaff(actor.role);
   const c = await prisma.employeeCredential.delete({ where: { id }, include: { employee: true } });
   await audit(actor.id, "EMPLOYEE_UPDATE", c.employee.code, { credentialRemoved: c.kind });
 }
@@ -231,7 +243,7 @@ export const SalaryInputSchema = z.object({
 /** MD only. Writes the structure as entered plus the derived figures (gross, SSO amounts, net estimate). */
 export async function addSalaryRecord(actorCode: string, code: string, input: z.input<typeof SalaryInputSchema>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertMd(actor.role);
+  assertStaff(actor.role);
   const d = SalaryInputSchema.parse(input);
   const e = await prisma.employee.findUniqueOrThrow({ where: { code }, include: { entity: true } });
   const approver = d.approvedByCode ? await prisma.employee.findUniqueOrThrow({ where: { code: d.approvedByCode } }) : actor;
@@ -251,13 +263,13 @@ export async function addSalaryRecord(actorCode: string, code: string, input: z.
 /** Every look at salary figures is logged (decision 2026-11-08). Call from the page when amounts are shown in full. */
 export async function auditSalaryView(actorCode: string, code: string) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertMd(actor.role);
+  assertStaff(actor.role);
   await audit(actor.id, "SALARY_VIEW", code, {});
 }
 
 /** MD only: all salary rows, newest first (the first row is the current salary). */
 export async function salaryHistory(viewer: { role: string }, employeeId: string) {
-  if (viewer.role !== "MD") return [];
+  if (!can.pay(viewer.role)) return [];
   return prisma.salaryRecord.findMany({ where: { employeeId }, orderBy: { effectiveFrom: "desc" }, include: { approvedBy: { select: { name: true } } } });
 }
 
@@ -272,7 +284,7 @@ export const ReviewInput = z.object({ period: z.string().min(1), kind: z.enum(RE
 
 export async function addReview(actorCode: string, code: string, input: z.input<typeof ReviewInput>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  assertMd(actor.role);
+  assertStaff(actor.role);
   const d = ReviewInput.parse(input);
   return prisma.$transaction(async (tx) => {
     const e = await tx.employee.findUniqueOrThrow({ where: { code } });
@@ -286,7 +298,7 @@ export async function addReview(actorCode: string, code: string, input: z.input<
 /** The whole file for the page. Salary rows only for the MD; reviews filtered for the person. */
 export async function getEmployeeFile(viewer: { role: string; code: string }, code: string) {
   if (!mayViewEmployee(viewer, code)) throw new Error("FORBIDDEN");
-  const md = viewer.role === "MD";
+  const md = can.staff(viewer.role);
   const e = await prisma.employee.findUnique({ where: { code }, include: {
     entity: true, manager: { select: { code: true, name: true } },
     careers: { orderBy: [{ sort: "asc" }, { fromYm: "desc" }] },

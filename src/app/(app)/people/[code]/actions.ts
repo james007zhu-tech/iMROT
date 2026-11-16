@@ -4,6 +4,7 @@ import { currentEmployee, grantReveal } from "@/server/auth";
 import { saveLetterDetails } from "@/server/salary-letter";
 import { addCredential, addQuickCredentials, addReview, addSalaryRecord, auditSalaryView, authorizeEmployeeReveal, removeCredential, setCareers, updateEmployee, updateOwnContacts } from "@/server/opd";
 import { redirect } from "next/navigation";
+import { can } from "@/lib/caps";
 import { issueResetLink } from "@/server/password-reset";
 import { guarded } from "@/lib/action-result";
 import { ALLOWANCE_ROWS, DEDUCTION_ROWS, readContacts, readEmployeeForm } from "@/components/EmployeeFormFields";
@@ -30,7 +31,7 @@ export async function reveal(code: string, f: FormData) {
     const me = await currentEmployee();
     await authorizeEmployeeReveal(me.code, String(f.get("password") ?? ""), code);
     await grantReveal(me.code, code);
-    if (me.role === "MD") await auditSalaryView(me.code, code);
+    if (can.staff(me.role)) await auditSalaryView(me.code, code);
     return "revealed";
   }, back(code));
 }

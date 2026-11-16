@@ -1,3 +1,5 @@
+import { actorWith } from "@/server/guard";
+import { can } from "@/lib/caps";
 import { countryOfNo, isTestNo } from "@/lib/numbering";
 /**
  * T&O / FIN Phase 1 slice: TITH tax invoice (local currency, Thai text, VAT separate), IVTH invoice (also the payment record),
@@ -34,6 +36,7 @@ export const TaxInvoiceInput = z.object({
 /** Issue TITH from the accepted order. Order must be ACCEPTED. Lines default to the quote lines.
  *  A declined order (客户拒绝报价) is invoiced from DECLINED for its inspection fee — one line per charged machine. */
 export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("TI");
   const d = TaxInvoiceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, customer: true, lines: true, assets: true, taxInvoices: true, decline: true } });
@@ -115,6 +118,7 @@ export const InvoiceInput = z.object({
 
 /** IVTH — what the customer pays against. */
 export async function issueInvoice(input: z.input<typeof InvoiceInput>) {
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("IV");
   const d = InvoiceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { customer: true, taxInvoices: true } });
@@ -145,6 +149,7 @@ export const PaymentInput = z.object({
 
 /** Record payment on the IVTH. Full settlement (cash + WHT ≥ due) closes the order and writes PAID on each asset. */
 export async function recordPayment(input: z.input<typeof PaymentInput>) {
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("PAYMENT");
   const d = PaymentInput.parse(input);
   const iv = await prisma.invoice.findUniqueOrThrow({ where: { no: d.invoiceNo }, include: { serviceOrder: { include: { assets: true } } } });
@@ -177,6 +182,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
 
 /** BLTH — monthly statement listing this customer's unpaid IVTH for a period (YYMM). Credit customers only. */
 export async function issueMonthlyStatement(customerCode: string, period: string, actorCode: string) {
+  await actorWith(actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("BL");
   const customer = await prisma.customer.findUniqueOrThrow({ where: { code: customerCode } });
   if (!customer.monthlyStatement) throw new Error(`${customerCode} is not a monthly-statement customer`);
@@ -197,6 +203,7 @@ export async function issueMonthlyStatement(customerCode: string, period: string
 
 /** Ask to void a tax invoice. Refused when a payment was already recorded against it (then a credit note is the way, not a void). */
 export async function requestTaxInvoiceVoid(input: { taxInvoiceNo: string; actorCode: string; reason: string }) {
+  await actorWith(input.actorCode, can.invoiceStatus); // 统一角色权限表
   const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no: input.taxInvoiceNo }, include: { invoices: { include: { receipts: true } }, serviceOrder: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   if (ti.voidedAt) throw new Error(`TI_ALREADY_VOID:${ti.no}`);
@@ -242,6 +249,7 @@ export async function decideTaxInvoiceVoid(input: { taxInvoiceNo: string; actorC
 // ── RCTH void (朱总 2026-11-15: every money document can be voided; anyone asks, the MD decides) ─────────────────
 
 export async function requestReceiptVoid(input: { receiptNo: string; actorCode: string; reason: string }) {
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   const rc = await prisma.receipt.findUniqueOrThrow({ where: { no: input.receiptNo } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   if (rc.voidedAt) throw new Error(`RC_ALREADY_VOID:${rc.no}`);

@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import Link from "next/link";
 import { isTradeMode } from "@/lib/modes";
 import { getTranslations } from "next-intl/server";
@@ -20,7 +21,7 @@ export default async function Deliver({ params, searchParams }: { params: Promis
   const [{ no }, { error, ok }] = await Promise.all([params, searchParams]);
   const order = await loadOrder(no);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
-  const me = await currentEmployee();
+  const me = await currentEmployee(); await assertOrderAccess(me, no);
   const [{ lines, poFromQuote }, staff, contacts] = await Promise.all([
     deliveryPlan(no),
     prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
@@ -37,7 +38,7 @@ export default async function Deliver({ params, searchParams }: { params: Promis
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const asDraft = f.get("draft") === "1"; // only the "save draft" button posts draft=1
       // the person who signs for the goods may be new: a name typed here joins the customer's contacts
       let contactId = str(f, "contactId");

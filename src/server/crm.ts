@@ -3,6 +3,7 @@
  * New customers are created only from DBD / ภ.พ.20 / billing documents (files kept on the customer);
  * DBD data is stored with the record and fields a person changed afterwards are listed in `editedFields`.
  */
+import { can } from "@/lib/caps";
 import { z } from "zod";
 import { cleanBirthday } from "@/lib/notify";
 import type { Prisma } from "@prisma/client";
@@ -49,6 +50,7 @@ export async function createCustomer(input: z.input<typeof CustomerInput>) {
   const d = CustomerInput.parse(input);
   if (isClosedStatus(d.dbd?.status)) throw new Error(`DBD_CLOSED:${d.dbd?.status}`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
+  if (!can.customers(actor.role)) throw new Error("NO_PERMISSION"); // 新建客户: MD, 财务, 销售, 内勤
   const entity = await prisma.legalEntity.findUniqueOrThrow({ where: { code: d.entityCode } });
   const dupe = d.taxId ? await prisma.customer.findFirst({ where: { taxId: d.taxId, branchCode: d.branchCode } }) : await prisma.customer.findFirst({ where: { name: { equals: d.name, mode: "insensitive" } } });
   if (dupe) throw new Error(`CUSTOMER_EXISTS:${dupe.code}:${dupe.name}`);

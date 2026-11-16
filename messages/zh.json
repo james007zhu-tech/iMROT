@@ -2373,16 +2373,42 @@
     "fcStep": "小数位数不对",
     "fcShort": "至少 {n} 个字符",
     "fcEmail": "邮箱格式不对",
-    "fcFormat": "格式不对"
+    "fcFormat": "格式不对",
+    "noInitialPassword": "不用设初始密码：保存后在员工档案里点“发重置链接”，把链接发给本人，由本人自己设密码，其他人都不知道。",
+    "err_STAFF_ONLY": "仅 MD 或人事可操作",
+    "handedToFinance": "验收完成，已通知财务开票",
+    "saveQuoteItems": "保存，交给销售定价",
+    "quoteItemsNote": "这里填料号、数量、工时和描述。价格由销售定，也由销售发给客户。",
+    "quoteReadOnly": "只能查看。报价由销售修改。",
+    "quoteItemsSaved": "已保存，已交给销售定价",
+    "priceHintTitle": "建议改价",
+    "priceHintPh": "例如：客户说上次更便宜／现场比预想的难做",
+    "priceHintSend": "发给销售",
+    "priceHintSent": "已发给销售",
+    "priceHintNote": "你看不到价格，但可以把想法告诉销售。销售打开报价时会看到这句话，消息中心也会提醒。",
+    "priceHintFrom": "现场对价格的建议",
+    "err_NO_PERMISSION": "无权限",
+    "err_QUOTE_PRICED_SALES_ONLY": "无权限：报价已经发给客户，只有销售能改。有想法请用“建议改价”。",
+    "err_PRICE_HINT_EMPTY": "请先写一句话",
+    "issuePrefilled": "已按业务单带出 {n} 行还没出库的备件，核对后保存即可",
+    "issueNoParts": "本单没有备件需要出库",
+    "issueAllDone": "本单的备件已经全部出库",
+    "issueShort": "库存不够",
+    "issueShortBy": "缺 {n} 个",
+    "issueBuy": "发起采购申请",
+    "issueBuying": "已在采购中：{no}",
+    "newPartInList": "料号不在列表里：点料号格，选“原地新建料号”，不用离开这一页。",
+    "invoiceByFinance": "开票由财务操作。验收完成后系统已通知财务。"
   },
   "role": {
     "MD": "董事总经理 MD",
     "ADMIN": "内勤（行政）",
-    "MANAGER": "经理",
+    "MANAGER": "主管",
     "ENGINEER": "工程师",
     "SALES": "销售",
     "FINANCE": "财务",
-    "WAREHOUSE": "仓库"
+    "WAREHOUSE": "仓库",
+    "HR": "人事 HR"
   },
   "inquiryStatus": {
     "OPEN": "询价中",
@@ -2522,7 +2548,9 @@
     "k_payrollDue_approve": "{ref} 的工资已复核，等你批准",
     "k_payrollDue_pay": "{ref} 的工资已批准，等你发放",
     "k_payRelease": "供应商发票 {ref} 超过 5 万泰铢，等你复批后财务才能付",
-    "k_voidAsked": "{ref} 申请作废，等你批准"
+    "k_voidAsked": "{ref} 申请作废，等你批准",
+    "k_needsPrice": "{ref} 现场已填好物料，等你定价",
+    "k_priceHint": "{ref} 现场对价格有建议"
   },
   "reports": {
     "searchPh": "报告号、设备编号、序列号、客户",

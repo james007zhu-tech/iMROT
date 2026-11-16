@@ -13,6 +13,7 @@ import { MessageCenter } from "@/components/MessageCenter";
 import { PhoneTables } from "@/components/PhoneTables";
 import { MenuGuard } from "@/components/MenuGuard";
 import { hiddenFor, menuKeyOf } from "@/server/perm";
+import { pathAllows } from "@/lib/caps";
 import { headers } from "next/headers";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -23,7 +24,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // 权限管理: entries this role may not open leave the menu, and the page behind them is refused (server on arrival, client on moves inside the app)
   const hidden = await hiddenFor(me.role).catch(() => new Set<string>());
   const here = (await headers()).get("x-dcit-path");
-  const refused = !!here && hidden.has(menuKeyOf(here) ?? "");
+  const refused = !!here && (hidden.has(menuKeyOf(here) ?? "") || !pathAllows(me.role, here.split("?")[0]));
   const guardItems = NAV.flatMap((g) => g.items.map((i) => ({ href: i.href, blocked: hidden.has(i.key) })));
   async function out() { "use server"; await signOut(); redirect("/login"); }
   return (

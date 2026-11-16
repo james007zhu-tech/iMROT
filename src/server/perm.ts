@@ -8,18 +8,21 @@ import type { EmployeeRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
 import { NAV, navMatch } from "@/lib/nav";
+import { menuAllows } from "@/lib/caps";
 
-export const ROLES: EmployeeRole[] = ["MD", "ADMIN", "MANAGER", "ENGINEER", "SALES", "FINANCE", "WAREHOUSE"];
+export const ROLES: EmployeeRole[] = ["MD", "FINANCE", "HR", "SALES", "ADMIN", "MANAGER", "ENGINEER", "WAREHOUSE"];
 export const ALWAYS_ON = new Set(["dash", "shortcuts", "documents", "talent", "overtime", "expenses", "training"]);
 export const MD_ONLY = new Set(NAV.flatMap((g) => g.items).filter((i) => i.mdOnly).map((i) => i.key).concat(["permissions"]));
 
 /** Entries only the people who handle the company's money may open, whatever the table says (the page refuses the rest). */
-export const MONEY_ONLY: Record<string, EmployeeRole[]> = { cashPlan: ["MD", "FINANCE", "ADMIN"] };
+export const MONEY_ONLY: Record<string, EmployeeRole[]> = { cashPlan: ["MD", "FINANCE"] };
+const ALL_KEYS = NAV.flatMap((g) => g.items.map((i) => i.key));
 
 export async function hiddenFor(role: EmployeeRole): Promise<Set<string>> {
   if (role === "MD") return new Set();
   const rows = await prisma.roleMenu.findMany({ where: { role } });
-  return new Set([...rows.map((r) => r.key).filter((k) => !ALWAYS_ON.has(k)), ...MD_ONLY, ...Object.entries(MONEY_ONLY).filter(([, roles]) => !roles.includes(role)).map(([k]) => k)]);
+  // the role's own menu (src/lib/caps.ts) first: what it does not list can never be shown; the MD's table hides more
+  return new Set([...ALL_KEYS.filter((k) => !menuAllows(role, k)), ...rows.map((r) => r.key).filter((k) => !ALWAYS_ON.has(k)), ...MD_ONLY, ...Object.entries(MONEY_ONLY).filter(([, roles]) => !roles.includes(role)).map(([k]) => k)]);
 }
 
 /** The menu entry a path belongs to, if any. */
@@ -35,7 +38,7 @@ export async function setRoleMenu(actorCode: string, role: EmployeeRole, allowed
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
   if (a.role !== "MD") throw new Error("MD_ONLY");
   if (role === "MD") throw new Error("MD_ALWAYS_ALL");
-  const keys = NAV.flatMap((g) => g.items.map((i) => i.key)).filter((k) => !ALWAYS_ON.has(k) && !MD_ONLY.has(k));
+  const keys = ALL_KEYS.filter((k) => !ALWAYS_ON.has(k) && !MD_ONLY.has(k) && menuAllows(role, k));
   const hide = keys.filter((k) => !allowed.includes(k));
   await prisma.$transaction([prisma.roleMenu.deleteMany({ where: { role } }), prisma.roleMenu.createMany({ data: hide.map((key) => ({ role, key })) })]);
   await audit(a.id, "ROLE_MENU", role, { hidden: hide });

@@ -1,3 +1,4 @@
+import { can } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -40,7 +41,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
     "use server";
     await guarded(async () => {
       const me = await currentEmployee();
-      if (!["MD", "ADMIN", "MANAGER"].includes(me.role)) throw new Error("FORBIDDEN");
+      if (!can.bank(me.role)) throw new Error("NO_PERMISSION");
       try { const r = await refreshBocRates(); return `${r.rateDate} · ${r.count}`; } catch (e) { throw new Error(`FX_FETCH_FAILED:${(e as Error).message}`); }
     }, "/admin");
   }

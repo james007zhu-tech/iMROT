@@ -2,8 +2,10 @@
  * Shared frame for every step form under a service order (INTH, quote, PO, ERTH, RPTH, PMTH, DNTH, acceptance, invoice …):
  * back to the order top-left (rule ③), the order in brief, the upload/paste box (rule ④), then the form.
  */
+import { currentEmployee } from "@/server/auth";
+import { mayOpenOrder } from "@/server/scope";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { getServiceOrder } from "@/server/slm";
 import { prisma } from "@/lib/db";
@@ -21,6 +23,7 @@ export type Order = NonNullable<Awaited<ReturnType<typeof getServiceOrder>>>;
 export async function loadOrder(no: string): Promise<Order> {
   const o = await getServiceOrder(no);
   if (!o) notFound();
+  if (!(await mayOpenOrder(await currentEmployee(), o.id))) redirect("/no-access"); // 数据范围: an order outside the person's range answers 无权限
   return o;
 }
 

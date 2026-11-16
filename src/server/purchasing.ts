@@ -3,6 +3,8 @@
  * into the QTTH (margin) → customer signs → POTH → goods arrive on an IBTH against the POTH.
  * PRTH and POTH can also be raised on their own (stock replenishment, parts sale) — serviceOrderNo is optional.
  */
+import { actorWith } from "@/server/guard";
+import { can } from "@/lib/caps";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -22,6 +24,7 @@ export const SupplierInput = z.object({
   currency: z.string().default("THB"), paymentTerms: z.string().optional(), leadTimeDays: z.number().int().optional(),
 });
 export async function createSupplier(input: z.input<typeof SupplierInput> & { actorCode: string }) {
+  await actorWith(input.actorCode, (r) => ["MD", "FINANCE", "SALES", "ADMIN"].includes(r)); // 统一角色权限表
   const { actorCode, ...rest } = input;
   const d = SupplierInput.parse(rest);
   if (d.taxId && (await prisma.supplier.findUnique({ where: { taxId: d.taxId } }))) throw new Error(`SUPPLIER_EXISTS:${d.taxId}`);
@@ -146,6 +149,7 @@ export const QuoteInput = z.object({
   attachments: z.array(Att).optional(),
 });
 export async function addSupplierQuote(input: z.input<typeof QuoteInput>) {
+  await actorWith(input.actorCode, can.cost); // 统一角色权限表
   const d = QuoteInput.parse(input);
   const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: d.inquiryNo } });
   if (inq.status === "CANCELLED" || inq.status === "ORDERED") throw new Error(`INQUIRY_CLOSED:${inq.no}`);
@@ -157,6 +161,7 @@ export async function addSupplierQuote(input: z.input<typeof QuoteInput>) {
 
 /** Pick the winning quote; its prices become the costs on the service order's quote lines (margin recomputed). */
 export async function selectSupplierQuote(input: { inquiryNo: string; quoteId: string; actorCode: string }) {
+  await actorWith(input.actorCode, can.cost); // 统一角色权限表
   const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: input.inquiryNo }, include: { quotes: true, serviceOrder: { include: { lines: { include: { part: true } } } } } });
   const q = inq.quotes.find((x) => x.id === input.quoteId);
   if (!q) throw new Error("QUOTE_NOT_FOUND");
@@ -206,6 +211,7 @@ export const PurchaseOrderInput = z.object({
   attachments: z.array(Att).optional(),
 });
 export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInput>) {
+  await actorWith(input.actorCode, can.cost); // 统一角色权限表
   const d = PurchaseOrderInput.parse(input);
   if (d.kind === "PARTS" && !d.inquiryNo) d.lines = await withSkus(d.lines);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode }, include: { entity: true } });
@@ -254,6 +260,7 @@ export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInp
 
 /** 客户回签 → 按 PRTH 生成 POTH: one draft POTH per compared inquiry of the order (from its selected quote). */
 export async function raisePurchaseOrdersForOrder(no: string, actorCode: string) {
+  await actorWith(actorCode, can.cost); // 统一角色权限表
   const inqs = await prisma.purchaseInquiry.findMany({ where: { serviceOrder: { no }, status: "COMPARED" }, include: { quotes: { where: { selected: true }, include: { supplier: true } }, serviceOrder: { select: { warrantyDays: true } } } });
   const made: string[] = [];
   for (const inq of inqs) {
@@ -272,6 +279,7 @@ export async function raisePurchaseOrdersForOrder(no: string, actorCode: string)
 
 /** Goods arrived: one IBTH (one or more lines) against the POTH; the PO goes PARTIAL or RECEIVED. */
 export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; newParts?: { lineNo: number; brandCode?: string; vendorPartNo: string; name: string }[]; attachments?: { name: string; url: string; kind?: string }[] }) {
+  await actorWith(input.actorCode, (r) => ["MD", "FINANCE", "SALES", "ADMIN", "WAREHOUSE"].includes(r)); // 统一角色权限表
   const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.poNo }, include: { serviceOrder: true } });
   if (po.status === "CANCELLED" || po.status === "RECEIVED") throw new Error(`PO_CLOSED:${po.no}`);
   if (po.kind === "SUBCONTRACT") throw new Error(`PO_IS_SUBCONTRACT:${po.no}`); // the machine comes back on a 外协返回 IBTH (srm.returnFromPartner)

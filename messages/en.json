@@ -2373,16 +2373,42 @@
     "fcStep": "Too many decimals",
     "fcShort": "At least {n} characters",
     "fcEmail": "Not an e-mail address",
-    "fcFormat": "Wrong format"
+    "fcFormat": "Wrong format",
+    "noInitialPassword": "No initial password: after saving, use “reset link” on the file and send it to the person — they set their own password, nobody else knows it.",
+    "err_STAFF_ONLY": "MD or HR only",
+    "handedToFinance": "Accepted — finance has been told to invoice",
+    "saveQuoteItems": "Save — sales sets the price",
+    "quoteItemsNote": "Fill in parts, quantities, hours and wording. Sales sets the price and sends the quote.",
+    "quoteReadOnly": "View only. Sales edits the quote.",
+    "quoteItemsSaved": "Saved — waiting for sales to price it",
+    "priceHintTitle": "A word about the price",
+    "priceHintPh": "e.g. the customer says it was cheaper last time / the job is harder than expected",
+    "priceHintSend": "Send to sales",
+    "priceHintSent": "Sent to sales",
+    "priceHintNote": "You do not see the price, but you can tell sales what you think. They see this on the quote and in their messages.",
+    "priceHintFrom": "From the shop floor, about the price",
+    "err_NO_PERMISSION": "No permission",
+    "err_QUOTE_PRICED_SALES_ONLY": "The quote has gone to the customer — only sales can change it. Use “a word about the price”.",
+    "err_PRICE_HINT_EMPTY": "Write a line first",
+    "issuePrefilled": "{n} lines not yet issued were filled in from the order — check and save",
+    "issueNoParts": "This order has no parts to issue",
+    "issueAllDone": "All parts of this order have been issued",
+    "issueShort": "Not enough in stock",
+    "issueShortBy": "short by {n}",
+    "issueBuy": "Raise a purchase request",
+    "issueBuying": "Already being bought: {no}",
+    "newPartInList": "Not in the list: click the part box and choose “Create the part here” — no need to leave this page.",
+    "invoiceByFinance": "Finance issues the tax invoice. Finance was told when the order was accepted."
   },
   "role": {
     "MD": "Managing Director",
     "ADMIN": "Office administrator",
-    "MANAGER": "Manager",
+    "MANAGER": "Supervisor",
     "ENGINEER": "Engineer",
     "SALES": "Sales",
     "FINANCE": "Finance",
-    "WAREHOUSE": "Warehouse"
+    "WAREHOUSE": "Warehouse",
+    "HR": "HR"
   },
   "inquiryStatus": {
     "OPEN": "Awaiting quotes",
@@ -2522,7 +2548,9 @@
     "k_payrollDue_approve": "{ref} payroll is reviewed — waiting for your approval",
     "k_payrollDue_pay": "{ref} payroll is approved — waiting for you to pay",
     "k_payRelease": "Supplier invoice {ref} is above THB 50,000 — waiting for your release",
-    "k_voidAsked": "{ref}: a void request is waiting for you"
+    "k_voidAsked": "{ref}: a void request is waiting for you",
+    "k_needsPrice": "{ref}: items are in — waiting for your price",
+    "k_priceHint": "{ref}: the shop floor has a word about the price"
   },
   "reports": {
     "searchPh": "Report no., machine, serial, customer",

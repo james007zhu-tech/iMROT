@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -42,7 +43,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const finished = f.get("draft") !== "1"; // only the "save draft" button posts draft=1
       // In-contract work has no quote step: move the order to IN_PROGRESS before the job is recorded.
       const before = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true, kind: true } });

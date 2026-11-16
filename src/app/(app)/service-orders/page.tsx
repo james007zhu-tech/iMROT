@@ -1,3 +1,5 @@
+import { currentEmployee } from "@/server/auth";
+import { orderScope } from "@/server/scope";
 import Link from "next/link";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -13,7 +15,9 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const { status, q, page, mode } = await searchParams;
   const p = Math.max(1, Number(page) || 1);
   const [t, u, ts, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getLocale()]);
+  const me = await currentEmployee();
   const where = {
+    AND: [await orderScope(me)], // 只看派给自己的 (工程师) / 本组的 (主管)
     status: ORDER_STATUSES.includes(status as never) ? (status as never) : undefined,
     mode: MODES.includes(mode as never) ? (mode as never) : undefined,
     OR: q ? [{ no: { contains: q, mode: "insensitive" } }, { customerRef: { contains: q, mode: "insensitive" } }, { customer: { name: { contains: q, mode: "insensitive" } } }, { assets: { some: { asset: { code: { contains: q, mode: "insensitive" } } } } }] : undefined,

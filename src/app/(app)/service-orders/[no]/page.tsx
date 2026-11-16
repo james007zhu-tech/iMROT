@@ -1,3 +1,5 @@
+import { assertOrderAccess } from "@/server/scope";
+import { can } from "@/lib/caps";
 import { skuGaps } from "@/server/purchasing";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
@@ -38,6 +40,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const { no } = await params;
   const { ok, error } = await searchParams;
   const order = await loadOrder(no);
+  const me = await currentEmployee(); await assertOrderAccess(me, no);
   // 转采购必须有料号: the part lines that still have none, while the order is still before delivery
   const gaps = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"].includes(order.status) ? await skuGaps(no).catch(() => []) : [];
   const [t, u, ts, te, locale, tInq, tPo] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getTranslations("eventType"), getLocale(), getTranslations("inquiryStatus"), getTranslations("poStatus")]);
@@ -72,14 +75,19 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
   const money = (k: StepKey) => k === "invoice" || k === "payment";
+  // 统一角色权限表: what this person sees of the money on the order, and which steps are theirs
+  const seePrice = can.price(me.role), seeCost = can.cost(me.role), seeInv = can.invoiceStatus(me.role), mayClose = can.invoice(me.role);
+  const mine = (k: StepKey) => !(money(k) && !seeInv) && !(k === "confirm" && !can.confirmPo(me.role));
   const steps = nextSteps(shape);
   const waitsMargin = order.marginApproval === "PENDING";
-  const primary = businessClosureOn() || !steps.primary || !money(steps.primary) ? steps.primary : undefined;
-  const also = businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k));
+  const primary0 = businessClosureOn() || !steps.primary || !money(steps.primary) ? steps.primary : undefined;
+  const primary = primary0 && mine(primary0) ? primary0 : undefined;
+  const handedToFinance = !!primary0 && money(primary0) && !seeInv; // 验收完成 → 已通知财务开票
+  const also = (businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k))).filter(mine);
   const stepLabel = (s: StepKey) => (s === "buy" ? u(`step_buy_${buying ?? "QUOTE"}`) : u(`step_${s}`));
   const hrefOf = (s: StepKey) => (s === "buy" ? buyHref : stepHref(order.no, s));
   // a quote for machines is declined (its own step), not cancelled; a declined order closes from its own card
-  const transitions = dec ? [] : ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => s === "CLOSED" || (s === "CANCELLED" && !(order.status === "QUOTE_PENDING" && !quoteJustCancels(order.mode))));
+  const transitions = dec ? [] : ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => (s !== "CLOSED" || mayClose) && s === "CLOSED" || (s === "CANCELLED" && !(order.status === "QUOTE_PENDING" && !quoteJustCancels(order.mode))));
   // "项目完成" (flow step 10): the person confirms the close once the money is in; the system no longer closes by itself.
   const outstanding = order.invoices.filter((i) => !i.cancelledAt).reduce((s, i) => s + Math.max(0, Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0)), 0);
   const settledAwaitingClose = order.status === "INVOICED" && order.invoices.some((i) => !i.cancelledAt) && outstanding < 0.005;
@@ -97,23 +105,22 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   async function assign(form: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       await advanceServiceOrder(no, "ASSIGNED", me.code, String(form.get("note") || "") || undefined, String(form.get("assignee") || "") || undefined);
     }, `/service-orders/${no}`);
   }
   async function contractDirect() {
     "use server";
-    await guarded(async () => { const me = await currentEmployee(); await advanceServiceOrder(no, "IN_PROGRESS", me.code, "CONTRACT"); }, `/service-orders/${no}`);
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await advanceServiceOrder(no, "IN_PROGRESS", me.code, "CONTRACT"); }, `/service-orders/${no}`);
   }
   async function move(form: FormData) {
     "use server";
-    await guarded(async () => { const me = await currentEmployee(); await advanceServiceOrder(no, form.get("to") as OrderStatus, me.code); }, `/service-orders/${no}`);
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await advanceServiceOrder(no, form.get("to") as OrderStatus, me.code); }, `/service-orders/${no}`);
   }
   async function decideMargin(form: FormData) {
     "use server";
-    await guarded(async () => { const me = await currentEmployee(); await approveMargin({ no, actorCode: me.code, decision: form.get("decision") as "APPROVED" | "REJECTED", note: String(form.get("note") || "") || undefined }); }, `/service-orders/${no}`);
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await approveMargin({ no, actorCode: me.code, decision: form.get("decision") as "APPROVED" | "REJECTED", note: String(form.get("note") || "") || undefined }); }, `/service-orders/${no}`);
   }
-  const me = await currentEmployee();
   const canSetSales = ["MD", "MANAGER", "ADMIN", "SALES"].includes(me.role);
   const floor = await marginFloor(order.mode);
   const marginLow = order.marginPct != null && Number(order.marginPct) < floor;
@@ -126,6 +133,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const summaryOf = (docNo: string, type: string): React.ReactNode => {
     if (type === "IN") { const i = order.inspections.find((x) => x.no === docNo); return [i?.findings, i?.probableCause].filter(Boolean).join(" → "); }
     if (type === "QT" && dec) return <Tag>{u("quoteDeclinedKept")}</Tag>;
+    if (type === "QT" && !seePrice) return order.quoteConfirmedAt ? u("poConfirmed") : order.lines.length ? "" : u("draft");
+    if ((type === "TI" || type === "IV" || type === "RC" || type === "CN") && !seeInv) return "";
     if (type === "QT") return order.total != null ? `${order.currency} ${Number(order.total).toFixed(2)} ${u("inclVat")}${order.quoteConfirmedAt ? ` · ${u("poConfirmed")}` : ""}` : u("draft");
     if (type === "RP") { const j = jobs.find((x) => x.no === docNo); return j?.rootCause ?? j?.workPerformed ?? ""; }
     if (type === "PM") { const j = jobs.find((x) => x.no === docNo); return j?.hazards ? <FaultText>{j.hazards}</FaultText> : j?.handled ?? ""; }
@@ -134,7 +143,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     if (type === "TI") { const x = order.taxInvoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.total).toFixed(2)}` : ""; }
     if (type === "IV") { const x = order.invoices.find((y) => y.no === docNo); return x ? `${x.currency} ${Number(x.amountDue).toFixed(2)}${x.paidAt ? ` · ${t("paid")}` : ""}` : ""; }
     if (type === "PR") { const x = order.inquiries.find((y) => y.no === docNo); return x ? <Link href={`/purchasing/inquiries/${x.no}`} className="text-blue hover:underline">{tInq(x.status)} · {(x.lines as unknown[]).length} {u("lines")}</Link> : ""; }
-    if (type === "PO") { const x = order.purchaseOrders.find((y) => y.no === docNo); return x ? <Link href={`/purchasing/orders/${x.no}`} className="text-blue hover:underline">{tPo(x.status)} · {x.currency} {Number(x.total).toFixed(2)}</Link> : ""; }
+    if (type === "PO") { const x = order.purchaseOrders.find((y) => y.no === docNo); return x ? (seeCost ? <Link href={`/purchasing/orders/${x.no}`} className="text-blue hover:underline">{tPo(x.status)} · {x.currency} {Number(x.total).toFixed(2)}</Link> : tPo(x.status)) : ""; }
     if (type === "OB" || type === "IB") { const m = order.stockMovements.find((x) => x.no === docNo); if (m && m.kind !== "PART") return <Link href={`/service-orders/${order.no}/partner`} className="text-blue hover:underline">{u(m.kind === "SUBCONTRACT_OUT" ? "custodyOut" : "custodyBack")}</Link>; }
     if (type === "RC") { const e = order.events.find((x) => x.sourceDocNo === docNo); return e?.summary ?? ""; }
     return "";
@@ -178,14 +187,15 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </details>}
           {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
           {/* a quote under the margin floor goes nowhere until the MD has decided: say so here, not after the next form is filled */}
-          {waitsMargin ? (me.role === "MD" ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-alert bg-alert/10 px-3 py-2 text-sm font-semibold text-alert-ink">{u("marginWaitingMd")}</span>)
+          {waitsMargin && seeCost ? (me.role === "MD" ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-alert bg-alert/10 px-3 py-2 text-sm font-semibold text-alert-ink">{u("marginWaitingMd")}</span>)
+            : handedToFinance ? <span className="rounded-lg border border-navy/25 bg-white px-3 py-2 text-sm text-navy">✓ {u("handedToFinance")}</span>
             : primary && primary !== "assign" && primary !== "contractDirect" && <Link href={hrefOf(primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
       <DocChain order={order.no} slots={chain} />
       <Flash ok={ok} error={error} />
       {gaps.length > 0 && <Alert>{u("buyNeedsSku")}：{gaps.map((g) => `${g.lineNo ? `#${g.lineNo} ` : ""}${g.description}`).join("；")}。 <Link href={`/service-orders/${no}/quote`} className="font-semibold underline">{u("buyNeedsSkuGo")} →</Link></Alert>}
-      {dec && <Alert>{u("declinedBanner", { date: localIso(dec.toldAt)!.slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
+      {dec && <Alert>{u("declinedBanner", { date: localIso(dec.toldAt)!.slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {!seePrice ? "" : dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="min-w-0 space-y-4 lg:col-span-2">
@@ -253,11 +263,11 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </Card>
 
           {order.lines.length > 0 && <Card title={u("quote")}>
-            <Table head={["#", t("asset"), u("descEnTh"), t("qty"), t("price"), t("amount")]}>
-              {order.lines.map((l) => <tr key={l.id}><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-navy/70">{l.descriptionLocal}</span> : null}</td><td>{Number(l.qty)} {l.unit}</td><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></tr>)}
+            <Table head={["#", t("asset"), u("descEnTh"), t("qty"), ...(seePrice ? [t("price"), t("amount")] : [])]}>
+              {order.lines.map((l) => <tr key={l.id}><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-navy/70">{l.descriptionLocal}</span> : null}</td><td>{Number(l.qty)} {l.unit}</td>{seePrice && <><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></>}</tr>)}
             </Table>
-            <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>
-            {order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: localIso(order.lockedAt)!.slice(0, 10) })}` : ""}</p>}
+            {seePrice && <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>}
+            {seeCost && order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: localIso(order.lockedAt)!.slice(0, 10) })}` : ""}</p>}
             {order.marginApproval === "PENDING" && me.role === "MD" && (
               <form id="margin" action={decideMargin} className="mt-2 flex scroll-mt-24 flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">
                 <span className="text-sm font-semibold text-alert-ink">{u("marginDecision")}</span>
@@ -265,7 +275,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
                 <button name="decision" value="APPROVED" className={btnBlue}>{u("marginApprove")}</button>
                 <button name="decision" value="REJECTED" className={btnGhost}>{u("marginReject")}</button>
               </form>)}
-            {order.marginApproval === "PENDING" && me.role !== "MD" && <p className="mt-2 rounded-lg border border-alert bg-alert/10 p-2 text-sm text-alert-ink">{u("marginWaitingMd")}</p>}
+            {seeCost && order.marginApproval === "PENDING" && me.role !== "MD" && <p className="mt-2 rounded-lg border border-alert bg-alert/10 p-2 text-sm text-alert-ink">{u("marginWaitingMd")}</p>}
           </Card>}
         </div>
 
@@ -300,10 +310,10 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
                 : <li className="flex items-start gap-2"><span className="text-navy">✓</span><span><b>{u("feeWaive")}</b><span className="block text-xs text-navy/70">{dec.waivedReason}</span></span></li>}
             </ol>
             {order.status !== "CLOSED" && <div className="mt-3 flex flex-wrap gap-2">
-              <form action={closeDeclinedAction.bind(null, order.no)}><button disabled={(declineOpen ?? []).length > 0} className={`${btnPrimary} disabled:cursor-not-allowed disabled:opacity-40`}>{u("actionCloseOrder")}</button></form>
+              {mayClose && <form action={closeDeclinedAction.bind(null, order.no)}><button disabled={(declineOpen ?? []).length > 0} className={`${btnPrimary} disabled:cursor-not-allowed disabled:opacity-40`}>{u("actionCloseOrder")}</button></form>}
               {!undoDeclineBlocker(decShape) && <form action={undoDeclineAction.bind(null, order.no)}><button className={btnGhost}>{u("undoDecline")}</button></form>}
             </div>}
-            {order.status === "INVOICED" && outstanding >= 0.005 && <p className="mt-2 text-xs text-alert-ink">{u("closeWithOutstanding", { amount: `${order.currency} ${outstanding.toFixed(2)}` })}</p>}
+            {seeInv && order.status === "INVOICED" && outstanding >= 0.005 && <p className="mt-2 text-xs text-alert-ink">{u("closeWithOutstanding", { amount: `${order.currency} ${outstanding.toFixed(2)}` })}</p>}
             <p className="mt-2 text-xs text-navy/60">{u("declineBy", { name: dec.actor.name })}{dec.contact ? ` · ${maskName(dec.contact.name)}` : ""}</p>
           </Card>}
           {order.transferredTo && <Alert>{u("transferredTo", { no: order.transferredTo.no })} <Link href={`/service-orders/${order.transferredTo.no}`} className="font-mono text-blue underline">{order.transferredTo.no}</Link></Alert>}
@@ -311,8 +321,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={hrefOf(s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
           </Card>}
           {transitions.length > 0 && <Card title={t("status")}>
-            {settledAwaitingClose && <Alert>{u("settledAwaitingClose")}</Alert>}
-            {order.status === "INVOICED" && outstanding >= 0.005 && <p className="text-xs text-alert-ink">{u("closeWithOutstanding", { amount: `${order.currency} ${outstanding.toFixed(2)}` })}</p>}
+            {mayClose && settledAwaitingClose && <Alert>{u("settledAwaitingClose")}</Alert>}
+            {seeInv && order.status === "INVOICED" && outstanding >= 0.005 && <p className="text-xs text-alert-ink">{u("closeWithOutstanding", { amount: `${order.currency} ${outstanding.toFixed(2)}` })}</p>}
             <form action={move} className="flex flex-wrap gap-2">{transitions.map((s) => <button key={s} name="to" value={s} className={`min-h-10 rounded-lg border px-3 text-sm font-semibold ${s === "CANCELLED" ? "border-alert text-alert-ink" : settledAwaitingClose ? "border-navy bg-navy text-white" : "border-navy/45"}`}>{u(s === "CANCELLED" ? "actionCancelOrder" : order.status === "INVOICED" ? "actionProjectComplete" : "actionCloseOrder")}</button>)}</form>
           </Card>}
           <Card title={u("timeline")}>

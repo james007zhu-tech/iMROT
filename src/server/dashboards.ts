@@ -1,4 +1,7 @@
 /** Dashboards: list / create / render specs over the metric catalog. The AI builder lives in ai.ts and calls createDashboard. */
+import { can } from "@/lib/caps";
+import { orderScope } from "@/server/scope";
+import type { MetricScope } from "@/lib/metrics";
 import { prisma } from "@/lib/db";
 import { runSpec, sanitizeSpec, type DashboardSpec } from "@/lib/metrics";
 import type { Prisma } from "@prisma/client";
@@ -26,8 +29,14 @@ export async function updateDashboard(id: string, patch: { name?: string; spec?:
   return prisma.dashboard.update({ where: { id }, data: { name: patch.name, spec: patch.spec ? (sanitizeSpec(patch.spec) as unknown as Prisma.InputJsonValue) : undefined } });
 }
 
-export async function renderDashboard(id: string | "default") {
+/** Whose numbers a person sees on any dashboard: money only for the MD and finance; the shop floor its own orders. */
+export async function metricScopeOf(me: { id: string; role: string }): Promise<MetricScope> {
+  const orders = await orderScope(me);
+  return { money: can.finance(me.role), orders: Object.keys(orders).length ? orders : undefined };
+}
+
+export async function renderDashboard(id: string | "default", me?: { id: string; role: string }) {
   const d = id === "default" ? null : await prisma.dashboard.findUnique({ where: { id } });
   const spec = d ? sanitizeSpec(d.spec) : DEFAULT_SPEC;
-  return { name: d?.name ?? "DCiT", spec, widgets: await runSpec(prisma, spec) };
+  return { name: d?.name ?? "DCiT", spec, widgets: await runSpec(prisma, spec, me ? await metricScopeOf(me) : undefined) };
 }

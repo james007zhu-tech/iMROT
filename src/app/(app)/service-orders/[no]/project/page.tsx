@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
@@ -35,7 +36,7 @@ export default async function Project({ params, searchParams }: { params: Promis
   async function done(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const files = [...atts(f)];
       for (const x of f.getAll("files")) if (x instanceof File && x.size > 0) files.push({ ...(await saveUpload(x, "milestone")), name: x.name, kind: String(f.get("phase") ?? "") });
       const r = await completeMilestone({ no, actorCode: me.code, seq: Number(f.get("seq")), doneAt: str(f, "doneAt"), note: str(f, "note"), attachments: files });
@@ -45,7 +46,7 @@ export default async function Project({ params, searchParams }: { params: Promis
   async function invoice(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const r = await invoiceMilestone({ no, actorCode: me.code, seq: Number(f.get("seq")) });
       return { ok: `${r.taxInvoiceNo} · ${r.invoiceNo}`, to: `/service-orders/${no}/project` };
     }, `/service-orders/${no}/project`);

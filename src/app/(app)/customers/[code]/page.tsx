@@ -1,3 +1,6 @@
+import { can } from "@/lib/caps";
+import { redirect } from "next/navigation";
+import { customerScope, orderScope } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -21,8 +24,12 @@ export const dynamic = "force-dynamic";
 export default async function CustomerDetail({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { code } = await params;
   const { ok, error } = await searchParams;
-  const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: { include: { plant: true } }, assets: { include: { model: true, plant: true }, orderBy: { code: "asc" } }, serviceOrders: { orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
+  const me0 = await currentEmployee();
+  const full = can.customers(me0.role); // 工程师、主管: name, plants, site contacts, machines, their own orders — no tax id, terms, receivables
+  const oScope = await orderScope(me0);
+  const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: { include: { plant: true } }, assets: { include: { model: true, plant: true }, orderBy: { code: "asc" } }, serviceOrders: { where: oScope, orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
   if (!c) notFound();
+  if (!full && !(await prisma.customer.count({ where: { id: c.id, ...(await customerScope(me0)) } }))) redirect("/no-access");
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const open = await revealActive(code);
   const show = <T,>(v: T, mask: (x: T) => string) => (open ? v : mask(v));
@@ -59,29 +66,29 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   }
   const files = (c.files as { name: string; url: string; kind: string }[] | null) ?? [];
   // Historical inquiry files (decision 2026-11-08): every INQUIRY attachment on this customer's orders, newest first.
-  const inquiryFiles = (await prisma.serviceOrder.findMany({ where: { customerId: c.id }, select: { no: true, reportedAt: true, attachments: true }, orderBy: { reportedAt: "desc" } }))
+  const inquiryFiles = !full ? [] : (await prisma.serviceOrder.findMany({ where: { customerId: c.id }, select: { no: true, reportedAt: true, attachments: true }, orderBy: { reportedAt: "desc" } }))
     .flatMap((o) => (((o.attachments as { name: string; url: string; kind: string }[] | null) ?? []).filter((a) => a.kind === "INQUIRY").map((a) => ({ ...a, orderNo: o.no, at: o.reportedAt }))));
-  const statements = c.monthlyStatement ? await prisma.monthlyStatement.findMany({ where: { customerId: c.id }, orderBy: { issuedAt: "desc" }, take: 12, include: { _count: { select: { invoices: true } } } }) : [];
+  const statements = c.monthlyStatement && can.invoiceStatus(me0.role) ? await prisma.monthlyStatement.findMany({ where: { customerId: c.id }, orderBy: { issuedAt: "desc" }, take: 12, include: { _count: { select: { invoices: true } } } }) : [];
   const errorCode = error === "WRONG_PASSWORD" ? u("wrongPassword") : error;
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/customers", label: u("backToCustomers") }} title={<><span className="font-mono">{c.code}</span> <span className="text-lg font-semibold">{c.name}</span></>} badge={c.dbdStatus ? <Tag>DBD · {c.dbdStatus}</Tag> : undefined}
-        actions={<>{c.taxId && isThaiTaxId(c.taxId) && (!c.addressLocal || !c.addressEn || !c.billingAddress || !c.phone || !c.nameLocal) && <form action={complete}><button className={btnGhost}>🔎 {u("completeByTaxId")}</button></form>}{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
+        actions={!full ? undefined : <>{c.taxId && isThaiTaxId(c.taxId) && (!c.addressLocal || !c.addressEn || !c.billingAddress || !c.phone || !c.nameLocal) && <form action={complete}><button className={btnGhost}>🔎 {u("completeByTaxId")}</button></form>}{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
         newHref={`/service-orders/new?customer=${c.code}`} newLabel={u("newServiceOrder")} />
       <Flash ok={ok === "revealed" ? u("revealedFor5") : ok?.startsWith("completed:") ? u("completedN", { n: ok.split(":")[1] }) : ok === "completedNone" ? u("completedNone") : ok} error={errorCode} />
       <Card title={u("company")}>
         <Grid>
           <Field label={u("nameTh")}><Value>{c.nameLocal ?? "—"}</Value></Field>
           <Field label={u("nameEnLabel")}><Value>{c.name}</Value></Field>
-          <Field label={`${t("taxId")} · ${t("branch")}`}><Value><span className="font-mono">{c.taxId ?? "—"}</span> · {c.branchCode ?? "—"}</Value></Field>
+          {full && <Field label={`${t("taxId")} · ${t("branch")}`}><Value><span className="font-mono">{c.taxId ?? "—"}</span> · {c.branchCode ?? "—"}</Value></Field>}
           <Field label={u("addressTh")}><Value>{c.addressLocal ?? "—"}</Value></Field>
           <Field label={u("addressEnLabel")}><Value>{c.addressEn ?? "—"}</Value></Field>
-          <Field label={u("billingAddress")}><Value>{c.billingAddress ?? "—"}</Value></Field>
-          <Field label={t("termDays")}><Value>{c.paymentTermDays} · {c.defaultCurrency}{c.monthlyStatement ? ` · ${u("monthlyCustomer")}` : ""}</Value></Field>
+          {full && <Field label={u("billingAddress")}><Value>{c.billingAddress ?? "—"}</Value></Field>}
+          {full && <Field label={t("termDays")}><Value>{c.paymentTermDays} · {c.defaultCurrency}{c.monthlyStatement ? ` · ${u("monthlyCustomer")}` : ""}</Value></Field>}
           <Field label={u("legalEntity")}><Value>{c.entity.code}</Value></Field>
           <Field label={t("phone")}><Value>{c.phone ?? "—"}</Value></Field>
         </Grid>
-        {files.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{files.map((f) => <a key={f.url} href={f.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {f.kind} · {f.name}</a>)}</div>}
+        {full && files.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{files.map((f) => <a key={f.url} href={f.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {f.kind} · {f.name}</a>)}</div>}
       </Card>
       <Card title={u("plants")}>
         <Table head={[u("plantCode"), u("plantName"), t("address"), u("accessNotes")]}>
@@ -120,15 +127,15 @@ export default async function CustomerDetail({ params, searchParams }: { params:
         </Table>
       </Card>
       <Card title={t("serviceOrders")}>
-        <Table head={["QTTH", t("status"), t("symptom"), t("amount")]}>
-          {c.serviceOrders.map((o) => <tr key={o.id}><td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link></td><td><OrderStatusBadge status={o.status} /></td><td className="text-fault">{o.reportedSymptom ?? ""}</td><td>{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : ""}</td></tr>)}
+        <Table head={["QTTH", t("status"), t("symptom"), ...(can.price(me0.role) ? [t("amount")] : [])]}>
+          {c.serviceOrders.map((o) => <tr key={o.id}><td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link></td><td><OrderStatusBadge status={o.status} /></td><td className="text-fault">{o.reportedSymptom ?? ""}</td>{can.price(me0.role) && <td>{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : ""}</td>}</tr>)}
         </Table>
       </Card>
-      <Card title={<>{u("inquiryHistory")} <Tag>{inquiryFiles.length}</Tag></>}>
+      {full && <Card title={<>{u("inquiryHistory")} <Tag>{inquiryFiles.length}</Tag></>}>
         {inquiryFiles.length ? <Table head={[t("date"), "QTTH", u("file")]}>
           {inquiryFiles.map((f) => <tr key={f.url}><td>{localIso(f.at)!.slice(0, 10)}</td><td><Link href={`/service-orders/${f.orderNo}`} className="font-mono text-blue hover:underline">{f.orderNo}</Link></td><td><a href={f.url} target="_blank" className="text-blue hover:underline">📄 {f.name}</a></td></tr>)}
         </Table> : <p className="text-sm text-navy/60">{u("noInquiryFiles")}</p>}
-      </Card>
+      </Card>}
       {statements.length > 0 && <Card title={u("statementsBl")}>
         <Table head={["BLTH", u("period"), t("date"), u("invoicesOnStatement"), t("amount"), "PDF"]}>
           {statements.map((b) => <tr key={b.id}><td className="font-mono"><Link href={`/statements/${b.no}`} className="text-blue hover:underline">{b.no}</Link></td><td>20{b.period.slice(0, 2)}-{b.period.slice(2, 4)}</td><td>{localIso(b.issuedAt)!.slice(0, 10)}</td><td>{b._count.invoices}</td><td>{b.currency} {Number(b.total).toFixed(2)}</td><td className="text-xs"><a className="text-blue hover:underline" href={`/api/documents/${b.no}/render?format=pdf`}>BLTH</a></td></tr>)}

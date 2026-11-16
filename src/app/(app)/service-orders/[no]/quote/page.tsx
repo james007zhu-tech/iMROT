@@ -1,3 +1,5 @@
+import { assertOrderAccess } from "@/server/scope";
+import { can } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
@@ -5,12 +7,12 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { latestRate, refreshIfStale } from "@/server/fx";
 import { catchUpOrder } from "@/server/slm";
-import { partnerCostByAsset, setQuoteLines } from "@/server/slm-docs";
+import { partnerCostByAsset, setQuoteLines, suggestPrice } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { QuoteSum } from "@/components/QuoteSum";
 import { RevealRows } from "@/components/RevealRows";
-import { Alert, Card, Field, inputCls } from "@/components/ui";
+import { Alert, Card, Field, btnGhost, inputCls } from "@/components/ui";
 import { marginFloor } from "@/server/modes";
 import { StepPage, loadOrder, num, str } from "../_shell";
 
@@ -18,10 +20,13 @@ export const dynamic = "force-dynamic";
 const ROWS = 12;
 
 /** 报价 (lines on the QTTH). Saving moves DIAGNOSING → QUOTE_PENDING; the customer then confirms with a PO. */
-export default async function Quote({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ error?: string }> }) {
-  const [{ no }, { error }] = await Promise.all([params, searchParams]);
+export default async function Quote({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
+  const [{ no }, { ok, error }] = await Promise.all([params, searchParams]);
   const order = await loadOrder(no);
-  const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
+  const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
+  // 统一角色权限表: sales and the MD set the price; 内勤 and finance see it; the shop floor works on parts, quantities and wording only
+  const seePrice = can.price(me.role), seeCost = can.cost(me.role), edit = can.editPrice(me.role);
+  const items = !edit && ["ENGINEER", "MANAGER", "ADMIN", "WAREHOUSE"].includes(me.role) && ["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(order.status);
   const [parts, rate] = await Promise.all([prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500 }), latestRate(order.currency)]);
   refreshIfStale(rate?.ageDays); // a missing or day-old BoC rate is fetched again in the background
   // No quote yet → start from what the inspections said the repair needs (parts with their last cost, labour in hours).
@@ -57,42 +62,50 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const rows = Array.from({ length: ROWS }, (_, i) => ({ assetCode: str(f, `a${i}`), partSku: str(f, `s${i}`), description: str(f, `d${i}`) ?? "", descriptionLocal: str(f, `l${i}`), qty: num(f, `q${i}`) ?? 0, unit: str(f, `u${i}`) ?? "pcs", unitPrice: num(f, `p${i}`) ?? 0, unitCost: num(f, `c${i}`) })).filter((l) => l.description && l.qty > 0);
       if (!rows.length) throw new Error("QUOTE_NEEDS_LINE");
       await setQuoteLines({ serviceOrderNo: no, actorCode: me.code, lines: rows, warrantyDays: num(f, "warrantyDays") });
+      if (!can.editPrice(me.role)) return { ok: "quoteItemsSaved", to: `/service-orders/${no}/quote` }; // saved for sales to price; the order does not move
       const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
       if (["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(cur.status)) await catchUpOrder(no, "QUOTE_PENDING", me.code);
       return { ok: no, to: `/service-orders/${no}` };
     }, `/service-orders/${no}/quote`);
   }
+  async function hint(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await suggestPrice({ no, actorCode: me.code, note: String(f.get("note") ?? "") }); return { ok: "priceHintSent", to: `/service-orders/${no}/quote` }; }, `/service-orders/${no}/quote`);
+  }
+  const cols = seeCost ? "md:grid-cols-[120px_150px_2fr_2fr_70px_60px_100px_100px]" : seePrice ? "md:grid-cols-[120px_150px_2fr_2fr_70px_60px_100px]" : "md:grid-cols-[120px_150px_2fr_2fr_70px_60px]";
   return (
-    <StepPage order={order} title={u("step_quote")} error={error} kind="quote" uploadTitle={u("upQuoteTitle")} uploadHint={u("upQuoteHint")} lineFields={{ description: "d", qty: "q", unit: "u", unitPrice: "c" }} saveLabel={u("saveQuote")}>
+    <StepPage order={order} title={u("step_quote")} ok={ok === "quoteItemsSaved" ? u("quoteItemsSaved") : ok === "priceHintSent" ? u("priceHintSent") : ok} error={error} kind="quote" uploadTitle={u("upQuoteTitle")} uploadHint={u("upQuoteHint")} lineFields={{ description: "d", qty: "q", unit: "u", unitPrice: "c" }} saveLabel={edit ? u("saveQuote") : items ? u("saveQuoteItems") : ""}>
       <form id="f" action={save}>
         <Card title={u("quoteLines")}>
           {fromInth && <Alert>{u("quoteFromInth")}</Alert>}
           <p className="mb-2 text-xs text-navy/70">{u("quoteSkuOptional")}</p>
-          {order.marginPct != null && Number(order.marginPct) < floor && <Alert>{u("marginBelowFloor", { pct: (Number(order.marginPct) * 100).toFixed(1), floor: Math.round(floor * 100) })}</Alert>}
-          {partner && <p className="mb-2 text-xs text-navy/70">{u("partnerQuoteNote")}{[...partnerCosts].map(([a, c]) => ` · ${a}: ${c.toFixed(2)}`).join("")}</p>}
-          <div className="hidden grid-cols-[120px_150px_2fr_2fr_70px_60px_100px_100px] gap-2 text-xs text-navy/70 md:grid"><span>{t("asset")}</span><span>{u("partSku")}</span><span>{u("descEn")}</span><span>{u("descTh")}</span><span>{t("qty")}</span><span>{u("uom")}</span><span>{t("price")}</span><span>{u("unitCost")}</span></div>
+          {!edit && <Alert>{u(items ? "quoteItemsNote" : "quoteReadOnly")}</Alert>}
+          {edit && order.priceHint && <Alert>{u("priceHintFrom")}：{order.priceHint}</Alert>}
+          {seeCost && order.marginPct != null && Number(order.marginPct) < floor && <Alert>{u("marginBelowFloor", { pct: (Number(order.marginPct) * 100).toFixed(1), floor: Math.round(floor * 100) })}</Alert>}
+          {partner && seeCost && <p className="mb-2 text-xs text-navy/70">{u("partnerQuoteNote")}{[...partnerCosts].map(([a, c]) => ` · ${a}: ${c.toFixed(2)}`).join("")}</p>}
+          <div className={`hidden gap-2 text-xs text-navy/70 md:grid ${cols}`}><span>{t("asset")}</span><span>{u("partSku")}</span><span>{u("descEn")}</span><span>{u("descTh")}</span><span>{t("qty")}</span><span>{u("uom")}</span>{seePrice && <span>{t("price")}</span>}{seeCost && <span>{u("unitCost")}</span>}</div>
           <RevealRows initial={Math.max(lines.length, 2)} addLabel={u("addLine")}>
             {Array.from({ length: ROWS }, (_, i) => { const l = lines[i]; return (
-              <div key={i} className="grid grid-cols-2 gap-2 md:grid-cols-[120px_150px_2fr_2fr_70px_60px_100px_100px]">
+              <div key={i} className={`grid grid-cols-2 gap-2 ${cols}`}>
                 <select name={`a${i}`} defaultValue={l?.assetCode ?? order.assets[0]?.asset.code} className={inputCls}><option value="">—</option>{order.assets.map((x) => <option key={x.assetId} value={x.asset.code}>{x.asset.code}</option>)}</select>
                 <input name={`s${i}`} list="parts" defaultValue={l?.partSku ?? parts.find((p) => p.id === l?.partId)?.sku ?? ""} className={inputCls} />
                 <input name={`d${i}`} defaultValue={l?.description ?? ""} className={inputCls} />
                 <input name={`l${i}`} defaultValue={l?.descriptionLocal ?? ""} className={inputCls} placeholder="ภาษาไทย" />
                 <input name={`q${i}`} type="number" step="0.001" defaultValue={l ? Number(l.qty) : ""} className={inputCls} />
                 <input name={`u${i}`} defaultValue={l?.unit ?? "pcs"} className={inputCls} />
-                <input name={`p${i}`} type="number" step="0.01" defaultValue={l?.unitPrice != null ? Number(l.unitPrice) : ""} className={inputCls} />
-                <input name={`c${i}`} type="number" step="0.01" defaultValue={l?.unitCost != null ? Number(l.unitCost) : l?.costRef != null ? Number(l.costRef) : ""} placeholder={u("costPh")} className={inputCls} />
+                {seePrice && <input name={`p${i}`} type="number" step="0.01" readOnly={!edit} defaultValue={l?.unitPrice != null ? Number(l.unitPrice) : ""} className={`${inputCls} ${edit ? "" : "bg-[#F1F4F8] text-navy/70"}`} />}
+                {seeCost && <input name={`c${i}`} type="number" step="0.01" readOnly={!edit} defaultValue={l?.unitCost != null ? Number(l.unitCost) : l?.costRef != null ? Number(l.costRef) : ""} placeholder={u("costPh")} className={`${inputCls} ${edit ? "" : "bg-[#F1F4F8] text-navy/70"}`} />}
               </div>); })}
           </RevealRows>
           <PartDropdown formId="f" sku="s" name="d" local="l" unit="u" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, nameLocal: p.nameLocal, unit: p.unit }))} />
-          <QuoteSum rows={ROWS} vatRate={vatRate} floor={floor} currency={order.currency} labels={{ subtotal: u("quoteSubtotal"), vat: t("vat"), total: u("quoteTotal"), cost: u("quoteCost"), margin: u("quoteMargin"), below: u("quoteBelowFloor", { floor: Math.round(floor * 100) }), noCost: u("quoteNoCost") }} />
-          <p className="text-xs text-navy/70">{u("quoteVatNote")} {u("marginRuleNote", { floor: Math.round(floor * 100) })}</p>
+          {seeCost && <QuoteSum rows={ROWS} vatRate={vatRate} floor={floor} currency={order.currency} labels={{ subtotal: u("quoteSubtotal"), vat: t("vat"), total: u("quoteTotal"), cost: u("quoteCost"), margin: u("quoteMargin"), below: u("quoteBelowFloor", { floor: Math.round(floor * 100) }), noCost: u("quoteNoCost") }} />}
+          {seeCost && <p className="text-xs text-navy/70">{u("quoteVatNote")} {u("marginRuleNote", { floor: Math.round(floor * 100) })}</p>}
           <div className="mt-2 max-w-xs"><Field label={u("customerWarrantyDays")}><input name="warrantyDays" type="number" min="0" defaultValue={order.warrantyDays ?? ""} placeholder={partner ? u("warrantyBackToBack") : ""} className={inputCls} /></Field></div>
-          {!rate ? (
+          {!seePrice ? null : !rate ? (
             <Alert>{u("fxMissing", { ccy: order.currency })} <Link href="/admin" className="underline">{u("fxGoAdmin")}</Link></Alert>
           ) : order.currency !== "CNY" && (
             <p className={`text-xs ${rate.ageDays > 3 ? "font-semibold text-alert-ink" : "text-navy/70"}`}>
@@ -103,6 +116,10 @@ export default async function Quote({ params, searchParams }: { params: Promise<
           )}
         </Card>
       </form>
+      {!seePrice && <Card title={u("priceHintTitle")}>
+        <form action={hint} className="flex flex-wrap gap-2"><input name="note" required defaultValue={order.priceHint ?? ""} placeholder={u("priceHintPh")} className={`${inputCls} min-w-0 flex-1`} /><button className={btnGhost}>{u("priceHintSend")}</button></form>
+        <p className="mt-1 text-xs text-navy/70">{u("priceHintNote")}</p>
+      </Card>}
     </StepPage>
   );
 }

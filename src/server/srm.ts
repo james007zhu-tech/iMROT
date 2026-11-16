@@ -8,6 +8,8 @@
  *   → DNTH / acceptance / TITH as usual → supplier invoice (月结 15 天 TH, else per order; 3 % WHT TH) → rating.
  * Principle: the partner never meets the customer — we carry the machine both ways, no direct delivery exists.
  */
+import { actorWith } from "@/server/guard";
+import { can } from "@/lib/caps";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -255,6 +257,7 @@ export const RevisionInput = z.object({
 
 /** 变更 POTH: same number, version +1. More cost or a later date needs the customer's written consent first; the new cost flows into the QTTH margin. */
 export async function revisePurchaseOrder(input: z.input<typeof RevisionInput>) {
+  await actorWith(input.actorCode, can.cost); // 统一角色权限表
   const d = RevisionInput.parse(input);
   const [po, actor] = await Promise.all([prisma.purchaseOrder.findUniqueOrThrow({ where: { no: d.poNo }, include: { serviceOrder: true } }), actorOf(d.actorCode)]);
   if (po.kind !== "SUBCONTRACT") throw new Error(`NOT_SUBCONTRACT_PO:${po.no}`);
@@ -309,6 +312,7 @@ export const SupplierInvoiceInput = z.object({
  * work, against our retest (not before it passed). Due date from the supplier's terms; WHT 3 % on a Thai partner's repair.
  */
 export async function registerSupplierInvoice(input: z.input<typeof SupplierInvoiceInput>) {
+  await actorWith(input.actorCode, can.finance); // 统一角色权限表
   const d = SupplierInvoiceInput.parse(input);
   const [po, actor] = await Promise.all([prisma.purchaseOrder.findUniqueOrThrow({ where: { no: d.poNo }, include: { supplier: true, milestones: true, invoices: { where: { status: { not: "CANCELLED" }, accrued: false } } } }), actorOf(d.actorCode)]);
   if (po.status === "CANCELLED") throw new Error(`PO_CLOSED:${po.no}`);

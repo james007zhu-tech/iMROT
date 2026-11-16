@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -32,7 +33,7 @@ export default async function Decline({ params, searchParams }: { params: Promis
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const o = await loadOrder(no);
       await declineQuote({
         no, actorCode: me.code, reason: String(f.get("reason") ?? ""), note: str(f, "declineNote"), toldAt: dayNow(str(f, "toldAt")), contactId: str(f, "contactId"),

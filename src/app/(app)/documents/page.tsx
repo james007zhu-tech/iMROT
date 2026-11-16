@@ -1,3 +1,6 @@
+import { currentEmployee } from "@/server/auth";
+import { docTypeAllowed, orderScope } from "@/server/scope";
+import { can } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
@@ -20,6 +23,10 @@ const day = (d?: Date | null) => (d ? localIso(d)!.slice(0, 10) : "");
  */
 export default async function Documents({ searchParams }: { searchParams: Promise<{ type?: string; q?: string; page?: string; new?: string }> }) {
   const sp = await searchParams;
+  const me = await currentEmployee();
+  const scope = await orderScope(me);
+  const kinds = DOC_TYPES.filter((k) => docTypeAllowed(me.role, k));
+  const mine: Prisma.DocumentWhereInput = can.allOrders(me.role) ? {} : { OR: [{ serviceOrder: scope }, { createdById: me.id, serviceOrderId: null }] };
   const type = sp.type === "AC" || DOC_TYPES.includes(sp.type ?? "") ? sp.type! : undefined;
   const q = sp.q?.trim();
   const page = Math.max(1, Number(sp.page) || 1);
@@ -35,7 +42,7 @@ export default async function Documents({ searchParams }: { searchParams: Promis
   let total = 0;
   let body: React.ReactNode;
   if (type === "AC") {
-    const where: Prisma.AcceptanceWhereInput = q ? { serviceOrder: { OR: [{ no: like(q) }, { customer: { name: like(q) } }] } } : {};
+    const where: Prisma.AcceptanceWhereInput = { AND: [{ serviceOrder: scope }, q ? { serviceOrder: { OR: [{ no: like(q) }, { customer: { name: like(q) } }] } } : {}] };
     const [rows, c] = await Promise.all([prisma.acceptance.findMany({ where, orderBy: { acceptedAt: "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE, include: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } }), prisma.acceptance.count({ where })]);
     total = c;
     body = (
@@ -45,7 +52,12 @@ export default async function Documents({ searchParams }: { searchParams: Promis
       </Table>
     );
   } else {
-    const where: Prisma.DocumentWhereInput = { ...(type ? { type: type as never } : {}), ...(q ? { OR: [{ no: like(q) }, { customer: { name: like(q) } }, { serviceOrder: { no: like(q) } }, { serviceOrder: { customerRef: like(q) } }] } : {}) };
+    // 单据中心按角色: the kinds this role may see, and for the shop floor only the papers of their own orders
+    const where: Prisma.DocumentWhereInput = { AND: [
+      { type: type ? (kinds.includes(type) ? (type as never) : { in: [] }) : { in: kinds as never[] } },
+      mine,
+      q ? { OR: [{ no: like(q) }, { customer: { name: like(q) } }, { serviceOrder: { no: like(q) } }, { serviceOrder: { customerRef: like(q) } }] } : {},
+    ] };
     const [rows, c] = await Promise.all([prisma.document.findMany({ where, orderBy: [{ issuedAt: "desc" }, { no: "desc" }], skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE, include: { customer: { select: { name: true } }, serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, createdBy: { select: { name: true } } } }), prisma.document.count({ where })]);
     total = c;
     body = (
@@ -68,13 +80,13 @@ export default async function Documents({ searchParams }: { searchParams: Promis
       </Table>
     );
   }
-  const counts = type ? [] : await prisma.document.groupBy({ by: ["type"], _count: true });
+  const counts = type ? [] : await prisma.document.groupBy({ by: ["type"], _count: true, where: { AND: [{ type: { in: kinds as never[] } }, mine] } });
   return (
     <div className="space-y-4">
       <PageHeader title={title} badge={<span className="text-sm text-navy/60">{total}</span>} actions={newButton} />
       {!type && (
         <div className="flex flex-wrap gap-2">
-          {DOC_TYPES.map((k) => <Link key={k} href={href({ type: k })} className="rounded-full border border-navy/20 bg-white px-3 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{n(DOC_PLACES[k].nav)} <span className="text-xs text-navy/50">{counts.find((c) => c.type === k)?._count ?? 0}</span></Link>)}
+          {kinds.map((k) => <Link key={k} href={href({ type: k })} className="rounded-full border border-navy/20 bg-white px-3 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{n(DOC_PLACES[k].nav)} <span className="text-xs text-navy/50">{counts.find((c) => c.type === k)?._count ?? 0}</span></Link>)}
           <Link href={href({ type: "AC" })} className="rounded-full border border-navy/20 bg-white px-3 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{n("acceptance")}</Link>
         </div>
       )}

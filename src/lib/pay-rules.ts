@@ -3,8 +3,8 @@
  * what they raised themselves; one payment above the limit waits for the MD.
  */
 export const MD_LIMIT_THB = 50_000;
-/** Who may open the monthly payroll: 内勤 computes, 财务 reviews and pays, the MD approves. */
-export const PAYROLL_ROLES = ["MD", "ADMIN", "FINANCE"];
+/** Who may open the monthly payroll: HR computes, 财务 reviews and pays, the MD approves. */
+export const PAYROLL_ROLES = ["MD", "HR", "FINANCE"];
 export const overLimit = (amountThb: number | null) => amountThb == null || amountThb > MD_LIMIT_THB + 0.001;
 
 /** 三单匹配: an invoice may differ from what was received by 1 % or 500 (whichever comes first) before the MD must look. */

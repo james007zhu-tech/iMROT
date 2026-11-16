@@ -1,3 +1,5 @@
+import { actorWith } from "@/server/guard";
+import { can } from "@/lib/caps";
 import { countryOfNo } from "@/lib/numbering";
 /**
  * 自动化项目 — plan, milestones and instalment invoices (flow 自动化项目-流程图-v1, 2026-11-09; rules src/lib/project.ts).
@@ -101,6 +103,7 @@ export async function completeMilestone(input: z.input<typeof MilestoneInput>) {
 
 /** TITH + IVTH for one done instalment. Order currency must be the entity's (THB in Thailand). */
 export async function invoiceMilestone(input: { no: string; actorCode: string; seq: number; issuedAt?: Date }) {
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("TI");
   const o = await projectOrder(input.no);
   const m = o.milestones.find((x) => x.seq === input.seq);

@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { missingForAcceptance, recordAcceptance } from "@/server/slm-docs";
@@ -29,7 +30,7 @@ export default async function Accept({ params, searchParams }: { params: Promise
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const deliverables = Array.from({ length: ROWS }, (_, i) => ({ deliverable: str(f, `d${i}`) ?? "", criterion: str(f, `c${i}`), result: str(f, `r${i}`) })).filter((x) => x.deliverable);
       const status = f.get("status") as "ACCEPTED" | "CONDITIONAL" | "REJECTED";
       if (status === "CONDITIONAL" && !str(f, "punchList")) throw new Error("CONDITIONAL_NEEDS_PUNCH");

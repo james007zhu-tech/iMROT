@@ -85,6 +85,7 @@ enum EmployeeRole {
   SALES
   FINANCE
   WAREHOUSE
+  HR /// 人事: staff files, attendance, computes the payroll; no sales money, no bank, no invoices (需求清单 v3 P0-12)
 }
 
 model Employee {
@@ -871,6 +872,9 @@ model ServiceOrder {
   assignee           Employee?          @relation("OrderAssignee", fields: [assigneeId], references: [id])
   createdById        String
   createdBy          Employee           @relation("OrderCreator", fields: [createdById], references: [id])
+  priceHint          String? /// 建议改价: a word from the shop floor to whoever sets the price (they do not see the price itself); cleared when the quote is next saved by sales
+  priceHintById      String?
+  priceHintAt        DateTime?
   salesId            String? /// 销售负责人 (朱总 2026-11-11): whose target this order counts toward; empty = the person who opened it
   sales              Employee?          @relation("OrderSales", fields: [salesId], references: [id])
   customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)

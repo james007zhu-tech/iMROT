@@ -69,8 +69,9 @@ async function main() {
   noCustomer(pr.values, [customer.name, `SECRETPO${stamp}`, o.no], `PRTH ${inq.no}`);
 
   console.log("3. quotes, warranty back-to-back, cost into QTTH, 33 % floor");
-  const qTh = await addSupplierQuote({ inquiryNo: inq.no, actorCode: eng.code, supplierId: th.id, quoteNo: "RR-1", leadTimeDays: 10, warrantyDays: 60, solution: "full rewind, class F, new bearings", lines: [{ lineNo: 1, qty: 1, unitPrice: 6000 }] });
-  const qCn = await addSupplierQuote({ inquiryNo: inq.no, actorCode: eng.code, supplierId: cn.id, quoteNo: "NB-9", leadTimeDays: 20, warrantyDays: 30, lines: [{ lineNo: 1, qty: 1, unitPrice: 5000 }] });
+  await refused(() => addSupplierQuote({ inquiryNo: inq.no, actorCode: eng.code, supplierId: th.id, lines: [{ lineNo: 1, qty: 1, unitPrice: 1 }] } as never), /NO_PERMISSION/, "supplier prices are not the engineer's to enter");
+  const qTh = await addSupplierQuote({ inquiryNo: inq.no, actorCode: md.code, supplierId: th.id, quoteNo: "RR-1", leadTimeDays: 10, warrantyDays: 60, solution: "full rewind, class F, new bearings", lines: [{ lineNo: 1, qty: 1, unitPrice: 6000 }] });
+  const qCn = await addSupplierQuote({ inquiryNo: inq.no, actorCode: md.code, supplierId: cn.id, quoteNo: "NB-9", leadTimeDays: 20, warrantyDays: 30, lines: [{ lineNo: 1, qty: 1, unitPrice: 5000 }] });
   await setQuoteLines({ serviceOrderNo: o.no, actorCode: md.code, warrantyDays: 60, lines: [{ assetCode: motor.code, description: "Motor repair (rewind)", descriptionLocal: "ซ่อมมอเตอร์", qty: 1, unit: "set", unitPrice: 10000 }] });
   await refused(() => selectSupplierQuote({ inquiryNo: inq.no, quoteId: qCn.id, actorCode: md.code }), /WARRANTY_SHORT/, "a partner covering 30 days cannot back a 60-day promise");
   await selectSupplierQuote({ inquiryNo: inq.no, quoteId: qTh.id, actorCode: md.code });
@@ -103,7 +104,7 @@ async function main() {
   noCustomer(obF.values, [customer.name, `SECRETPO${stamp}`, o.no], `外送维修单 ${out1.no}`);
   assert((await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: po.id } })).status === "SENT", "POTH → SENT");
   await refused(() => dispatchToPartner({ poNo: po.no, actorCode: eng.code, assetCode: motor.code }), /ALREADY_AT_PARTNER/, "cannot send it twice");
-  await refused(() => receivePurchaseOrder({ poNo: po.no, actorCode: eng.code, received: [{ lineNo: 1, qty: 1 }] }), /PO_IS_SUBCONTRACT/, "a partner POTH is not received as parts");
+  await refused(() => receivePurchaseOrder({ poNo: po.no, actorCode: md.code, received: [{ lineNo: 1, qty: 1 }] }), /PO_IS_SUBCONTRACT/, "a partner POTH is not received as parts");
   await addMilestone({ poNo: po.no, actorCode: eng.code, assetCode: motor.code, stage: "ARRIVED" });
   await addMilestone({ poNo: po.no, actorCode: eng.code, assetCode: motor.code, stage: "DISASSEMBLED", note: "bearing seized too" });
   await refused(() => revisePurchaseOrder({ poNo: po.no, actorCode: md.code, reason: "bearing seized", lines: [{ description: "Rewind + bearings", qty: 1, unit: "set", unitPrice: 6600 }] }), /CUSTOMER_CONSENT_REQUIRED/, "extra cost needs the customer's written consent");

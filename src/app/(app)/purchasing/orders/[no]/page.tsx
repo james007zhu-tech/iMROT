@@ -1,3 +1,4 @@
+import { can } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -49,6 +50,8 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
       return { ok: inv.invoiceNo, to: `/purchasing/orders/${no}` };
     }, `/purchasing/orders/${no}`);
   }
+  const me = await currentEmployee();
+  const seeCost = can.cost(me.role), fin = can.finance(me.role);
   // 暂估 and 三单匹配: what was received and not yet invoiced, and how each invoice sits against the receipts
   const accrual = po.invoices.find((i) => i.accrued), invoices = po.invoices.filter((i) => !i.accrued);
   const mayInvoice = po.kind === "PARTS" && (po.status === "PARTIAL" || po.status === "RECEIVED") && invoices.reduce((x, i) => x + Number(i.subtotal), 0) < Number(po.subtotal) - 0.01;
@@ -73,17 +76,17 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
         </div>
       </Card>
       <Card title={u("poLines")}>
-        <Table head={["#", u("partSku"), u("vendorPartNo"), t("description"), t("qty"), u("unitPriceExVat"), t("amount"), u("received")]}>
-          {lines.map((l) => <tr key={l.lineNo}><td>{l.lineNo}</td><td className="font-mono">{l.partSku ? <Link href={`/parts/${l.partSku}`} className="text-blue hover:underline">{l.partSku}</Link> : <span className="text-alert-ink">{u("noSkuYet")}</span>}</td><td className="font-mono">{l.vendorPartNo ?? ""}</td><td>{l.description}</td><td>{l.qty} {l.unit}</td><td className="text-right">{l.unitPrice.toFixed(2)}</td><td className="text-right">{l.amount.toFixed(2)}</td><td className={l.receivedQty < l.qty ? "font-semibold text-alert-ink" : ""}>{l.receivedQty} / {l.qty}</td></tr>)}
+        <Table head={["#", u("partSku"), u("vendorPartNo"), t("description"), t("qty"), ...(seeCost ? [u("unitPriceExVat"), t("amount")] : []), u("received")]}>
+          {lines.map((l) => <tr key={l.lineNo}><td>{l.lineNo}</td><td className="font-mono">{l.partSku ? <Link href={`/parts/${l.partSku}`} className="text-blue hover:underline">{l.partSku}</Link> : <span className="text-alert-ink">{u("noSkuYet")}</span>}</td><td className="font-mono">{l.vendorPartNo ?? ""}</td><td>{l.description}</td><td>{l.qty} {l.unit}</td>{seeCost && <><td className="text-right">{l.unitPrice.toFixed(2)}</td><td className="text-right">{l.amount.toFixed(2)}</td></>}<td className={l.receivedQty < l.qty ? "font-semibold text-alert-ink" : ""}>{l.receivedQty} / {l.qty}</td></tr>)}
         </Table>
-        <p className="text-right text-[13px]">{t("subtotal")} {Number(po.subtotal).toFixed(2)} · {t("vat")} {(Number(po.vatRate) * 100).toFixed(0)}% {Number(po.vatAmount).toFixed(2)} · <b>{t("total")} {po.currency} {Number(po.total).toFixed(2)}</b>{po.totalCny != null ? ` · CNY ${Number(po.totalCny).toFixed(2)}` : ""}</p>
+        {seeCost && <p className="text-right text-[13px]">{t("subtotal")} {Number(po.subtotal).toFixed(2)} · {t("vat")} {(Number(po.vatRate) * 100).toFixed(0)}% {Number(po.vatAmount).toFixed(2)} · <b>{t("total")} {po.currency} {Number(po.total).toFixed(2)}</b>{po.totalCny != null ? ` · CNY ${Number(po.totalCny).toFixed(2)}` : ""}</p>}
       </Card>
       {receiptsByNo.size > 0 && <Card title={u("receiptsIb")}>
-        <Table head={["IBTH", t("date"), u("partSku"), t("qty"), u("unitCost"), u("supplierDocNo")]}>
-          {[...receiptsByNo.entries()].flatMap(([ibNo, rs]) => rs.map((r, i) => <tr key={r.id}><td className="font-mono">{i === 0 ? ibNo : ""}</td><td>{localIso(r.movedAt)!.slice(0, 10)}</td><td className="font-mono">{r.part?.sku ?? ""}</td><td>{Number(r.qty)}</td><td className="text-right">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : ""}</td><td>{r.supplierRef ?? ""}</td></tr>))}
+        <Table head={["IBTH", t("date"), u("partSku"), t("qty"), ...(seeCost ? [u("unitCost")] : []), u("supplierDocNo")]}>
+          {[...receiptsByNo.entries()].flatMap(([ibNo, rs]) => rs.map((r, i) => <tr key={r.id}><td className="font-mono">{i === 0 ? ibNo : ""}</td><td>{localIso(r.movedAt)!.slice(0, 10)}</td><td className="font-mono">{r.part?.sku ?? ""}</td><td>{Number(r.qty)}</td>{seeCost && <td className="text-right">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : ""}</td>}<td>{r.supplierRef ?? ""}</td></tr>))}
         </Table>
       </Card>}
-      {po.kind === "PARTS" && (accrual || invoices.length > 0 || mayInvoice) && <Card title={u("supplierInvoices")}>
+      {fin && po.kind === "PARTS" && (accrual || invoices.length > 0 || mayInvoice) && <Card title={u("supplierInvoices")}>
         {(accrual || invoices.length > 0) && <Table head={[u("supplierInvoiceNo"), t("date"), t("subtotal"), t("vat"), u("payableAmount"), u("dueDate"), t("status")]}>
           {invoices.map((i) => { const off = mismatch(i.matchDiff == null ? null : Number(i.matchDiff), Number(i.subtotal) - Number(i.matchDiff ?? 0)); return (
             <tr key={i.id}><td className="font-mono">{i.invoiceNo}</td><td>{localIso(i.invoiceDate)!.slice(0, 10)}</td><td className="text-right">{Number(i.subtotal).toFixed(2)}</td><td className="text-right">{Number(i.vatAmount).toFixed(2)}</td><td className="text-right font-semibold">{i.currency} {Number(i.payable).toFixed(2)}</td><td>{localIso(i.dueDate)!.slice(0, 10)}</td>

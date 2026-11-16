@@ -14,7 +14,7 @@ import { dayIn, monthStart, nextMonth, prevMonth, recursIn, sortLines, totalsOf,
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const day = (d: Date) => localIso(d)!.slice(0, 10);
-export const mayPlan = (role: string) => ["MD", "FINANCE", "ADMIN"].includes(role);
+export const mayPlan = (role: string) => ["MD", "FINANCE"].includes(role);
 export const thisMonth = (now = new Date()) => localIso(now)!.slice(0, 7);
 
 export async function buildCashPlan(entityId: string, month: string) {
