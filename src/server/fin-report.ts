@@ -30,7 +30,7 @@ export async function financeReport(entityId: string, year: number, opts: { with
     prisma.supplierInvoice.findMany({ where: { entityId, status: "OPEN" }, select: { invoiceNo: true, dueDate: true, currency: true, payable: true, supplier: { select: { name: true } } } }),
     prisma.invoice.findMany({ where: { cancelledAt: null, currency: { not: "THB" }, issuedAt: { gte: from, lt: to }, serviceOrder: { entityId } }, select: { currency: true, amountDue: true } }),
   ]);
-  const cns = await prisma.creditNote.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, currency: "THB", taxInvoice: { serviceOrder: { entityId } } }, select: { issuedAt: true, subtotal: true, vatAmount: true } });
+  const cns = await prisma.creditNote.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, currency: "THB", taxInvoice: { serviceOrder: { entityId } } }, select: { issuedAt: true, subtotal: true, vatAmount: true, taxInvoice: { select: { serviceOrder: { select: { mode: true, customer: { select: { name: true } } } } } } } });
   const months: MonthRow[] = Array.from({ length: 12 }, (_, i) => ({ month: `${year}-${String(i + 1).padStart(2, "0")}`, revenue: 0, vatOut: 0, collected: 0, whtByCustomers: 0, purchases: 0, vatIn: 0, paidSuppliers: 0, expenses: 0, payroll: 0, result: 0, vatNet: 0 }));
   const at = (d: Date) => months.find((m) => m.month === mk(d));
   for (const x of tis) { const m = at(x.issuedAt); if (m) { m.revenue += Number(x.subtotal); m.vatOut += Number(x.vatAmount); } }
@@ -55,8 +55,9 @@ export async function financeReport(entityId: string, year: number, opts: { with
     months, total, ar, ap,
     arOverdue: arRows.filter((i) => i.due && i.due < now).sort((a, b) => a.due!.getTime() - b.due!.getTime()).slice(0, 10),
     apOverdue: apRows.filter((i) => i.due < now).sort((a, b) => a.due.getTime() - b.due.getTime()).slice(0, 10),
-    byMode: group(tis, (x) => x.serviceOrder.mode, (x) => Number(x.subtotal)),
-    byCustomer: group(tis, (x) => x.serviceOrder.customer.name, (x) => Number(x.subtotal)).slice(0, 8),
+    // net of 贷项单, so the two breakdowns add up to the revenue line above (需求清单 v3 P1-28)
+    byMode: group([...tis.map((x) => ({ k: x.serviceOrder.mode as string, v: Number(x.subtotal) })), ...cns.map((x) => ({ k: x.taxInvoice.serviceOrder.mode as string, v: -Number(x.subtotal) }))], (x) => x.k, (x) => x.v),
+    byCustomer: group([...tis.map((x) => ({ k: x.serviceOrder.customer.name, v: Number(x.subtotal) })), ...cns.map((x) => ({ k: x.taxInvoice.serviceOrder.customer.name, v: -Number(x.subtotal) }))], (x) => x.k, (x) => x.v).slice(0, 8),
     byExpense: group(exps, (x) => x.category, (x) => Number(x.amount) - Number(x.vatAmount ?? 0)),
     foreign: group(foreign, (x) => x.currency, (x) => Number(x.amountDue)),
     otherCurrencyOpen: openInv.filter((i) => i.currency !== "THB").length + openAp.filter((i) => i.currency !== "THB").length,

@@ -426,7 +426,16 @@
     "portalSignInLink": "ลูกค้า: พอร์ทัล →",
     "oneMoreLine": "เพิ่มอีกบรรทัด",
     "releaseSoon": "ระบบกำลังอัปเดต กรุณารอสักครู่ก่อนบันทึก",
-    "versionLine": "เวอร์ชัน {version} · อัปเดต {at}"
+    "versionLine": "เวอร์ชัน {version} · อัปเดต {at}",
+    "outstandingCol": "ค้างรับ",
+    "invState_OPEN": "ยังไม่รับเงิน",
+    "invState_PARTIAL": "รับบางส่วน",
+    "invState_PAID": "รับครบแล้ว",
+    "invState_VOID": "ยกเลิกแล้ว",
+    "invState_VOIDASKED": "รอ MD อนุมัติยกเลิก",
+    "invState_LIVE": "ใช้งาน",
+    "showVoided": "แสดงเอกสารที่ยกเลิกแล้วด้วย",
+    "hideVoided": "ซ่อนเอกสารที่ยกเลิกแล้ว"
   },
   "ai": {
     "title": "ผู้ช่วย AI",

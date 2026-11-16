@@ -426,7 +426,16 @@
     "portalSignInLink": "客户门户 →",
     "oneMoreLine": "再加一行",
     "releaseSoon": "系统更新中，请稍后再保存",
-    "versionLine": "版本 {version} · 发版 {at}"
+    "versionLine": "版本 {version} · 发版 {at}",
+    "outstandingCol": "未收",
+    "invState_OPEN": "未收款",
+    "invState_PARTIAL": "部分收款",
+    "invState_PAID": "已收清",
+    "invState_VOID": "已作废",
+    "invState_VOIDASKED": "作废待 MD 批准",
+    "invState_LIVE": "有效",
+    "showVoided": "显示已作废的单据",
+    "hideVoided": "隐藏已作废的单据"
   },
   "ai": {
     "title": "AI 助手",

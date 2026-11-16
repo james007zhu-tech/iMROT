@@ -426,7 +426,16 @@
     "portalSignInLink": "Customer portal →",
     "oneMoreLine": "One more line",
     "releaseSoon": "The system is being updated — please wait before saving",
-    "versionLine": "Version {version} · released {at}"
+    "versionLine": "Version {version} · released {at}",
+    "outstandingCol": "Outstanding",
+    "invState_OPEN": "Unpaid",
+    "invState_PARTIAL": "Part paid",
+    "invState_PAID": "Paid",
+    "invState_VOID": "Voided",
+    "invState_VOIDASKED": "Void waiting for MD",
+    "invState_LIVE": "Live",
+    "showVoided": "Show voided documents",
+    "hideVoided": "Hide voided documents"
   },
   "ai": {
     "title": "AI assistant",
