@@ -109,6 +109,7 @@ export async function setOpeningBalance(entityId: string, month: string, amount:
 export interface RecurringInput { payee: string; purpose: string; amount: number; dayOfMonth: number; startMonth: string; endMonth?: string; note?: string; currency?: string }
 export async function saveRecurring(entityId: string, actor: { id: string; role: string }, id: string | null, d: RecurringInput) {
   if (!mayPlan(actor.role)) throw new Error("FORBIDDEN");
+  if (d.endMonth && /^\d{4}-\d{2}$/.test(d.endMonth) && /^\d{4}-\d{2}$/.test(d.startMonth) && d.endMonth < d.startMonth) throw new Error("FIXED_RANGE"); // 需求清单 v3 P2-20: say which field
   if (!d.payee.trim() || !d.purpose.trim() || !(d.amount > 0) || !(d.dayOfMonth >= 1 && d.dayOfMonth <= 31) || !/^\d{4}-\d{2}$/.test(d.startMonth) || (d.endMonth && (!/^\d{4}-\d{2}$/.test(d.endMonth) || d.endMonth < d.startMonth))) throw new Error("INVALID_INPUT");
   const data = { payee: d.payee.trim(), purpose: d.purpose.trim(), amount: d.amount, dayOfMonth: Math.round(d.dayOfMonth), startMonth: d.startMonth, endMonth: d.endMonth || null, note: d.note?.trim() || null, currency: d.currency || "THB" };
   const r = id ? await prisma.recurringPayment.update({ where: { id }, data }) : await prisma.recurringPayment.create({ data: { ...data, entityId, createdById: actor.id } });

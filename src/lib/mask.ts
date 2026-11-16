@@ -44,3 +44,9 @@ export function maskNamesInText(text: string, names: string[]): string {
   if (!names.length) return text;
   return [...names].sort((a, b) => b.length - a.length).reduce((s, n) => s.split(n).join(maskName(n)), text);
 }
+
+/** 员工端下拉 (需求清单 v3 P1-08): a colleague choosing the customer's person sees who it is — full name · title.
+ *  Masking is for the customer portal and for documents that leave the company. */
+export function staffContact(c: { name: string; title?: string | null }): string {
+  return c.name;
+}

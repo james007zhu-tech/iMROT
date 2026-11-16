@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { deliveryPlan, issueDelivery, tradeAvailable } from "@/server/delivery";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
-import { maskName } from "@/lib/mask";
+import { maskName, staffContact } from "@/lib/mask";
 import { shortDate } from "@/lib/dates";
 import { reportsFor } from "@/lib/order-steps";
 import { QtyCheck } from "@/components/QtyCheck";
@@ -86,7 +86,7 @@ export default async function Deliver({ params, searchParams }: { params: Promis
             {plants.length > 0 && <Field label={u("deliverToPlant")} required><select name="plantId" defaultValue={draft?.plantId ?? order.plantId ?? ""} className={inputCls}>{plants.map((p) => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>}
             <Field label={u("deliverOn")} required><input name="deliverOn" type="date" required defaultValue={day(draft?.deliverOn ?? new Date())} className={inputCls} /></Field>
             <Field label={u("receiverContact")} required>
-              {contacts.length > 0 && <select name="contactId" defaultValue={draft?.contactId ?? (contacts.length === 1 ? contacts[0].id : "")} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)}{c.title ? ` · ${c.title}` : ""}</option>)}</select>}
+              {contacts.length > 0 && <select name="contactId" defaultValue={draft?.contactId ?? (contacts.length === 1 ? contacts[0].id : "")} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{staffContact(c)}{c.title ? ` · ${c.title}` : ""}</option>)}</select>}
               {/* nobody on file, or somebody new at the gate: type the name, it joins the customer's contacts */}
               <div className={`grid grid-cols-2 gap-2 ${contacts.length ? "mt-1.5" : ""}`}><input name="newReceiver" placeholder={u(contacts.length ? "receiverNewOr" : "receiverNew")} className={inputCls} /><input name="newReceiverPhone" inputMode="tel" placeholder={t("phone")} className={inputCls} /></div>
             </Field>
@@ -104,6 +104,7 @@ export default async function Deliver({ params, searchParams }: { params: Promis
             <Table head={[u("source"), u("item"), t("asset"), u("toReturn"), u("deliveredBefore"), u("deliverNowCheck")]}>{back.map(row)}</Table>
           </>}
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="partial" defaultChecked={shortNow} /> {u("partialDelivery")}</label>
+          {order.poStaleAt && !declined && <Alert>{u("poStale")} <Link href={`/service-orders/${no}/confirm`} className="font-semibold underline">{u("poStaleGo")}</Link></Alert>}
           {error?.startsWith("DELIVERY_MISMATCH") && <Alert>{u("mismatchBlocked", { detail: error.split(":").slice(1).join(":") })}</Alert>}
           <Grid cols={2}>
             <Field label={u("overrideReason")}><input name="overrideReason" placeholder={u("overrideReasonPh")} className={inputCls} /></Field>

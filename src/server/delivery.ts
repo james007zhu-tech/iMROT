@@ -166,6 +166,7 @@ export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
     const blocked = await partnerDeliveryBlockers(order.id); // 合作维修: our retest must pass before the machine goes back
     if (blocked.length) throw new Error(`RETEST_NOT_PASSED:${blocked.join(",")}`);
   }
+  if (!d.draft && order.poStaleAt && !order.decline) throw new Error(`PO_STALE:${order.no}`); // 报价改过 → 先重新确认客户 PO
   const { lines } = await deliveryPlan(order.no);
   const bad = d.draft ? [] : mismatches(lines, d.delivered, d.partial);
   if (bad.length && !d.overrideReason) throw new Error(`DELIVERY_MISMATCH:${bad.map((b) => `${b.description} ${b.now}/${b.due}`).join("; ")}`);

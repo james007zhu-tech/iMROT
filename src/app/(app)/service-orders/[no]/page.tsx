@@ -195,6 +195,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
       <DocChain order={order.no} slots={chain} />
       <Flash ok={ok} error={error} />
       {gaps.length > 0 && <Alert>{u("buyNeedsSku")}：{gaps.map((g) => `${g.lineNo ? `#${g.lineNo} ` : ""}${g.description}`).join("；")}。 <Link href={`/service-orders/${no}/quote`} className="font-semibold underline">{u("buyNeedsSkuGo")} →</Link></Alert>}
+      {order.poStaleAt && !dec && <Alert>{u("poStale")} {can.confirmPo(me.role) && <Link href={`/service-orders/${no}/confirm`} className="font-semibold underline">{u("poStaleGo")}</Link>}</Alert>}
       {dec && <Alert>{u("declinedBanner", { date: localIso(dec.toldAt)!.slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {!seePrice ? "" : dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

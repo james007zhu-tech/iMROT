@@ -192,7 +192,14 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
   const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 
+  // 需求清单 v3 P0-07: what is quoted changed after the customer's PO was confirmed → the PO on file no longer says
+  // what will be delivered. Mark it; delivery waits until the PO is confirmed again (confirmCustomerPo clears the mark).
+  const sig = (ls: { sku?: string | null; description: string; qty: unknown }[]) => ls.map((l) => `${l.sku?.trim() || l.description.trim()}|${Number(l.qty)}`).sort().join("\n");
+  const poStale = Array.isArray(order.poLines) && order.poLines.length > 0 && order.status !== "QUOTE_PENDING"
+    && sig((await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, include: { part: { select: { sku: true } } } })).map((l) => ({ sku: l.part?.sku, description: l.description, qty: l.qty }))) !== sig(d.lines.map((l) => ({ sku: l.partSku ? parts.found.get(l.partSku.trim())?.sku ?? l.partSku : null, description: l.description, qty: l.qty })));
+
   return prisma.$transaction(async (tx) => {
+    if (poStale) await tx.serviceOrder.update({ where: { id: order.id }, data: { poStaleAt: new Date() } });
     await tx.quoteLine.deleteMany({ where: { serviceOrderId: order.id } });
     await tx.quoteLine.createMany({
       data: d.lines.map((l, i) => {

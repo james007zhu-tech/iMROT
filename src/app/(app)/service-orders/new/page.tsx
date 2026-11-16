@@ -7,7 +7,7 @@ import { advanceServiceOrder, createServiceOrder } from "@/server/slm";
 import { currentEmployee } from "@/server/auth";
 import { saveUpload } from "@/lib/uploads";
 import { guarded } from "@/lib/action-result";
-import { maskName } from "@/lib/mask";
+import { maskName, staffContact } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { CustomerPicker } from "@/components/CustomerPicker";
@@ -57,7 +57,14 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       const mode = (s("mode") ?? "REPAIR") as Mode;
       const codes = [...new Set(form.getAll("assetCodes").map(String).filter(Boolean))];
       if (modeNeedsAsset(mode) && !codes.length) throw new Error("ASSET_REQUIRED");
-      const first = codes.length ? await prisma.asset.findUniqueOrThrow({ where: { code: codes[0] } }) : null;
+      const first = codes.length ? await prisma.asset.findUniqueOrThrow({ where: { code: codes[0] }, include: { customer: { select: { name: true } } } }) : null;
+      // 需求清单 v3 P1-03: every machine on the order belongs to the customer the order is for — checked here, whatever the page sent
+      if (first) {
+        const others = await prisma.asset.findMany({ where: { code: { in: codes } }, select: { code: true, customerId: true } });
+        const stray = others.filter((a) => a.customerId !== first.customerId).map((a) => a.code);
+        if (stray.length) throw new Error(`ASSET_NOT_OF_CUSTOMER:${stray.join("、")}`);
+        if (s("pickCustomer") && first.customer?.name !== s("pickCustomer")) throw new Error(`ASSET_NOT_OF_CUSTOMER:${first.code}`);
+      }
       const customerId = first?.customerId ?? s("customerId");
       if (!customerId) throw new Error(s("customerName") ? `CUSTOMER_NOT_PICKED:${s("customerName")}` : "INVALID_INPUT:customer");
       // 朱总 2026-11-10: a contact typed here (or read from the inquiry) who is not on the customer yet is added to it
@@ -103,7 +110,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
 {noAsset ? (<>
         <Card title={u("customerAndInquiry")}>
           <Grid>
-            <CustomerPicker customers={customers} contacts={contacts.map((c) => ({ id: c.id, customerId: c.customerId, label: maskName(c.name) }))} initialId={customers.find((c) => c.code === customer)?.id}
+            <CustomerPicker customers={customers} contacts={contacts.map((c) => ({ id: c.id, customerId: c.customerId, label: staffContact(c) }))} initialId={customers.find((c) => c.code === customer)?.id}
               newHref={`/customers/new?back=${encodeURIComponent(`/service-orders/new?mode=${initialMode}`)}${intl ? "&overseas=1" : ""}`} inputCls={inputCls}
               labels={{ customer: t("customer"), searchPh: u("customerSearchPh"), contact: u("inquiryContact"), none: "—", newCustomer: u("newCustomer"), notFound: u("customerNotFound"), newContact: u("newContactInline"), contactName: u("personName"), phone: t("phone"), email: t("email"), newContactHint: u("newContactHint"), pickFirst: u("customerPickFirst") }} />
             <Field label={u("customerInquiryRef")}><input name="customerRef" className={`${inputCls} font-mono`} /></Field>
@@ -152,7 +159,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         </Card>}
         </>) : (<>
         <Card title={u("whichAsset")}>
-          <AssetPicker formId="f" assets={pick} initial={asset ? [asset] : []} labels={{ asset: t("asset"), customer: u("customerAuto"), plant: u("plantAuto"), add: u("addAnotherAsset") }} />
+          <AssetPicker formId="f" assets={pick} initial={asset ? [asset] : []} labels={{ asset: t("asset"), customer: u("customerAuto"), plant: u("plantAuto"), add: u("addAnotherAsset"), pickCustomer: u("pickCustomerFirst"), allCustomers: u("allCustomersOpt"), find: u("findAssetPh") }} />
           <div className="flex flex-wrap items-center gap-2">
             <ScanButton compact label={u("scanDcitLabel")} hrefTemplate="/service-orders/new?asset={code}" />
             <Link href="/assets/new" className="text-sm text-blue underline">{u("assetNotListed")}</Link>
@@ -166,7 +173,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           <Field label={t("symptom")} required><textarea name="reportedSymptom" required rows={2} className={`${inputCls} font-semibold text-fault`} /></Field>
           <Grid>
             <Field label={u("customerRefVerbatim")}><input name="customerRef" className={`${inputCls} font-mono`} /></Field>
-            <Field label={u("reportedBy")}><ScopedSelect name="reportedById" follow="assetCodes" via={Object.fromEntries(assets.map((a) => [a.code, a.customerId ?? ""]))} className={inputCls} options={contacts.map((c) => ({ value: c.id, scope: c.customerId, label: maskName(c.name), wide: `${maskName(c.name)} · ${c.customer.name}` }))} /></Field>
+            <Field label={u("reportedBy")}><ScopedSelect name="reportedById" follow="assetCodes" via={Object.fromEntries(assets.map((a) => [a.code, a.customerId ?? ""]))} className={inputCls} options={contacts.map((c) => ({ value: c.id, scope: c.customerId, label: staffContact(c), wide: `${staffContact(c)} · ${c.customer.name}` }))} /></Field>
             <Field label={t("reportedAt")}><input name="reportedAt" type="datetime-local" defaultValue={now} className={inputCls} /></Field>
           </Grid>
           <Field label={u("poAttachments")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>

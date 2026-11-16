@@ -278,7 +278,7 @@ export async function raisePurchaseOrdersForOrder(no: string, actorCode: string)
 }
 
 /** Goods arrived: one IBTH (one or more lines) against the POTH; the PO goes PARTIAL or RECEIVED. */
-export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; newParts?: { lineNo: number; brandCode?: string; vendorPartNo: string; name: string }[]; attachments?: { name: string; url: string; kind?: string }[] }) {
+export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; newParts?: { lineNo: number; brandCode?: string; vendorPartNo: string; name: string }[]; confirmedLines?: number[]; attachments?: { name: string; url: string; kind?: string }[] }) {
   await actorWith(input.actorCode, (r) => ["MD", "FINANCE", "SALES", "ADMIN", "WAREHOUSE"].includes(r)); // 统一角色权限表
   const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.poNo }, include: { serviceOrder: true } });
   if (po.status === "CANCELLED" || po.status === "RECEIVED") throw new Error(`PO_CLOSED:${po.no}`);
@@ -294,10 +294,14 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
   // 入库必须有料号 (朱总 2026-11-15). A line whose part is not in the library is made into one from what the receipt
   // form shows for it (brand, maker's number, name — taken from the POTH, the person can correct them). Nothing is made
   // silently; lines that still have none are named.
-  const missing: number[] = [];
+  // 需求清单 v3 P0-06: a line that names no SKU but whose maker's number matches a part of the library is only a
+  // suggestion — it goes into stock under that SKU once the person has ticked it, never silently.
+  const missing: number[] = [], unconfirmed: string[] = [];
   for (const r of take) {
     const l = lines.find((x) => x.lineNo === r.lineNo)!;
-    if ((await findPart(l.partSku).catch(() => null)) ?? (await findPart(l.vendorPartNo).catch(() => null))) continue;
+    if (await findPart(l.partSku).catch(() => null)) continue;
+    const guess = await findPart(l.vendorPartNo).catch(() => null);
+    if (guess) { if (input.confirmedLines?.includes(r.lineNo)) { l.partSku = guess.sku; continue; } unconfirmed.push(`${r.lineNo}（${guess.sku}）`); continue; }
     const np = input.newParts?.find((x) => x.lineNo === r.lineNo);
     if (!np?.vendorPartNo?.trim() || !np.name?.trim()) { missing.push(r.lineNo); continue; }
     const made = (await findPart(np.vendorPartNo).catch(() => null)) ?? (await createPart({ brandCode: np.brandCode || undefined, vendorPartNo: np.vendorPartNo.trim(), name: np.name.trim(), unit: l.unit }));
@@ -305,6 +309,7 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
     await prisma.auditLog.create({ data: { actorId: (await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } })).id, action: "PART_CREATED_ON_RECEIPT", target: made.sku, detail: { po: po.no, line: l.lineNo } } });
   }
   if (missing.length) throw new Error(`PO_LINE_NO_SKU:${missing.join("、")}`);
+  if (unconfirmed.length) throw new Error(`PO_LINE_SKU_UNCONFIRMED:${unconfirmed.join("、")}`);
   const ib = await recordStockDoc({ actorCode: input.actorCode, direction: "IN", serviceOrderNo: po.serviceOrder?.no, supplierRef: input.supplierRef ?? po.supplierRef ?? undefined, costCurrency: po.currency, movedAt: input.movedAt, lines: take.map((r) => { const l = lines.find((x) => x.lineNo === r.lineNo)!; return { partSku: (l.partSku || l.vendorPartNo)!, qty: r.qty, batch: r.batch, unitCost: l.unitPrice }; }) });
   // the line keeps the library's SKU from now on, so the next receipt and the stock page agree on the part
   const skuOf = new Map(take.map((r, i) => [r.lineNo, ib.lines[i]?.part?.sku]));
