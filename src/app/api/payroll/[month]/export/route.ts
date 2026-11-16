@@ -19,6 +19,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ month: s
   const run = await payrollDetail(me.entityId, month);
   if (!run) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   const L = run.lines;
+  // 银行清单有空账号时不能导出 (需求清单 v3 P1-25): a payment file with a blank account is worse than none
+  if (kind === "bank" && L.some((l) => !l.employee.bankAccount)) return NextResponse.json({ error: "BANK_ACCOUNT_MISSING", employees: L.filter((l) => !l.employee.bankAccount).map((l) => l.employee.code) }, { status: 409 });
   const rows: unknown[][] =
     kind === "bank" ? [["code", "name", "bank", "account", "net_thb"], ...L.map((l) => [l.employee.code, l.employee.name, l.employee.bankName, l.employee.bankAccount, f2(l.net)])]
     : kind === "sso" ? [["code", "name", "sso_no", "wage_base", "employee_5pct", "employer_5pct", "total"], ...L.filter((l) => Number(l.ssoBase) > 0).map((l) => [l.employee.code, l.employee.name, l.employee.ssoNo, f2(l.ssoBase), f2(l.ssoEmployee), f2(l.ssoEmployer), f2(Number(l.ssoEmployee) + Number(l.ssoEmployer))])]

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 
 export type ScopedOption = { value: string; label: string; scope: string; wide?: string };
 
-export function ScopedSelect({ name, options, follow, via, className, none = "—" }: { name: string; options: ScopedOption[]; follow: string; via?: Record<string, string>; className?: string; none?: string }) {
+export function ScopedSelect({ name, options, follow, via, className, none = "—", defaultValue = "", autoSingle = false, required = false }: { name: string; options: ScopedOption[]; follow: string; via?: Record<string, string>; className?: string; none?: string; defaultValue?: string; /** exactly one choice for the customer: take it */ autoSingle?: boolean; required?: boolean }) {
   const ref = useRef<HTMLSelectElement>(null);
   const [scope, setScope] = useState("");
   useEffect(() => {
@@ -24,9 +24,13 @@ export function ScopedSelect({ name, options, follow, via, className, none = "�
     return () => clearInterval(t);
   }, [follow, via]);
   const mine = scope ? options.filter((o) => o.scope === scope) : options;
-  useEffect(() => { const s = ref.current; if (s && s.value && !mine.some((o) => o.value === s.value)) s.value = ""; }, [mine]);
+  useEffect(() => {
+    const s = ref.current; if (!s) return;
+    if (s.value && !mine.some((o) => o.value === s.value)) s.value = "";
+    if (autoSingle && scope && !s.value && mine.length === 1) { s.value = mine[0].value; s.dispatchEvent(new Event("change", { bubbles: true })); }
+  }, [mine, scope, autoSingle]);
   return (
-    <select ref={ref} name={name} className={className} defaultValue="">
+    <select ref={ref} name={name} className={className} defaultValue={defaultValue} required={required}>
       <option value="">{none}</option>
       {mine.map((o) => <option key={o.value} value={o.value}>{scope ? o.label : o.wide ?? o.label}</option>)}
     </select>

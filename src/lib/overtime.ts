@@ -70,7 +70,8 @@ export function overtimePay(i: OtLineInput): OtLine {
   const amounts = { WORKDAY_OT: 0, HOLIDAY_WORK: 0, HOLIDAY_OT: 0 } as Record<OvertimeKind, number>;
   for (const k of OT_KINDS) {
     hours[k] = r2(i.hours[k] ?? 0);
-    amounts[k] = r2(hours[k] * hourlyRate * OT_MULTIPLIER[k]);
+    // 需求清单 v3 P2-11: no rounding on the way — only the amount is rounded (20,000 ÷ 30 ÷ 8 × 1.5 × 6 = 750.00, not 749.97)
+    amounts[k] = r2(hours[k] * (i.baseSalary / DAYS_PER_MONTH / HOURS_PER_DAY) * OT_MULTIPLIER[k]);
   }
   return { hourlyRate, hours, amounts, totalHours: r2(OT_KINDS.reduce((s, k) => s + hours[k], 0)), total: r2(OT_KINDS.reduce((s, k) => s + amounts[k], 0)) };
 }

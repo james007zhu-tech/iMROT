@@ -12,7 +12,9 @@ import { noticesFor } from "@/server/notify";
 import { MessageCenter } from "@/components/MessageCenter";
 import { PhoneTables } from "@/components/PhoneTables";
 import { MenuGuard } from "@/components/MenuGuard";
+import { DraftKeeper } from "@/components/DraftKeeper";
 import { hiddenFor, menuKeyOf } from "@/server/perm";
+import { pathAllows } from "@/lib/caps";
 import { headers } from "next/headers";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -23,7 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // 权限管理: entries this role may not open leave the menu, and the page behind them is refused (server on arrival, client on moves inside the app)
   const hidden = await hiddenFor(me.role).catch(() => new Set<string>());
   const here = (await headers()).get("x-dcit-path");
-  const refused = !!here && hidden.has(menuKeyOf(here) ?? "");
+  const refused = !!here && (hidden.has(menuKeyOf(here) ?? "") || !pathAllows(me.role, here.split("?")[0]));
   const guardItems = NAV.flatMap((g) => g.items.map((i) => ({ href: i.href, blocked: hidden.has(i.key) })));
   async function out() { "use server"; await signOut(); redirect("/login"); }
   return (
@@ -49,7 +51,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <form action="/search" className="hidden w-full max-w-md gap-1 md:flex"><input name="q" placeholder={c("search")} className="w-full rounded-md border px-3 py-1.5 text-sm" /><button className="rounded-md border border-navy/45 px-3 text-sm">⌕</button></form>
           <div className="flex items-center gap-3 text-sm text-navy/70 md:ml-auto"><MessageCenter notices={notices} /><Link href="/me" title={c("me")} className="hidden rounded-full border border-hair px-3 py-1 text-navy hover:bg-tint md:inline">👤 {c("me")} · {me.name}</Link><form action={out} className="hidden md:block"><button className="text-blue">{c("signOut")}</button></form></div>
         </header>
-        <main className="p-4 pb-24 md:p-6">{refused ? <div className="rounded-xl border bg-white p-8 text-center text-sm text-navy">{c("noAccess")}</div> : <Suspense><MenuGuard items={guardItems} message={c("noAccess")}>{children}</MenuGuard></Suspense>}</main>
+        <main className="p-4 pb-24 md:p-6">{refused ? <div className="rounded-xl border bg-white p-8 text-center text-sm text-navy">{c("noAccess")}</div> : <Suspense><DraftKeeper labels={{ found: c("draftFound", { time: "{time}" }), restore: c("draftRestore"), drop: c("draftDrop"), restored: c("draftRestored") }} /><MenuGuard items={guardItems} message={c("noAccess")}>{children}</MenuGuard></Suspense>}</main>
       </div>
       <Suspense><PhoneTables more={c("oneMoreLine")} /></Suspense>
       <AiAssistant scope="staff" />

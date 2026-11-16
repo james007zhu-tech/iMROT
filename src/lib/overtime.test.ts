@@ -10,6 +10,10 @@ describe("overtime rules (Thai LPA s.61–63)", () => {
     expect(() => overtimeHours("18:00", "18:30", 30)).toThrow(/OT_NO_HOURS/);
     expect(() => overtimeHours("25:00", "26:00")).toThrow(/BAD_TIME/);
   });
+  it("rounds the amount only, never the hourly wage on the way (v3 P2-11)", () => {
+    expect(overtimePay({ baseSalary: 20000, hours: { WORKDAY_OT: 6 } }).amounts.WORKDAY_OT).toBe(750);
+    expect(overtimePay({ baseSalary: 20000, hours: { HOLIDAY_OT: 4 } }).amounts.HOLIDAY_OT).toBe(1000);
+  });
   it("hourly wage of a monthly employee is salary ÷ 30 ÷ 8", () => {
     expect(hourlyWage(12000)).toBe(50);
     expect(hourlyWage(25000)).toBe(104.17);

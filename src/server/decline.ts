@@ -4,6 +4,8 @@
  * event per machine (machine status untouched — 11-08 decision). The machine goes back on a DNTH (deliveryPlan), the
  * fee on a TITH (issueTaxInvoice → declineInvoiceLines), and the order is closed by hand once declineCloseBlockers is empty.
  */
+import { actorWith } from "@/server/guard";
+import { can } from "@/lib/caps";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
@@ -20,6 +22,7 @@ export interface DeclineInput {
 }
 
 export async function declineQuote(d: DeclineInput) {
+  await actorWith(d.actorCode, can.confirmPo); // 统一角色权限表
   const [order, actor] = await Promise.all([
     prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.no }, include: { assets: { include: { asset: true } } } }),
     prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } }),
@@ -80,6 +83,7 @@ export async function declineShapeOf(no: string): Promise<(DeclineShape & { fees
 
 /** The customer changed their mind: back to 待确认报价, quote unlocked. Only before a DNTH or TITH went out. */
 export async function undoDecline(input: { no: string; actorCode: string }) {
+  await actorWith(input.actorCode, can.confirmPo); // 统一角色权限表
   const [order, actor, shape] = await Promise.all([
     prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: true } }),
     prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } }),

@@ -1,3 +1,6 @@
+import { can } from "@/lib/caps";
+import { currentEmployee } from "@/server/auth";
+import { orderScope } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
@@ -11,10 +14,14 @@ export const dynamic = "force-dynamic";
 export default async function Inquiries({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { ok, error } = await searchParams;
   const [t, u, ts] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("inquiryStatus")]);
-  const rows = await prisma.purchaseInquiry.findMany({ orderBy: { createdAt: "desc" }, take: 200, include: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, requestedBy: { select: { name: true } }, quotes: { select: { id: true, selected: true, subtotal: true, currency: true, supplier: { select: { name: true } } } }, orders: { select: { no: true } } } });
+  const me = await currentEmployee();
+  const seeCost = can.cost(me.role);
+  // 采购申请: the shop floor sees its own requests and those of its orders; supplier prices only for those who see cost
+  const own = can.allOrders(me.role) ? {} : { OR: [{ requestedById: me.id }, { serviceOrder: await orderScope(me) }] };
+  const rows = await prisma.purchaseInquiry.findMany({ where: own, orderBy: { createdAt: "desc" }, take: 200, include: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, requestedBy: { select: { name: true } }, quotes: { select: { id: true, selected: true, subtotal: true, currency: true, supplier: { select: { name: true } } } }, orders: { select: { no: true } } } });
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: "/parts", label: t("nav_scm") }} title={u("inquiries")} badge={<Tag>{rows.length}</Tag>} actions={<><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link></>} newHref="/purchasing/inquiries/new" newLabel={u("newInquiry")} />
+      <PageHeader back={{ href: "/parts", label: t("nav_scm") }} title={u("inquiries")} badge={<Tag>{rows.length}</Tag>} actions={<>{can.purchasing(me.role) && <><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link></>}</>} newHref="/purchasing/inquiries/new" newLabel={u("newInquiry")} />
       <Flash ok={ok} error={error} />
       <div className="rounded-xl border bg-white p-2">
         <Table head={["PRTH", t("status"), "QTTH", u("lines"), u("quotesReceived"), u("selectedQuote"), "POTH", u("requestedBy"), t("date")]}>
@@ -24,7 +31,7 @@ export default async function Inquiries({ searchParams }: { searchParams: Promis
               <td><Tag hot={r.status === "OPEN"}>{ts(r.status)}</Tag></td>
               <td>{r.serviceOrder ? <Link href={`/service-orders/${r.serviceOrder.no}`} className="font-mono text-blue hover:underline">{r.serviceOrder.no}</Link> : ""}{r.serviceOrder ? <span className="block text-xs text-navy/70">{r.serviceOrder.customer.name}</span> : null}</td>
               <td>{(r.lines as unknown[]).length}</td><td>{r.quotes.length}</td>
-              <td>{sel ? `${sel.supplier.name} · ${sel.currency} ${Number(sel.subtotal).toFixed(2)}` : ""}</td>
+              <td>{sel ? (seeCost ? `${sel.supplier.name} · ${sel.currency} ${Number(sel.subtotal).toFixed(2)}` : "✓") : ""}</td>
               <td className="font-mono">{r.orders.map((o) => <Link key={o.no} href={`/purchasing/orders/${o.no}`} className="text-blue hover:underline">{o.no}</Link>)}</td>
               <td>{r.requestedBy.name}</td><td>{localIso(r.createdAt)!.slice(0, 10)}</td>
             </tr>); })}

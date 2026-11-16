@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { errorCode } from "@/lib/errors";
-import { requireSession } from "@/server/api-auth";
+import { bodyAsSession, jsonForSession, requireSession } from "@/server/api-auth";
 import { prisma } from "@/lib/db";
 import { onboardAsset } from "@/server/alm";
 
@@ -19,14 +19,14 @@ export async function GET(req: Request) {
     orderBy: { createdAt: "desc" },
     take: 200,
   });
-  return NextResponse.json(assets);
+  return jsonForSession(assets);
 }
 
 export async function POST(req: Request) {
   const denied = await requireSession(); if (denied) return denied;
   try {
-    const asset = await onboardAsset(await req.json());
-    return NextResponse.json(asset, { status: 201 });
+    const asset = await onboardAsset(await bodyAsSession(req));
+    return jsonForSession(asset, { status: 201 });
   } catch (e) {
     return NextResponse.json({ error: errorCode(e) }, { status: 400 });
   }

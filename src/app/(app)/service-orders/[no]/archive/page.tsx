@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { appendAssetEvent } from "@/server/alm";
@@ -18,7 +19,7 @@ export default async function Archive({ params, searchParams }: { params: Promis
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { assets: { include: { asset: { include: { model: true } } } } } });
       const rootCause = str(f, "rootCause") ?? "";
       const lesson = str(f, "lesson") ?? "";

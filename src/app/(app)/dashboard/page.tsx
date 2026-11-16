@@ -1,3 +1,4 @@
+import { currentEmployee } from "@/server/auth";
 import { redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { listDashboards, renderDashboard } from "@/server/dashboards";
@@ -12,7 +13,7 @@ export default async function DashboardHome({ searchParams }: { searchParams: Pr
   if (id) redirect(`/dashboard/${id}`);
   const locale = (await getLocale()) as "th" | "zh" | "en";
   const t = await getTranslations("common");
-  const [list, { widgets }] = await Promise.all([listDashboards(), renderDashboard("default")]);
+  const [list, { widgets }] = await Promise.all([listDashboards(), renderDashboard("default", await currentEmployee())]);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">

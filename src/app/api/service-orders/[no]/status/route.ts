@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { errorCode } from "@/lib/errors";
-import { requireSession } from "@/server/api-auth";
+import { bodyAsSession, jsonForSession, requireSession } from "@/server/api-auth";
 import { advanceServiceOrder } from "@/server/slm";
 
 /** POST { to, actorEmployeeCode, note } — move the order along the nine-step status line */
@@ -8,8 +8,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ no: string }> 
   const denied = await requireSession(); if (denied) return denied;
   const { no } = await ctx.params;
   try {
-    const body = await req.json();
-    return NextResponse.json(await advanceServiceOrder(no, body.to, body.actorEmployeeCode, body.note));
+    const body = await bodyAsSession(req);
+    return jsonForSession(await advanceServiceOrder(no, body.to, body.actorEmployeeCode, body.note));
   } catch (e) {
     return NextResponse.json({ error: errorCode(e) }, { status: 400 });
   }

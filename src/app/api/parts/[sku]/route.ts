@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/server/api-auth";
+import { jsonForSession, requireSession } from "@/server/api-auth";
 import { prisma } from "@/lib/db";
 import { assetsUsingPart, stockOnHand } from "@/server/scm";
 
@@ -10,5 +10,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ sku: string }>
   const part = await prisma.part.findUnique({ where: { sku }, include: { brand: true } });
   if (!part) return NextResponse.json({ error: "not found" }, { status: 404 });
   const [onHand, assets] = await Promise.all([stockOnHand(sku), assetsUsingPart(sku)]);
-  return NextResponse.json({ ...part, onHand, assets });
+  return jsonForSession({ ...part, onHand, assets });
 }

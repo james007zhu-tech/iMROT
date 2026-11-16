@@ -17,6 +17,19 @@ async function main() {
     }
     console.log(`backfill: ${n} 暂估应付 written for goods already received`); }
 
+  // 2026-11-16 需求清单 v3 P0-16 / P1-22: every live tax invoice has its 请款单 (older ones were issued without), and
+  // "paid" is said only of invoices with nothing left to collect (a part payment used to stamp paidAt).
+  { const { writeInvoice, outstandingOf } = await import("../../src/server/to"); let made = 0, cleared = 0;
+    for (const ti of await prisma.taxInvoice.findMany({ where: { voidedAt: null, invoices: { none: {} } }, include: { serviceOrder: { include: { customer: true } } } })) {
+      const loose = await prisma.invoice.findFirst({ where: { serviceOrderId: ti.serviceOrderId, taxInvoiceId: null, cancelledAt: null } }); // billed before the tax invoice: tie the two, do not bill twice
+      if (loose) { await prisma.invoice.update({ where: { id: loose.id }, data: { taxInvoiceId: ti.id } }); continue; }
+      const doc = await prisma.document.findFirst({ where: { no: ti.no }, select: { createdBy: { select: { id: true, code: true } } } });
+      const actor = doc?.createdBy; if (!actor) continue;
+      await prisma.$transaction((tx) => writeInvoice(tx, { order: ti.serviceOrder, actor, issuedAt: ti.issuedAt, taxInvoice: ti })); made++;
+    }
+    for (const i of await prisma.invoice.findMany({ where: { paidAt: { not: null }, cancelledAt: null } })) if (outstandingOf(i) > 0.005) { await prisma.invoice.update({ where: { id: i.id }, data: { paidAt: null } }); cleared++; }
+    console.log(`backfill: ${made} 请款单 written for tax invoices that had none, ${cleared} part-paid invoice(s) no longer marked paid`); }
+
   // 2026-11-09 business modes: orders created before modes existed take the mode their kind implies.
   const m = await prisma.serviceOrder.updateMany({ where: { mode: "REPAIR", kind: { in: ["MAINTENANCE", "OVERHAUL", "CONTRACT"] } }, data: { mode: "MAINTENANCE" } });
   const t = await prisma.serviceOrder.updateMany({ where: { mode: "REPAIR", kind: "PARTS_SALE" }, data: { mode: "DOMESTIC_TRADE" } });

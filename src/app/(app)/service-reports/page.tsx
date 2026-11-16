@@ -1,3 +1,6 @@
+import { currentEmployee } from "@/server/auth";
+import { orderScope, teamIds } from "@/server/scope";
+import { can } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
@@ -25,7 +28,9 @@ export default async function ServiceReports({ searchParams }: { searchParams: P
   const u = await getTranslations("ui");
   const d = await getTranslations("docs");
   const like = (v: string) => ({ contains: v, mode: "insensitive" as const });
-  const scope = q ? { OR: [{ no: like(q) }, { asset: { code: like(q) } }, { asset: { serialNumber: like(q) } }, { serviceOrder: { no: like(q) } }, { serviceOrder: { customer: { name: like(q) } } }] } : {};
+  const me = await currentEmployee();
+  const own = can.allOrders(me.role) ? {} : { OR: [{ serviceOrder: await orderScope(me) }, { engineerId: { in: await teamIds(me) } }] };
+  const scope = { AND: [own, q ? { OR: [{ no: like(q) }, { asset: { code: like(q) } }, { asset: { serialNumber: like(q) } }, { serviceOrder: { no: like(q) } }, { serviceOrder: { customer: { name: like(q) } } }] } : {}] };
   const inc = { asset: { select: { code: true, serialNumber: true } }, engineer: { select: { name: true } }, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } };
   const paging = { skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE };
   let total = 0;

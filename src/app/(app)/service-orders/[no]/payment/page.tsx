@@ -1,6 +1,8 @@
+import { can } from "@/lib/caps";
+import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
-import { decideReceiptVoid, recordPayment, requestReceiptVoid } from "@/server/to";
+import { decideReceiptVoid, recordPayment, requestReceiptVoid, withdrawVoidRequest } from "@/server/to";
 import { liveNumbers } from "@/lib/numbering";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
@@ -23,22 +25,26 @@ export default async function Payment({ params, searchParams }: { params: Promis
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       await recordPayment({ invoiceNo: String(f.get("invoiceNo")), actorCode: me.code, paidAt: dayNow(String(f.get("paidAt")))!, paidAmount: num(f, "paidAmount") ?? 0, whtAmount: num(f, "whtAmount") ?? 0, whtCertRef: str(f, "whtCertRef"), bankRef: str(f, "bankRef"), attachments: atts(f) });
       return { ok: String(f.get("invoiceNo")), to: `/service-orders/${no}` };
     }, `/service-orders/${no}/payment`);
   }
-  const me = await currentEmployee();
+  const me = await currentEmployee(); await assertOrderAccess(me, no);
   async function askVoid(f: FormData) {
     "use server";
-    await guarded(async () => { const me = await currentEmployee(); await requestReceiptVoid({ receiptNo: String(f.get("rc")), actorCode: me.code, reason: String(f.get("reason") ?? "") }); return "voidRequested"; }, `/service-orders/${no}/payment`);
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await requestReceiptVoid({ receiptNo: String(f.get("rc")), actorCode: me.code, reason: String(f.get("reason") ?? "") }); return "voidRequested"; }, `/service-orders/${no}/payment`);
   }
   async function decideVoid(f: FormData) {
     "use server";
-    await guarded(async () => { const me = await currentEmployee(); await decideReceiptVoid({ receiptNo: String(f.get("rc")), actorCode: me.code, decision: f.get("decision") as "APPROVED", note: str(f, "note") }); return f.get("decision") === "APPROVED" ? "voidApproved" : "voidRejected"; }, `/service-orders/${no}/payment`);
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await decideReceiptVoid({ receiptNo: String(f.get("rc")), actorCode: me.code, decision: f.get("decision") as "APPROVED", note: str(f, "note") }); return f.get("decision") === "APPROVED" ? "voidApproved" : "voidRejected"; }, `/service-orders/${no}/payment`);
+  }
+  async function withdrawVoid(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await withdrawVoidRequest({ no: String(f.get("docNo")), actorCode: me.code }); return "voidWithdrawn"; }, `/service-orders/${no}/payment`);
   }
   return (
-    <StepPage order={order} title={u("step_payment")} ok={ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} kind={businessClosureOn() ? "payment" : undefined} uploadTitle={u("upPaymentTitle")} uploadHint={u("upPaymentHint")} saveLabel={businessClosureOn() && unpaid.length ? t("save") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
+    <StepPage order={order} title={u("step_payment")} ok={ok === "voidWithdrawn" ? u("voidWithdrawn") : ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} kind={businessClosureOn() ? "payment" : undefined} uploadTitle={u("upPaymentTitle")} uploadHint={u("upPaymentHint")} saveLabel={businessClosureOn() && unpaid.length && can.invoice(me.role) ? t("save") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
       {businessClosureOn() && !liveNumbers() && <Alert>{u("testSeriesNotice")}</Alert>}
       <Card title={u("invoiceIv")}>
         <Table head={["IVTH", u("dueDate"), u("receivable"), t("paid"), t("wht"), u("outstanding"), "PDF"]}>
@@ -51,16 +57,17 @@ export default async function Payment({ params, searchParams }: { params: Promis
             <td className="space-y-1 text-xs no-underline">
               {r.voidedAt ? <Tag hot>{u("tiVoided")}</Tag> : r.voidStatus === "REQUESTED" ? <Tag hot>{u("tiVoidRequested")}</Tag> : null}
               {r.voidRequestReason ? <span className="block">{r.voidRequestReason}</span> : null}
-              {!r.voidedAt && r.voidStatus !== "REQUESTED" && <details><summary className={`${btnGhost} inline-flex cursor-pointer items-center whitespace-nowrap`}>{u("voidBtn")}</summary>
+              {!r.voidedAt && r.voidStatus !== "REQUESTED" && can.invoice(me.role) && <details><summary className={`${btnGhost} inline-flex cursor-pointer items-center whitespace-nowrap`}>{u("voidBtn")}</summary>
                 <form action={askVoid} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="rc" value={r.no} /><input name="reason" required placeholder={u("voidReason")} className={`${inputCls} w-44`} /><button className={`${btnGhost} whitespace-nowrap`}>{u("requestVoid")}</button></form></details>}
               {r.voidStatus === "REQUESTED" && !r.voidedAt && (me.role === "MD"
                 ? <form action={decideVoid} className="flex flex-wrap gap-1"><input type="hidden" name="rc" value={r.no} /><input name="note" placeholder={t("note")} className={`${inputCls} w-36`} /><button name="decision" value="APPROVED" className="min-h-10 whitespace-nowrap rounded-lg border border-alert px-3 text-sm font-semibold text-alert-ink">{u("approveVoid")}</button><button name="decision" value="REJECTED" className={`${btnGhost} whitespace-nowrap`}>{u("rejectVoid")}</button></form>
                 : <span className="text-navy/60">{u("awaitingMd")}</span>)}
+              {r.voidStatus === "REQUESTED" && !r.voidedAt && (r.voidRequestedById === me.id || can.invoice(me.role)) && <form action={withdrawVoid}><input type="hidden" name="docNo" value={r.no} /><button className="text-xs text-blue underline">{u("voidWithdraw")}</button></form>}
             </td></tr>)}
         </Table>
       </Card>}
       {unpaid.length === 0 && <p className="rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm">{u("nothingToCollect")}</p>}
-      {unpaid.length > 0 && <form id="f" action={save}>
+      {unpaid.length > 0 && can.invoice(me.role) && <form id="f" action={save}>
         <Card title={u("paymentRecord")}>
           <Grid>
             <Field label="IVTH" required><select name="invoiceNo" className={inputCls}>{unpaid.map((i) => <option key={i.id} value={i.no}>{i.no} · {Number(i.amountDue).toFixed(2)}</option>)}</select></Field>

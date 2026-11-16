@@ -13,10 +13,12 @@ export const MONTHLY_PAYMENT_DAYS = 15;
 /** Default partner terms (decided 2026-11-08): Thai partners monthly, 15 days after month end; everyone else per order. */
 export const defaultPaymentMode = (countryCode: string): "MONTHLY" | "PER_ORDER" => (countryCode.toUpperCase() === "TH" ? "MONTHLY" : "PER_ORDER");
 
-/** MONTHLY: last day of the invoice month + days (月结 15 天); PER_ORDER: due on the invoice date. Dates in UTC days. */
+/** 账期 (需求清单 v3 P1-23): a supplier gives 30 days unless its file says otherwise. */
+export const DEFAULT_PAYMENT_DAYS = 30;
+/** MONTHLY: last day of the invoice month + days (月结 15 天); PER_ORDER: invoice date + the supplier's 账期 (30 days by default). Dates in UTC days. */
 export function payableDueDate(invoiceDate: Date, mode: "MONTHLY" | "PER_ORDER", days?: number | null): Date {
   const d = new Date(Date.UTC(invoiceDate.getUTCFullYear(), invoiceDate.getUTCMonth(), invoiceDate.getUTCDate()));
-  if (mode === "PER_ORDER") return d;
+  if (mode === "PER_ORDER") return new Date(d.getTime() + (days ?? DEFAULT_PAYMENT_DAYS) * 86_400_000);
   const monthEnd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
   return new Date(monthEnd.getTime() + (days ?? MONTHLY_PAYMENT_DAYS) * 86_400_000);
 }

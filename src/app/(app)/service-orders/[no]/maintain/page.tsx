@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -8,7 +9,7 @@ import { guarded } from "@/lib/action-result";
 import { RevealRows } from "@/components/RevealRows";
 import { openJob } from "@/lib/drafts";
 import { genericChecklist } from "@/lib/pm-generic";
-import { maskName } from "@/lib/mask";
+import { maskName, staffContact } from "@/lib/mask";
 import { Card, Field, Grid, Table, Tag, Value, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, num, str } from "../_shell";
 import { WorkGate } from "../_gate";
@@ -42,7 +43,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const finished = f.get("draft") !== "1"; // only the "save draft" button posts draft=1
       // In-contract work has no quote step: move the order to IN_PROGRESS before the job is recorded.
       const before = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true, kind: true } });
@@ -119,7 +120,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
             <Field label={u("nextPm")}><div className="flex gap-2"><input name="nextDueAt" type="date" defaultValue={draft?.nextDueAt ? localIso(draft.nextDueAt)!.slice(0, 10) : ""} className={inputCls} /><input name="nextDueHours" type="number" placeholder="+h" defaultValue={draft?.nextDueHours ?? ""} className={inputCls} /></div></Field>
             <Field label={u("laborHours")}><input name="laborHours" type="number" step="0.5" defaultValue={draft?.laborHours != null ? Number(draft.laborHours) : ""} className={inputCls} /></Field>
             <Field label={u("consumablesUsed")}><input name="consumables" defaultValue={draft?.consumables ?? outs} className={inputCls} /></Field>
-            <Field label={u("customerEscort")}><select name="escortContactId" defaultValue={draft?.escortContactId ?? ""} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)}{c.title ? ` · ${c.title}` : ""}</option>)}</select></Field>
+            <Field label={u("customerEscort")}><select name="escortContactId" defaultValue={draft?.escortContactId ?? ""} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{staffContact(c)}{c.title ? ` · ${c.title}` : ""}</option>)}</select></Field>
           </Grid>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="hazardToRepair" /> {u("hazardToRepair")}</label>
         </Card>

@@ -26,8 +26,10 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     check("finance cannot release it", /MD_ONLY/.test(await msg(approvePayment({ id: big.id, actorCode: fin.code }))));
     await approvePayment({ id: big.id, actorCode: md.code });
     check("released by the MD, finance pays it", (await msg(paySupplierInvoice({ id: big.id, actorCode: fin.code }))) === "ok");
-    check("the person who registered an invoice does not pay it alone", /PAY_NEEDS_MD/.test(await msg(paySupplierInvoice({ id: own.id, actorCode: fin.code }))));
-    check("another finance person may", (await msg(paySupplierInvoice({ id: own.id, actorCode: fin2.code }))) === "ok");
+    // 导师锁定 (v3): 5 万以下永不进 MD 复批, even when the person who registered the invoice also pays it.
+    check("below 50,000 the registrar may pay it too (no MD step)", (await msg(paySupplierInvoice({ id: own.id, actorCode: fin.code }))) === "ok");
+    const low = await inv("D", 700, eng.id); ids.push(low.id);
+    check("nothing to release below the limit", /PAY_NO_RELEASE_NEEDED/.test(await msg(approvePayment({ id: low.id, actorCode: md.code }))));
 
     const c1 = await claim(eng.id, 800), c2 = await claim(eng.id, 60000), c3 = await claim(fin.id, 500);
     claims.push(c1.id, c2.id, c3.id);

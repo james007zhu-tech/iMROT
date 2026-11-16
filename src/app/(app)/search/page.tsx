@@ -1,3 +1,6 @@
+import { currentEmployee } from "@/server/auth";
+import { customerScope, orderScope } from "@/server/scope";
+import { can } from "@/lib/caps";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -10,10 +13,12 @@ export default async function Search({ searchParams }: { searchParams: Promise<{
   const { q = "" } = await searchParams;
   const t = await getTranslations("common");
   const like = { contains: q, mode: "insensitive" as const };
+  const me = await currentEmployee();
+  const [oScope, cScope] = await Promise.all([orderScope(me), customerScope(me)]);
   const [assets, orders, customers, parts] = q ? await Promise.all([
     prisma.asset.findMany({ where: { OR: [{ code: like }, { serialNumber: like }, { location: like }, { customerAssetNo: like }] }, include: { customer: { select: { name: true } }, model: { select: { code: true } } }, take: 20 }),
-    prisma.serviceOrder.findMany({ where: { OR: [{ no: like }, { reportedSymptom: like }, { customerRef: like }] }, include: { customer: { select: { name: true } } }, take: 20, orderBy: { reportedAt: "desc" } }),
-    prisma.customer.findMany({ where: { OR: [{ code: like }, { name: like }, { nameLocal: like }, { taxId: like }] }, take: 10 }),
+    prisma.serviceOrder.findMany({ where: { AND: [oScope, { OR: [{ no: like }, { reportedSymptom: like }, { customerRef: like }] }] }, include: { customer: { select: { name: true } } }, take: 20, orderBy: { reportedAt: "desc" } }),
+    prisma.customer.findMany({ where: { AND: [cScope, { OR: [{ code: like }, { name: like }, { nameLocal: like }, ...(can.customers(me.role) ? [{ taxId: like }] : [])] }] }, take: 10 }),
     prisma.part.findMany({ where: { OR: [{ sku: like }, { name: like }, { vendorPartNo: like }] }, take: 10 }),
   ]) : [[], [], [], []];
   return (

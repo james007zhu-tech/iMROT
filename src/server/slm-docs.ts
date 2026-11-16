@@ -2,6 +2,9 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { audit } from "@/server/audit";
+import { can } from "@/lib/caps";
+import { mayOpenOrder } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
@@ -164,6 +167,22 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, assets: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   assertNotLocked(order);
+  if (!(await mayOpenOrder(actor, order.id))) throw new Error("NO_PERMISSION");
+  // 只有销售和 MD 定价 (需求清单 v3 P0-04). The shop floor and 内勤 save what the job needs — parts, quantities, hours,
+  // wording; the prices already on the quote stay as they are, new lines carry none, and the quote goes nowhere:
+  // it waits for sales. Once the customer has the quote, only sales changes it.
+  const itemsOnly = !can.editPrice(actor.role);
+  if (itemsOnly) {
+    if (!["ENGINEER", "MANAGER", "ADMIN", "WAREHOUSE"].includes(actor.role)) throw new Error("NO_PERMISSION");
+    if (!["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(order.status)) throw new Error("QUOTE_PRICED_SALES_ONLY");
+    const before = await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, include: { part: { select: { sku: true } } } });
+    const left = [...before];
+    d.lines = d.lines.map((l) => {
+      const at = left.findIndex((b) => (l.partSku && b.part?.sku === l.partSku.trim()) || b.description === l.description);
+      const b = at >= 0 ? left.splice(at, 1)[0] : undefined;
+      return { ...l, unitPrice: b ? Number(b.unitPrice) : 0, unitCost: b?.unitCost != null ? Number(b.unitCost) : undefined };
+    });
+  }
   // 国际贸易: an export is zero-rated (src/lib/export.ts — until the accountant says otherwise)
   const vatRate = d.vatRate ?? (order.mode === "INTERNATIONAL_TRADE" ? EXPORT_VAT_RATE : Number(order.entity.vatRate));
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
@@ -173,7 +192,14 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
   const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 
+  // 需求清单 v3 P0-07: what is quoted changed after the customer's PO was confirmed → the PO on file no longer says
+  // what will be delivered. Mark it; delivery waits until the PO is confirmed again (confirmCustomerPo clears the mark).
+  const sig = (ls: { sku?: string | null; description: string; qty: unknown }[]) => ls.map((l) => `${l.sku?.trim() || l.description.trim()}|${Number(l.qty)}`).sort().join("\n");
+  const poStale = Array.isArray(order.poLines) && order.poLines.length > 0 && order.status !== "QUOTE_PENDING"
+    && sig((await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, include: { part: { select: { sku: true } } } })).map((l) => ({ sku: l.part?.sku, description: l.description, qty: l.qty }))) !== sig(d.lines.map((l) => ({ sku: l.partSku ? parts.found.get(l.partSku.trim())?.sku ?? l.partSku : null, description: l.description, qty: l.qty })));
+
   return prisma.$transaction(async (tx) => {
+    if (poStale) await tx.serviceOrder.update({ where: { id: order.id }, data: { poStaleAt: new Date() } });
     await tx.quoteLine.deleteMany({ where: { serviceOrderId: order.id } });
     await tx.quoteLine.createMany({
       data: d.lines.map((l, i) => {
@@ -193,9 +219,11 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
         ...(d.warrantyDays !== undefined ? { warrantyDays: d.warrantyDays } : {}),
       },
     });
-    for (const link of order.assets) {
+    for (const link of itemsOnly ? [] : order.assets) {
       await tx.assetEvent.create({ data: { assetId: link.assetId, type: "QUOTED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `${order.currency} ${t.total.toFixed(2)} · ${d.lines.length} lines`, payload: { ...t, costTotal: cost, marginPct: pct, marginApproval: approval } as unknown as Prisma.InputJsonValue } });
     }
+    if (itemsOnly) { await audit(actor.id, "QUOTE_ITEMS", order.no, { lines: d.lines.length }, tx); return updated; }
+    await tx.serviceOrder.update({ where: { id: order.id }, data: { priceHint: null, priceHintById: null, priceHintAt: null } });
     await progressOrder(tx, order, "QUOTE_PENDING", actor.id);
     return updated;
   });
@@ -486,4 +514,15 @@ export function parseAccessories(text?: string): { item: string; qty: number }[]
     const m = /^(.*?)\s*[×xX*]\s*(\d+)\s*$/.exec(x);
     return m ? { item: m[1].trim(), qty: Number(m[2]) } : { item: x, qty: 1 };
   });
+}
+
+
+/** 建议改价: the shop floor does not see the price, but may say a word about it to whoever sets it. */
+export async function suggestPrice(input: { no: string; actorCode: string; note: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no } });
+  if (!(await mayOpenOrder(actor, order.id))) throw new Error("NO_PERMISSION");
+  if (!input.note.trim()) throw new Error("PRICE_HINT_EMPTY");
+  await prisma.serviceOrder.update({ where: { id: order.id }, data: { priceHint: input.note.trim().slice(0, 500), priceHintById: actor.id, priceHintAt: new Date() } });
+  await audit(actor.id, "PRICE_HINT", order.no, { note: input.note.trim().slice(0, 500) });
 }

@@ -21,9 +21,10 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
   const md = await prisma.employee.findUniqueOrThrow({ where: { code: MD } });
   const tag = Date.now().toString(36);
   const eng = await prisma.employee.create({ data: { code: `ETH18${String((Date.now() + 7) % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe Engineer ${tag}`, role: "ENGINEER", managerId: md.id, joinedAt: new Date("2018-01-01"), taxNo: "1100000000001", ssoNo: "1100000000001", bankAccount: "123-4-56789-0", bankName: "KBANK" } });
-  const mk = (n: number, role: "ADMIN" | "FINANCE") => prisma.employee.create({ data: { code: `ETH17${String((Date.now() + n) % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe ${role} ${tag}`, role, managerId: md.id, joinedAt: new Date("2030-01-01") } });
-  const adm = await mk(11, "ADMIN"), fin = await mk(23, "FINANCE");
+  const mk = (n: number, role: "HR" | "FINANCE") => prisma.employee.create({ data: { code: `ETH17${String((Date.now() + n) % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe ${role} ${tag}`, role, managerId: md.id, joinedAt: new Date("2030-01-01") } });
+  const adm = await mk(11, "HR"), fin = await mk(23, "FINANCE");
   const made: { claim?: string } = {};
+  const filled: string[] = [];
   // a salesperson on a 60,000 package: 50 % base, 30 % monthly target, 20 % quarterly target (朱总 2026-11-11)
   const seller = await prisma.employee.create({ data: { code: `ETH19${String(Date.now() % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe Sales ${tag}`, role: "SALES", managerId: md.id, joinedAt: new Date("2018-01-01"), taxNo: "1100000000002", ssoNo: "1100000000002", bankAccount: "123-4-56789-1", bankName: "KBANK" } });
   try {
@@ -94,7 +95,18 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
       check("the MD does not compute the month himself", /PAYROLL_PREPARER_ONLY/.test(String(mdComputes)), String(mdComputes).slice(0, 40));
       const mdReviews = await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: MD, confirmed: true }).catch((e) => String(e.message));
       check("only finance reviews", /PAYROLL_REVIEWER_ONLY/.test(String(mdReviews)), String(mdReviews).slice(0, 40));
-      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true });
+      // 复核须拦住缺失项 (需求清单 v3 P1-25): no review while someone has no bank account; other gaps need a tick
+      const noBank = await prisma.employee.findMany({ where: { id: { in: (await prisma.payrollLine.findMany({ where: { run: { entityId: md.entityId, month: MONTH } }, select: { employeeId: true } })).map((l) => l.employeeId) }, OR: [{ bankAccount: null }, { bankAccount: "" }] }, select: { id: true } });
+      if (noBank.length) {
+        const stopped = await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true }).catch((e) => String(e.message));
+        check("the review is stopped while a bank account is missing", /PAYROLL_REVIEW_BLOCKED/.test(String(stopped)), String(stopped).slice(0, 50));
+        await prisma.employee.updateMany({ where: { id: { in: noBank.map((e) => e.id) } }, data: { bankAccount: "TEST-PROBE-000" } });
+        filled.push(...noBank.map((e) => e.id));
+        await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code });
+      }
+      const unticked = await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true }).catch((e) => String(e.message));
+      check("other gaps (tax id, SSO no.) must be acknowledged", unticked === undefined || /PAYROLL_REVIEW_ACK/.test(String(unticked)), String(unticked).slice(0, 40));
+      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true, acknowledged: true });
       const admApproves = await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code }).catch((e) => String(e.message));
       check("only the MD approves", /MD_ONLY/.test(String(admApproves)), String(admApproves).slice(0, 40));
       await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
@@ -104,11 +116,11 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
       check("an approved month cannot be recomputed", /PAYROLL_LOCKED/.test(String(locked)));
       await reopenPayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
       // a figure moved after the review: the review no longer stands
-      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true });
+      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true, acknowledged: true });
       await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code, edits: { [eng.code]: { bonus: 1500, otherDeduction: 200 } } });
       const stale = await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD }).catch((e) => String(e.message));
       check("a change after the review sends the month back to finance", /PAYROLL_TAX_UNCONFIRMED/.test(String(stale)), String(stale).slice(0, 40));
-      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true });
+      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true, acknowledged: true });
       await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
       const mdPays = await markPayrollPaid({ entityId: md.entityId, month: MONTH, actorCode: MD }).catch((e) => String(e.message));
       check("the MD approves, finance pays", /FINANCE_PAYS/.test(String(mdPays)), String(mdPays).slice(0, 40));
@@ -125,6 +137,7 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
     check("a path maps to its menu entry", menuKeyOf("/finance/payables") === "ledger" && menuKeyOf("/documents?type=DN") === "deliveryNotes" && menuKeyOf("/admin/permissions") === "permissions", `${menuKeyOf("/finance/payables")} ${menuKeyOf("/documents?type=DN")}`);
     await prisma.roleMenu.deleteMany({ where: { role: "ENGINEER" } });
   } finally {
+    if (filled.length) await prisma.employee.updateMany({ where: { id: { in: filled }, bankAccount: "TEST-PROBE-000" }, data: { bankAccount: null } });
     const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId: md.entityId, month: MONTH } } });
     if (run) { await prisma.expenseClaim.updateMany({ where: { payrollRunId: run.id }, data: { payrollRunId: null } }); await prisma.payrollRun.delete({ where: { id: run.id } }); }
     await prisma.performanceReview.deleteMany({ where: { kind: "MONTHLY", period: MONTH } });

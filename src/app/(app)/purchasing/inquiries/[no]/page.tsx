@@ -1,3 +1,4 @@
+import { can } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -20,11 +21,15 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
   const [t, u, ts] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("inquiryStatus")]);
   const inq = await prisma.purchaseInquiry.findUnique({ where: { no }, include: { serviceOrder: { select: { no: true, lockedAt: true, warrantyDays: true, customer: { select: { name: true } } } }, requestedBy: { select: { name: true } }, quotes: { orderBy: { createdAt: "asc" }, include: { supplier: true } }, orders: { select: { no: true, status: true } } } });
   if (!inq) notFound();
+  const me = await currentEmployee();
+  // 供应商价格 only for those who see cost: the others see what was asked for and where it stands
+  const seeCost = can.cost(me.role);
+  if (!seeCost) { inq.quotes = inq.quotes.filter(() => false); }
   const sub = inq.kind === "SUBCONTRACT"; // 合作维修: partners only, warranty + repair plan, warranty back-to-back on the POTH
   const suppliers = await prisma.supplier.findMany({ where: { active: true, ...(sub ? { isPartner: true } : {}) }, orderBy: { name: "asc" } });
   const lines = inq.lines as InquiryLine[];
   const selected = inq.quotes.find((q) => q.selected);
-  const open = inq.status === "OPEN" || inq.status === "COMPARED";
+  const open = seeCost && (inq.status === "OPEN" || inq.status === "COMPARED");
   const qp = (q: (typeof inq.quotes)[number], lineNo: number) => (q.lines as { lineNo: number; unitPrice: number; amount: number }[]).find((l) => l.lineNo === lineNo);
 
   async function addQuote(f: FormData) {
@@ -61,7 +66,7 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/purchasing/inquiries", label: u("inquiries") }} title={<span className="font-mono">{inq.no}</span>} badge={<><Tag hot={inq.status === "OPEN"}>{ts(inq.status)}</Tag>{sub && <Tag>{u("partnerRepair")}</Tag>}</>}
-        actions={inq.status === "COMPARED" && inq.orders.length === 0 && !inq.serviceOrder?.lockedAt ? <form action={raisePo}><button className={btnBlue}>{u("raisePo")} →</button></form> : null} />
+        actions={seeCost && inq.status === "COMPARED" && inq.orders.length === 0 && !inq.serviceOrder?.lockedAt ? <form action={raisePo}><button className={btnBlue}>{u("raisePo")} →</button></form> : null} />
       <Flash ok={ok} error={error} />
       <Card title={u("inquiryHeader")}>
         <div className="grid gap-2 text-sm md:grid-cols-4">
@@ -82,7 +87,7 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
           <tr className="text-xs text-navy/70"><td colSpan={4}>{u("quoteNo")} · {u("leadTime")} · {u("validUntil")}</td>{inq.quotes.map((q) => <td key={q.id} className="text-right">{q.quoteNo ?? "—"} · {q.leadTimeDays != null ? `${q.leadTimeDays} d` : "—"} · {localIso(q.validUntil)?.slice(0, 10) ?? "—"}</td>)}</tr>
           {open && inq.quotes.length > 0 && <tr><td colSpan={4}></td>{inq.quotes.map((q) => <td key={q.id} className="text-right">{q.selected ? <Tag>{u("selectedQuote")}</Tag> : <form action={select}><input type="hidden" name="quoteId" value={q.id} /><button className={btnGhost}>{u("selectQuote")}</button></form>}</td>)}</tr>}
         </Table>
-        {inq.quotes.length === 0 && <p className="py-4 text-center text-sm text-navy/60">{u("noQuotesYet")}</p>}
+        {seeCost && inq.quotes.length === 0 && <p className="py-4 text-center text-sm text-navy/60">{u("noQuotesYet")}</p>}
         {selected && inq.serviceOrder && <p className="text-xs text-navy/70">{u("costFlowedBack", { order: inq.serviceOrder.no })}</p>}
       </Card>
 

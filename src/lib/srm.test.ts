@@ -3,11 +3,11 @@ import { averageScore, custodyOf, missingAccessories, payableDueDate, revisionNe
 
 describe("partner repair rules (2026-11-08)", () => {
   // margin floors per business mode: src/lib/modes.test.ts
-  it("monthly partners are due 15 days after the invoice month ends; others on the invoice date", () => {
+  it("monthly partners are due 15 days after the invoice month ends; others 30 days after the invoice date", () => {
     expect(payableDueDate(new Date("2026-11-08T10:00:00Z"), "MONTHLY", 15).toISOString().slice(0, 10)).toBe("2026-12-15");
     expect(payableDueDate(new Date("2026-02-27T00:00:00Z"), "MONTHLY", null).toISOString().slice(0, 10)).toBe("2026-03-15");
     expect(payableDueDate(new Date("2026-12-31T00:00:00Z"), "MONTHLY", 15).toISOString().slice(0, 10)).toBe("2027-01-15");
-    expect(payableDueDate(new Date("2026-11-08T10:00:00Z"), "PER_ORDER").toISOString().slice(0, 10)).toBe("2026-11-08");
+    expect(payableDueDate(new Date("2026-11-08T10:00:00Z"), "PER_ORDER").toISOString().slice(0, 10)).toBe("2026-12-08"); // 账期缺省 30 天 (需求清单 v3, 导师锁定)
   });
   it("withholds 3 % only on a Thai partner's repair", () => {
     expect(whtRateFor("TH", "SUBCONTRACT")).toBe(0.03);

@@ -1,9 +1,10 @@
+import { assertOrderAccess } from "@/server/scope";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { missingForAcceptance, recordAcceptance } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
-import { maskName } from "@/lib/mask";
+import { maskName, staffContact } from "@/lib/mask";
 import { saveUpload } from "@/lib/uploads";
 import { shortDate, localIso } from "@/lib/dates";
 import { RevealRows } from "@/components/RevealRows";
@@ -29,7 +30,7 @@ export default async function Accept({ params, searchParams }: { params: Promise
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const deliverables = Array.from({ length: ROWS }, (_, i) => ({ deliverable: str(f, `d${i}`) ?? "", criterion: str(f, `c${i}`), result: str(f, `r${i}`) })).filter((x) => x.deliverable);
       const status = f.get("status") as "ACCEPTED" | "CONDITIONAL" | "REJECTED";
       if (status === "CONDITIONAL" && !str(f, "punchList")) throw new Error("CONDITIONAL_NEEDS_PUNCH");
@@ -64,7 +65,7 @@ export default async function Accept({ params, searchParams }: { params: Promise
             <Field label={u("acceptDate")}><input name="acceptedAt" type="date" defaultValue={today} className={inputCls} /></Field>
             <Field label={u("warranty")}><div className="flex gap-2"><input name="warrantyStart" type="date" defaultValue={today} className={inputCls} /><input name="warrantyTerms" placeholder={u("warrantyTermsPh")} className={inputCls} /></div></Field>
             <Field label={u("punchListOwner")}><input name="punchList" className={inputCls} /></Field>
-            <Field label={u("customerRep")} required><select name="contactId" className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)}{c.title ? ` · ${c.title}` : ""}</option>)}</select></Field>
+            <Field label={u("customerRep")} required><select name="contactId" defaultValue={contacts.length === 1 ? contacts[0].id : ""} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{staffContact(c)}{c.title ? ` · ${c.title}` : ""}</option>)}</select></Field>
             <Field label={u("acceptSignature")}>
               <div className="flex flex-wrap items-center gap-2">
                 {order.acceptance?.signatureUrl && <a href={order.acceptance.signatureUrl} target="_blank" className="rounded-full border border-navy/35 bg-tint px-2.5 py-1 text-xs font-semibold text-navy">✓ {u("signedOn", { date: shortDate(order.acceptance.acceptedAt) })}</a>}

@@ -63,8 +63,8 @@ async function main() {
   await updateOwnContacts(e.code, { phone: "+66 81 000 1111", lineId: "probe_new" });
   const c2 = await prisma.employee.findUniqueOrThrow({ where: { code: e.code } });
   assert(c2.phone === "+66 81 000 1111" && c2.lineId === "probe_new" && c2.bankAccount === "1234567890", "own contacts changed, payroll fields untouched");
-  await refused(() => addSalaryRecord(e.code, e.code, { effectiveFrom: "2027-02-01", baseSalary: 99999, reason: "self" }), /MD_ONLY/, "an engineer cannot add a salary record");
-  await refused(() => updateEmployee({ actorCode: e.code, code: e.code, role: "MD" }), /MD_ONLY/, "an engineer cannot change the file");
+  await refused(() => addSalaryRecord(e.code, e.code, { effectiveFrom: "2027-02-01", baseSalary: 99999, reason: "self" }), /STAFF_ONLY/, "an engineer cannot add a salary record");
+  await refused(() => updateEmployee({ actorCode: e.code, code: e.code, role: "MD" }), /STAFF_ONLY/, "an engineer cannot change the file");
   await refused(() => getEmployeeFile(me, md.code), /FORBIDDEN/, "an engineer cannot open another file");
   await refused(() => authorizeEmployeeReveal(e.code, "wrong", e.code), /WRONG_PASSWORD/, "reveal needs the right password");
   await authorizeEmployeeReveal(e.code, "probe123", e.code);

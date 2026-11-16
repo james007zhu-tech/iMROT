@@ -2,6 +2,7 @@
  * SCM Phase 1 slice: stock movements. An OUT movement into an asset writes PART_REPLACED on that asset.
  * Parts are keyed by brand + vendor part no, never by customer, so the same SKU can be matched across customers.
  */
+import { can } from "@/lib/caps";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertNotLocked } from "@/server/slm";
@@ -78,13 +79,24 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
   if (order) assertNotLocked(order);
   if (d.direction === "OUT" && !asset && !order) throw new Error("an OUT movement must name the asset or the service order it serves");
   // nothing leaves the store that is not in it (trial finding 2026-11-14)
+  // 一个库存数 (需求清单 v3 P0-07): stock is what came in minus what went out, counted over every warehouse — the
+  // same figure on the list, the part page, the stock form and the delivery note. An issue is taken from the warehouse
+  // named when it has the goods, else from the one that does; the movement records which.
+  const takeFrom = new Map<string, string>();
+  d.warehouse = d.warehouse.trim().toUpperCase() || "RAYONG";
   if (d.direction === "OUT") {
     const want = new Map<string, number>();
     for (const l of d.lines) { const p = found.get(l.partSku.trim())!; want.set(p.sku, (want.get(p.sku) ?? 0) + l.qty); }
     const short: string[] = [];
-    for (const [sku, qty] of want) { const have = await stockOnHand(sku, d.warehouse); if (qty > have + 1e-9) short.push(`${sku} ${qty}/${have}`); }
+    for (const [sku, qty] of want) {
+      const by = await stockByWarehouse(sku);
+      const wh = (by.get(d.warehouse) ?? 0) >= qty - 1e-9 ? d.warehouse : [...by].find(([, n]) => n >= qty - 1e-9)?.[0];
+      if (wh) takeFrom.set(sku, wh); else short.push(`${sku} ${qty}/${[...by.values()].reduce((a, b) => a + b, 0)}`);
+    }
     if (short.length) throw new Error(`STOCK_SHORT:${short.join("; ")}`);
   }
+  // 成本只给看得到成本的人填: a unit cost typed by anyone else is not taken (采购或财务补)
+  if (!can.cost(actor.role)) for (const l of d.lines) l.unitCost = undefined;
 
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: d.direction === "IN" ? "IB" : "OB", createdByEmployeeCode: actor.code, entityId: actor.entityId, date: d.movedAt });
@@ -92,7 +104,7 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
     for (const [i, l] of d.lines.entries()) {
       const part = found.get(l.partSku.trim())!;
       rows.push(await tx.stockMovement.create({
-        data: { no, lineNo: i + 1, direction: d.direction, partId: part.id, qty: l.qty, warehouse: d.warehouse, batch: l.batch, assetId: asset?.id, serviceOrderId: order?.id, oldPartDisposition: l.oldPartDisposition, movedAt: d.movedAt, byName: actor.name, unitCost: d.direction === "IN" ? l.unitCost : undefined, supplierRef: d.supplierRef },
+        data: { no, lineNo: i + 1, direction: d.direction, partId: part.id, qty: l.qty, warehouse: takeFrom.get(part.sku) ?? d.warehouse, batch: l.batch, assetId: asset?.id, serviceOrderId: order?.id, oldPartDisposition: l.oldPartDisposition, movedAt: d.movedAt, byName: actor.name, unitCost: d.direction === "IN" ? l.unitCost : undefined, supplierRef: d.supplierRef },
         include: { part: true },
       }));
       if (d.direction === "IN" && l.unitCost != null) await tx.part.update({ where: { id: part.id }, data: { lastCost: l.unitCost, lastCostCurrency: d.costCurrency ?? "THB" } });
@@ -131,12 +143,20 @@ export async function recordMovement(input: z.input<typeof MovementInput>) {
   return r.lines[0];
 }
 
-/** Stock on hand per part = IN − OUT (Phase 1 has one warehouse per entity). */
-export async function stockOnHand(partSku: string, warehouse = "RAYONG") {
+/** Stock on hand per warehouse = IN − OUT. Warehouses with nothing in them are left out. */
+export async function stockByWarehouse(partSku: string): Promise<Map<string, number>> {
   const part = await prisma.part.findUniqueOrThrow({ where: { sku: partSku } });
-  const rows = await prisma.stockMovement.groupBy({ by: ["direction"], where: { partId: part.id, warehouse }, _sum: { qty: true } });
-  const sum = (dir: "IN" | "OUT") => Number(rows.find((r) => r.direction === dir)?._sum.qty ?? 0);
-  return sum("IN") - sum("OUT");
+  const rows = await prisma.stockMovement.groupBy({ by: ["warehouse", "direction"], where: { partId: part.id }, _sum: { qty: true } });
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.warehouse, (out.get(r.warehouse) ?? 0) + (r.direction === "IN" ? 1 : -1) * Number(r._sum.qty ?? 0));
+  for (const [k, v] of out) if (Math.abs(v) < 1e-9) out.delete(k);
+  return out;
+}
+
+/** The one stock figure of a part: IN − OUT over every warehouse (or of one warehouse when it is named). */
+export async function stockOnHand(partSku: string, warehouse?: string) {
+  const by = await stockByWarehouse(partSku);
+  return warehouse ? by.get(warehouse) ?? 0 : [...by.values()].reduce((a, b) => a + b, 0);
 }
 
 /** Shared-spare question: which assets (across all customers) use this part, via model BOM. */
@@ -154,4 +174,29 @@ export async function createPart(input: { brandCode?: string; vendorPartNo: stri
   const brand = input.brandCode ? await prisma.brand.findUnique({ where: { code: input.brandCode } }) : null;
   const sku = `${brand?.code ?? "GEN"}-${vendor}`;
   return prisma.part.create({ data: { sku, brandId: brand?.id, vendorPartNo: vendor, name: input.name, nameLocal: input.nameLocal, unit: input.unit ?? "pcs", safetyStock: input.safetyStock } });
+}
+
+
+/**
+ * 从工单出库 (需求清单 v3 P0-08): what an order still has to take from the store — its part lines (the customer's PO,
+ * else the quote) minus what has already been issued for it — with the stock on hand of each, the order's machine
+ * when there is exactly one, and the open PRTH if the missing parts are already being bought.
+ */
+export async function issueNeeds(orderNo: string) {
+  const o = await prisma.serviceOrder.findUnique({ where: { no: orderNo }, include: { lines: { include: { part: { select: { sku: true } } } }, assets: { include: { asset: { select: { code: true } } } }, inquiries: { where: { status: { notIn: ["CANCELLED", "CLOSED"] as never[] } }, select: { no: true }, take: 1 } } });
+  if (!o) return null;
+  const want = new Map<string, number>();
+  const po = (o.poLines as { sku?: string; qty: number; isService?: boolean }[] | null) ?? [];
+  if (po.some((l) => l.sku)) { for (const l of po) if (l.sku && !l.isService) want.set(l.sku, (want.get(l.sku) ?? 0) + Number(l.qty)); }
+  else for (const l of o.lines) if (l.part) want.set(l.part.sku, (want.get(l.part.sku) ?? 0) + Number(l.qty));
+  const lines: { sku: string; qty: number; onHand: number }[] = [];
+  for (const [key, qty] of want) {
+    const part = await findPart(key).catch(() => null);
+    if (!part) continue;
+    const out = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: o.id } });
+    const left = qty - Number(out._sum.qty ?? 0);
+    if (left > 1e-9) lines.push({ sku: part.sku, qty: left, onHand: await stockOnHand(part.sku) });
+  }
+  const trade = o.mode === "DOMESTIC_TRADE" || o.mode === "INTERNATIONAL_TRADE";
+  return { lines, hadParts: want.size > 0, assetCode: !trade && o.assets.length === 1 ? o.assets[0].asset.code : undefined, openInquiry: o.inquiries[0]?.no };
 }

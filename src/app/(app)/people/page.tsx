@@ -1,3 +1,4 @@
+import { can } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -16,7 +17,7 @@ const day = (v: Date | null | undefined) => (v ? localIso(v)!.slice(0, 10) : "â€
 export default async function People({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; all?: string }> }) {
   const { ok, error, all } = await searchParams;
   const me = await currentEmployee();
-  if (me.role !== "MD") redirect(`/people/${me.code}`);
+  if (!can.staff(me.role)) redirect(`/people/${me.code}`);
   const [t, c, r] = await Promise.all([getTranslations("ui"), getTranslations("common"), getTranslations("role")]);
   const employees = await prisma.employee.findMany({
     where: all ? {} : { active: true }, orderBy: { code: "asc" },

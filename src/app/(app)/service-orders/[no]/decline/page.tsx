@@ -1,10 +1,11 @@
+import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { declineQuote } from "@/server/decline";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
-import { maskName } from "@/lib/mask";
+import { maskName, staffContact } from "@/lib/mask";
 import { DECLINE_REASONS, declineBlocker } from "@/lib/decline";
 import { Alert, Card, Field, Grid, Table, inputCls } from "@/components/ui";
 import { StepPage, atts, dayNow, loadOrder, str } from "../_shell";
@@ -32,7 +33,7 @@ export default async function Decline({ params, searchParams }: { params: Promis
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const o = await loadOrder(no);
       await declineQuote({
         no, actorCode: me.code, reason: String(f.get("reason") ?? ""), note: str(f, "declineNote"), toldAt: dayNow(str(f, "toldAt")), contactId: str(f, "contactId"),
@@ -58,7 +59,7 @@ export default async function Decline({ params, searchParams }: { params: Promis
             </div>
             <Grid>
               <Field label={u("declineToldAt")} required><input name="toldAt" type="date" required defaultValue={today} className={inputCls} /></Field>
-              <Field label={u("declineContact")}><select name="contactId" defaultValue={order.reportedById ?? ""} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{maskName(c.name)}{c.title ? ` · ${c.title}` : ""}</option>)}</select></Field>
+              <Field label={u("declineContact")}><select name="contactId" defaultValue={order.reportedById ?? ""} className={inputCls}><option value="">—</option>{contacts.map((c) => <option key={c.id} value={c.id}>{staffContact(c)}{c.title ? ` · ${c.title}` : ""}</option>)}</select></Field>
               <Field label={t("note")}><input name="declineNote" placeholder={u("declineNotePh")} className={inputCls} /></Field>
             </Grid>
           </Card>

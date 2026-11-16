@@ -8,6 +8,8 @@
  *   → DNTH / acceptance / TITH as usual → supplier invoice (月结 15 天 TH, else per order; 3 % WHT TH) → rating.
  * Principle: the partner never meets the customer — we carry the machine both ways, no direct delivery exists.
  */
+import { actorWith } from "@/server/guard";
+import { can } from "@/lib/caps";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -255,6 +257,7 @@ export const RevisionInput = z.object({
 
 /** 变更 POTH: same number, version +1. More cost or a later date needs the customer's written consent first; the new cost flows into the QTTH margin. */
 export async function revisePurchaseOrder(input: z.input<typeof RevisionInput>) {
+  await actorWith(input.actorCode, can.cost); // 统一角色权限表
   const d = RevisionInput.parse(input);
   const [po, actor] = await Promise.all([prisma.purchaseOrder.findUniqueOrThrow({ where: { no: d.poNo }, include: { serviceOrder: true } }), actorOf(d.actorCode)]);
   if (po.kind !== "SUBCONTRACT") throw new Error(`NOT_SUBCONTRACT_PO:${po.no}`);
@@ -309,6 +312,7 @@ export const SupplierInvoiceInput = z.object({
  * work, against our retest (not before it passed). Due date from the supplier's terms; WHT 3 % on a Thai partner's repair.
  */
 export async function registerSupplierInvoice(input: z.input<typeof SupplierInvoiceInput>) {
+  await actorWith(input.actorCode, can.finance); // 统一角色权限表
   const d = SupplierInvoiceInput.parse(input);
   const [po, actor] = await Promise.all([prisma.purchaseOrder.findUniqueOrThrow({ where: { no: d.poNo }, include: { supplier: true, milestones: true, invoices: { where: { status: { not: "CANCELLED" }, accrued: false } } } }), actorOf(d.actorCode)]);
   if (po.status === "CANCELLED") throw new Error(`PO_CLOSED:${po.no}`);
@@ -358,10 +362,17 @@ export async function payableThb(inv: { currency: string; payable: unknown }) {
   return a && b ? round2((Number(inv.payable) * a.rateToCny) / b.rateToCny) : null;
 }
 
-/** Does this payment wait for the MD? Above 50,000 THB, or the payer is the person who registered the invoice. */
-export async function paymentNeedsMd(inv: { currency: string; payable: unknown; createdById: string; matchDiff?: unknown; subtotal?: unknown }, payerId?: string) {
-  if (inv.matchDiff != null && mismatch(Number(inv.matchDiff), Number(inv.subtotal ?? 0) - Number(inv.matchDiff))) return true; // 三单不符
-  return overLimit(await payableThb(inv)) || (!!payerId && inv.createdById === payerId);
+/**
+ * Why a payment waits for the MD, or null (需求清单 v3 P1-24, 铁律 2): only a single payment above 50,000 THB, or an
+ * invoice that does not match what was received. A payment below the limit never goes to the MD — not even when the
+ * person paying registered the invoice; the page then says so, and that is all.
+ */
+export async function paymentHold(inv: { currency: string; payable: unknown; matchDiff?: unknown; subtotal?: unknown }): Promise<"MISMATCH" | "OVER_LIMIT" | null> {
+  if (inv.matchDiff != null && mismatch(Number(inv.matchDiff), Number(inv.subtotal ?? 0) - Number(inv.matchDiff))) return "MISMATCH"; // 三单不符
+  return overLimit(await payableThb(inv)) ? "OVER_LIMIT" : null;
+}
+export async function paymentNeedsMd(inv: { currency: string; payable: unknown; matchDiff?: unknown; subtotal?: unknown }) {
+  return (await paymentHold(inv)) !== null;
 }
 
 /** The MD releases a payment that waits for him. */
@@ -371,6 +382,7 @@ export async function approvePayment(input: { id: string; actorCode: string }) {
   const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
   if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
   if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
+  if (!(await paymentNeedsMd(inv))) throw new Error("PAY_NO_RELEASE_NEEDED");
   await prisma.supplierInvoice.update({ where: { id: inv.id }, data: { mdApprovedBy: actor.code, mdApprovedAt: new Date() } });
   await audit(actor.id, "PAYMENT_RELEASED", inv.invoiceNo, { payable: Number(inv.payable), currency: inv.currency });
 }
@@ -382,7 +394,7 @@ export async function paySupplierInvoice(input: { id: string; actorCode: string;
   const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
   if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
   if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
-  if (!inv.mdApprovedAt && (await paymentNeedsMd(inv, actor.id))) throw new Error(`PAY_NEEDS_MD:${inv.invoiceNo}`);
+  if (!inv.mdApprovedAt && (await paymentNeedsMd(inv))) throw new Error(`PAY_NEEDS_MD:${inv.invoiceNo}`);
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "PV", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.paidAt });
     await tx.document.create({ data: { no, type: "PV", entityId: inv.entityId, countryCode: no.slice(2, 4), createdById: actor.id, issuedAt: input.paidAt } });
@@ -408,4 +420,22 @@ export async function savePartnerProfile(input: z.input<typeof PartnerProfileInp
   await actorOf(d.actorCode);
   const mode = d.paymentMode ?? defaultPaymentMode(d.countryCode);
   return prisma.supplier.update({ where: { code: d.code }, data: { isPartner: d.isPartner, capabilities: [...new Set(d.capabilities.map((c) => c.trim().toUpperCase()).filter(Boolean))], countryCode: d.countryCode.toUpperCase(), paymentMode: mode, paymentDays: mode === "MONTHLY" ? (d.paymentDays ?? 15) : null } });
+}
+
+
+/**
+ * 撤回 (需求清单 v3 P1-28): a supplier invoice registered by mistake and not yet paid is taken back by finance (or the
+ * MD), with a reason. The row is removed, the POTH's accrual comes back for what was received, and the log keeps
+ * who, when and why. A paid one is not taken back — that is the supplier's credit note.
+ */
+export async function withdrawSupplierInvoice(input: { id: string; actorCode: string; reason: string }) {
+  const actor = await actorOf(input.actorCode);
+  if (!can.finance(actor.role)) throw new Error("NO_PERMISSION");
+  if (!input.reason.trim()) throw new Error("WITHDRAW_REASON_REQUIRED");
+  const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id }, include: { purchaseOrder: { select: { id: true, no: true, kind: true } } } });
+  if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
+  if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
+  await prisma.supplierInvoice.delete({ where: { id: inv.id } });
+  await audit(actor.id, "SUPPLIER_INVOICE_WITHDRAWN", inv.invoiceNo, { po: inv.purchaseOrder.no, subtotal: Number(inv.subtotal), payable: Number(inv.payable), reason: input.reason.trim() });
+  if (inv.purchaseOrder.kind === "PARTS") await syncAccrual(inv.purchaseOrder.id, inv.invoiceDate);
 }

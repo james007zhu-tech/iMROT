@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { getTranslations } from "next-intl/server";
 import { confirmCustomerPo, poLinesFromQuote } from "@/server/slm";
 import { currentEmployee } from "@/server/auth";
@@ -17,7 +18,7 @@ export default async function Confirm({ params, searchParams }: { params: Promis
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const po = lines.map((l, i) => ({ ...l, description: str(f, `d${i}`) ?? l.description, qty: num(f, `q${i}`) ?? l.qty, isService: f.get(`s${i}`) === "on" })).filter((l) => l.qty > 0);
       const files = [...atts(f)];
       for (const x of f.getAll("poFiles")) if (x instanceof File && x.size > 0) files.push({ ...(await saveUpload(x, "po")), name: x.name, kind: "PO" });

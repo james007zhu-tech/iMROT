@@ -1,3 +1,5 @@
+import { can, stripMoney } from "@/lib/caps";
+import { docTypeAllowed } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { confirmSerial, looseDocsOf, relinkDoc } from "@/server/asset-first";
@@ -31,9 +33,13 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
   const { ok, error } = await searchParams;
   const asset = await getAssetPage(code);
   if (!asset) notFound();
+  // 统一角色权限表: the machine's history is for everyone; what it cost and what was charged is not
+  const me = await currentEmployee();
+  asset.events = stripMoney(asset.events, me.role);
+  const seePrice = can.price(me.role);
   const t = await getTranslations("common");
   const u = await getTranslations("ui");
-  const orderDocs = await prisma.document.findMany({ where: { serviceOrderId: { in: asset.orderLinks.map((l) => l.serviceOrderId) }, voidedAt: null }, include: { serviceOrder: { select: { no: true, acceptance: { select: { id: true } } } } }, orderBy: { issuedAt: "asc" } });
+  const orderDocs = (await prisma.document.findMany({ where: { serviceOrderId: { in: asset.orderLinks.map((l) => l.serviceOrderId) }, voidedAt: null }, include: { serviceOrder: { select: { no: true, acceptance: { select: { id: true } } } } }, orderBy: { issuedAt: "asc" } })).filter((d) => docTypeAllowed(me.role, d.type));
   const [customers, others] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" }, include: { plants: true } }),
     prisma.asset.findMany({ where: { customerId: asset.customerId ?? undefined, NOT: { code } }, select: { code: true, type: true, location: true }, orderBy: { code: "asc" }, take: 200 }),
@@ -147,7 +153,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
                 <Link href={`/service-orders/${o.no}`} className="font-mono text-blue underline">{o.no}</Link>
                 <OrderStatusBadge status={o.status} />
                 <span className="text-navy/70">{t(o.kind)} · {fmt(o.reportedAt)}</span>
-                {o.total != null && <span className="ml-auto">{o.currency} {Number(o.total).toFixed(2)}</span>}
+                {seePrice && o.total != null && <span className="ml-auto">{o.currency} {Number(o.total).toFixed(2)}</span>}
                 <span className="basis-full text-xs">{orderDocs.filter((d) => d.serviceOrder?.no === o.no).flatMap((d) => reportsFor(d, !!d.serviceOrder?.acceptance).map((r) => <a key={`${d.no}${r.key}`} className="mr-3 text-blue hover:underline" href={`/api/documents/${d.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)}</a>))}</span>
               </li>
             ))}

@@ -1,3 +1,5 @@
+import { assertOrderAccess } from "@/server/scope";
+import { can } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
@@ -24,9 +26,11 @@ export default async function Plan({ params, searchParams }: { params: Promise<{
   const [{ no }, { error, ok }] = await Promise.all([params, searchParams]);
   const order = await loadOrder(no);
   if (order.mode !== "AUTOMATION_PROJECT") notFound();
-  const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
+  const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
+  // 统一角色权限表: cost per hour is for those who see cost; the payment split is set by sales and the MD, the shop floor does not see it (主管 reads it)
+  const seeCost = can.cost(me.role), editSplit = can.editPrice(me.role), seeSplit = editSplit || can.price(me.role) || me.role === "MANAGER";
   const [parts, milestones] = await Promise.all([
-    prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { sku: true, name: true, lastCost: true, vendorPartNo: true, unit: true } }),
+    prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { sku: true, name: true, vendorPartNo: true, unit: true } }),
     prisma.projectMilestone.findMany({ where: { serviceOrderId: order.id }, orderBy: { seq: "asc" } }),
   ]);
   const info = (order.project as unknown as ProjectInfo | null) ?? { name: order.no };
@@ -38,13 +42,16 @@ export default async function Plan({ params, searchParams }: { params: Promise<{
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
+      // what a role does not see it cannot change: those figures are kept as they are
+      const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { project: true, milestones: { select: { phase: true, payPct: true } } } });
+      const keptLabour = ((cur.project as unknown as ProjectInfo | null)?.labour ?? []);
       const r = await savePlan({
         no, actorCode: me.code, solution: str(f, "solution"), dueDate: str(f, "projectDue"), scope: str(f, "projectScope"),
         deliverables: Array.from({ length: DLV_ROWS }, (_, i) => ({ name: str(f, `vn${i}`) ?? "", qty: num(f, `vq${i}`) ?? 0 })),
         bom: Array.from({ length: BOM_ROWS }, (_, i) => ({ sku: str(f, `bs${i}`), description: str(f, `bd${i}`), qty: num(f, `bq${i}`), unit: str(f, `bu${i}`), neededBy: str(f, `bn${i}`) })),
-        labour: Array.from({ length: LAB_ROWS }, (_, i) => ({ description: str(f, `ld${i}`) ?? "", hours: num(f, `lh${i}`) ?? 0, costPerHour: num(f, `lc${i}`) })),
-        milestones: PHASES.map((p) => ({ phase: p, payPct: num(f, `mp_${p}`) ? (num(f, `mp_${p}`) as number) / 100 : null, plannedOn: str(f, `md_${p}`) })),
+        labour: Array.from({ length: LAB_ROWS }, (_, i) => ({ description: str(f, `ld${i}`) ?? "", hours: num(f, `lh${i}`) ?? 0, costPerHour: can.cost(me.role) ? num(f, `lc${i}`) : keptLabour[i]?.costPerHour })),
+        milestones: PHASES.map((p) => ({ phase: p, payPct: !can.editPrice(me.role) ? (cur.milestones.find((m) => m.phase === p)?.payPct != null ? Number(cur.milestones.find((m) => m.phase === p)!.payPct) : null) : num(f, `mp_${p}`) ? (num(f, `mp_${p}`) as number) / 100 : null, plannedOn: str(f, `md_${p}`) })),
       });
       return { ok: [r.no, r.prth].filter(Boolean).join(" · "), to: `/service-orders/${no}` };
     }, `/service-orders/${no}/plan`);
@@ -91,26 +98,26 @@ export default async function Plan({ params, searchParams }: { params: Promise<{
         </Card>
 
         <Card title={u("projectLabour")}>
-          <div className="hidden grid-cols-[2fr_110px_130px] gap-2 text-xs text-navy/70 md:grid"><span>{t("description")}</span><span>{u("labourHours")}</span><span>{u("costPerHour")}</span></div>
+          <div className={`hidden gap-2 text-xs text-navy/70 md:grid ${seeCost ? "grid-cols-[2fr_110px_130px]" : "grid-cols-[2fr_110px]"}`}><span>{t("description")}</span><span>{u("labourHours")}</span>{seeCost && <span>{u("costPerHour")}</span>}</div>
           <RevealRows initial={Math.max(2, (info.labour ?? []).length)} addLabel={u("addLine")}>
             {Array.from({ length: LAB_ROWS }, (_, i) => { const l = info.labour?.[i]; return (
-              <div key={i} className="grid grid-cols-3 gap-2 md:grid-cols-[2fr_110px_130px]">
+              <div key={i} className={`grid gap-2 ${seeCost ? "grid-cols-3 md:grid-cols-[2fr_110px_130px]" : "grid-cols-2 md:grid-cols-[2fr_110px]"}`}>
                 <input name={`ld${i}`} defaultValue={l?.description ?? ""} disabled={frozen} placeholder={u("labourPh")} className={inputCls} />
                 <input name={`lh${i}`} type="number" min="0" step="0.5" defaultValue={l?.hours ?? ""} disabled={frozen} className={inputCls} />
-                <input name={`lc${i}`} type="number" min="0" step="0.01" defaultValue={l?.costPerHour ?? ""} disabled={frozen} placeholder={u("costPh")} className={inputCls} />
+                {seeCost && <input name={`lc${i}`} type="number" min="0" step="0.01" defaultValue={l?.costPerHour ?? ""} disabled={frozen} placeholder={u("costPh")} className={inputCls} />}
               </div>); })}
           </RevealRows>
         </Card>
 
         <Card title={u("projectMilestones")}>
-          <div className="grid grid-cols-[1fr_110px_160px] gap-2 text-xs text-navy/70"><span>{u("milestone")}</span><span>{u("payPct")}</span><span>{u("plannedOn")}</span></div>
+          <div className={`grid gap-2 text-xs text-navy/70 ${seeSplit ? "grid-cols-[1fr_110px_160px]" : "grid-cols-[1fr_160px]"}`}><span>{u("milestone")}</span>{seeSplit && <span>{u("payPct")}</span>}<span>{u("plannedOn")}</span></div>
           {PHASES.map((p) => { const m = milestones.find((x) => x.phase === p); return (
-            <div key={p} className="mt-1 grid grid-cols-[1fr_110px_160px] items-center gap-2">
+            <div key={p} className={`mt-1 grid items-center gap-2 ${seeSplit ? "grid-cols-[1fr_110px_160px]" : "grid-cols-[1fr_160px]"}`}>
               <span className="text-sm">{m?.seq}. {u(`phase_${p as Phase}`)}{m?.doneAt ? <span className="ml-2 text-xs text-navy/60">✓ {localIso(m.doneAt)!.slice(0, 10)}</span> : null}</span>
-              <input name={`mp_${p}`} type="number" min="0" max="100" step="0.1" defaultValue={pct(m?.payPct)} disabled={frozen} placeholder="—" className={inputCls} />
+              {seeSplit && <input name={`mp_${p}`} type="number" min="0" max="100" step="0.1" defaultValue={pct(m?.payPct)} disabled={frozen || !editSplit} placeholder="—" className={inputCls} />}
               <input name={`md_${p}`} type="date" defaultValue={m?.plannedOn ? localIso(m.plannedOn)!.slice(0, 10) : ""} className={inputCls} />
             </div>); })}
-          <p className={`mt-2 text-xs ${Math.round(sum * 1000) === 1000 ? "text-navy/70" : "font-semibold text-alert-ink"}`}>{u("paySplitLine", { pct: Math.round(sum * 1000) / 10 })}</p>
+          {seeSplit && <p className={`mt-2 text-xs ${Math.round(sum * 1000) === 1000 ? "text-navy/70" : "font-semibold text-alert-ink"}`}>{u("paySplitLine", { pct: Math.round(sum * 1000) / 10 })}</p>}
         </Card>
       </form>
     </StepPage>

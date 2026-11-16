@@ -6,6 +6,9 @@
  *  MD/ADMIN/MANAGER: all orders; margin approvals; staff birthdays and expiring documents (MD)
  *  FINANCE (+MD):   customer invoices due, supplier invoices to pay
  */
+import { can, scoped } from "@/lib/caps";
+import { paymentHold } from "@/server/srm";
+import { orderScope, teamIds } from "@/server/scope";
 import { openResetRequests } from "@/server/password-reset";
 import { ensureCashPlan, mayPlan } from "@/server/cash-plan";
 import { MD_LIMIT_THB, PAYROLL_ROLES } from "@/lib/pay-rules";
@@ -17,22 +20,24 @@ import { daysToBirthday, daysUntil, orderDue, sortNotices, type Notice } from "@
 const OPEN = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] as const;
 
 export async function noticesFor(me: { id: string; code: string; role: string }, today = new Date()): Promise<Notice[]> {
-  const lead = ["MD", "ADMIN", "MANAGER"].includes(me.role);
-  const money = ["MD", "FINANCE"].includes(me.role);
-  const mine = lead ? {} : { OR: [{ createdById: me.id }, { assigneeId: me.id }, { salesId: me.id }] };
+  const lead = ["MD", "ADMIN"].includes(me.role);
+  const money = can.finance(me.role);
+  // whose orders: everything for the MD and 内勤; sales their own; the shop floor what is assigned to them (主管: their team); HR none
+  const mine = lead ? {} : scoped(me.role) || me.role === "HR" ? await orderScope(me) : { OR: [{ createdById: me.id }, { assigneeId: me.id }, { salesId: me.id }] };
+  const team = scoped(me.role) ? await teamIds(me) : null;
   const soon = (n: number) => new Date(today.getTime() + n * 86_400_000);
   const out: Notice[] = [];
   const push = (kind: string, days: number, ref: string, href: string, who?: string) => out.push({ id: `${kind}:${ref}`, kind, level: days < 0 ? "late" : "soon", days, ref, who, href });
 
   const [orders, milestones, pm, contacts, invoices, payables, staff, creds] = await Promise.all([
-    prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, ...mine }, select: { no: true, status: true, project: true, requestLines: true, quoteSentAt: true, reportedAt: true, assigneeId: true, marginApproval: true, customer: { select: { name: true } } }, take: 400 }),
+    prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, ...mine }, select: { no: true, status: true, project: true, requestLines: true, quoteSentAt: true, reportedAt: true, assigneeId: true, marginApproval: true, priceHint: true, total: true, _count: { select: { lines: true } }, customer: { select: { name: true } } }, take: 400 }),
     prisma.projectMilestone.findMany({ where: { doneAt: null, plannedOn: { lt: soon(3) }, serviceOrder: { status: { in: [...OPEN] }, ...mine } }, select: { phase: true, plannedOn: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } }, take: 100 }),
-    prisma.repairJob.findMany({ where: { nextDueAt: { gte: soon(-60), lte: soon(14) } }, orderBy: { nextDueAt: "desc" }, select: { no: true, assetId: true, nextDueAt: true, finishedAt: true, asset: { select: { code: true, customer: { select: { name: true } } } } }, take: 200 }),
-    prisma.contact.findMany({ where: { birthday: { not: null } }, select: { id: true, name: true, birthday: true, customer: { select: { code: true, name: true } } } }),
+    me.role === "HR" || me.role === "FINANCE" ? [] : prisma.repairJob.findMany({ where: { nextDueAt: { gte: soon(-60), lte: soon(14) }, ...(team ? { engineerId: { in: team } } : {}) }, orderBy: { nextDueAt: "desc" }, select: { no: true, assetId: true, nextDueAt: true, finishedAt: true, asset: { select: { code: true, customer: { select: { name: true } } } } }, take: 200 }),
+    !can.customers(me.role) || me.role === "FINANCE" ? [] : prisma.contact.findMany({ where: { birthday: { not: null } }, select: { id: true, name: true, birthday: true, customer: { select: { code: true, name: true } } } }),
     money ? prisma.invoice.findMany({ where: { paidAt: null, cancelledAt: null, dueAt: { lte: soon(3) } }, select: { no: true, dueAt: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } }, take: 200 }) : [],
-    money ? prisma.supplierInvoice.findMany({ where: { status: "OPEN", dueDate: { lte: soon(7) } }, select: { invoiceNo: true, dueDate: true, supplier: { select: { name: true } } }, take: 200 }) : [],
-    me.role === "MD" ? prisma.employee.findMany({ where: { active: true, birthDate: { not: null } }, select: { code: true, name: true, birthDate: true } }) : [],
-    me.role === "MD" ? prisma.employeeCredential.findMany({ where: { expiresAt: { not: null, lte: soon(180) }, employee: { active: true } }, select: { kind: true, expiresAt: true, remindDays: true, employee: { select: { code: true, name: true } } } }) : [],
+    money ? prisma.supplierInvoice.findMany({ where: { status: "OPEN" }, select: { invoiceNo: true, invoiceDate: true, dueDate: true, accrued: true, mdApprovedAt: true, currency: true, payable: true, subtotal: true, matchDiff: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } }, take: 300 }) : [],
+    can.staff(me.role) ? prisma.employee.findMany({ where: { active: true, birthDate: { not: null } }, select: { code: true, name: true, birthDate: true } }) : [],
+    can.staff(me.role) ? prisma.employeeCredential.findMany({ where: { expiresAt: { not: null, lte: soon(180) }, employee: { active: true } }, select: { kind: true, expiresAt: true, remindDays: true, employee: { select: { code: true, name: true } } } }) : [],
   ]);
 
   for (const o of orders) {
@@ -41,6 +46,9 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     if (due && daysUntil(due, today) <= 7) push("delivery", daysUntil(due, today), o.no, `/service-orders/${o.no}`, who);
     if (o.status === "QUOTE_PENDING" && o.quoteSentAt && daysUntil(o.quoteSentAt, today) <= -3) push("quoteWaiting", daysUntil(o.quoteSentAt, today), o.no, `/service-orders/${o.no}`, who);
     if (o.status === "RECEIVED" && !o.assigneeId && daysUntil(o.reportedAt, today) <= -1) push("unassigned", daysUntil(o.reportedAt, today), o.no, `/service-orders/${o.no}`, who);
+    // 定价是销售和 MD 的事: items saved by the shop floor wait for a price; a word about the price waits to be read
+    if (can.editPrice(me.role) && ["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(o.status) && o._count.lines > 0 && Number(o.total ?? 0) === 0) push("needsPrice", 0, o.no, `/service-orders/${o.no}/quote`, who);
+    if (can.editPrice(me.role) && o.priceHint) push("priceHint", 0, o.no, `/service-orders/${o.no}/quote`, who);
     if (lead && me.role === "MD" && o.marginApproval === "PENDING") push("marginApproval", 0, o.no, `/service-orders/${o.no}/quote`, who);
   }
   for (const m of milestones) push(`milestone`, daysUntil(m.plannedOn!, today), `${m.serviceOrder.no} ${m.phase}`, `/service-orders/${m.serviceOrder.no}/project`, m.serviceOrder.customer.name);
@@ -49,7 +57,14 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   for (const j of pm) { if (seen.has(j.assetId)) continue; seen.add(j.assetId); push("maintenanceDue", daysUntil(j.nextDueAt!, today), j.asset.code, `/assets/${j.asset.code}`, j.asset.customer?.name); }
   for (const c of contacts) { const d = daysToBirthday(c.birthday, today); if (d != null && d <= 7) push("contactBirthday", d, maskName(c.name), `/customers/${c.customer.code}`, c.customer.name); }
   for (const i of invoices) push("receivable", daysUntil(i.dueAt!, today), i.no, `/service-orders/${i.serviceOrder.no}/payment`, i.serviceOrder.customer.name);
-  for (const p of payables) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
+  // 应付提醒分三类 (需求清单 v3 P1-23): 票未到 — chase the supplier for the invoice; 待 MD 复批 — the MD's, not finance's;
+  // 该付款了 — only what may be paid and falls due within 3 days.
+  for (const p of payables) {
+    if (p.accrued) { const waited = -daysUntil(p.invoiceDate, today); if (me.role === "FINANCE" && waited >= 7) push("payableNoInvoice", -waited, p.purchaseOrder.no, `/purchasing/orders/${p.purchaseOrder.no}`, p.supplier.name); continue; }
+    const hold = p.mdApprovedAt ? null : await paymentHold(p);
+    if (hold) { if (me.role === "MD") push("payRelease", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name); continue; }
+    if (me.role === "FINANCE" && daysUntil(p.dueDate, today) <= 3) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
+  }
   for (const e of staff) { const d = daysToBirthday(e.birthDate, today); if (d != null && d <= 7) push("staffBirthday", d, e.name, `/people/${e.code}`); }
   for (const c of creds) { const d = daysUntil(c.expiresAt!, today); if (d <= c.remindDays) push("credential", d, `${c.employee.name} ${c.kind}`, `/people/${c.employee.code}`); }
   // 朱总 2026-11-11: last month's pay goes out by the 5th. From the 1st the MD is reminded until the month is paid.
@@ -59,7 +74,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
     const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month: previousMonth } }, select: { status: true, preparedBy: true, taxConfirmedAt: true } });
     const started = await prisma.salaryRecord.count({ where: { employee: { entityId, active: true } } });
-    const turn = !run || !run.preparedBy ? "ADMIN" : run.status === "DRAFT" ? (run.taxConfirmedAt ? "MD" : "FINANCE") : run.status === "APPROVED" ? "FINANCE" : null;
+    const turn = !run || !run.preparedBy ? "HR" : run.status === "DRAFT" ? (run.taxConfirmedAt ? "MD" : "FINANCE") : run.status === "APPROVED" ? "FINANCE" : null;
     if (started && turn === me.role) push(`payrollDue_${!run || !run.preparedBy ? "prep" : run.status === "APPROVED" ? "pay" : turn === "MD" ? "approve" : "review"}`, 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
   }
   // 付款复批: payments above the limit wait for the MD
@@ -67,8 +82,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     // 作废待批: a tax invoice or a receipt someone asked to void
     for (const x of await prisma.taxInvoice.findMany({ where: { voidStatus: "REQUESTED" }, select: { no: true, voidRequestReason: true, serviceOrder: { select: { no: true } } }, take: 30 })) push("voidAsked", 0, x.no, `/service-orders/${x.serviceOrder.no}/invoice`, x.voidRequestReason ?? "");
     for (const x of await prisma.receipt.findMany({ where: { voidStatus: "REQUESTED", voidedAt: null }, select: { no: true, voidRequestReason: true, invoice: { select: { serviceOrder: { select: { no: true } } } } }, take: 30 })) push("voidAsked", 0, x.no, `/service-orders/${x.invoice.serviceOrder.no}/payment`, x.voidRequestReason ?? "");
-    const waiting = await prisma.supplierInvoice.findMany({ where: { status: "OPEN", accrued: false, mdApprovedAt: null, currency: "THB", payable: { gt: MD_LIMIT_THB } }, select: { invoiceNo: true, dueDate: true, supplier: { select: { name: true } } }, take: 50 });
-    for (const p of waiting) push("payRelease", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
+    // (payments waiting for the MD are raised above, with the payables)
   }
   // 现金计划: the month's plan is written the first time anyone opens the system in that month; finance and the MD
   // are told for the first week

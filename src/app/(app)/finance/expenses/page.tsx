@@ -54,6 +54,7 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
                 {r.paidRef && <span>{r.paidRef}</span>}
                 {r.status === "APPROVED" && r.paidBy === "SELF" && <span>{t("expWithPayroll")}</span>}
               </div>
+              {r.status === "APPROVED" && r.payrollMonth && <p className="mt-2 text-[13px] text-navy">{t("expWithPayroll", { month: r.payrollMonth })}</p>}
               {(r.canDecide || (r.status === "PENDING" && r.employeeId === me.id) || r.canPay) && <div className="mt-2 flex flex-wrap items-center gap-2">
                 {r.canDecide && <form action={decideAction.bind(null, r.id)} className="flex flex-wrap items-center gap-2"><input name="note" placeholder={t("expNote")} className={`${inputCls} w-48`} /><button name="decision" value="APPROVED" className={btnPrimary}>{t("approve")}</button><button name="decision" value="REJECTED" className={btnGhost}>{t("reject")}</button></form>}
                 {r.status === "PENDING" && r.employeeId === me.id && <form action={cancelAction.bind(null, r.id)}><button className={btnGhost}>{t("withdraw")}</button></form>}

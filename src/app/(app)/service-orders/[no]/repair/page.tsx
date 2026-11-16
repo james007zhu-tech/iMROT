@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -38,7 +39,7 @@ export default async function Repair({ params, searchParams }: { params: Promise
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const finished = f.get("draft") !== "1"; // only the "save draft" button posts draft=1
       const tests = TESTS.map((k) => ({ key: k, test: str(f, `t_${k}`) ?? "", criterion: str(f, `c_${k}`), result: str(f, `r_${k}`), recordId: str(f, `id_${k}`), pass: f.get(`p_${k}`) ? f.get(`p_${k}`) === "yes" : undefined })).filter((x) => x.test && (x.criterion || x.result));
       const parts = Array.from({ length: PARTS }, (_, i) => ({ partSku: str(f, `ps${i}`) ?? "", name: str(f, `pn${i}`), qty: num(f, `pq${i}`) ?? 0, newSerial: str(f, `pnew${i}`), oldSerial: str(f, `pold${i}`), obthNo: str(f, `pob${i}`), oldDisposition: (str(f, `pdisp${i}`) as "SCRAP" | undefined) })).filter((p) => p.partSku && p.qty > 0);

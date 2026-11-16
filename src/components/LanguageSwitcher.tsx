@@ -16,6 +16,7 @@ export function LanguageSwitcher({ tone = "dark" }: { tone?: "dark" | "light" })
     <div className="flex gap-1 text-sm">
       {(Object.keys(LABELS) as Locale[]).map((l) => (
         <button
+          type="button"
           key={l}
           disabled={pending}
           onClick={() => start(async () => { await setLocale(l); router.refresh(); })}

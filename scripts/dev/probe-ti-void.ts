@@ -5,6 +5,9 @@
  * a TITH with payments cannot be voided.
  *   npx tsx scripts/dev/probe-ti-void.ts
  */
+import { buildCashPlan } from "../../src/server/cash-plan";
+import { localIso } from "../../src/lib/dates";
+import { invoiceState, outstandingOf } from "../../src/server/to";
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder } from "../../src/server/slm";
@@ -56,26 +59,38 @@ async function main() {
   await refused(() => recordPayment({ invoiceNo: iv1.no, actorCode: md.code, paidAt: new Date(), paidAmount: 10700, whtAmount: 0 } as never), /INVOICE_CANCELLED/, "no payment on a cancelled IVTH");
   assert((await prisma.auditLog.count({ where: { target: ti1.no, action: { in: ["TI_VOID_REQUEST", "TI_VOID_REJECT", "TI_VOID_APPROVE"] } } })) === 4, "two requests and two decisions audited");
   assert((await prisma.taxInvoice.count({ where: { no: ti1.no } })) === 1, "the voided number is kept");
+  assert((await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } })).status === "ACCEPTED", "with no live tax invoice the order is \"accepted, not invoiced\" again (P1-22)");
 
   console.log("4. re-issue after the void");
   const ti2 = await issueTaxInvoice({ serviceOrderNo: o.no, actorCode: md.code, lines });
   const iv2 = await issueInvoice({ serviceOrderNo: o.no, actorCode: md.code, taxInvoiceNo: ti2.no });
-  assert(ti2.no !== ti1.no && !ti2.voidedAt, `new TITH ${ti2.no} issued on the INVOICED order`);
+  assert(ti2.no !== ti1.no && !ti2.voidedAt, `new TITH ${ti2.no} issued after the void`);
   // TEST 号段 (朱总 2026-11-15): before go-live every money document is TEST-…, on its own counter, outside the tax invoice book
   assert(!process.env.LIVE_NUMBERS && [ti1.no, iv1.no, ti2.no, iv2.no].every((n) => n.startsWith("TEST-")) && ti2.seq === null && ti2.bookNo === null, `test series: ${ti1.no}, ${iv2.no}, no page in the book`);
   assert((await prisma.docSequence.count({ where: { prefix: "TEST-TI" } })) > 0, "the TEST- counter is its own row: real TITH numbers are untouched");
   const stillInvoiced = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } });
-  assert(stillInvoiced.status === "INVOICED", "order stays INVOICED");
+  assert(stillInvoiced.status === "INVOICED", "order is INVOICED again");
+  assert((await prisma.invoice.count({ where: { taxInvoice: { no: ti2.no }, cancelledAt: null } })) === 1, "the tax invoice brought exactly one IVTH with it (issueInvoice afterwards answers with the same one)");
 
   console.log("5. receipt: void asked, MD approves → the money is owed again");
   const p1 = await recordPayment({ invoiceNo: iv2.no, actorCode: md.code, paidAt: new Date(), paidAmount: 4000, whtAmount: 0 } as never);
+  // 部分收款 (需求清单 v3 P0-16): 4,000 of 10,700 received — the invoice is not "paid", 6,700 is still owed, everywhere
+  const part = await prisma.invoice.findUniqueOrThrow({ where: { no: iv2.no } });
+  assert(part.paidAt === null && invoiceState(part) === "PARTIAL" && outstandingOf(part) === 6700, `after 4,000: state ${invoiceState(part)}, 未收 ${outstandingOf(part)}, paidAt empty`);
+  const month = localIso(part.dueAt ?? new Date())!.slice(0, 7);
+  const planLine = (await buildCashPlan(o.entityId, month)).lines.find((l) => l.what === iv2.no);
+  assert(planLine?.amount === 6700, `the cash plan of ${month} still expects 6,700 (${planLine?.amount})`);
+  const aging = (await prisma.invoice.findMany({ where: { cancelledAt: null, paidAt: null, no: iv2.no } })).length;
+  assert(aging === 1, "it is still in the receivables (paidAt empty)");
   const p2 = await recordPayment({ invoiceNo: iv2.no, actorCode: md.code, paidAt: new Date(), paidAmount: 6400, whtAmount: 300 } as never);
+  assert(!!(await prisma.invoice.findUniqueOrThrow({ where: { no: iv2.no } })).paidAt, "received in full: now it is paid");
   assert(p1.receiptNo.startsWith("TEST-RCTH") && p2.settled, `two receipts ${p1.receiptNo}, ${p2.receiptNo}; settled`);
   await refused(() => recordPayment({ invoiceNo: iv2.no, actorCode: md.code, paidAt: new Date(), paidAmount: 0, whtAmount: 0 } as never), /PAYMENT_NEEDS_AMOUNT/, "a payment of nothing is refused");
   await requestReceiptVoid({ receiptNo: p2.receiptNo, actorCode: eng.code, reason: "booked on the wrong invoice" });
   await refused(() => decideReceiptVoid({ receiptNo: p2.receiptNo, actorCode: eng.code, decision: "APPROVED" }), /MD_ONLY/, "only the MD voids a receipt");
   await decideReceiptVoid({ receiptNo: p2.receiptNo, actorCode: md.code, decision: "APPROVED" });
   const afterRc = await prisma.invoice.findUniqueOrThrow({ where: { no: iv2.no } });
+  assert(afterRc.paidAt === null, "and it is unpaid again");
   assert(Number(afterRc.paidAmount) === 4000 && Number(afterRc.whtAmount) === 0, `receivable back to 10,700 − 4,000 (paid ${afterRc.paidAmount}, WHT ${afterRc.whtAmount})`);
   assert(!!(await prisma.receipt.findUniqueOrThrow({ where: { no: p2.receiptNo } })).voidedAt, "the receipt number is kept, marked void");
 

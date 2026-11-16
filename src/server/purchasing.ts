@@ -3,6 +3,8 @@
  * into the QTTH (margin) → customer signs → POTH → goods arrive on an IBTH against the POTH.
  * PRTH and POTH can also be raised on their own (stock replenishment, parts sale) — serviceOrderNo is optional.
  */
+import { actorWith } from "@/server/guard";
+import { can } from "@/lib/caps";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -22,6 +24,7 @@ export const SupplierInput = z.object({
   currency: z.string().default("THB"), paymentTerms: z.string().optional(), leadTimeDays: z.number().int().optional(),
 });
 export async function createSupplier(input: z.input<typeof SupplierInput> & { actorCode: string }) {
+  await actorWith(input.actorCode, (r) => ["MD", "FINANCE", "SALES", "ADMIN"].includes(r)); // 统一角色权限表
   const { actorCode, ...rest } = input;
   const d = SupplierInput.parse(rest);
   if (d.taxId && (await prisma.supplier.findUnique({ where: { taxId: d.taxId } }))) throw new Error(`SUPPLIER_EXISTS:${d.taxId}`);
@@ -146,6 +149,7 @@ export const QuoteInput = z.object({
   attachments: z.array(Att).optional(),
 });
 export async function addSupplierQuote(input: z.input<typeof QuoteInput>) {
+  await actorWith(input.actorCode, can.cost); // 统一角色权限表
   const d = QuoteInput.parse(input);
   const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: d.inquiryNo } });
   if (inq.status === "CANCELLED" || inq.status === "ORDERED") throw new Error(`INQUIRY_CLOSED:${inq.no}`);
@@ -157,6 +161,7 @@ export async function addSupplierQuote(input: z.input<typeof QuoteInput>) {
 
 /** Pick the winning quote; its prices become the costs on the service order's quote lines (margin recomputed). */
 export async function selectSupplierQuote(input: { inquiryNo: string; quoteId: string; actorCode: string }) {
+  await actorWith(input.actorCode, can.cost); // 统一角色权限表
   const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: input.inquiryNo }, include: { quotes: true, serviceOrder: { include: { lines: { include: { part: true } } } } } });
   const q = inq.quotes.find((x) => x.id === input.quoteId);
   if (!q) throw new Error("QUOTE_NOT_FOUND");
@@ -205,7 +210,9 @@ export const PurchaseOrderInput = z.object({
   lines: z.array(z.object({ partSku: z.string().optional(), vendorPartNo: z.string().optional(), description: z.string().min(1), qty: z.number().positive(), unit: z.string().default("pcs"), unitPrice: z.number().min(0) })).min(1, "PO_NEEDS_LINE"),
   attachments: z.array(Att).optional(),
 });
-export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInput>) {
+/** `system`: raised by the system itself as the next step of a flow (the customer's PO came in) — the draft still waits for purchasing. */
+export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInput>, system = false) {
+  if (!system) await actorWith(input.actorCode, can.cost); // 统一角色权限表
   const d = PurchaseOrderInput.parse(input);
   if (d.kind === "PARTS" && !d.inquiryNo) d.lines = await withSkus(d.lines);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode }, include: { entity: true } });
@@ -264,14 +271,15 @@ export async function raisePurchaseOrdersForOrder(no: string, actorCode: string)
     const sub = inq.kind === "SUBCONTRACT";
     const expectedAt = sub && q.leadTimeDays ? new Date(Date.now() + q.leadTimeDays * 86_400_000) : undefined;
     // goods the order already buys on another POTH are not bought again by this automatic step
-    const po = await createPurchaseOrder({ actorCode, supplierId: q.supplierId, inquiryNo: inq.no, kind: inq.kind, warrantyDays: sub ? (inq.serviceOrder?.warrantyDays ?? q.warrantyDays ?? undefined) : undefined, scope: sub ? (q.solution ?? undefined) : undefined, expectedAt, currency: q.currency, vatRate: q.vatRate != null ? Number(q.vatRate) : undefined, paymentTerms: q.paymentTerms ?? undefined, supplierRef: q.quoteNo ?? undefined, lines }).catch((e: Error) => { if (/^PO_REPEAT/.test(e.message)) return null; throw e; });
+    const po = await createPurchaseOrder({ actorCode, supplierId: q.supplierId, inquiryNo: inq.no, kind: inq.kind, warrantyDays: sub ? (inq.serviceOrder?.warrantyDays ?? q.warrantyDays ?? undefined) : undefined, scope: sub ? (q.solution ?? undefined) : undefined, expectedAt, currency: q.currency, vatRate: q.vatRate != null ? Number(q.vatRate) : undefined, paymentTerms: q.paymentTerms ?? undefined, supplierRef: q.quoteNo ?? undefined, lines }, true).catch((e: Error) => { if (/^PO_REPEAT/.test(e.message)) return null; throw e; });
     if (po) made.push(po.no);
   }
   return made;
 }
 
 /** Goods arrived: one IBTH (one or more lines) against the POTH; the PO goes PARTIAL or RECEIVED. */
-export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; newParts?: { lineNo: number; brandCode?: string; vendorPartNo: string; name: string }[]; attachments?: { name: string; url: string; kind?: string }[] }) {
+export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; newParts?: { lineNo: number; brandCode?: string; vendorPartNo: string; name: string }[]; confirmedLines?: number[]; attachments?: { name: string; url: string; kind?: string }[] }) {
+  await actorWith(input.actorCode, (r) => ["MD", "FINANCE", "SALES", "ADMIN", "WAREHOUSE"].includes(r)); // 统一角色权限表
   const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.poNo }, include: { serviceOrder: true } });
   if (po.status === "CANCELLED" || po.status === "RECEIVED") throw new Error(`PO_CLOSED:${po.no}`);
   if (po.kind === "SUBCONTRACT") throw new Error(`PO_IS_SUBCONTRACT:${po.no}`); // the machine comes back on a 外协返回 IBTH (srm.returnFromPartner)
@@ -286,10 +294,14 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
   // 入库必须有料号 (朱总 2026-11-15). A line whose part is not in the library is made into one from what the receipt
   // form shows for it (brand, maker's number, name — taken from the POTH, the person can correct them). Nothing is made
   // silently; lines that still have none are named.
-  const missing: number[] = [];
+  // 需求清单 v3 P0-06: a line that names no SKU but whose maker's number matches a part of the library is only a
+  // suggestion — it goes into stock under that SKU once the person has ticked it, never silently.
+  const missing: number[] = [], unconfirmed: string[] = [];
   for (const r of take) {
     const l = lines.find((x) => x.lineNo === r.lineNo)!;
-    if ((await findPart(l.partSku).catch(() => null)) ?? (await findPart(l.vendorPartNo).catch(() => null))) continue;
+    if (await findPart(l.partSku).catch(() => null)) continue;
+    const guess = await findPart(l.vendorPartNo).catch(() => null);
+    if (guess) { if (input.confirmedLines?.includes(r.lineNo)) { l.partSku = guess.sku; continue; } unconfirmed.push(`${r.lineNo}（${guess.sku}）`); continue; }
     const np = input.newParts?.find((x) => x.lineNo === r.lineNo);
     if (!np?.vendorPartNo?.trim() || !np.name?.trim()) { missing.push(r.lineNo); continue; }
     const made = (await findPart(np.vendorPartNo).catch(() => null)) ?? (await createPart({ brandCode: np.brandCode || undefined, vendorPartNo: np.vendorPartNo.trim(), name: np.name.trim(), unit: l.unit }));
@@ -297,6 +309,7 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
     await prisma.auditLog.create({ data: { actorId: (await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } })).id, action: "PART_CREATED_ON_RECEIPT", target: made.sku, detail: { po: po.no, line: l.lineNo } } });
   }
   if (missing.length) throw new Error(`PO_LINE_NO_SKU:${missing.join("、")}`);
+  if (unconfirmed.length) throw new Error(`PO_LINE_SKU_UNCONFIRMED:${unconfirmed.join("、")}`);
   const ib = await recordStockDoc({ actorCode: input.actorCode, direction: "IN", serviceOrderNo: po.serviceOrder?.no, supplierRef: input.supplierRef ?? po.supplierRef ?? undefined, costCurrency: po.currency, movedAt: input.movedAt, lines: take.map((r) => { const l = lines.find((x) => x.lineNo === r.lineNo)!; return { partSku: (l.partSku || l.vendorPartNo)!, qty: r.qty, batch: r.batch, unitCost: l.unitPrice }; }) });
   // the line keeps the library's SKU from now on, so the next receipt and the stock page agree on the part
   const skuOf = new Map(take.map((r, i) => [r.lineNo, ib.lines[i]?.part?.sku]));

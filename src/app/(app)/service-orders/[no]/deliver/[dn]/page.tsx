@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { notFound, redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -24,7 +25,7 @@ export default async function DeliveryNote({ params, searchParams }: { params: P
   async function sign(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const customerDn: { name: string; url: string; kind: string }[] = [];
       for (const x of f.getAll("customerDnFiles")) if (x instanceof File && x.size > 0) customerDn.push({ ...(await saveUpload(x, "customer-dn")), name: x.name, kind: "CUSTOMER_DN" });
       await signDelivery({ no: dn, actorCode: me.code, signedBy: String(f.get("signedBy")), signedAt: str(f, "signedAt") ? new Date(str(f, "signedAt")!) : undefined, remark: str(f, "remark"), attachments: [...atts(f), ...customerDn] });

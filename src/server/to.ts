@@ -1,3 +1,5 @@
+import { actorWith } from "@/server/guard";
+import { can } from "@/lib/caps";
 import { countryOfNo, isTestNo } from "@/lib/numbering";
 /**
  * T&O / FIN Phase 1 slice: TITH tax invoice (local currency, Thai text, VAT separate), IVTH invoice (also the payment record),
@@ -34,6 +36,7 @@ export const TaxInvoiceInput = z.object({
 /** Issue TITH from the accepted order. Order must be ACCEPTED. Lines default to the quote lines.
  *  A declined order (客户拒绝报价) is invoiced from DECLINED for its inspection fee — one line per charged machine. */
 export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("TI");
   const d = TaxInvoiceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, customer: true, lines: true, assets: true, taxInvoices: true, decline: true } });
@@ -63,6 +66,9 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   return prisma.$transaction(async (tx) => {
     const ti = await writeTaxInvoice(tx, { order, actor, issuedAt, currency, lines, vatRate, fx, buyerTaxId: d.buyerTaxId, buyerBranch: d.buyerBranch });
     const no = ti.no;
+    // 开了税票就有应收 (需求清单 v3 P1-29): the IVTH is written in the same step, so a tax invoice never stands without
+    // a receivable behind it. issueInvoice for this tax invoice afterwards answers with this one.
+    await writeInvoice(tx, { order, actor, issuedAt, taxInvoice: ti });
     await tx.serviceOrder.update({ where: { id: order.id }, data: { status: "INVOICED" } });
     for (const a of order.assets) {
       await tx.assetEvent.create({ data: { assetId: a.assetId, type: "INVOICED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: no, occurredAt: issuedAt, summary: `${currency} ${t.total.toFixed(2)} incl. VAT ${(vatRate * 100).toFixed(0)}%`, payload: { ...t, totalCny: round2(t.total * fx), fx } as Prisma.InputJsonValue } });
@@ -113,23 +119,34 @@ export const InvoiceInput = z.object({
   amountDue: z.number().optional(), // defaults to the tax invoice total
 });
 
+/** The IVTH row and its Document. Due by the customer's terms unless a number of days is given. */
+export async function writeInvoice(tx: Prisma.TransactionClient, a: { order: { id: string; entityId: string; customerId: string; currency: string; total?: unknown; customer: { paymentTermDays: number } }; actor: { id: string; code: string }; issuedAt: Date; taxInvoice?: { id: string; currency: string; total: unknown } | null; amountDue?: number; dueDays?: number }) {
+  const no = await allocateNumber(tx, { prefix: "IV", createdByEmployeeCode: a.actor.code, entityId: a.order.entityId, date: a.issuedAt });
+  const amountDue = a.amountDue ?? (a.taxInvoice ? Number(a.taxInvoice.total) : Number(a.order.total ?? 0));
+  const dueAt = new Date(a.issuedAt.getTime() + (a.dueDays ?? a.order.customer.paymentTermDays) * 86400000);
+  const iv = await tx.invoice.create({ data: { no, serviceOrderId: a.order.id, taxInvoiceId: a.taxInvoice?.id, issuedAt: a.issuedAt, dueAt, currency: a.taxInvoice?.currency ?? a.order.currency, amountDue } });
+  await tx.document.create({ data: { no, type: "IV", entityId: a.order.entityId, countryCode: countryOfNo(no), customerId: a.order.customerId, serviceOrderId: a.order.id, createdById: a.actor.id, issuedAt: a.issuedAt } });
+  return iv;
+}
+
+/** 未收 = 发票 − 贷项 − 实收 − 预扣 (the credit note has already lowered amountDue). The one figure every page reads. */
+export const outstandingOf = (i: { amountDue: unknown; paidAmount?: unknown; whtAmount?: unknown; cancelledAt?: Date | null }) => (i.cancelledAt ? 0 : round2(Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0)));
+/** PAID in full, PARTIAL (something received, something left), OPEN, or VOID. `paidAt` is set only when nothing is left. */
+export const invoiceState = (i: { amountDue: unknown; paidAmount?: unknown; whtAmount?: unknown; cancelledAt?: Date | null }) =>
+  i.cancelledAt ? "VOID" as const : outstandingOf(i) <= 0.005 ? "PAID" as const : Number(i.paidAmount ?? 0) + Number(i.whtAmount ?? 0) > 0 ? "PARTIAL" as const : "OPEN" as const;
+
 /** IVTH — what the customer pays against. */
 export async function issueInvoice(input: z.input<typeof InvoiceInput>) {
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("IV");
   const d = InvoiceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { customer: true, taxInvoices: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const ti = d.taxInvoiceNo ? order.taxInvoices.find((t) => t.no === d.taxInvoiceNo) : order.taxInvoices.at(-1);
+  // the tax invoice already brought its IVTH with it: answer with that one, never a second receivable for the same paper
+  if (ti) { const have = await prisma.invoice.findFirst({ where: { taxInvoiceId: ti.id, cancelledAt: null } }); if (have) return have; }
   const issuedAt = d.issuedAt ?? new Date();
-  const amountDue = d.amountDue ?? (ti ? Number(ti.total) : Number(order.total ?? 0));
-  const dueAt = new Date(issuedAt.getTime() + (d.dueDays ?? order.customer.paymentTermDays) * 86400000);
-
-  return prisma.$transaction(async (tx) => {
-    const no = await allocateNumber(tx, { prefix: "IV", createdByEmployeeCode: actor.code, entityId: order.entityId, date: issuedAt });
-    const iv = await tx.invoice.create({ data: { no, serviceOrderId: order.id, taxInvoiceId: ti?.id, issuedAt, dueAt, currency: ti?.currency ?? order.currency, amountDue } });
-    await tx.document.create({ data: { no, type: "IV", entityId: order.entityId, countryCode: countryOfNo(no), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, issuedAt } });
-    return iv;
-  });
+  return prisma.$transaction((tx) => writeInvoice(tx, { order, actor, issuedAt, taxInvoice: ti, amountDue: d.amountDue, dueDays: d.dueDays }));
 }
 
 export const PaymentInput = z.object({
@@ -145,6 +162,7 @@ export const PaymentInput = z.object({
 
 /** Record payment on the IVTH. Full settlement (cash + WHT ≥ due) closes the order and writes PAID on each asset. */
 export async function recordPayment(input: z.input<typeof PaymentInput>) {
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("PAYMENT");
   const d = PaymentInput.parse(input);
   const iv = await prisma.invoice.findUniqueOrThrow({ where: { no: d.invoiceNo }, include: { serviceOrder: { include: { assets: true } } } });
@@ -160,7 +178,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
   return prisma.$transaction(async (tx) => {
     const updated = await tx.invoice.update({
       where: { id: iv.id },
-      data: { paidAmount: round2(Number(iv.paidAmount ?? 0) + d.paidAmount), whtAmount: round2(Number(iv.whtAmount ?? 0) + d.whtAmount), whtCertRef: d.whtCertRef ?? iv.whtCertRef, paidAt: d.paidAt, bankRef: d.bankRef ?? iv.bankRef,
+      data: { paidAmount: round2(Number(iv.paidAmount ?? 0) + d.paidAmount), whtAmount: round2(Number(iv.whtAmount ?? 0) + d.whtAmount), whtCertRef: d.whtCertRef ?? iv.whtCertRef, paidAt: settled ? d.paidAt : null, bankRef: d.bankRef ?? iv.bankRef,
         attachments: [...((iv.attachments as unknown[] | null) ?? []), ...proofs] as Prisma.InputJsonValue },
     });
     // RCTH — one receipt per payment received (決定 2026-11-07): this payment's cash, WHT and settled amount against the TITH.
@@ -177,6 +195,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
 
 /** BLTH — monthly statement listing this customer's unpaid IVTH for a period (YYMM). Credit customers only. */
 export async function issueMonthlyStatement(customerCode: string, period: string, actorCode: string) {
+  await actorWith(actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("BL");
   const customer = await prisma.customer.findUniqueOrThrow({ where: { code: customerCode } });
   if (!customer.monthlyStatement) throw new Error(`${customerCode} is not a monthly-statement customer`);
@@ -197,6 +216,7 @@ export async function issueMonthlyStatement(customerCode: string, period: string
 
 /** Ask to void a tax invoice. Refused when a payment was already recorded against it (then a credit note is the way, not a void). */
 export async function requestTaxInvoiceVoid(input: { taxInvoiceNo: string; actorCode: string; reason: string }) {
+  await actorWith(input.actorCode, can.invoiceStatus); // 统一角色权限表
   const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no: input.taxInvoiceNo }, include: { invoices: { include: { receipts: true } }, serviceOrder: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   if (ti.voidedAt) throw new Error(`TI_ALREADY_VOID:${ti.no}`);
@@ -230,7 +250,13 @@ export async function decideTaxInvoiceVoid(input: { taxInvoiceNo: string; actorC
       await tx.invoice.updateMany({ where: { taxInvoiceId: ti.id }, data: { paidAmount: null, whtAmount: null, paidAt: null } });
       await tx.invoice.updateMany({ where: { taxInvoiceId: ti.id, cancelledAt: null }, data: { cancelledAt: now, cancelReason: `TITH ${ti.no} voided` } });
       await tx.creditNote.updateMany({ where: { taxInvoiceId: ti.id, voidedAt: null }, data: { voidedAt: now, voidReason: `${ti.no} voided` } });
-      if (ti.serviceOrder.status === "CLOSED") await tx.serviceOrder.update({ where: { id: ti.serviceOrderId }, data: { status: "INVOICED" } });
+      // 作废后开票状态回滚 (需求清单 v3 P1-22): with no live tax invoice left the order is "accepted, not invoiced" again
+      // (a declined order: back to DECLINED, its fee uninvoiced). Projects keep their own milestone state.
+      const live = await tx.taxInvoice.count({ where: { serviceOrderId: ti.serviceOrderId, voidedAt: null, id: { not: ti.id } } });
+      if (!live && ti.serviceOrder.mode !== "AUTOMATION_PROJECT" && ["INVOICED", "CLOSED"].includes(ti.serviceOrder.status)) {
+        const declined = await tx.quoteDecline.count({ where: { serviceOrderId: ti.serviceOrderId } }).catch(() => 0);
+        await tx.serviceOrder.update({ where: { id: ti.serviceOrderId }, data: { status: declined ? "DECLINED" : "ACCEPTED" } });
+      } else if (ti.serviceOrder.status === "CLOSED") await tx.serviceOrder.update({ where: { id: ti.serviceOrderId }, data: { status: "INVOICED" } });
       for (const a of ti.serviceOrder.assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "INVOICED", actorId: actor.id, serviceOrderId: ti.serviceOrderId, sourceDocNo: ti.no, occurredAt: now, summary: `VOID ${ti.no}: ${ti.voidRequestReason ?? ""}`, payload: { void: true, reason: ti.voidRequestReason, invoicesCancelled: ti.invoices.map((i) => i.no) } as Prisma.InputJsonValue } });
     }
     await audit(actor.id, input.decision === "APPROVED" ? "TI_VOID_APPROVE" : "TI_VOID_REJECT", ti.no, { note: input.note, invoices: ti.invoices.map((i) => i.no) }, tx);
@@ -242,6 +268,7 @@ export async function decideTaxInvoiceVoid(input: { taxInvoiceNo: string; actorC
 // ── RCTH void (朱总 2026-11-15: every money document can be voided; anyone asks, the MD decides) ─────────────────
 
 export async function requestReceiptVoid(input: { receiptNo: string; actorCode: string; reason: string }) {
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   const rc = await prisma.receipt.findUniqueOrThrow({ where: { no: input.receiptNo } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   if (rc.voidedAt) throw new Error(`RC_ALREADY_VOID:${rc.no}`);
@@ -264,7 +291,8 @@ export async function decideReceiptVoid(input: { receiptNo: string; actorCode: s
       const left = rc.invoice.receipts.filter((r) => r.id !== rc.id && !r.voidedAt);
       const cash = round2(left.reduce((s, r) => s + Number(r.cashAmount), 0)), wht = round2(left.reduce((s, r) => s + Number(r.whtAmount), 0));
       const lastAt = left.map((r) => r.receivedAt).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-      await tx.invoice.update({ where: { id: rc.invoiceId }, data: { paidAmount: left.length ? cash : null, whtAmount: left.length ? wht : null, paidAt: lastAt } });
+      const stillSettled = left.length > 0 && round2(cash + wht) >= Number(rc.invoice.amountDue) - 0.005;
+      await tx.invoice.update({ where: { id: rc.invoiceId }, data: { paidAmount: left.length ? cash : null, whtAmount: left.length ? wht : null, paidAt: stillSettled ? lastAt : null } });
       await tx.document.updateMany({ where: { no: rc.no }, data: { voidedAt: now } });
     }
     await audit(actor.id, input.decision === "APPROVED" ? "RC_VOID_APPROVE" : "RC_VOID_REJECT", rc.no, { note: input.note, invoice: rc.invoice.no }, tx);
@@ -297,7 +325,8 @@ export async function issueCreditNote(input: z.input<typeof CreditNoteInput>) {
     const no = await allocateNumber(tx, { prefix: "CN", createdByEmployeeCode: actor.code, entityId: ti.serviceOrder.entityId, date: issuedAt });
     const cn = await tx.creditNote.create({ data: { no, taxInvoiceId: ti.id, invoiceId: iv?.id, issuedAt, reason: d.reason, currency: ti.currency, subtotal: d.subtotal, vatAmount, total, createdById: actor.id } });
     await tx.document.create({ data: { no, type: "CN", entityId: ti.serviceOrder.entityId, countryCode: countryOfNo(no), customerId: ti.serviceOrder.customerId, serviceOrderId: ti.serviceOrderId, createdById: actor.id, issuedAt } });
-    if (iv) await tx.invoice.update({ where: { id: iv.id }, data: { amountDue: round2(Number(iv.amountDue) - total) } });
+    if (iv) { const due = round2(Number(iv.amountDue) - total), got = Number(iv.paidAmount ?? 0) + Number(iv.whtAmount ?? 0);
+      await tx.invoice.update({ where: { id: iv.id }, data: { amountDue: due, paidAt: got > 0 && got >= due - 0.005 ? iv.paidAt ?? issuedAt : iv.paidAt && got < due - 0.005 ? null : iv.paidAt } }); }
     await audit(actor.id, "CREDIT_NOTE", no, { taxInvoice: ti.no, invoice: iv?.no, subtotal: d.subtotal, total, reason: d.reason }, tx);
     return cn;
   });
@@ -312,9 +341,24 @@ export async function voidCreditNote(input: { no: string; actorCode: string; rea
   if (cn.voidedAt) throw new Error(`CN_ALREADY_VOID:${cn.no}`);
   const now = new Date();
   return prisma.$transaction(async (tx) => {
-    if (cn.invoiceId) { const iv = await tx.invoice.findUniqueOrThrow({ where: { id: cn.invoiceId } }); if (!iv.cancelledAt) await tx.invoice.update({ where: { id: iv.id }, data: { amountDue: round2(Number(iv.amountDue) + Number(cn.total)) } }); }
+    if (cn.invoiceId) { const iv = await tx.invoice.findUniqueOrThrow({ where: { id: cn.invoiceId } }); if (!iv.cancelledAt) { const due = round2(Number(iv.amountDue) + Number(cn.total)), got = Number(iv.paidAmount ?? 0) + Number(iv.whtAmount ?? 0); await tx.invoice.update({ where: { id: iv.id }, data: { amountDue: due, paidAt: got >= due - 0.005 && got > 0 ? iv.paidAt : null } }); } }
     await tx.document.updateMany({ where: { no: cn.no }, data: { voidedAt: now } });
     await audit(actor.id, "CREDIT_NOTE_VOID", cn.no, { reason: input.reason.trim() }, tx);
     return tx.creditNote.update({ where: { id: cn.id }, data: { voidedAt: now, voidReason: input.reason.trim() } });
   });
+}
+
+
+/** 撤回作废申请 (需求清单 v3 P1-28): the person who asked, finance or the MD takes a pending void request back; the paper stays valid. */
+export async function withdrawVoidRequest(input: { no: string; actorCode: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  const ti = await prisma.taxInvoice.findUnique({ where: { no: input.no } });
+  const rc = ti ? null : await prisma.receipt.findUnique({ where: { no: input.no } });
+  const row = ti ?? rc;
+  if (!row) throw new Error(`NOT_FOUND:${input.no}`);
+  if (row.voidStatus !== "REQUESTED" || row.voidedAt) throw new Error(`VOID_NOT_PENDING:${input.no}`);
+  if (!(row.voidRequestedById === actor.id || can.invoice(actor.role))) throw new Error("NO_PERMISSION");
+  const data = { voidStatus: "NONE" as const, voidRequestedById: null, voidRequestReason: null };
+  if (ti) await prisma.taxInvoice.update({ where: { id: ti.id }, data }); else await prisma.receipt.update({ where: { id: rc!.id }, data });
+  await audit(actor.id, "VOID_REQUEST_WITHDRAWN", input.no, { reason: row.voidRequestReason });
 }

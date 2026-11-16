@@ -1,6 +1,9 @@
 /**
  * SLM service layer. One service = one QTTH created at report time; everything else hangs below it.
  */
+import { actorWith } from "@/server/guard";
+import { mayOpenOrder } from "@/server/scope";
+import { can } from "@/lib/caps";
 import { createMilestones } from "@/server/project";
 import { adoptLooseDocs } from "@/server/asset-first";
 import { tradeTermsFrom } from "@/lib/export";
@@ -105,6 +108,8 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
   const creator = await prisma.employee.findUniqueOrThrow({ where: { code: data.createdByEmployeeCode } });
   const assets = await prisma.asset.findMany({ where: { code: { in: data.assetCodes } } });
   if (assets.length !== data.assetCodes.length) throw new Error("unknown asset code in request");
+  const stray = assets.filter((x) => x.customerId && x.customerId !== data.customerId).map((x) => x.code); // 需求清单 v3 P1-03
+  if (stray.length) throw new Error(`ASSET_NOT_OF_CUSTOMER:${stray.join("、")}`);
 
   const created = await prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "QT", createdByEmployeeCode: creator.code, entityId: creator.entityId });
@@ -168,6 +173,9 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
 export async function advanceServiceOrder(no: string, to: ServiceOrderStatus, actorEmployeeCode: string, note?: string, assigneeCode?: string) {
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { assets: true } });
   if (order.status === to) return order; // documents may already have moved the order there (progressOrder)
+  // 关闭服务单 is finance's and the MD's; every other move is for people who may open the order at all
+  { const who = await prisma.employee.findUniqueOrThrow({ where: { code: actorEmployeeCode } });
+    if (to === "CLOSED" ? !can.invoice(who.role) : !(await mayOpenOrder(who, order.id))) throw new Error("NO_PERMISSION"); }
   if (!canTransitionOrder(order.status, to)) throw new Error(`${no}: ${order.status} → ${to} not allowed`);
   // 客户拒绝报价 (2026-11-09) has its own form: a quote for machines is declined, not cancelled, so the machine goes back
   // on a DNTH and the inspection fee is invoiced or waived; undo goes through undoDecline.
@@ -247,14 +255,23 @@ export async function poLinesFromQuote(no: string): Promise<PoLine[]> {
 
 /** Customer confirmed the quote with a PO: keep the PO number verbatim, the PO lines and the scan, then start the work. */
 export async function confirmCustomerPo(input: { no: string; actorCode: string; customerRef?: string; poLines: PoLine[]; attachments?: { name: string; url: string; kind: string }[]; note?: string }) {
+  await actorWith(input.actorCode, can.confirmPo); // 统一角色权限表
   const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: true } });
-  if (o.status !== "QUOTE_PENDING") throw new Error(`${o.no} is ${o.status}; PO confirmation needs QUOTE_PENDING`);
+  const again = !!o.poStaleAt && o.status !== "QUOTE_PENDING"; // the quote changed during the work: the PO is confirmed again, the order stays where it is
+  if (o.status !== "QUOTE_PENDING" && !again) throw new Error(`PO_ALREADY_CONFIRMED:${o.no}`);
   if (!quoteMayGoOut(o.marginApproval)) throw new Error(`MARGIN_APPROVAL_REQUIRED:${o.no}`);
   if (!input.poLines.length) throw new Error("PO_LINES_REQUIRED");
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const merged = [...((o.attachments as { name: string; url: string; kind: string }[] | null) ?? []), ...(input.attachments ?? [])];
+  if (again) {
+    await prisma.$transaction(async (tx) => {
+      await tx.serviceOrder.update({ where: { id: o.id }, data: { customerRef: keepCustomerRef(input.customerRef) ?? o.customerRef, poLines: input.poLines as unknown as Prisma.InputJsonValue, poStaleAt: null, attachments: merged as Prisma.InputJsonValue } });
+      await tx.auditLog.create({ data: { actorId: actor.id, action: "PO_RECONFIRMED", target: o.no, detail: { customerRef: input.customerRef, lines: input.poLines.length, note: input.note } as Prisma.InputJsonValue } });
+    });
+    return prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } });
+  }
   await prisma.$transaction(async (tx) => {
-    await tx.serviceOrder.update({ where: { id: o.id }, data: { customerRef: keepCustomerRef(input.customerRef) ?? o.customerRef, poLines: input.poLines as unknown as Prisma.InputJsonValue, attachments: merged as Prisma.InputJsonValue } });
+    await tx.serviceOrder.update({ where: { id: o.id }, data: { customerRef: keepCustomerRef(input.customerRef) ?? o.customerRef, poLines: input.poLines as unknown as Prisma.InputJsonValue, poStaleAt: null, attachments: merged as Prisma.InputJsonValue } });
     for (const l of o.assets) await tx.assetEvent.create({ data: { assetId: l.assetId, type: "ORDER_CONFIRMED", actorId: actor.id, serviceOrderId: o.id, sourceDocNo: o.no, summary: input.customerRef ?? o.customerRef ?? "", payload: { customerRef: input.customerRef, lines: input.poLines.length } as Prisma.InputJsonValue, attachments: (input.attachments ?? []) as Prisma.InputJsonValue } });
   });
   const started = await advanceServiceOrder(o.no, "IN_PROGRESS", input.actorCode, input.note ?? input.customerRef);

@@ -1,3 +1,4 @@
+import { can } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -29,7 +30,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
   const [{ code }, { ok, error, reset }] = await Promise.all([params, searchParams]);
   const me = await currentEmployee();
   if (!mayViewEmployee(me, code)) return <Forbidden />;
-  const md = me.role === "MD";
+  const md = can.staff(me.role), isMd = me.role === "MD";
   const self = me.code === code;
   const e = await getEmployeeFile(me, code);
   if (!e) notFound();
@@ -73,9 +74,9 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
             <Card title={t("empAccount")}>
               <Grid cols={4}>
                 <Field label={t("emailLogin")}><Value>{show(e.email, "email") || "—"}</Value></Field>
-                <Field label={c("role")}><select name="role" defaultValue={e.role} className={inputCls}>{[...new Set([...STAFF_ROLES, e.role])].map((x) => <option key={x} value={x}>{r(x)}</option>)}</select></Field>
+                <Field label={c("role")}>{isMd ? <select name="role" defaultValue={e.role} className={inputCls}>{[...new Set([...STAFF_ROLES, e.role])].map((x) => <option key={x} value={x}>{r(x)}</option>)}</select> : <><input type="hidden" name="role" value={e.role} /><Value>{r(e.role)}</Value></>}</Field>
                 <Field label={t("uiLanguage")}><select name="locale" defaultValue={e.locale} className={inputCls}><option value="th">ไทย</option><option value="zh">中文</option><option value="en">English</option></select></Field>
-                <Field label={c("newPassword")}><input name="password" type="password" minLength={6} className={inputCls} /></Field>
+                {isMd && <Field label={c("newPassword")}><input name="password" type="password" minLength={6} className={inputCls} /></Field>}
                 <Field label={t("empLastLogin")}><Value>{e.lastLoginAt ? localIso(e.lastLoginAt)!.replace("T", " ").slice(0, 16) : "—"}</Value></Field>
                 <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" name="active" defaultChecked={e.active} /> {c("active")}</label>
               </Grid>

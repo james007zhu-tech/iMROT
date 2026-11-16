@@ -1,3 +1,4 @@
+import { assertOrderAccess } from "@/server/scope";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { addExportDocs, confirmShipment, issueShipment, shipmentFor } from "@/server/export";
@@ -28,7 +29,7 @@ export default async function Ship({ params, searchParams }: { params: Promise<{
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const n = Number(f.get("rows") ?? 0);
       const lines = Array.from({ length: n }, (_, i) => ({ key: String(f.get(`k${i}`)), hsCode: str(f, `hs${i}`) ?? "", origin: str(f, `or${i}`) ?? "", packages: num(f, `pk${i}`) ?? 0, netKg: num(f, `nw${i}`) ?? 0, grossKg: num(f, `gw${i}`) ?? 0 }));
       const r = await issueShipment({ no, actorCode: me.code, shipMode: (str(f, "shipMode") ?? "SEA") as ShipMode, portLoading: str(f, "portLoading") ?? "", portDischarge: str(f, "portDischarge") ?? "",
@@ -39,7 +40,7 @@ export default async function Ship({ params, searchParams }: { params: Promise<{
   async function confirm(f: FormData) {
     "use server";
     await guarded(async () => {
-      const me = await currentEmployee();
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
       const files = [];
       for (const x of f.getAll("shipFiles")) if (x instanceof File && x.size > 0) files.push({ ...(await saveUpload(x, "ship")), name: x.name, kind: "SHIPPING" });
       const r = await confirmShipment({ no, actorCode: me.code, blNo: str(f, "blNo") ?? "", shippedAt: str(f, "shippedAt") ?? "", vessel: str(f, "vessel2"), exportEntryNo: str(f, "exportEntryNo"), eta: str(f, "eta2"), attachments: files });
