@@ -26,7 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const hidden = await hiddenFor(me).catch(() => new Set<string>());
   const here = (await headers()).get("x-dcit-path");
   const refused = !!here && (hidden.has(menuKeyOf(here) ?? "") || !pathAllows(me, here.split("?")[0]));
-  const guardItems = NAV.flatMap((g) => g.items.map((i) => ({ href: i.href, blocked: hidden.has(i.key) })));
+  const guardItems = NAV.flatMap((g) => g.items.map((i) => ({ href: i.href, blocked: hidden.has(i.key), owners: hidden.has(i.key) ? ownersOf(i.href) : "" })));
   async function out() { "use server"; await signOut(); redirect("/login"); }
   return (
     <div className="min-h-screen md:flex">
@@ -51,7 +51,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <form action="/search" className="hidden w-full max-w-md gap-1 md:flex"><input name="q" placeholder={c("search")} className="w-full rounded-md border px-3 py-1.5 text-sm" /><button className="rounded-md border border-navy/45 px-3 text-sm">⌕</button></form>
           <div className="flex items-center gap-3 text-sm text-navy/70 md:ml-auto"><MessageCenter notices={notices} /><Link href="/me" title={c("me")} className="hidden rounded-full border border-hair px-3 py-1 text-navy hover:bg-tint md:inline">👤 {c("me")} · {me.name}</Link><form action={out} className="hidden md:block"><button className="text-blue">{c("signOut")}</button></form></div>
         </header>
-        <main className="p-4 pb-24 md:p-6">{refused ? <div className="rounded-xl border bg-white p-8 text-center text-sm text-navy">{c("noAccess", { roles: ownersOf(here ?? "") })}</div> : <Suspense><DraftKeeper labels={{ found: c("draftFound", { time: "{time}" }), restore: c("draftRestore"), drop: c("draftDrop"), restored: c("draftRestored") }} /><MenuGuard items={guardItems} message={c("noAccess")}>{children}</MenuGuard></Suspense>}</main>
+        <main className="p-4 pb-24 md:p-6">{refused ? <div className="rounded-xl border bg-white p-8 text-center text-sm text-navy">{c("noAccess", { roles: ownersOf(here ?? "") })}</div> : <Suspense><DraftKeeper labels={{ found: c("draftFound", { time: "{time}" }), restore: c("draftRestore"), drop: c("draftDrop"), restored: c("draftRestored") }} /><MenuGuard items={guardItems} message={c("noAccess", { roles: "{roles}" })}>{children}</MenuGuard></Suspense>}</main>
       </div>
       <Suspense><PhoneTables more={c("oneMoreLine")} /></Suspense>
       <AiAssistant scope="staff" />

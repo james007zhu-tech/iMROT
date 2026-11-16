@@ -25,7 +25,7 @@ export default async function Repair({ params, searchParams }: { params: Promise
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
   // 按工单状态拦住: before the customer's PO (or after the order is over) there is no form here, only the way to the missing step
   const gap = workGap(order, { maintenance: false, rework: order.acceptance?.status === "REJECTED" });
-  if (gap) return <StepPage order={order} title={u("step_repair")} error={error} saveLabel=""><WorkGate no={no} gap={gap} work="repair" /></StepPage>;
+  if (gap) return <StepPage order={order} title={u("step_repair")} error={error} saveLabel=""><WorkGate no={no} gap={gap} work="repair" quoteDraft={(order.lines?.length ?? 0) > 0} /></StepPage>;
   const engineers = await prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   const catalogue = await prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500, select: { sku: true, name: true, vendorPartNo: true, unit: true } });
   const outs = order.stockMovements.filter((m) => m.direction === "OUT" && m.kind === "PART" && m.part).map((m) => ({ ...m, part: m.part! }));

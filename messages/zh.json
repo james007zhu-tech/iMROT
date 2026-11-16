@@ -2463,7 +2463,8 @@
     "approverLabel": "本组审批人（主管）：批本组的加班、请假、报销、报告和知识库；金额可见范围不变",
     "approverTag": "本组审批人",
     "ok_paySubmitted": "已提交财务复核，财务会收到提醒。",
-    "err_PAYROLL_NOT_SUBMITTED": "{detail} 的工资 HR 还没提交复核。"
+    "err_PAYROLL_NOT_SUBMITTED": "{detail} 的工资 HR 还没提交复核。",
+    "workGate_quoteDraft": "{no} 的报价还是草稿：需要销售确认价格并发给客户，等客户 PO 确认后才能写报告。打开报价："
   },
   "role": {
     "MD": "MD 董事总经理",

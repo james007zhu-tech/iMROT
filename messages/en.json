@@ -2463,7 +2463,8 @@
     "approverLabel": "Approver for their team (supervisor): overtime, leave, expenses, reports — sees money as their role does",
     "approverTag": "Team approver",
     "ok_paySubmitted": "Submitted — finance has been notified.",
-    "err_PAYROLL_NOT_SUBMITTED": "HR has not submitted the {detail} payroll for review yet."
+    "err_PAYROLL_NOT_SUBMITTED": "HR has not submitted the {detail} payroll for review yet.",
+    "workGate_quoteDraft": "The quote of {no} is still a draft: sales must confirm the price and send it, then the customer's PO is confirmed before the report. Open the quote:"
   },
   "role": {
     "MD": "MD Managing Director",

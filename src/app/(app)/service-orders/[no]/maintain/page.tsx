@@ -27,7 +27,7 @@ export default async function Maintain({ params, searchParams }: { params: Promi
   const order = await loadOrder(no);
   const [t, u, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getLocale()]);
   const gap = workGap(order, { maintenance: true, rework: order.acceptance?.status === "REJECTED" });
-  if (gap) return <StepPage order={order} title={u("step_maintain")} saveLabel=""><WorkGate no={no} gap={gap} work="maintain" /></StepPage>;
+  if (gap) return <StepPage order={order} title={u("step_maintain")} saveLabel=""><WorkGate no={no} gap={gap} work="maintain" quoteDraft={(order.lines?.length ?? 0) > 0} /></StepPage>;
   const asset = order.assets[0]?.asset;
   const draft = openJob(order.repairJobs, { maintenance: true, orderStatus: order.status });
   const [standards, last, engineers, contacts] = await Promise.all([
