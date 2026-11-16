@@ -9,6 +9,8 @@ import type { Prisma } from "@prisma/client";
 import { MODES } from "@/lib/modes";
 import { FaultText, PAGE_SIZE, PageHeader, Pager, Table, btnGhost, inputCls, filterCls } from "@/components/ui";
 
+import { can } from "@/lib/caps";
+
 export const dynamic = "force-dynamic";
 
 export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; page?: string; mode?: string }> }) {
@@ -16,6 +18,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const p = Math.max(1, Number(page) || 1);
   const [t, u, ts, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getLocale()]);
   const me = await currentEmployee();
+  const seePrice = can.price(me.role); // 工程师、主管不看金额 (统一角色权限表)
   const where = {
     AND: [await orderScope(me)], // 只看派给自己的 (工程师) / 本组的 (主管)
     status: ORDER_STATUSES.includes(status as never) ? (status as never) : undefined,
@@ -42,7 +45,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         <button className={btnGhost}>{t("search")}</button>
       </form>
       <div className="rounded-xl border bg-white p-2">
-        <Table head={["QTTH", t("customer"), t("assets"), t("symptom"), u("businessMode"), t("reportedAt"), t("assignee"), t("status"), t("total")]}>
+        <Table head={["QTTH", t("customer"), t("assets"), t("symptom"), u("businessMode"), t("reportedAt"), t("assignee"), t("status"), ...(seePrice ? [t("total")] : [])]}>
           {orders.map((o) => (
             <tr key={o.id}>
               <td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link>{o.customerRef ? <span className="block font-mono text-xs text-navy/60">{o.customerRef}</span> : null}</td>
@@ -53,7 +56,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               <td>{fmt.format(o.reportedAt)}</td>
               <td>{o.assignee?.name ?? "—"}</td>
               <td><OrderStatusBadge status={o.status} /></td>
-              <td className="text-right">{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : "—"}</td>
+              {seePrice && <td className="text-right">{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : "—"}</td>}
             </tr>
           ))}
           {orders.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-navy/60">{t("none")}</td></tr>}
