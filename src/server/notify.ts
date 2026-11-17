@@ -75,6 +75,15 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     const turn = !run || !run.preparedBy ? "HR" : run.status === "DRAFT" ? (run.taxConfirmedAt ? "MD" : "FINANCE") : run.status === "APPROVED" ? "FINANCE" : null;
     if (started && turn && hasRole(me, turn)) push(`payrollDue_${!run || !run.preparedBy ? "prep" : run.status === "APPROVED" ? "pay" : turn === "MD" ? "approve" : "review"}`, 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
   }
+  // 锁定后新批准的加班不能漏 (H-R67): HR is told when overtime was approved after a month's payroll had left them
+  if (hasRole(me, "HR")) {
+    const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
+    const { lateOvertime } = await import("@/server/payroll");
+    for (const r of await prisma.payrollRun.findMany({ where: { entityId, status: "DRAFT", submittedAt: { not: null } }, select: { month: true } })) {
+      const late = await lateOvertime(entityId, r.month);
+      if (late.rows.length) push("otLate", 0, r.month, `/people/payroll/${r.month}`, String(late.rows.length));
+    }
+  }
   // 工资每一步都推给下一位 (需求清单 v3 P2-21): whatever the month, a payroll handed on waits in the next person's list
   if (hasRole(me, "FINANCE", "MD")) {
     const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
@@ -136,7 +145,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   }
   if (hasRole(me, "MD")) for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
 }

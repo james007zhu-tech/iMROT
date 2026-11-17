@@ -1726,12 +1726,27 @@ model OvertimeRequest {
   actualHours    Decimal?       @db.Decimal(5, 2) /// confirmed by the employee after the work; pays instead of `hours`
   confirmedAt    DateTime?
   payMonthId     String? /// set by the month-end close that paid it
+  origin         String         @default("MANUAL") /// "MANUAL" the employee asked · "SITE" drafted from the hours on an RPTH / PMTH
+  sourceNo       String? /// SITE: the report the hours came from
+  payNotBefore   String? /// "2026-12": carried to that month's pay (approved after the month's payroll had left HR) — shown as 补发
   payMonth       OvertimeMonth? @relation(fields: [payMonthId], references: [id])
   createdById    String
   createdAt      DateTime       @default(now())
 
   @@index([employeeId, workDate])
   @@index([status, payMonthId])
+}
+
+/// 公司假日 — a public or company holiday. Work on it is HOLIDAY_WORK / HOLIDAY_OT without anyone choosing (H-R66).
+model Holiday {
+  id        String   @id @default(cuid())
+  entityId  String
+  date      DateTime @db.Date
+  name      String
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@unique([entityId, date])
 }
 
 /// 加班费月结 — the month-end result per legal entity, closed automatically on the 1st (Bangkok) or by the MD.
@@ -1945,6 +1960,7 @@ model PayrollLine {
   reimbursement    Decimal    @default(0) @db.Decimal(14, 2) /// approved expense claims, not income
   net              Decimal    @db.Decimal(14, 2)
   employerCost     Decimal    @db.Decimal(14, 2)
+  otLateFrom       String[]   @default([]) /// months whose overtime is paid late in this one: 补发 ×月加班
   missing          String[]   @default([]) /// what the line could not find: SALARY, PERFORMANCE, OVERTIME_OPEN, TAX_ID, SSO_NO, BANK
   note             String?
 

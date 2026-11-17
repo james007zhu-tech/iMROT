@@ -3,11 +3,12 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
-import { autoCloseOvertime, myOvertime, overtimeMonths, overtimeToApprove, previewOvertimeMonth } from "@/server/overtime";
+import { autoCloseOvertime, myOvertime, overtimeMonths, overtimeToApprove, previewOvertimeMonth, holidaysOf } from "@/server/overtime";
+import { DEFAULT_SHIFT } from "@/lib/shift";
 import { localToday, OT_KINDS, OT_MULTIPLIER, WEEKLY_OT_CAP_HOURS } from "@/lib/overtime";
 import { Flash } from "@/components/Flash";
 import { Card, Field, Grid, PageHeader, Table, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
-import { actualAction, cancelAction, closeMonthAction, decideAction, requestAction } from "./actions";
+import { actualAction, cancelAction, closeMonthAction, decideAction, requestAction, holidayAction } from "./actions";
 import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,7 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
     md ? previewOvertimeMonth(me.entityId, month) : Promise.resolve([]),
     md ? prisma.employee.findMany({ where: { active: true }, orderBy: { code: "asc" }, select: { code: true, name: true } }) : Promise.resolve([]),
   ]);
+  const holidays = await holidaysOf(me.entityId, new Date(`${today.slice(0, 4)}-01-01T00:00:00Z`)), keepsHolidays = hasRole(me, "MD", "HR");
   const kind = (k: string) => `${u(`ot_${k}`)} ×${OT_MULTIPLIER[k as keyof typeof OT_MULTIPLIER]}`;
   const hrs = (r: { hours: unknown; actualHours: unknown }) => Number(r.actualHours ?? r.hours);
   const prevClosed = months.some((m) => m.month === previousMonth);
@@ -43,10 +45,10 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
             <Field label={u("otStart")} required><input name="startTime" type="time" required defaultValue="17:30" className={inputCls} /></Field>
             <Field label={u("otEnd")} required><input name="endTime" type="time" required defaultValue="20:30" className={inputCls} /></Field>
             <Field label={u("otBreak")}><input name="breakMinutes" type="number" min="0" step="15" defaultValue="0" className={inputCls} /></Field>
-            <Field label={u("otKind")} required><select name="kind" className={inputCls}>{OT_KINDS.map((k) => <option key={k} value={k}>{kind(k)}</option>)}</select></Field>
             <Field label={u("otOrder")}><input name="serviceOrderNo" placeholder="QTTH…" className={`${inputCls} font-mono`} /></Field>
           </Grid>
           <Field label={u("otReason")} required><input name="reason" required placeholder={u("otReasonPh")} className={inputCls} /></Field>
+          <p className="rounded-lg bg-tint px-3 py-2 text-sm text-navy">{u("otShiftRule", { start: DEFAULT_SHIFT.start, end: DEFAULT_SHIFT.end })}</p>
           <p className="text-xs text-navy/70">{u("otRules", { cap: WEEKLY_OT_CAP_HOURS })}</p>
           <button className={btnPrimary}>{u("otSubmit")}</button>
         </form>
@@ -59,7 +61,7 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
             <td className="whitespace-nowrap">{localIso(r.workDate)!.slice(0, 10)}</td>
             <td className="whitespace-nowrap">{r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime}{r.breakMinutes ? ` (−${r.breakMinutes}′)` : ""}</td>
             <td className="font-semibold">{hrs(r)}</td><td className="text-xs">{kind(r.kind)}</td>
-            <td>{r.reason}{r.serviceOrderNo && <Link href={`/service-orders/${r.serviceOrderNo}`} className="ml-1 font-mono text-xs text-blue">{r.serviceOrderNo}</Link>}{r.decisionNote && <span className="block text-xs text-alert-ink">{r.decisionNote}</span>}</td>
+            <td>{r.origin === "SITE" ? <Tag>{u("otAuto")}</Tag> : null} {r.reason}{r.serviceOrderNo && <Link href={`/service-orders/${r.serviceOrderNo}`} className="ml-1 font-mono text-xs text-blue">{r.serviceOrderNo}</Link>}{r.decisionNote && <span className="block text-xs text-alert-ink">{r.decisionNote}</span>}</td>
             <td><form action={decideAction.bind(null, r.id)} className="flex flex-wrap gap-1"><input name="note" placeholder={u("otNotePh")} className={`${inputCls} w-36`} /><button name="decision" value="APPROVED" className={btnBlue}>{u("otApprove")}</button><button name="decision" value="REJECTED" className={btnGhost}>{u("otReject")}</button></form></td>
           </tr>)}
         </Table>
@@ -72,9 +74,9 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
             return <tr key={r.id}>
               <td className="whitespace-nowrap">{localIso(r.workDate)!.slice(0, 10)}</td>
               <td className="whitespace-nowrap">{r.startTime}–{r.endTime}{r.actualStart ? <span className="block text-xs text-navy/60">{u("otActual")} {r.actualStart}–{r.actualEnd}</span> : null}</td>
-              <td className="font-semibold">{hrs(r)}</td><td className="text-xs">{kind(r.kind)}</td><td>{r.reason}</td>
+              <td className="font-semibold">{hrs(r)}</td><td className="text-xs">{kind(r.kind)}</td><td>{r.origin === "SITE" ? <Tag>{u("otAuto")}</Tag> : null} {r.reason}</td>
               <td><Tag hot={r.status === "PENDING" || r.status === "REJECTED"}>{u(`otStatus_${r.status}`)}</Tag>{r.approver ? <span className="block text-xs text-navy/60">{r.approver.name}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span> : null}</td>
-              <td>{r.payMonth?.month ?? "—"}</td>
+              <td>{r.payMonth?.month ?? (r.payNotBefore && r.status === "APPROVED" ? <span className="text-xs">{u("otCarried", { month: r.payNotBefore })}</span> : "—")}</td>
               <td>{open && <div className="flex flex-wrap gap-1">
                 {r.status === "APPROVED" && <form action={actualAction.bind(null, r.id)} className="flex gap-1"><input name="actualStart" type="time" defaultValue={r.actualStart ?? r.startTime} className={`${inputCls} w-24`} /><input name="actualEnd" type="time" defaultValue={r.actualEnd ?? r.endTime} className={`${inputCls} w-24`} /><button className={btnGhost}>{u("otConfirmActual")}</button></form>}
                 <form action={cancelAction.bind(null, r.id)}><button className="text-xs text-navy/60 hover:underline">{u("otWithdraw")}</button></form>
@@ -83,6 +85,12 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
           })}
           {!mine.length && <tr><td colSpan={8} className="py-4 text-center text-navy/60">{u("otNone")}</td></tr>}
         </Table>
+      </Card>
+
+      <Card title={u("holidays")}>
+        <p className="mb-2 text-xs text-navy/70">{u("holidaysHint")}</p>
+        <ul className="flex flex-wrap gap-2 text-sm">{holidays.map((h) => <li key={h.id} className="flex items-center gap-2 rounded-lg border px-2 py-1"><span className="font-mono">{h.date.toISOString().slice(0, 10)}</span> {h.name}{keepsHolidays && <form action={holidayAction}><input type="hidden" name="date" value={h.date.toISOString().slice(0, 10)} /><input type="hidden" name="remove" value="1" /><button className="text-xs text-navy/60 hover:underline">{u("holidayRemove")}</button></form>}</li>)}{!holidays.length && <li className="text-navy/60">{u("holidaysNone")}</li>}</ul>
+        {keepsHolidays && <form action={holidayAction} className="mt-2 flex flex-wrap items-end gap-2"><Field label={u("otDate")} required><input name="date" type="date" required className={inputCls} /></Field><Field label={u("holidayName")} required><input name="name" required className={inputCls} /></Field><button className={btnGhost}>{u("holidayAdd")}</button></form>}
       </Card>
 
       {md && <Card title={u("otMonthEnd")}>

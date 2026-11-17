@@ -2,6 +2,7 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { draftOvertimeFromWork } from "@/server/overtime";
 import { fxFields, rateForNew } from "@/server/fx";
 import { audit } from "@/server/audit";
 import { can, hasRole } from "@/lib/caps";
@@ -311,7 +312,7 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
   const open = openJob(await prisma.repairJob.findMany({ where: { serviceOrderId: order.id, assetId: asset.id } }), { maintenance: d.kind === "MAINTENANCE", orderStatus: order.status, assetId: asset.id }) ?? null;
   if (d.escortContactId && !(await prisma.contact.findFirst({ where: { id: d.escortContactId, customerId: order.customerId } }))) throw new Error("ESCORT_NOT_CUSTOMER");
 
-  return prisma.$transaction(async (tx) => {
+  const saved = await prisma.$transaction(async (tx) => {
     // Re-saving a draft replaces it: a field left blank this time is cleared, not kept from the last save.
     const v = <T,>(x: T | undefined) => (open ? (x ?? null) : x);
     const list = (x: unknown[] | undefined) => (open ? (x ?? []) : x) as Prisma.InputJsonValue | undefined;
@@ -363,6 +364,10 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
     }
     return job;
   });
+  // 现场超时自动生成加班草稿 (N-03): a finished report whose hours run outside the shift drafts the overtime for the
+  // approver. It never stands in the way of the report itself.
+  if (saved.finishedAt && saved.startedAt) await draftOvertimeFromWork({ employeeId: eng.id, start: saved.startedAt, end: saved.finishedAt, sourceNo: saved.no, serviceOrderNo: order.no }).catch((e) => console.error("[overtime] draft from", saved.no, (e as Error).message));
+  return saved;
 }
 
 // ───────────── Acceptance (templates 12 + 13) ─────────────

@@ -2561,7 +2561,20 @@
     "err_FX_CURRENCY": "The currency is three letters, e.g. THB, USD (not CNY)",
     "err_FX_RATE_REQUIRED": "Enter a rate above 0",
     "err_FX_FUTURE": "A rate cannot be set for a day in the future",
-    "err_FX_NOT_MANUAL": "A Bank of China rate cannot be removed"
+    "err_FX_NOT_MANUAL": "A Bank of China rate cannot be removed",
+    "ok_payRecounted": "Computed again; waiting for the finance review",
+    "ok_payCarried": "Carried to next month's pay",
+    "otShiftRule": "Enter only start and end. The system splits by the standard shift {start}–{end} (1 h lunch): on a working day only time outside the shift counts ×1.5; on Sundays and company holidays the first 8 h ×1, beyond ×3. Time inside the shift cannot be claimed; kind and multiplier are not chosen.",
+    "otAuto": "Auto · from site report",
+    "otCarried": "paid with {month}",
+    "holidays": "Company holidays",
+    "holidaysHint": "Work on Sundays and on the days listed here is counted as holiday work automatically. HR or the MD keeps the list.",
+    "holidaysNone": "No holiday entered yet",
+    "holidayName": "Holiday",
+    "holidayAdd": "Add holiday",
+    "holidayRemove": "Remove",
+    "err_OT_IN_SHIFT": "This time lies wholly inside the normal shift {detail}; it cannot be claimed as overtime",
+    "err_HOLIDAY_NAME_REQUIRED": "Enter the holiday's name"
   },
   "role": {
     "MD": "MD Managing Director",
@@ -2727,7 +2740,8 @@
     "k_invoiceWaiting": "{ref}: accepted more than 48 h ago, finance has not invoiced",
     "k_poApprove": "Purchase order {ref} is waiting for your approval",
     "k_payApprove": "Payment {ref} is waiting for your approval",
-    "k_payConfirm": "Payment {ref} is approved — upload the slip and confirm"
+    "k_payConfirm": "Payment {ref} is approved — upload the slip and confirm",
+    "k_otLate": "Payroll {ref}: newly approved overtime is not included"
   },
   "reports": {
     "searchPh": "Report no., machine, serial, customer",
@@ -3025,6 +3039,12 @@
     "payStage_APPROVED": "Approved",
     "payStage_PAID": "Paid",
     "paySubmit": "Submit for finance review",
-    "payNotSubmitted": "HR has not submitted it for review yet"
+    "payNotSubmitted": "HR has not submitted it for review yet",
+    "payLateOt": "{n} newly approved overtime request(s) ({hours} h) are not in this month's pay",
+    "payLateOtRecount": "Compute again (finance and the MD review again)",
+    "payLateOtCarry": "Pay with {next} (late overtime of month {m})",
+    "payLateOtNext": "This month is approved. These go into the pay of {next} by themselves, marked as late overtime of month {m}.",
+    "payLateOtAskHr": "HR computes again or carries it to next month",
+    "payOtLate": "incl. late overtime of month {months}"
   }
 }
