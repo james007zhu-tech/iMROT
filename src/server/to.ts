@@ -1,4 +1,5 @@
 import { actorWith } from "@/server/guard";
+import { rateFor } from "@/server/fx";
 import { can, hasRole } from "@/lib/caps";
 import { countryOfNo, isTestNo } from "@/lib/numbering";
 /**
@@ -17,9 +18,9 @@ import { declineInvoiceLines } from "@/server/decline";
 
 export async function bocRate(currency: string, onOrBefore: Date): Promise<number> {
   if (currency === "CNY") return 1;
-  const r = await prisma.fxRate.findFirst({ where: { currency, rateDate: { lte: onOrBefore } }, orderBy: { rateDate: "desc" } });
+  const r = await rateFor(currency, onOrBefore);
   if (!r) throw new Error(`No Bank of China rate for ${currency} on or before ${localIso(onOrBefore)!.slice(0, 10)} — run npm run fx:fetch`);
-  return Number(r.rateToCny);
+  return r.rateToCny;
 }
 
 export const TaxInvoiceInput = z.object({
@@ -50,6 +51,7 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   if (order.decline && !feeLines?.length) throw new Error(`FEE_WAIVED:${order.no}`);
   const first = order.decline ? order.status === "DECLINED" : order.status === "ACCEPTED";
   if (!first && !reissue) throw new Error(order.status === "INVOICED" ? `TI_EXISTS:${order.taxInvoices.find((t) => !t.voidedAt)?.no ?? ""}` : `${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
+  if (!order.decline && Number(order.total ?? 0) <= 0) throw new Error(`INVOICE_ZERO:${order.no}`); // 0 元不开票 (V4-P0-06)
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const issuedAt = d.issuedAt ?? new Date();
   const currency = order.entity.localCurrency;
@@ -98,8 +100,10 @@ export async function writeTaxInvoice(tx: Prisma.TransactionClient, a: {
   const bookSize = Math.max(1, order.entity.taxInvoiceBookSize);
   const bookNo = seq ? String(Math.ceil(seq / bookSize)).padStart(3, "0") : null;
   const bookSeq = seq ? ((seq - 1) % bookSize) + 1 : null;
+  const fxr = await rateFor(currency, issuedAt);
   const ti = await tx.taxInvoice.create({
     data: {
+      ...(fxr && fxr.rateToCny === fx ? { fxRateDate: fxr.rateDate, fxSource: fxr.source === "CNY" ? "BOC" : fxr.source } : {}),
       no, serviceOrderId: order.id, issuedAt, currency, seq, bookNo, bookSeq,
       lines: lines.map((l) => ({ ...l, amount: round2(l.qty * l.unitPrice) })) as Prisma.InputJsonValue,
       subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx, totalCny: round2(t.total * fx),

@@ -82,6 +82,7 @@ export async function computePayroll(input: { entityId: string; month: string; a
     const mine = claims.filter((c) => c.employeeId === e.id);
     const reimbursement = r2(mine.reduce((s, c) => s + Number(c.amount), 0));
     const overtime = otMonth ? Number(otMonth.lines.find((l) => l.employeeId === e.id)?.total ?? 0) : r2(otPreview?.find((l) => l.employeeId === e.id)?.pay.total ?? 0);
+    const otLateFrom = (otMonth ? (otMonth.lines.find((l) => l.employeeId === e.id)?.lateFrom ?? []) : (otPreview?.find((l) => l.employeeId === e.id)?.lateFrom ?? [])) as string[]; // 补发 ×月加班
     const variablePay = Number(salary?.variablePay ?? 0);
     const missing: string[] = [];
     // sales are paid on targets (朱总 2026-11-11), everyone else on the manager's monthly score
@@ -107,7 +108,7 @@ export async function computePayroll(input: { entityId: string; month: string; a
     });
     lines.push({
       employeeId: e.id, salaryRecordId: salary?.id ?? null, baseSalary: Number(salary?.baseSalary ?? 0), allowances: allowances as unknown as Prisma.InputJsonValue, allowanceTotal: c.allowanceTotal,
-      overtime, variablePay, perfScore: sales ? null : num(review?.score), perfFactor: c.perfFactor, incentive: c.incentive, bonus, gross: c.gross,
+      otLateFrom, overtime, variablePay, perfScore: sales ? null : num(review?.score), perfFactor: c.perfFactor, incentive: c.incentive, bonus, gross: c.gross,
       perfBasis: sales ? "TARGET" : "SCORE", achievement: sales ? mt?.achievement ?? null : null, quarterlyPay, quarterAchieved: qt?.achievement ?? null, quarterFactor: c.quarterFactor, quarterIncentive: c.quarterIncentive,
       ssoBase: c.ssoBase, ssoEmployee: c.ssoEmployee, ssoEmployer: c.ssoEmployer, pvdEmployee: c.pvdEmployee, pvdEmployer: c.pvdEmployer,
       wht: c.wht, whtManual: whtManual != null, whtDetail: c.whtDetail as unknown as Prisma.InputJsonValue, otherDeduction, reimbursement, net: c.net, employerCost: c.employerCost, missing, note,
@@ -224,6 +225,45 @@ export async function mySlips(employeeId: string) {
 }
 
 /** 财务复核: the finance person ticks that the month is right and every withholding figure matches the accountant's. Not the person who computed it. */
+/**
+ * 锁定后新批准的加班不能漏 (H-R67). Overtime approved (or its actual hours confirmed) after the month's payroll was
+ * last computed is not in its lines. While the month has left HR this is said on the payroll page — "有 N 条新批准加班
+ * 未计入" — with two ways on: 补算 (the month is computed again and goes through finance and the MD again) or 挂到下月
+ * (paid with next month, shown there as 补发 ×月加班). Once the month is approved, late overtime goes to the next month
+ * by itself, and the page says so.
+ */
+export async function lateOvertime(entityId: string, month: string) {
+  const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month } } });
+  if (!run) return { run: null, rows: [], hours: 0, locked: false };
+  const { to } = monthRange(month);
+  // locked: the month is approved, or its overtime was already closed (the automatic close on the 1st) — late overtime then goes to the next month by itself
+  const locked = run.status !== "DRAFT" || !!(await prisma.overtimeMonth.findUnique({ where: { entityId_month: { entityId, month } }, select: { id: true } }));
+  const rows = await prisma.overtimeRequest.findMany({
+    where: { entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to }, ...(locked ? {} : { AND: [{ OR: [{ payNotBefore: null }, { payNotBefore: { lte: month } }] }, { OR: [{ decidedAt: { gt: run.computedAt } }, { confirmedAt: { gt: run.computedAt } }] }] }) },
+    include: { employee: { select: { code: true, name: true } } }, orderBy: { workDate: "asc" } });
+  return { run, rows, hours: r2(rows.reduce((a, r) => a + Number(r.actualHours ?? r.hours), 0)), locked };
+}
+/** 补算: HR computes the month again with the overtime approved since; finance reviews again, then the MD. */
+export async function recountPayroll(input: { entityId: string; month: string; actorCode: string }) {
+  const actor = await roleOf(input.actorCode, "HR", "PAYROLL_PREPARER_ONLY");
+  const late = await lateOvertime(input.entityId, input.month);
+  if (late.locked) throw new Error(`PAYROLL_LOCKED:${input.month}`);
+  const run = await computePayroll(input);
+  await prisma.payrollRun.update({ where: { id: run.id }, data: { taxConfirmedBy: null, taxConfirmedAt: null } });
+  await audit(actor.id, "PAYROLL_RECOUNT", input.month, { overtime: late.rows.length, hours: late.hours });
+}
+/** 挂到下月: the late overtime is paid with next month's pay (补发); this month stays as reviewed. HR or the MD. */
+export async function carryOvertime(input: { entityId: string; month: string; actorCode: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (!hasRole(actor, "HR", "MD")) throw new Error("NO_PERMISSION");
+  const late = await lateOvertime(input.entityId, input.month);
+  if (late.locked || !late.rows.length) return 0;
+  const [y, m] = input.month.split("-").map(Number), next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+  await prisma.overtimeRequest.updateMany({ where: { id: { in: late.rows.map((r) => r.id) } }, data: { payNotBefore: next } });
+  await audit(actor.id, "OT_CARRIED", input.month, { to: next, requests: late.rows.length, hours: late.hours });
+  return late.rows.length;
+}
+
 /** HR hands the computed month to finance (需求清单 v3 P2-21): one clear step, one clear state, and finance is told. */
 export async function submitPayroll(input: { entityId: string; month: string; actorCode: string }) {
   const actor = await roleOf(input.actorCode, "HR", "PAYROLL_PREPARER_ONLY");

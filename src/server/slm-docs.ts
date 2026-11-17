@@ -2,13 +2,15 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { draftOvertimeFromWork } from "@/server/overtime";
+import { fxFields, rateForNew } from "@/server/fx";
 import { audit } from "@/server/audit";
 import { can, hasRole } from "@/lib/caps";
-import { mayOpenOrder } from "@/server/scope";
+import { mayOpenOrder, mayAccept } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
-import { findPart, resolveParts } from "@/server/scm";
+import { findPart, issueNeeds, recordStockDoc, resolveParts, stockOnHand } from "@/server/scm";
 import { openOrderFor, verifySerial } from "@/server/asset-first";
 import { prisma } from "@/lib/db";
 import { finishGap, workGap } from "@/lib/work-gate";
@@ -186,9 +188,15 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   // 国际贸易: an export is zero-rated (src/lib/export.ts — until the accountant says otherwise)
   const vatRate = d.vatRate ?? (order.mode === "INTERNATIONAL_TRADE" ? EXPORT_VAT_RATE : Number(order.entity.vatRate));
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
-  const fx = order.currency === "CNY" ? 1 : (await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny;
+  const fxr = await rateForNew(order.currency), fx = fxr?.rateToCny; // 中国银行价 (or 财务手工价) of today, kept on the quote with its day
   const parts = await resolveParts(d.lines.map((l) => l.partSku).filter((s): s is string => !!s));
   const partnerCosts = order.mode === "PARTNER_REPAIR" ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
+  // 报价单成本必填 (MD 2026-11-17 18:29): a quote without cost has no margin. Whoever may see what we paid gets the last
+  // purchase price where they wrote nothing; Sales writes its own estimate on every line — a line without one is refused.
+  if (!itemsOnly && order.mode !== "PARTNER_REPAIR") {
+    const noCost = d.lines.map((l, i) => (l.qty > 0 && l.unitCost == null && !(can.cost(actor) && l.partSku && Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) > 0) ? i + 1 : 0)).filter(Boolean);
+    if (noCost.length) throw new Error(`QUOTE_COST_REQUIRED:${noCost.join("、")}`);
+  }
   const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
   const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 
@@ -214,7 +222,7 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
     const updated = await tx.serviceOrder.update({
       where: { id: order.id },
       data: {
-        subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx ? Number(fx) : undefined, totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined,
+        subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, ...fxFields(fxr), totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined,
         costTotal: cost, marginPct: pct, marginApproval: approval, marginApprovedById: null, marginApprovedAt: null, marginNote: null,
         ...(d.warrantyDays !== undefined ? { warrantyDays: d.warrantyDays } : {}),
       },
@@ -243,6 +251,7 @@ export const RepairJobInput = z.object({
   rootCause: z.string().optional(),
   workPerformed: z.string().optional(),
   partsReplaced: z.array(z.object({ partSku: z.string(), name: z.string().optional(), qty: z.number().positive(), oldSerial: z.string().optional(), newSerial: z.string().optional(), obthNo: z.string().optional(), oldDisposition: z.enum(["SCRAP", "RETURN_TO_CUSTOMER", "KEEP_FOR_ANALYSIS"]).optional() })).optional(),
+  partsSkipReason: z.string().optional(), /// why a quoted part was not fitted (需求清单 v4 V4-P0-10)
   configBackupRef: z.string().optional(),
   laborHours: z.number().optional(),
   tests: z.array(TestRow).optional(),
@@ -278,6 +287,23 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
   const gap = workGap(order, { maintenance, rework });
   if (gap) throw new Error(`WORK_TOO_EARLY_${gap.toUpperCase()}:${order.no}`);
   if (d.finishedAt && !maintenance) { const f = finishGap(d.tests); if (f) throw new Error(`REPAIR_${f}`); }
+  // 维修用料进库存账 (需求清单 v4 V4-P0-10). Finishing a repair: every part written on the report has left the store —
+  // the OBTH of this order is put on its line, or the part is issued now from stock; and a part that was quoted but
+  // neither issued nor fitted needs a word why.
+  if (d.finishedAt && !maintenance) {
+    for (const p of d.partsReplaced ?? []) {
+      if (!p.partSku?.trim() || p.obthNo) continue;
+      const part = await findPart(p.partSku).catch(() => null);
+      if (!part) continue; // not a part of the catalogue (written free hand): nothing to take from stock
+      const issued = await prisma.stockMovement.findFirst({ where: { partId: part.id, direction: "OUT", serviceOrderId: order.id }, orderBy: { movedAt: "desc" } });
+      if (issued) { p.obthNo = issued.no; continue; }
+      const onHand = await stockOnHand(part.sku);
+      if (onHand < p.qty) throw new Error(`PARTS_NO_STOCK:${part.sku} ×${p.qty}（库存 ${onHand}）`);
+      p.obthNo = (await recordStockDoc({ actorCode: eng.code, direction: "OUT", serviceOrderNo: order.no, assetCode: asset.code, lines: [{ partSku: part.sku, qty: p.qty }] })).no;
+    }
+    const rest = (await issueNeeds(order.no))?.lines ?? [];
+    if (rest.length && !d.partsSkipReason?.trim()) throw new Error(`PARTS_UNUSED:${rest.map((l) => `${l.sku} ×${l.qty}`).join("、")}`);
+  }
   const prefix = d.kind === "MAINTENANCE" ? "PM" : "RP";
   const workStatus: AssetStatus = d.kind === "MAINTENANCE" ? "MAINTENANCE" : d.kind === "OVERHAUL" ? "OVERHAUL" : "REPAIR";
   const target: AssetStatus = d.finishedAt ? "ACCEPTANCE" : workStatus;
@@ -286,7 +312,7 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
   const open = openJob(await prisma.repairJob.findMany({ where: { serviceOrderId: order.id, assetId: asset.id } }), { maintenance: d.kind === "MAINTENANCE", orderStatus: order.status, assetId: asset.id }) ?? null;
   if (d.escortContactId && !(await prisma.contact.findFirst({ where: { id: d.escortContactId, customerId: order.customerId } }))) throw new Error("ESCORT_NOT_CUSTOMER");
 
-  return prisma.$transaction(async (tx) => {
+  const saved = await prisma.$transaction(async (tx) => {
     // Re-saving a draft replaces it: a field left blank this time is cleared, not kept from the last save.
     const v = <T,>(x: T | undefined) => (open ? (x ?? null) : x);
     const list = (x: unknown[] | undefined) => (open ? (x ?? []) : x) as Prisma.InputJsonValue | undefined;
@@ -294,7 +320,7 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
       engineerId: eng.id, kind: d.kind, location: d.location,
       startedAt: d.startedAt ?? open?.startedAt ?? new Date(), finishedAt: v(d.finishedAt), confirmedFault: v(d.confirmedFault), rootCause: v(d.rootCause),
       workPerformed: v(d.workPerformed), partsReplaced: list(d.partsReplaced), configBackupRef: v(d.configBackupRef),
-      laborHours: v(d.laborHours), tests: list(d.tests), openIssues: v(d.openIssues), conclusion: v(d.conclusion),
+      laborHours: v(d.laborHours), tests: list(d.tests), openIssues: d.partsSkipReason?.trim() ? [d.openIssues, `备件未换：${d.partsSkipReason.trim()}`].filter(Boolean).join("；") : v(d.openIssues), conclusion: v(d.conclusion),
       attachments: (d.attachments?.length ? [...((open?.attachments as unknown[] | null) ?? []), ...d.attachments] : open?.attachments ?? undefined) as Prisma.InputJsonValue | undefined,
       level: v(d.level), runHours: v(d.runHours), checklist: list(d.checklist), hazards: v(d.hazards), handled: v(d.handled),
       recommendation: v(d.recommendation), conditionRating: v(d.conditionRating), nextDueAt: v(d.nextDueAt), nextDueHours: v(d.nextDueHours),
@@ -338,6 +364,10 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
     }
     return job;
   });
+  // 现场超时自动生成加班草稿 (N-03): a finished report whose hours run outside the shift drafts the overtime for the
+  // approver. It never stands in the way of the report itself.
+  if (saved.finishedAt && saved.startedAt) await draftOvertimeFromWork({ employeeId: eng.id, start: saved.startedAt, end: saved.finishedAt, sourceNo: saved.no, serviceOrderNo: order.no }).catch((e) => console.error("[overtime] draft from", saved.no, (e as Error).message));
+  return saved;
 }
 
 // ───────────── Acceptance (templates 12 + 13) ─────────────
@@ -359,9 +389,14 @@ export const AcceptanceInput = z.object({
 
 /** ACCEPTED / CONDITIONAL → assets back IN_SERVICE, order → ACCEPTED. REJECTED → assets to REPAIR, order back to DIAGNOSING. */
 export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
+  { // V4-P0-03: who is signing is settled before anything else is looked at
+    const [who, o] = await Promise.all([prisma.employee.findUnique({ where: { code: String(input.actorCode) } }), prisma.serviceOrder.findUnique({ where: { no: String(input.serviceOrderNo) }, select: { id: true } })]);
+    if (!who || !o || !(await mayAccept(who, o.id))) throw new Error("NO_PERMISSION");
+  }
   const d = AcceptanceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { assets: { include: { asset: true } } } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
+  if (!(await mayAccept(actor, order.id))) throw new Error("NO_PERMISSION"); // V4-P0-03: not anyone who knows the number
   if (order.status !== "ACCEPTANCE_PENDING" && order.status !== "IN_PROGRESS") throw new Error(`${order.no} is ${order.status}; acceptance needs ACCEPTANCE_PENDING`);
   const ok = d.status !== "REJECTED";
   if (ok) {

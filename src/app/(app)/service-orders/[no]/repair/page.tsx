@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { assertOrderAccess } from "@/server/scope";
 import { PartDropdown } from "@/components/PartDropdown";
 import { getTranslations } from "next-intl/server";
@@ -13,6 +14,7 @@ import { FinishCheck } from "@/components/FinishCheck";
 import { Card, Field, Grid, Table, Tag, inputCls } from "@/components/ui";
 import { StepPage, atts, loadOrder, num, str } from "../_shell";
 import { WorkGate } from "../_gate";
+import { issueNeeds } from "@/server/scm";
 
 export const dynamic = "force-dynamic";
 const TESTS = ["visual", "electrical", "noLoad", "load", "extra1"] as const;
@@ -34,7 +36,10 @@ export default async function Repair({ params, searchParams }: { params: Promise
   const draft = openJob(order.repairJobs, { maintenance: false, orderStatus: order.status });
   const dParts = (draft?.partsReplaced as { partSku: string; name?: string; qty: number; newSerial?: string; oldSerial?: string; obthNo?: string; oldDisposition?: string }[] | null) ?? [];
   // Parts: what the draft already holds, plus stock-outs made since that it does not list yet. Every prefilled row is shown.
-  const partRows = [...dParts, ...outs.filter((m) => !dParts.some((p) => p.obthNo === m.no && p.partSku === m.part.sku)).map((m) => ({ partSku: m.part.sku, name: m.part.name ?? undefined, qty: Number(m.qty), obthNo: m.no, newSerial: undefined, oldSerial: undefined, oldDisposition: undefined }))].slice(0, PARTS);
+  // …and the parts of the quote that have not left the store yet: the engineer corrects the quantity, never retypes (V4-P0-10)
+  const need = (await issueNeeds(no))?.lines ?? [];
+  const quoted = need.filter((l) => !dParts.some((p) => p.partSku === l.sku)).map((l) => ({ partSku: l.sku, name: catalogue.find((c) => c.sku === l.sku)?.name ?? undefined, qty: l.qty, obthNo: undefined, newSerial: undefined, oldSerial: undefined, oldDisposition: undefined }));
+  const partRows = [...dParts, ...quoted, ...outs.filter((m) => !dParts.some((p) => p.obthNo === m.no && p.partSku === m.part.sku)).map((m) => ({ partSku: m.part.sku, name: m.part.name ?? undefined, qty: Number(m.qty), obthNo: m.no, newSerial: undefined, oldSerial: undefined, oldDisposition: undefined }))].slice(0, PARTS);
   const dTests = (draft?.tests as { test: string; criterion?: string; result?: string; recordId?: string; pass?: boolean }[] | null) ?? [];
   async function save(f: FormData) {
     "use server";
@@ -43,13 +48,17 @@ export default async function Repair({ params, searchParams }: { params: Promise
       const finished = f.get("draft") !== "1"; // only the "save draft" button posts draft=1
       const tests = TESTS.map((k) => ({ key: k, test: str(f, `t_${k}`) ?? "", criterion: str(f, `c_${k}`), result: str(f, `r_${k}`), recordId: str(f, `id_${k}`), pass: f.get(`p_${k}`) ? f.get(`p_${k}`) === "yes" : undefined })).filter((x) => x.test && (x.criterion || x.result));
       const parts = Array.from({ length: PARTS }, (_, i) => ({ partSku: str(f, `ps${i}`) ?? "", name: str(f, `pn${i}`), qty: num(f, `pq${i}`) ?? 0, newSerial: str(f, `pnew${i}`), oldSerial: str(f, `pold${i}`), obthNo: str(f, `pob${i}`), oldDisposition: (str(f, `pdisp${i}`) as "SCRAP" | undefined) })).filter((p) => p.partSku && p.qty > 0);
-      const args = { serviceOrderNo: no, assetCode: String(f.get("assetCode")), engineerCode: str(f, "engineerCode") ?? me.code, kind: (str(f, "kind") as "REPAIR") ?? "REPAIR", location: f.get("location") as "SITE", startedAt: str(f, "startedAt") ? new Date(str(f, "startedAt")!) : undefined, finishedAt: finished ? (str(f, "finishedAt") ? new Date(str(f, "finishedAt")!) : new Date()) : undefined, confirmedFault: str(f, "confirmedFault"), rootCause: str(f, "rootCause"), workPerformed: str(f, "workPerformed"), partsReplaced: parts, configBackupRef: str(f, "configBackupRef"), laborHours: num(f, "laborHours"), travelCost: num(f, "travelCost"), tests, openIssues: str(f, "openIssues"), conclusion: str(f, "conclusion"), attachments: atts(f) };
+      const args = { partsSkipReason: str(f, "partsSkipReason"), serviceOrderNo: no, assetCode: String(f.get("assetCode")), engineerCode: str(f, "engineerCode") ?? me.code, kind: (str(f, "kind") as "REPAIR") ?? "REPAIR", location: f.get("location") as "SITE", startedAt: str(f, "startedAt") ? new Date(str(f, "startedAt")!) : undefined, finishedAt: finished ? (str(f, "finishedAt") ? new Date(str(f, "finishedAt")!) : new Date()) : undefined, confirmedFault: str(f, "confirmedFault"), rootCause: str(f, "rootCause"), workPerformed: str(f, "workPerformed"), partsReplaced: parts, configBackupRef: str(f, "configBackupRef"), laborHours: num(f, "laborHours"), travelCost: num(f, "travelCost"), tests, openIssues: str(f, "openIssues"), conclusion: str(f, "conclusion"), attachments: atts(f) };
       // what was typed is never lost: when the tests do not yet allow finishing, the form is kept as a draft and says why
       const why = finished ? finishGap(tests) : null;
       const before = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
       if (why && ["ASSIGNED", "DIAGNOSING", "IN_PROGRESS"].includes(before.status)) await createRepairJob({ ...args, finishedAt: undefined }).catch(() => null);
       if (why) throw new Error(`REPAIR_${why}`);
-      const job = await createRepairJob(args);
+      const job = await createRepairJob(args).catch(async (e: Error) => {
+        // parts not issued / not in stock: what was typed is kept as a draft, and the page says what is missing
+        if (/^PARTS_/.test(e.message) && finished) await createRepairJob({ ...args, finishedAt: undefined }).catch(() => null);
+        throw e;
+      });
       const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
       if (finished && cur.status === "IN_PROGRESS") await advanceServiceOrder(no, "ACCEPTANCE_PENDING", me.code);
       return { ok: job.no, to: `/service-orders/${no}` };
@@ -77,6 +86,8 @@ export default async function Repair({ params, searchParams }: { params: Promise
           </Grid>
           <Field label={u("workPerformed")} required><textarea name="workPerformed" required rows={3} defaultValue={draft?.workPerformed ?? ""} className={inputCls} /></Field>
           <div className="text-[13px] text-navy/80">{u("partsReplaced")}</div>
+          {need.length > 0 && <div className="rounded-lg border border-[#E6A23C] bg-[#FFF4E5] p-2 text-[13px] text-[#7A4A00]">{u("partsToIssue", { n: need.length, list: need.map((l) => `${l.sku} ×${l.qty}（${u("briefOnHand", { n: l.onHand })}）`).join("、") })} <Link href={`/parts/movement?direction=OUT&order=${no}`} className="font-semibold underline">{u("goIssue")} →</Link>
+            <input name="partsSkipReason" placeholder={u("partsSkipPh")} className={`${inputCls} mt-2`} /></div>}
           <PartDropdown formId="f" sku="ps" name="pn" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={catalogue} />
           <RevealRows initial={Math.max(partRows.length, 1)} addLabel={u("addPart")}>
             {Array.from({ length: PARTS }, (_, i) => { const dp = partRows[i]; return (

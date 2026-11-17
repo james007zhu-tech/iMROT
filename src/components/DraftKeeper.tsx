@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 
 type Values = Record<string, string | boolean>;
 type Draft = { at: number; values: Values };
-const PREFIX = "dcit-draft:", PENDING = "dcit-draft-pending", RESTORE = "dcit-draft-restore";
+const PREFIX = "dcit-draft:", PENDING = "dcit-draft-pending", RESTORE = "dcit-draft-restore", FAILED = "dcit-draft-failed"; // FAILED: set by the failure screens
 const MAX_AGE = 3 * 86400000;
 
 type Field = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
@@ -53,19 +53,20 @@ function write(form: HTMLFormElement, values: Values) {
   }
 }
 
-export function DraftKeeper({ labels }: { labels: { found: string; restore: string; drop: string; restored: string } }) {
+export function DraftKeeper({ labels }: { labels: { found: string; drop: string } }) {
   const path = usePathname(), search = useSearchParams().toString();
   const [offer, setOffer] = useState<{ key: string; at: number }[]>([]);
-  const [note, setNote] = useState("");
 
   useEffect(() => {
     const sp = new URLSearchParams(search), failed = sp.has("error");
     let back = false;
     try {
-      back = sessionStorage.getItem(RESTORE) === "1"; sessionStorage.removeItem(RESTORE);
+      back = sessionStorage.getItem(RESTORE) === "1" || localStorage.getItem(FAILED) === "1"; sessionStorage.removeItem(RESTORE); localStorage.removeItem(FAILED);
       // the save that was under way arrived: the app moved on, or came back to the same page with ✓
+      // A save was under way and the app has loaded a page again without an error and without the failure screen: it
+      // arrived. Its draft goes (v4 P1-05: a saved receipt kept offering its draft, an invitation to enter it twice).
       const pending = JSON.parse(localStorage.getItem(PENDING) ?? "null") as { key: string; path: string } | null;
-      if (pending && !failed && !back && (pending.path !== path || sp.has("ok"))) { localStorage.removeItem(pending.key); localStorage.removeItem(PENDING); }
+      if (pending && !failed && !back) { localStorage.removeItem(pending.key); localStorage.removeItem(PENDING); }
       for (let i = localStorage.length - 1; i >= 0; i--) { // old drafts go
         const k = localStorage.key(i); if (!k?.startsWith(PREFIX)) continue;
         const d = JSON.parse(localStorage.getItem(k) ?? "null") as Draft | null; if (!d || Date.now() - d.at > MAX_AGE) localStorage.removeItem(k);
@@ -83,8 +84,10 @@ export function DraftKeeper({ labels }: { labels: { found: string; restore: stri
         const key = keyOf(path, form, Array.from(document.forms).indexOf(form));
         let d: Draft | null = null; try { d = JSON.parse(localStorage.getItem(key) ?? "null"); } catch { /* ignore */ }
         if (!d) continue;
-        if (failed || back) { write(form, d.values); dirty.add(form); window.dispatchEvent(new CustomEvent("draft-restored", { detail: form.id })); if (back) setNote(labels.restored); }
-        else found.push({ key, at: d.at });
+        // 需求清单 v4 V4-P0-13: the draft comes back by itself — after a failed save, after a refresh, after closing the
+        // browser — and the banner says so, with 丢掉 for the person who wants the empty form.
+        write(form, d.values); dirty.add(form); window.dispatchEvent(new CustomEvent("draft-restored", { detail: form.id }));
+        found.push({ key, at: d.at });
       }
       setOffer(found);
     }, 300); // after the page's own fields have mounted
@@ -93,7 +96,7 @@ export function DraftKeeper({ labels }: { labels: { found: string; restore: stri
     const onInput = (e: Event) => {
       const form = (e.target as HTMLElement | null)?.closest?.("form") as HTMLFormElement | null;
       if (!form || !keepable(form) || !e.isTrusted) return;
-      dirty.add(form); setOffer((o) => o.filter((x) => x.key !== keyOf(path, form, Array.from(document.forms).indexOf(form))));
+      dirty.add(form);
       clearTimeout(timer); timer = setTimeout(() => dirty.forEach(save), 2000);
     };
     const every = setInterval(() => dirty.forEach(save), 10000);
@@ -105,25 +108,15 @@ export function DraftKeeper({ labels }: { labels: { found: string; restore: stri
     };
     document.addEventListener("input", onInput, true); document.addEventListener("change", onInput, true); document.addEventListener("submit", onSubmit, true);
     return () => { clearTimeout(t0); clearTimeout(timer); clearInterval(every); document.removeEventListener("input", onInput, true); document.removeEventListener("change", onInput, true); document.removeEventListener("submit", onSubmit, true); };
-  }, [path, search, labels.restored]);
+  }, [path, search]);
 
-  const restore = () => {
-    for (const form of Array.from(document.forms).filter(keepable)) {
-      const key = keyOf(path, form, Array.from(document.forms).indexOf(form));
-      if (!offer.some((o) => o.key === key)) continue;
-      try { const d = JSON.parse(localStorage.getItem(key) ?? "null") as Draft | null; if (d) { write(form, d.values); window.dispatchEvent(new CustomEvent("draft-restored", { detail: form.id })); } } catch { /* ignore */ }
-    }
-    setOffer([]); setNote(labels.restored);
-  };
-  const drop = () => { try { for (const o of offer) localStorage.removeItem(o.key); localStorage.removeItem(PENDING); } catch { /* ignore */ } setOffer([]); };
+  const drop = () => { try { for (const o of offer) localStorage.removeItem(o.key); localStorage.removeItem(PENDING); } catch { /* ignore */ } location.replace(location.pathname + location.search.replace(/[?&](error|ok)=[^&]*/g, "").replace(/^&/, "?")); };
 
-  if (note && !offer.length) return <div className="mb-3 rounded-lg border border-blue bg-blue/8 px-4 py-2 text-sm text-navy" role="status">✓ {note}</div>;
   if (!offer.length) return null;
   const at = new Date(Math.max(...offer.map((o) => o.at)));
   return (
     <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-4 py-2 text-sm text-[#7A4A00]" role="status">
-      <span>{labels.found.replace("{time}", `${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`)}</span>
-      <button type="button" onClick={restore} className="rounded-lg bg-navy px-3 py-1.5 font-semibold text-white">{labels.restore}</button>
+      <span>{labels.found.replace("{time}", `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`)}</span>
       <button type="button" onClick={drop} className="rounded-lg border border-navy/40 bg-white px-3 py-1.5">{labels.drop}</button>
     </div>
   );

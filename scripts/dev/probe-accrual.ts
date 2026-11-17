@@ -1,10 +1,12 @@
 /** 暂估应付 and 三单匹配 (测试报告 P0-10): goods in → accrued payable; invoice → real payable; a mismatch waits for the MD. */
 import { prisma } from "../../src/lib/db";
-import { createPurchaseOrder, createSupplier, receivePurchaseOrder } from "../../src/server/purchasing";
-import { approvePayment, paySupplierInvoice, registerSupplierInvoice } from "../../src/server/srm";
+import { createPurchaseOrder, createSupplier } from "../../src/server/purchasing";
+import { registerSupplierInvoice } from "../../src/server/srm";
+import { requestPayment } from "../../src/server/pay";
 import { buildCashPlan } from "../../src/server/cash-plan";
 import { financeReport } from "../../src/server/fin-report";
 import { localIso } from "../../src/lib/dates";
+import { payInvoice, receivePurchaseOrder } from "./_probe";
 
 let bad = 0;
 const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) bad++; };
@@ -29,7 +31,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     await receivePurchaseOrder({ poNo: po.no, actorCode: md.code, received: [{ lineNo: 1, qty: 4 }] });
     const acc2 = await prisma.supplierInvoice.findMany({ where: { purchaseOrderId: po.id, accrued: true } });
     check("the second receipt moves the same accrual to 10,000 (one row per POTH)", acc2.length === 1 && Number(acc2[0].subtotal) === 10000 && Number(acc2[0].payable) === 10700, `${acc2.length} rows, ${acc2[0]?.payable}`);
-    check("an accrual cannot be paid", /PAYABLE_ACCRUED/.test(await msg(paySupplierInvoice({ id: acc2[0].id, actorCode: fin.code }))));
+    check("an accrual cannot be paid", /PAYABLE_ACCRUED/.test(await msg(requestPayment({ invoiceId: acc2[0].id, actorCode: fin.code, account: "CASH" }))));
     const bookMonth = localIso(new Date())!.slice(0, 7);
     const month = localIso(acc2[0].dueDate)!.slice(0, 7); // 账期缺省 30 天: the accrual falls due a month after the receipt
     const plan = await buildCashPlan(md.entityId, month);
@@ -44,7 +46,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     const rep1 = await financeReport(md.entityId, new Date().getFullYear(), { withPayroll: false });
     const m1 = rep1.months.find((m) => m.month === bookMonth)!;
     check("purchases counted once (accrual, then invoice); input VAT only once the invoice is in", Math.abs(m1.purchases - m0.purchases) < 0.01 && Math.abs(m1.vatIn - m0.vatIn - 700) < 0.01, `purchases ${m0.purchases}→${m1.purchases}, vatIn +${(m1.vatIn - m0.vatIn).toFixed(2)}`);
-    check("a matched invoice is paid by finance", (await msg(paySupplierInvoice({ id: inv.id, actorCode: fin.code }))) === "ok");
+    check("a matched invoice is paid: finance asks, the MD approves, finance confirms", (await msg(payInvoice({ id: inv.id, actorCode: fin.code }))) === "ok");
 
     // an invoice that does not match what came in
     const po2 = await createPurchaseOrder({ actorCode: md.code, supplierId: sup.id, vatRate: 0.07, lines: [{ vendorPartNo: sku, description: "TEST contactor", qty: 10, unitPrice: 1000 }], allowRepeat: true });
@@ -54,12 +56,10 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     check("an invoice above the POTH is refused", /INVOICE_EXCEEDS_PO/.test(await msg(registerSupplierInvoice({ poNo: po2.no, actorCode: md.code, invoiceNo: `TEST-INV-${tag}-X`, invoiceDate: new Date(), subtotal: 12000 }))));
     const off = await registerSupplierInvoice({ poNo: po2.no, actorCode: md.code, invoiceNo: `TEST-INV-${tag}-B`, invoiceDate: new Date(), subtotal: 5800 });
     check("5,800 invoiced against 5,000 received is flagged (+800)", Number(off.matchDiff) === 800, String(off.matchDiff));
-    check("and waits for the MD before it can be paid", /PAY_NEEDS_MD/.test(await msg(paySupplierInvoice({ id: off.id, actorCode: fin.code }))));
-    await approvePayment({ id: off.id, actorCode: md.code });
-    check("released by the MD, it is paid", (await msg(paySupplierInvoice({ id: off.id, actorCode: fin.code }))) === "ok");
+    check("it is paid like any other — the MD sees the difference when he approves", (await msg(payInvoice({ id: off.id, actorCode: fin.code }))) === "ok");
   } finally {
     const invs = await prisma.supplierInvoice.findMany({ where: { purchaseOrderId: { in: pos } } });
-    const nos = invs.map((i) => i.paymentNo).filter((n): n is string => !!n).sort().reverse();
+    const nos = (await prisma.supplierPayment.findMany({ where: { supplierInvoiceId: { in: invs.map((i) => i.id) } } })).map((p) => p.no).sort().reverse();
     await prisma.document.deleteMany({ where: { no: { in: nos } } });
     for (const n of nos) await prisma.docSequence.updateMany({ where: { prefix: "PV", last: Number(n.slice(-2)) }, data: { last: { decrement: 1 } } }).catch(() => null);
     await prisma.supplierInvoice.deleteMany({ where: { purchaseOrderId: { in: pos } } });

@@ -36,13 +36,16 @@ describe("六角色权限表 (朱总 2026-11-16 16:31)", () => {
     expect(menuOwners("payroll")).toContain("HR"); expect(pathOwners("/finance/payables")).toEqual(["FINANCE"]); expect(pathOwners("/purchasing/orders/new")).toEqual(["PURCHASING"]);
   });
   it("strips money by field name at any depth", () => {
-    const order = { no: "QTTH1", total: 100, quoteLines: [{ description: "x", qty: 1, unitPrice: 100, unitCost: 60 }], marginPct: 40, entity: { bankAccounts: [{ accountNo: "1" }] } };
+    const order = { no: "QTTH1", total: 100, customer: { code: "CTH1", name: "TEST Customer Co." }, quoteLines: [{ description: "x", qty: 1, unitPrice: 100, unitCost: 60, part: { sku: "P1", lastCost: 55 } }], marginPct: 40, entity: { bankAccounts: [{ accountNo: "1" }] } };
     const eng = stripMoney(order, "ENGINEER") as Record<string, unknown>;
-    expect(JSON.stringify(eng)).not.toMatch(/100|60|40|accountNo/); expect((eng.quoteLines as unknown[]).length).toBe(1);
+    expect(JSON.stringify(eng)).not.toMatch(/100|60|55|40|accountNo/); expect((eng.quoteLines as unknown[]).length).toBe(1); expect(JSON.stringify(eng)).toMatch(/TEST Customer/);
+    // PUR: what we paid for a part, never the customer's price, the quote's cost and margin, or who the customer is
     const pur = JSON.stringify(stripMoney(order, "PURCHASING"));
-    expect(pur).toMatch(/unitCost/); expect(pur).not.toMatch(/unitPrice|marginPct|total|accountNo/);
+    expect(pur).toMatch(/lastCost/); expect(pur).not.toMatch(/unitPrice|unitCost|marginPct|total|accountNo|TEST Customer/); expect(pur).toMatch(/CTH1/);
+    // Sales: price, the cost written on the quote and its margin — never what we paid (MD 2026-11-17)
     const sal = JSON.stringify(stripMoney(order, "SALES"));
-    expect(sal).toMatch(/unitPrice/); expect(sal).toMatch(/marginPct/); expect(sal).not.toMatch(/accountNo/);
+    expect(sal).toMatch(/unitPrice/); expect(sal).toMatch(/unitCost/); expect(sal).toMatch(/marginPct/); expect(sal).not.toMatch(/lastCost|accountNo/);
+    expect(can.cost("SALES")).toBe(false); expect(JSON.stringify(stripMoney(order, "HR"))).not.toMatch(/TEST Customer/);
     expect(stripMoney(order, "MD")).toBe(order);
   });
 });

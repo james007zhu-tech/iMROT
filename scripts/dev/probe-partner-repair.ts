@@ -9,15 +9,17 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, setQuoteLines, receiveEquipment, missingForAcceptance, recordAcceptance } from "../../src/server/slm-docs";
-import { addSupplierQuote, createPurchaseOrder, createSupplier, receivePurchaseOrder, selectSupplierQuote } from "../../src/server/purchasing";
-import { addMilestone, createSubcontractInquiry, dispatchToPartner, paySupplierInvoice, rateSupplier, recommendPartners, recordRetest, registerSupplierInvoice, returnFromPartner, reopenAsPartner, revisePurchaseOrder, savePartnerProfile } from "../../src/server/srm";
+import { createInspection, receiveEquipment, missingForAcceptance, recordAcceptance } from "../../src/server/slm-docs";
+import { addSupplierQuote, createPurchaseOrder, createSupplier, selectSupplierQuote } from "../../src/server/purchasing";
+import { addMilestone, createSubcontractInquiry, rateSupplier, recommendPartners, recordRetest, registerSupplierInvoice, returnFromPartner, reopenAsPartner, revisePurchaseOrder, savePartnerProfile } from "../../src/server/srm";
 import { deliveryPlan, issueDelivery, signDelivery } from "../../src/server/delivery";
 import { buildFields, renderDocument } from "../../src/server/reports";
 import { readFile } from "node:fs/promises";
 import { readZip } from "../../src/lib/docx/zip";
 import { createEmployee } from "../../src/server/opd";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines, receivePurchaseOrder, dispatchToPartner, payInvoice } from "./_probe";
+import { requestPayment } from "../../src/server/pay";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`PARTNER FAIL: ${m}`); console.log("  ok  " + m); };
 const refused = async (fn: () => Promise<unknown>, re: RegExp, m: string) => { try { await fn(); assert(false, m); } catch (e) { assert(re.test((e as Error).message), `${m} (${(e as Error).message.split("\n")[0]})`); } };
@@ -140,10 +142,10 @@ async function main() {
   await refused(() => registerSupplierInvoice({ poNo: po.no, actorCode: md.code, invoiceNo: "INV-1", invoiceDate: new Date("2026-11-08"), subtotal: 7000 }), /INVOICE_EXCEEDS_PO/, "an invoice above the POTH is refused");
   const inv = await registerSupplierInvoice({ poNo: po.no, actorCode: md.code, invoiceNo: "INV-1", invoiceDate: new Date("2026-11-08"), subtotal: 6600 });
   assert(inv.dueDate.toISOString().slice(0, 10) === "2026-12-15" && Number(inv.whtAmount) === 198 && Number(inv.payable) === 6864, `月结 15 天 → due 2026-12-15; WHT 3 % = 198; pay 6600 + 462 − 198 = 6864`);
-  await refused(() => paySupplierInvoice({ id: inv.id, actorCode: eng.code }), /FINANCE_PAYS/, "engineers cannot pay");
-  await refused(() => paySupplierInvoice({ id: inv.id, actorCode: md.code }), /FINANCE_PAYS/, "the MD releases, he does not pay");
+  await refused(() => requestPayment({ invoiceId: inv.id, actorCode: eng.code, account: "CASH" }), /FINANCE_PAYS/, "engineers cannot pay");
+  await refused(() => requestPayment({ invoiceId: inv.id, actorCode: md.code, account: "CASH" }), /FINANCE_PAYS/, "the MD approves, he does not pay");
   const fin = await createEmployee({ actorCode: md.code, entityCode: "DCiT", name: `Partner Probe Fin ${stamp}`, role: "FINANCE", email: `pf${stamp}@dcit.test`, password: "probe123" });
-  const paid = await paySupplierInvoice({ id: inv.id, actorCode: fin.code, paymentRef: "KBANK 123" });
+  const paid = await payInvoice({ id: inv.id, actorCode: fin.code, paymentRef: "KBANK 123" });
   assert(paid.status === "PAID" && /^PVTH/.test(paid.paymentNo ?? ""), `paid on ${paid.paymentNo}`);
   await rateSupplier({ poNo: po.no, actorCode: md.code, quality: 4, onTime: 3, price: 4, cooperation: 5, note: "rework once" });
   const rec2 = await recommendPartners(o.no);

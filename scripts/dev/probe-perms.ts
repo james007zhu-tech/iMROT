@@ -5,7 +5,7 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { advanceServiceOrder, confirmCustomerPo, createServiceOrder, getServiceOrder, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, setQuoteLines, suggestPrice } from "../../src/server/slm-docs";
+import { createInspection, recordAcceptance, suggestPrice } from "../../src/server/slm-docs";
 import { issueTaxInvoice, recordPayment } from "../../src/server/to";
 import { createCustomer } from "../../src/server/crm";
 import { createPurchaseOrder, createSupplier } from "../../src/server/purchasing";
@@ -13,10 +13,11 @@ import { recordStockDoc } from "../../src/server/scm";
 import { createEmployee, updateEmployee } from "../../src/server/opd";
 import { issueResetLink } from "../../src/server/password-reset";
 import { hiddenFor } from "../../src/server/perm";
-import { mayOpenOrder, orderScope, docTypeAllowed } from "../../src/server/scope";
+import { mayOpenOrder, mayAccept, customerScope, assetScope, orderScope, docTypeAllowed } from "../../src/server/scope";
 import { stripMoney } from "../../src/lib/caps";
 import { noticesFor } from "../../src/server/notify";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines } from "./_probe";
 
 let bad = 0;
 const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) bad++; };
@@ -36,12 +37,22 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     const part = await prisma.part.create({ data: { sku: `GEN-TEST-PERM-${tag}`, vendorPartNo: `TEST-PERM-${tag}`, name: "TEST perm fan" } });
     await recordStockDoc({ actorCode: md.code, direction: "IN", lines: [{ partSku: part.sku, qty: 5, unitCost: 6543.21 }] });
     const vfd = await onboardAsset({ createdByEmployeeCode: md.code, type: "VFD", serialNumber: `TESTPERM-${tag}`, modelId: model.id, customerId: customer.id, origin: "TAKEOVER" });
+    check("V4-P0-02 Sales cannot open an order for a customer that is not theirs", /NO_PERMISSION/.test(await msg(createServiceOrder({ createdByEmployeeCode: sales.code, customerId: customer.id, assetCodes: [vfd.code], kind: "REPAIR", reportedSymptom: "TEST trips" }))));
+    await prisma.customer.update({ where: { id: customer.id }, data: { salesId: sales.id } });
     const o = await createServiceOrder({ createdByEmployeeCode: sales.code, customerId: customer.id, assetCodes: [vfd.code], kind: "REPAIR", reportedSymptom: "TEST trips" });
     made.push(o.no);
     await advanceServiceOrder(o.no, "ASSIGNED", md.code, undefined, e1.code);
     await createInspection({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: e1.code, findings: "fan dead" });
 
     console.log("1. 数据范围");
+    { const idv = (await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } })).id;
+      check("V4-P0-02 the customer's Sales person sees the order; a person who is Sales + PUR sees all orders but not this customer", (await mayOpenOrder(sales, idv)) && (await mayOpenOrder(adm, idv)) && (await prisma.customer.count({ where: { AND: [{ id: customer.id }, await customerScope(adm)] } })) === 0 && (await prisma.customer.count({ where: { AND: [{ id: customer.id }, await customerScope(sales)] } })) === 1);
+      check("V4-P0-02 HR and PUR see no customer and no machine; the engineer sees this one", (await prisma.customer.count({ where: await customerScope(hr) })) === 0 && (await prisma.customer.count({ where: await customerScope(wh) })) === 0 && (await prisma.asset.count({ where: await assetScope(hr) })) === 0 && (await prisma.asset.count({ where: { AND: [{ code: vfd.code }, await assetScope(e1)] } })) === 1 && (await prisma.asset.count({ where: { AND: [{ code: vfd.code }, await assetScope(e2)] } })) === 0);
+      check("V4-P0-02 an engineer opens repair and maintenance only, and only for their customers", /NO_PERMISSION/.test(await msg(createServiceOrder({ createdByEmployeeCode: e1.code, customerId: customer.id, mode: "DOMESTIC_TRADE", requestLines: [{ sku: part.sku, qty: 1, unit: "pcs" }] } as never))) && /NO_PERMISSION/.test(await msg(createServiceOrder({ createdByEmployeeCode: e2.code, customerId: customer.id, assetCodes: [vfd.code], kind: "REPAIR", reportedSymptom: "x" }))) && /NO_PERMISSION/.test(await msg(createServiceOrder({ createdByEmployeeCode: hr.code, customerId: customer.id, assetCodes: [vfd.code], kind: "REPAIR", reportedSymptom: "x" }))));
+      check("V4-P0-03 PUR, FIN and HR cannot sign an acceptance; the engineer and Sales of the order can", !(await mayAccept(wh, idv)) && !(await mayAccept(fin, idv)) && !(await mayAccept(hr, idv)) && !(await mayAccept(e2, idv)) && (await mayAccept(e1, idv)) && (await mayAccept(sales, idv)) && (await mayAccept(mgr, idv)));
+      check("V4-P0-03 recordAcceptance refuses PUR on the server", /NO_PERMISSION/.test(await msg(recordAcceptance({ serviceOrderNo: o.no, actorCode: wh.code, status: "ACCEPTED", signedByName: "x" } as never))));
+      check("V4-P0-04 documents by the menu table: PUR has IB / OB / PO, not QT / TI; FIN all; ENG its OB, no PO; HR none", docTypeAllowed(wh, "IB") && docTypeAllowed(wh, "OB") && docTypeAllowed(wh, "PO") && !docTypeAllowed(wh, "TI") && docTypeAllowed(fin, "PV") && docTypeAllowed(fin, "IB") && docTypeAllowed(e1, "OB") && !docTypeAllowed(e1, "PO") && !docTypeAllowed(e1, "TI") && docTypeAllowed(sales, "DN") && !docTypeAllowed(hr, "IB"));
+    }
     const id = (await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } })).id;
     check("the assigned engineer opens the order; another engineer does not; the supervisor of the first does", (await mayOpenOrder(e1, id)) && !(await mayOpenOrder(e2, id)) && (await mayOpenOrder(mgr, id)));
     check("Sales, PUR, FIN see all orders; HR none", (await mayOpenOrder(sales, id)) && (await mayOpenOrder(wh, id)) && (await mayOpenOrder(fin, id)) && !(await mayOpenOrder(hr, id)));
@@ -79,7 +90,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     const forEng = JSON.stringify(stripMoney(full, "ENGINEER")), forPur = JSON.stringify(stripMoney(full, "PURCHASING")), forSales = JSON.stringify(stripMoney(full, "SALES"));
     check("engineer and supervisor: no price, no cost, no margin in the order", !/12345\.67|15345\.67|6543\.21|marginPct|costTotal|unitPrice/.test(forEng) && JSON.stringify(stripMoney(full, mgr)) === forEng);
     check("PUR: no price, no margin", !/12345\.67|15345\.67|marginPct|unitPrice/.test(forPur));
-    check("sales: price, cost and margin", /12345\.67/.test(forSales) && /6543\.21/.test(forSales));
+    check("Sales: price, the quote's own cost and margin — never what we paid (MD 2026-11-17)", /12345\.67/.test(forSales) && /unitCost/.test(forSales) && !/lastCost|costRef/.test(forSales));
 
     console.log("5. 菜单和单据");
     const hid = async (r: string) => hiddenFor(r as never);

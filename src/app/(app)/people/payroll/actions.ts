@@ -1,7 +1,7 @@
 "use server";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
-import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, reopenPayroll, saveScores, setBands, setSalesTarget, type LineEdit, submitPayroll } from "@/server/payroll";
+import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, reopenPayroll, saveScores, setBands, setSalesTarget, type LineEdit, submitPayroll, carryOvertime, recountPayroll } from "@/server/payroll";
 
 const BACK = "/people/payroll";
 const num = (v: FormDataEntryValue | null) => { const s = String(v ?? "").trim(); return s === "" ? undefined : Number(s); };
@@ -55,4 +55,11 @@ export async function targetAction(month: string, code: string, period: string, 
     await setSalesTarget({ actorCode: me.code, employeeCode: code, period, target: num(f.get("target")) ?? 0, metric: String(f.get("metric") ?? ""), actualManual: num(f.get("actualManual")) ?? null, note: String(f.get("note") ?? "") });
     return { ok: `${code} ${period}`, to: `${BACK}?month=${month}` };
   }, `${BACK}?month=${month}`);
+}
+/** H-R67 — overtime approved after the month left HR: compute again (finance and the MD review again), or pay it with next month. */
+export async function recountAction(month: string) {
+  await guarded(async () => { const me = await currentEmployee(); await recountPayroll({ entityId: me.entityId, month, actorCode: me.code }); return "payRecounted"; }, `${BACK}/${month}`);
+}
+export async function carryAction(month: string) {
+  await guarded(async () => { const me = await currentEmployee(); await carryOvertime({ entityId: me.entityId, month, actorCode: me.code }); return "payCarried"; }, `${BACK}/${month}`);
 }

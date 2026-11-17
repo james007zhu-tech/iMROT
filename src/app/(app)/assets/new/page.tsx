@@ -13,6 +13,7 @@ import { FormMemory } from "@/components/FormMemory";
 import { ModelPicker } from "@/components/ModelPicker";
 import { SerialInput } from "@/components/SerialInput";
 import { Alert, Card, Field, Grid, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
+import { assetScope, customerScope } from "@/server/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -23,11 +24,12 @@ export default async function NewAsset({ searchParams }: { searchParams: Promise
   const safeNext = next && /^\/(receiving|inspections|service-orders)\/new(\?[\w=&,%.-]*)?$/.test(next) ? next : undefined;
   const here = `/assets/new?${new URLSearchParams({ ...(customerId ? { customerId } : {}), ...(safeNext ? { next: safeNext, param: param === "asset" ? "asset" : "a" } : {}), ...(orderNo ? { order: orderNo } : {}) })}`;
   const [t, u, ts] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("assetStatus")]);
+  const me0 = await currentEmployee();
   const [customers, models, employees, others] = await Promise.all([
-    prisma.customer.findMany({ orderBy: { name: "asc" }, include: { plants: true } }),
+    prisma.customer.findMany({ where: await customerScope(me0), orderBy: { name: "asc" }, include: { plants: true } }),
     prisma.model.findMany({ include: { series: { include: { brand: true } } }, orderBy: { code: "asc" } }),
     prisma.employee.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-    prisma.asset.findMany({ where: { type: { in: ["MOTOR", "PANEL", "PLC"] } }, select: { code: true, type: true, serialNumber: true, customer: { select: { name: true } } }, orderBy: { code: "desc" }, take: 300 }),
+    prisma.asset.findMany({ where: { AND: [await assetScope(me0), { type: { in: ["MOTOR", "PANEL", "PLC"] } }] }, select: { code: true, type: true, serialNumber: true, customer: { select: { name: true } } }, orderBy: { code: "desc" }, take: 300 }),
   ]);
 
   async function submit(form: FormData) {

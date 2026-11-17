@@ -1,4 +1,6 @@
 import { can, hasRole } from "@/lib/caps";
+import { rateFor } from "@/server/fx";
+import { fxMark } from "@/lib/fx-label";
 import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
@@ -21,24 +23,31 @@ export default async function Invoice({ params, searchParams }: { params: Promis
   const order = await loadOrder(no);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const me = await currentEmployee(); await assertOrderAccess(me, no);
-  const fx = await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } });
+  const fx = await rateFor(order.currency); // what the tax invoice will be booked at: 中国银行价, or 财务手工价 of the day
   const taxInvoices = await prisma.taxInvoice.findMany({ where: { serviceOrderId: order.id }, orderBy: { issuedAt: "asc" }, include: { invoices: { select: { no: true, cancelledAt: true, paidAmount: true } }, creditNotes: { orderBy: { issuedAt: "asc" } } } });
   const mayCredit = can.invoice(me);
   const active = taxInvoices.find((x) => !x.voidedAt);
   const mayIssue = can.invoice(me); // 开票 is finance's (and the MD's); sales and 内勤 see the state
-  const canIssue = !active && mayIssue; // first issue, or re-issue after every earlier TITH was voided
+  // 需求清单 v4 V4-P0-06: an invoice is issued only for an accepted order worth more than zero (or the inspection fee of
+  // a refused quote), and only after finance has checked it — the button is not offered otherwise, and says why.
+  const reissue = order.status === "INVOICED" && taxInvoices.length > 0 && taxInvoices.every((x) => x.voidedAt);
+  const stage = order.decline ? order.status === "DECLINED" : order.status === "ACCEPTED" || reissue;
+  const canIssue0 = !active && mayIssue;
   // 客户拒绝报价: the tax invoice carries the inspection fee, one line per charged machine, instead of the declined quote
   const feeLines = order.decline ? await declineInvoiceLines(no) : null;
   const entity = await prisma.legalEntity.findUniqueOrThrow({ where: { id: order.entityId } });
   const shown = feeLines ? feeLines.map((l, i) => ({ id: `fee${i}`, lineNo: i + 1, descriptionLocal: l.descriptionLocal, description: l.descriptionEn, qty: 1, unitPrice: l.unitPrice, amount: l.unitPrice }))
     : order.lines.map((l) => ({ id: l.id, lineNo: l.lineNo, descriptionLocal: l.descriptionLocal, description: l.description, qty: Number(l.qty), unitPrice: Number(l.unitPrice), amount: Number(l.amount) }));
   const sum = feeLines ? totals(feeLines, Number(entity.vatRate)) : { subtotal: Number(order.subtotal ?? 0), vatAmount: Number(order.vatAmount ?? 0), total: Number(order.total ?? 0) };
+  const whyNot = !stage ? "notAccepted" : sum.total <= 0 ? "zero" : null;
+  const canIssue = canIssue0 && !whyNot; // first issue, or re-issue after every earlier TITH was voided
   const today = localIso(new Date())!.slice(0, 10);
   const due = localIso(new Date(Date.now() + order.customer.paymentTermDays * 86400000))!.slice(0, 10);
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
       const me = await currentEmployee(); await assertOrderAccess(me, no);
+      if (f.get("checked") !== "on") throw new Error("INVOICE_NOT_CHECKED");
       const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { lines: { orderBy: { lineNo: "asc" } }, decline: { select: { id: true } } } });
       const fees = o.decline ? await declineInvoiceLines(no) : null;
       const lines = fees ? fees.map((l, i) => ({ ...l, descriptionLocal: str(f, `th${i}`) ?? l.descriptionLocal }))
@@ -106,10 +115,12 @@ export default async function Invoice({ params, searchParams }: { params: Promis
         </Card>
       )}
       {businessClosureOn() && !liveNumbers() && <Alert>{u("testSeriesNotice")}</Alert>}
-      {!mayIssue && !active && <Alert>{u("invoiceByFinance")}</Alert>}
+      {!mayIssue && !active && <Alert>{u(stage ? "invoiceByFinance" : "invoiceNotYet")}</Alert>}
+      {mayIssue && !active && whyNot && <Alert>{u(`invoiceWhyNot_${whyNot}`)}</Alert>}
       {active && <Alert>{u("tiExistsNotice", { no: active.no })}</Alert>}
       {canIssue && taxInvoices.length > 0 && <Alert>{u("tiReissueNotice")}</Alert>}
       {canIssue && <form id="f" action={save} className="space-y-4">
+        <label className="flex items-start gap-2 rounded-lg border border-[#E6A23C] bg-[#FFF4E5] p-3 text-sm text-[#7A4A00]"><input type="checkbox" name="checked" required className="mt-1" /><span>{u("invoiceDraftCheck", { total: sum.total.toFixed(2), customer: order.customer.name })}</span></label>
         <Card title={u("taxInvoiceTi")}>
           <Grid>
             <Field label={u("buyer")}><Value>{order.customer.nameLocal ?? order.customer.name} · {t("taxId")} {order.customer.taxId ?? "—"} · {t("branch")} {order.customer.branchCode ?? "—"}</Value></Field>
@@ -119,7 +130,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
           <Table head={["#", u("descThRequired"), u("descEn"), t("qty"), t("price"), t("amount")]}>
             {shown.map((l, i) => <tr key={l.id}><td>{l.lineNo}</td><td><input name={`th${i}`} required defaultValue={l.descriptionLocal ?? ""} className={inputCls} /></td><td>{l.description}</td><td>{l.qty}</td><td className="text-right">{l.unitPrice.toFixed(2)}</td><td className="text-right">{l.amount.toFixed(2)}</td></tr>)}
           </Table>
-          <p className="text-right text-[13px]">{t("subtotal")} {sum.subtotal.toFixed(2)} · {t("vat")} {sum.vatAmount.toFixed(2)} · <b>{t("total")} {sum.total.toFixed(2)}</b>{fx ? ` · CNY ${(sum.total * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} (${u("bocOn")} ${localIso(fx.rateDate)!.slice(5, 10)})` : ""}</p>
+          <p className="text-right text-[13px]">{t("subtotal")} {sum.subtotal.toFixed(2)} · {t("vat")} {sum.vatAmount.toFixed(2)} · <b>{t("total")} {sum.total.toFixed(2)}</b>{fx ? ` · CNY ${(sum.total * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} （${fxMark(u, fx.source, fx.rateDate)}）` : ""}</p>
         </Card>
         <Card title={u("invoiceIv")}>
           <Grid>

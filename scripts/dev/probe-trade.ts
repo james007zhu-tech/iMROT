@@ -7,12 +7,13 @@
 import { createInquiry, skuGaps } from "../../src/server/purchasing";
 import { prisma } from "../../src/lib/db";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { setQuoteLines } from "../../src/server/slm-docs";
+
 import { recordStockDoc } from "../../src/server/scm";
 import { issueDelivery, signDelivery, deliveryPlan } from "../../src/server/delivery";
 import { issueTaxInvoice } from "../../src/server/to";
 import { buildFields } from "../../src/server/reports";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines } from "./_probe";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`TRADE FAIL: ${m}`); console.log("  ok  " + m); };
 async function refused(f: () => Promise<unknown>, re: RegExp, m: string) {
@@ -75,6 +76,12 @@ async function main() {
   await recordStockDoc({ actorCode: md.code, direction: "IN", serviceOrderNo: o.no, lines: [{ partSku: cable.sku, qty: 50, unitCost: 100 }] });
   await recordStockDoc({ actorCode: md.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: a.sku, qty: 3 }, { partSku: b.sku, qty: 2 }] });
   const plan = await deliveryPlan(o.no);
+  // 没出库不能开送货单 (V4-P0-09): the cable is in the store but no OBTH took it out for this order yet
+  const early = await issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: Object.fromEntries(plan.lines.map((l) => [l.key, l.expected - l.deliveredBefore])) }).then(() => "ok", (e: Error) => e.message);
+  const noDn = await prisma.deliveryNote.count({ where: { serviceOrder: { no: o.no } } });
+  console.log(`${/DELIVERY_NOT_ISSUED_FROM_STOCK/.test(early) && noDn === 0 ? "PASS" : "FAIL"} V4-P0-09 no delivery note before the stock-out — ${early.slice(0, 70)}, notes: ${noDn}`);
+  if (!/DELIVERY_NOT_ISSUED_FROM_STOCK/.test(early) || noDn) process.exitCode = 1;
+  await recordStockDoc({ actorCode: md.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: cable.sku, qty: 50 }] });
   const dn = await issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: Object.fromEntries(plan.lines.map((l) => [l.key, l.expected - l.deliveredBefore])) });
   assert((await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } })).status === "IN_PROGRESS", `${dn.no} issued — not accepted before the customer signs`);
   await signDelivery({ no: dn.no, actorCode: md.code, signedBy: "Khun Buyer" });

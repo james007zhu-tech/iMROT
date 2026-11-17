@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorCode } from "@/lib/errors";
+import { errorCode, errorStatus } from "@/lib/errors";
 import { requireSession } from "@/server/api-auth";
 import { similarCases } from "@/server/ai";
 
@@ -9,6 +9,6 @@ export async function POST(req: Request) {
   try {
     return NextResponse.json(await similarCases(await req.json()));
   } catch (e) {
-    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) });
   }
 }

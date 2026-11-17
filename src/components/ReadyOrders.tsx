@@ -1,8 +1,12 @@
+import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { DOC_PLACES } from "@/lib/doc-center";
 import { Card } from "@/components/ui";
+import { currentEmployee } from "@/server/auth";
+import { docTypeAllowed, orderScope } from "@/server/scope";
+import { can } from "@/lib/caps";
 
 /** The step on an order that creates a document of this type (验收 has no number of its own). */
 export function newStep(type: string) {
@@ -18,7 +22,13 @@ export async function ReadyOrders({ type, title }: { type: string; title: string
   const step = newStep(type);
   if (!step) return null;
   const [d, ts] = await Promise.all([getTranslations("docs"), getTranslations("orderStatus")]);
-  const ready = await prisma.serviceOrder.findMany({ where: { status: { in: step.statuses as never }, ...(step.modes ? { mode: { in: step.modes as never } } : {}) }, orderBy: { reportedAt: "desc" }, take: 40, select: { no: true, status: true, customer: { select: { name: true } }, reportedSymptom: true, project: true } });
+  const me = await currentEmployee();
+  const money = ["TI", "IV", "RC"].includes(type);
+  if ((money && !can.invoice(me)) || !docTypeAllowed(me, type)) return null; // 开票、收款的候选只给 FIN 和 MD
+  // 开票候选 (需求清单 v4 V4-P0-06): accepted, not yet invoiced, worth more than zero — or a refused quote with a fee to bill
+  const billable: Prisma.ServiceOrderWhereInput = type === "TI" || type === "IV" ? { OR: [{ status: "ACCEPTED", total: { gt: 0 } }, { status: "DECLINED", decline: { isNot: null } }] } : {};
+  const ready = (await prisma.serviceOrder.findMany({ where: { AND: [await orderScope(me), billable, { status: { in: step.statuses as never }, ...(step.modes ? { mode: { in: step.modes as never } } : {}) }] }, orderBy: { reportedAt: "desc" }, take: 40, select: { no: true, status: true, customer: { select: { name: true } }, reportedSymptom: true, project: true, decline: { select: { fees: true } } } }))
+    .filter((o) => o.status !== "DECLINED" || ((o.decline?.fees as { amount?: number }[] | null) ?? []).some((f) => Number(f.amount) > 0)); // a refused quote with nothing to bill is not a candidate
   return (
     <Card title={d("pickOrder", { name: title })} accent>
       {ready.length === 0 ? <p className="text-sm text-navy/70">{d("noReady")}</p> : (

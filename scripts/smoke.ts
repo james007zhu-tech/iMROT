@@ -8,7 +8,7 @@ import { createServiceOrder, advanceServiceOrder, confirmCustomerPo, poLinesFrom
 import { deliveryPlan, issueDelivery, signDelivery } from "../src/server/delivery";
 import { createCustomer } from "../src/server/crm";
 import { createEmployee } from "../src/server/opd";
-import { createInspection, setQuoteLines, createRepairJob, recordAcceptance, receiveEquipment } from "../src/server/slm-docs";
+import { createInspection, createRepairJob, recordAcceptance, receiveEquipment } from "../src/server/slm-docs";
 import { recordMovement, recordStockDoc } from "../src/server/scm";
 import { issueTaxInvoice, issueInvoice, recordPayment, issueMonthlyStatement } from "../src/server/to";
 import { renderDocument, buildFields } from "../src/server/reports";
@@ -18,6 +18,7 @@ import { prisma } from "../src/lib/db";
 import { buildDashboardFromPrompt, heuristicSpec, parseActions } from "../src/server/ai";
 import { renderDashboard } from "../src/server/dashboards";
 import { METRICS } from "../src/lib/metrics";
+import { setQuoteLines } from "./dev/_probe";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`SMOKE FAIL: ${m}`); console.log("  ok  " + m); };
 

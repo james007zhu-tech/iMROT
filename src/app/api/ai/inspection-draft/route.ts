@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorCode } from "@/lib/errors";
+import { errorCode, errorStatus } from "@/lib/errors";
 import { requireSession } from "@/server/api-auth";
 import { draftInspection } from "@/server/ai";
 
@@ -10,6 +10,6 @@ export async function POST(req: Request) {
     const { notes, locale } = await req.json();
     return NextResponse.json(await draftInspection(String(notes), locale));
   } catch (e) {
-    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) });
   }
 }

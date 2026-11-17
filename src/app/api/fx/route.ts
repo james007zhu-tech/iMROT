@@ -8,6 +8,6 @@ export async function GET(req: Request) {
   const u = new URL(req.url);
   const currency = u.searchParams.get("currency") ?? "THB";
   const date = u.searchParams.get("date") ? new Date(u.searchParams.get("date")!) : new Date();
-  const rate = await prisma.fxRate.findFirst({ where: { currency, rateDate: { lte: date } }, orderBy: { rateDate: "desc" } });
+  const rate = await prisma.fxRate.findFirst({ where: { currency, rateDate: { lte: date } }, orderBy: [{ rateDate: "desc" }, { source: "desc" }] }); // 财务手工价 stands in front of 中国银行价 of the same day
   return rate ? NextResponse.json(rate) : NextResponse.json({ error: `no BOC rate for ${currency}` }, { status: 404 });
 }

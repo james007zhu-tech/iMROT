@@ -9,10 +9,11 @@ import { prisma } from "../../src/lib/db";
 import { allocateNumber } from "../../src/lib/numbering-db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, createRepairJob, missingForAcceptance, setQuoteLines } from "../../src/server/slm-docs";
+import { createInspection, createRepairJob, missingForAcceptance } from "../../src/server/slm-docs";
 import { recordStockDoc, resolveParts, stockOnHand } from "../../src/server/scm";
-import { createPurchaseOrder, receivePurchaseOrder } from "../../src/server/purchasing";
+import { createPurchaseOrder } from "../../src/server/purchasing";
 import { deliveryPlan, issueDelivery } from "../../src/server/delivery";
+import { setQuoteLines, receivePurchaseOrder } from "./_probe";
 
 let failed = 0;
 const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) failed++; };
@@ -56,7 +57,7 @@ const refused = async (fn: () => Promise<unknown>) => { try { await fn(); return
   const plan = await deliveryPlan(o.no);
   const all = Object.fromEntries(plan.lines.map((l) => [l.key, l.expected - l.deliveredBefore]));
   const over = await refused(() => issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: all }));
-  check("three cannot be delivered with two in stock", over.startsWith("DELIVERY_NO_STOCK") && over.includes("3/2"), over);
+  check("three cannot be delivered with two in stock", over.startsWith("DELIVERY_NO_STOCK") && over.includes("3/0（库存 2）"), over);
   const forced = await refused(() => issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: all, overrideReason: "customer insists" }));
   check("…and no reason overrides it", forced.startsWith("DELIVERY_NO_STOCK"), forced.slice(0, 40));
   const outOver = await refused(() => recordStockDoc({ actorCode: md.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: oem, qty: 3 }] }));

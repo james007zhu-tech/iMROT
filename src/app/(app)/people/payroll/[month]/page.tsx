@@ -3,14 +3,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
-import { BLOCKING, REVIEW_BLOCKING, REVIEW_NOTED, payrollDetail, payrollStage } from "@/server/payroll";
+import { BLOCKING, REVIEW_BLOCKING, REVIEW_NOTED, payrollDetail, payrollStage, lateOvertime } from "@/server/payroll";
 import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { payslipNo } from "@/lib/numbering";
 import { DEFAULT_BANDS, type PerfBand, type Withholding } from "@/lib/payroll-run";
 import { localToday } from "@/lib/overtime";
 import { Flash } from "@/components/Flash";
 import { Alert, Card, PageHeader, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
-import { taxAction, approveAction, bandsAction, computeAction, paidAction, reopenAction, saveLinesAction, submitAction } from "../actions";
+import { taxAction, approveAction, bandsAction, computeAction, paidAction, reopenAction, saveLinesAction, submitAction, carryAction, recountAction } from "../actions";
 import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +32,8 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
   const skipped = ((run.totals as { skipped?: string[] }).skipped) ?? [];
   const bands = ((run.policy as { bands?: PerfBand[] } | null)?.bands) ?? DEFAULT_BANDS;
   const draft = run.status === "DRAFT";
+  const late = await lateOvertime(me.entityId, month); // H-R67: overtime approved after the month was last computed
+  const nextMonth = month.endsWith("-12") ? `${Number(month.slice(0, 4)) + 1}-01` : `${month.slice(0, 5)}${String(Number(month.slice(5)) + 1).padStart(2, "0")}`;
   const money = (n: unknown) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const blocking = run.lines.filter((l) => l.missing.some((m) => BLOCKING.includes(m)));
   const reviewStop = run.lines.filter((l) => l.missing.some((m) => REVIEW_BLOCKING.includes(m))), reviewNoted = run.lines.filter((l) => l.missing.some((m) => REVIEW_NOTED.includes(m)));
@@ -51,6 +53,16 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
           {run.status === "APPROVED" && fin && <form action={paidAction.bind(null, month)} className="flex items-center gap-2"><input name="paidAt" type="date" defaultValue={localToday().date} className={`${inputCls} w-40`} aria-label={t("payPaidOn")} /><button className={btnBlue}>{t("payMarkPaid")}</button></form>}
         </>} />
       <Flash ok={ok} error={error} />
+      {late.rows.length > 0 && (late.locked || run.submittedAt) && <div className="rounded-xl border border-alert bg-white p-3 text-sm" role="alert">
+        <div className="font-semibold text-alert-ink">{t("payLateOt", { n: late.rows.length, hours: late.hours })}</div>
+        <ul className="mt-1 list-disc pl-5 text-[13px] text-navy">{late.rows.map((r) => <li key={r.id}><span className="font-mono">{r.employee.code}</span> {r.employee.name} · {r.workDate.toISOString().slice(0, 10)} {r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime} · {Number(r.actualHours ?? r.hours)} h</li>)}</ul>
+        {late.locked ? <p className="mt-2 text-[13px] text-navy">{t("payLateOtNext", { next: nextMonth, m: Number(month.slice(5)) })}</p>
+          : <div className="mt-2 flex flex-wrap items-center gap-2">
+              {prep && <form action={recountAction.bind(null, month)}><button className={btnBlue}>{t("payLateOtRecount")}</button></form>}
+              {(prep || md) && <form action={carryAction.bind(null, month)}><button className={btnGhost}>{t("payLateOtCarry", { next: nextMonth, m: Number(month.slice(5)) })}</button></form>}
+              {!prep && !md && <span className="text-[13px] text-navy/70">{t("payLateOtAskHr")}</span>}
+            </div>}
+      </div>}
       <ol className="flex flex-wrap gap-2 text-[13px]">
         {([["payStepPrep", run.preparedBy, true], ["payStepReview", run.taxConfirmedBy, !!run.taxConfirmedAt], ["payStepApprove", run.approvedBy, !!run.approvedAt], ["payStepPaid", run.paidAt ? localIso(run.paidAt)!.slice(0, 10) : null, !!run.paidAt]] as const).map(([k, who, done], i) =>
           <li key={k} className={`rounded-full border px-3 py-1 ${done && who ? "border-navy bg-navy text-white" : "border-navy/30 bg-white text-navy/70"}`}>{i + 1}. {t(k)}{done && who ? ` · ${who}` : ""}</li>)}
@@ -93,7 +105,7 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
                   <div className="space-y-0.5">
                     <Row k={t("payBase")} v={l.baseSalary} strong />
                     {allowances.map((a, i) => <Row key={i} k={a.name} v={a.amount} />)}
-                    <Row k={t("payOvertime")} v={l.overtime} />
+                    <Row k={l.otLateFrom.length ? `${t("payOvertime")}（${t("payOtLate", { months: l.otLateFrom.map((m) => Number(m.slice(5))).join("、") })}）` : t("payOvertime")} v={l.overtime} />
                     {Number(l.variablePay) > 0 && <Row k={`${t(l.perfBasis === "TARGET" ? "payIncentiveM" : "payIncentive")} ${money(l.variablePay)} × ${Number(l.perfFactor)}${l.perfBasis === "TARGET" ? (l.achievement != null ? `（${(Number(l.achievement) * 100).toFixed(1)}%）` : "") : l.perfScore != null ? `（${Number(l.perfScore)}）` : ""}`} v={l.incentive} strong />}
                     {Number(l.quarterlyPay) > 0 && <Row k={`${t("payIncentiveQ")} ${money(l.quarterlyPay)} × ${Number(l.quarterFactor)}${l.quarterAchieved != null ? `（${(Number(l.quarterAchieved) * 100).toFixed(1)}%）` : ""}`} v={l.quarterIncentive} strong />}
                     <Row k={t("payBonus")} v={l.bonus} />

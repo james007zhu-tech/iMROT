@@ -21,6 +21,7 @@ export function useDictation(locale: string, opts: { onText: (text: string, fina
   const [state, setState] = useState<DictationState>("idle");
   const [mode, setMode] = useState<DictationMode>("keyboard");
   const stop = useRef<(() => void) | null>(null);
+  const muted = useRef(false); // the message was sent: whatever the microphone still delivers belongs to nothing
 
   useEffect(() => {
     let alive = true;
@@ -31,6 +32,8 @@ export function useDictation(locale: string, opts: { onText: (text: string, fina
   }, []);
 
   async function start() {
+    muted.current = false;
+    const onText = (text: string, final: boolean) => { if (!muted.current) opts.onText(text, final); };
     const before = opts.base?.() ?? "";
     const join = (t: string) => (before && t ? `${before} ${t}` : before || t);
     if (mode === "record") {
@@ -48,7 +51,7 @@ export function useDictation(locale: string, opts: { onText: (text: string, fina
           const r = await fetch("/api/ai/transcribe", { method: "POST", body: fd });
           const j = await r.json();
           if (!r.ok) throw new Error(j.error);
-          opts.onText(join(String(j.text ?? "").trim()), true);
+          onText(join(String(j.text ?? "").trim()), true);
         } catch { opts.onError("failed"); } finally { setState("idle"); }
       };
       rec.start(); stop.current = () => { if (rec.state !== "inactive") rec.stop(); }; setState("listening");
@@ -59,8 +62,8 @@ export function useDictation(locale: string, opts: { onText: (text: string, fina
       const r = new (w.SpeechRecognition ?? w.webkitSpeechRecognition)!();
       r.lang = locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-US"; r.interimResults = true; r.continuous = true;
       let said = "";
-      r.onresult = (ev) => { let interim = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) { const x = ev.results[i]; if (x.isFinal) said += x[0].transcript; else interim += x[0].transcript; } opts.onText(join(said + interim), false); };
-      r.onend = () => { setState("idle"); opts.onText(join(said), true); };
+      r.onresult = (ev) => { let interim = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) { const x = ev.results[i]; if (x.isFinal) said += x[0].transcript; else interim += x[0].transcript; } onText(join(said + interim), false); };
+      r.onend = () => { setState("idle"); onText(join(said), true); };
       r.onerror = () => { setState("idle"); if (!said) opts.onError("failed"); };
       try { r.start(); } catch { opts.onError("failed"); return; }
       stop.current = () => r.stop(); setState("listening");
@@ -68,5 +71,7 @@ export function useDictation(locale: string, opts: { onText: (text: string, fina
     // keyboard: nothing to start — the caller opens its text box
   }
 
-  return { state, mode, toggle: () => (state === "listening" ? stop.current?.() : state === "idle" ? void start() : undefined) };
+  return { state, mode, toggle: () => (state === "listening" ? stop.current?.() : state === "idle" ? void start() : undefined),
+    /** The text was sent: stop listening and drop what is still on its way, so it does not come back into the box. */
+    cancel: () => { muted.current = true; stop.current?.(); } };
 }

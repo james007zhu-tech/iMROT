@@ -1,6 +1,7 @@
 /**
  * SLM service layer. One service = one QTTH created at report time; everything else hangs below it.
  */
+import { customerScope } from "@/server/scope";
 import { actorWith } from "@/server/guard";
 import { mayOpenOrder } from "@/server/scope";
 import { can, hasRole } from "@/lib/caps";
@@ -106,6 +107,11 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
   if (project && data.assetCodes.length) throw new Error("PROJECT_HAS_NO_ASSET");
   const kind = kindFor(mode, data.kind);
   const creator = await prisma.employee.findUniqueOrThrow({ where: { code: data.createdByEmployeeCode } });
+  // 需求清单 v4 V4-P0-02: who may open an order, of what kind, for which customer — decided here, whatever the page offered.
+  if (!hasRole(creator, "MD", "SALES", "ENGINEER")) throw new Error("NO_PERMISSION");
+  if (!hasRole(creator, "MD", "SALES") && !["REPAIR", "MAINTENANCE"].includes(mode)) throw new Error("NO_PERMISSION"); // ENG: 维修、维保 only
+  if (!hasRole(creator, "MD") && !(await prisma.customer.count({ where: { AND: [{ id: data.customerId }, await customerScope(creator)] } }))) throw new Error("NO_PERMISSION");
+  const owner = (await prisma.customer.findUnique({ where: { id: data.customerId }, select: { salesId: true } }))?.salesId ?? null;
   const assets = await prisma.asset.findMany({ where: { code: { in: data.assetCodes } } });
   if (assets.length !== data.assetCodes.length) throw new Error("unknown asset code in request");
   const stray = assets.filter((x) => x.customerId && x.customerId !== data.customerId).map((x) => x.code); // 需求清单 v3 P1-03
@@ -127,7 +133,7 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
         reportedAlarm: data.reportedAlarm,
         productionImpact: data.productionImpact,
         reportedById: data.reportedByContactId,
-        createdById: creator.id, salesId: hasRole(creator, "SALES") ? creator.id : null,
+        createdById: creator.id, salesId: hasRole(creator, "SALES") ? creator.id : owner, // an engineer's order goes to the customer's Sales person (P1-21)
         customerRef: keepCustomerRef(data.customerRef),
         currency: terms?.currency ?? data.currency,
         tradeTerms: terms as Prisma.InputJsonValue | undefined,

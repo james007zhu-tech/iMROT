@@ -21,3 +21,8 @@ export function errorCode(e: unknown): string {
   if (/Invalid `prisma\.|PrismaClient/.test(msg)) return "SAVE_FAILED";
   return msg;
 }
+
+/** HTTP status for an API error: 403 when the person may not do it (so attempts show apart from bad input), else 400. (v4 P1-22) */
+export function errorStatus(e: unknown): number {
+  return /^(NO_PERMISSION|MD_ONLY|FINANCE_PAYS|PAYROLL_\w+_ONLY|OT_NOT_APPROVER|OT_OWN_ONLY)\b/.test(errorCode(e)) ? 403 : 400;
+}

@@ -18,7 +18,7 @@ export default async function Customers({ searchParams }: { searchParams: Promis
     prisma.customer.findMany({ where, orderBy: { code: "asc" }, include: { entity: true, _count: { select: { assets: true, serviceOrders: true, plants: true } } }, skip: (p - 1) * PAGE_SIZE, take: PAGE_SIZE }),
     prisma.customer.count({ where }),
   ]);
-  const full = can.customersAll(me); // 税号、开票信息 are not for the shop floor
+  const full = can.customerMoney(me); // 税号、开票信息 are not for the shop floor
   const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), page: String(n) })}`;
   return (
     <div className="space-y-4">

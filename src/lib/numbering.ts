@@ -44,6 +44,7 @@ export const DOC_PREFIXES = {
   RT: { name: "return / send back", digits: 2 },
   SC: { name: "service contract", digits: 2 },
   PV: { name: "payment voucher", digits: 2 },
+  WT: { name: "withholding tax certificate (50 ทวิ)", digits: 2 }, // MD 2026-11-17: issued with a payment that withholds tax
   TR: { name: "training", digits: 2 },
   RC: { name: "receipt", digits: 2 },
   EX: { name: "expense claim", digits: 2 }, // EXTH26111101 — 朱总 2026-11-11

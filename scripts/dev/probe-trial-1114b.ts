@@ -9,12 +9,13 @@ import { prisma } from "../../src/lib/db";
 import { allocateNumber } from "../../src/lib/numbering-db";
 import { ensureModel } from "../../src/server/alm";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { setQuoteLines } from "../../src/server/slm-docs";
-import { stockOnHand } from "../../src/server/scm";
-import { createPurchaseOrder, receivePurchaseOrder } from "../../src/server/purchasing";
+
+import { recordStockDoc, stockOnHand } from "../../src/server/scm";
+import { createPurchaseOrder } from "../../src/server/purchasing";
 import { deliveryPlan, issueDelivery } from "../../src/server/delivery";
 import { normalizeNumber } from "../../src/lib/recognize";
 import { localIso } from "../../src/lib/dates";
+import { setQuoteLines, receivePurchaseOrder } from "./_probe";
 
 let failed = 0;
 const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) failed++; };
@@ -52,10 +53,11 @@ const refused = async (fn: () => Promise<unknown>) => { try { await fn(); return
   await receivePurchaseOrder({ poNo: po.no, actorCode: md.code, received: [{ lineNo: 1, qty: 2 }] });
   const plan = await deliveryPlan(o.no);
   const over = await refused(() => issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: all(plan.lines) }));
-  check("three cannot be delivered with two received, though the PO line has no part number", over.startsWith("DELIVERY_NO_STOCK") && over.includes(`${part.sku} 3/2`), over);
+  check("three cannot be delivered with two received, though the PO line has no part number", over.startsWith("DELIVERY_NO_STOCK") && over.includes(`${part.sku} 3/0（库存 2）`), over);
+  await recordStockDoc({ actorCode: md.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: part.sku, qty: 2 }] }); // 先出库 (V4-P0-09)
   const dn = await issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), partial: true, delivered: all(plan.lines, 2) });
   const out = await prisma.stockMovement.findMany({ where: { serviceOrderId: o.id, direction: "OUT" } });
-  check("the two that exist go out, and the delivery takes them out of the store", /^DNTH/.test(dn.no) && out.length === 1 && Number(out[0].qty) === 2 && /^OBTH/.test(out[0].no) && (await stockOnHand(part.sku)) === 0, `${dn.no} · ${out[0]?.no} · on hand ${await stockOnHand(part.sku)}`);
+  check("the two that exist go out: issued from the store first, then delivered", /^DNTH/.test(dn.no) && out.length === 1 && Number(out[0].qty) === 2 && /^OBTH/.test(out[0].no) && (await stockOnHand(part.sku)) === 0, `${dn.no} · ${out[0]?.no} · on hand ${await stockOnHand(part.sku)}`);
   check("the note remembers which part it delivered", (dn.lines as { partSku?: string; delivered: number }[]).some((l) => l.partSku === part.sku && l.delivered === 2));
 
   // another order for the same goods sees an empty store
@@ -67,6 +69,7 @@ const refused = async (fn: () => Promise<unknown>) => { try { await fn(); return
 
   // the third arrives and follows; nothing is taken out twice
   await receivePurchaseOrder({ poNo: po.no, actorCode: md.code, received: [{ lineNo: 1, qty: 1 }] });
+  await recordStockDoc({ actorCode: md.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: part.sku, qty: 1 }] });
   const rest = await deliveryPlan(o.no);
   const dn2 = await issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: all(rest.lines) });
   const outAll = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { serviceOrderId: o.id, direction: "OUT" } });

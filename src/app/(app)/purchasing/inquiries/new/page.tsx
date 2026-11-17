@@ -20,7 +20,7 @@ export default async function NewInquiry({ searchParams }: { searchParams: Promi
   const { error, order } = await searchParams;
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [orders, parts] = await Promise.all([
-    prisma.serviceOrder.findMany({ where: { status: { in: ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"] }, lockedAt: null }, orderBy: { createdAt: "desc" }, take: 100, select: { no: true, customer: { select: { name: true } } } }),
+    prisma.serviceOrder.findMany({ where: { status: { in: ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS"] }, lockedAt: null }, orderBy: { createdAt: "desc" }, take: 100, select: { no: true } }), // 询价不带任何客户信息 (朱总 2026-11-14 铁律; 派修单 v2 第 3 条): the order number only, our own reference
     prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500, select: { sku: true, name: true, vendorPartNo: true, unit: true } }),
   ]);
   const prefill = order ? await inquiryLinesFromOrder(order).catch(() => []) : [];
@@ -43,7 +43,7 @@ export default async function NewInquiry({ searchParams }: { searchParams: Promi
       <form id="f" action={save} className="space-y-4">
         <Card title={u("inquiryHeader")}>
           <Grid>
-            <Field label="QTTH"><select name="serviceOrderNo" defaultValue={order ?? ""} className={inputCls}><option value="">—</option>{orders.map((o) => <option key={o.no} value={o.no}>{o.no} · {o.customer.name}</option>)}</select></Field>
+            <Field label="QTTH"><select name="serviceOrderNo" defaultValue={order ?? ""} className={inputCls}><option value="">—</option>{orders.map((o) => <option key={o.no} value={o.no}>{o.no}</option>)}</select></Field>
             <Field label={u("neededBy")}><input name="neededBy" type="date" className={inputCls} /></Field>
             <Field label={t("note")}><input name="note" className={inputCls} /></Field>
           </Grid>

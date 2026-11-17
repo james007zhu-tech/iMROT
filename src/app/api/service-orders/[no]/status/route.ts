@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorCode } from "@/lib/errors";
+import { errorCode, errorStatus } from "@/lib/errors";
 import { bodyAsSession, jsonForSession, requireSession } from "@/server/api-auth";
 import { advanceServiceOrder } from "@/server/slm";
 
@@ -11,6 +11,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ no: string }> 
     const body = await bodyAsSession(req);
     return jsonForSession(await advanceServiceOrder(no, body.to, body.actorEmployeeCode, body.note));
   } catch (e) {
-    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) });
   }
 }

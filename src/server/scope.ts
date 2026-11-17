@@ -4,7 +4,8 @@
  */
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { can, hasRole, noOrders, isApprover, rolesOf, type Who } from "@/lib/caps";
+import { can, hasRole, noOrders, isApprover, rolesOf, type Who, menuAllows } from "@/lib/caps";
+import { DOC_PLACES } from "@/lib/doc-center";
 
 type Me = { id: string; role: string; extraRoles?: string[] | null; approver?: boolean | null };
 const NONE = "__none__";
@@ -16,24 +17,52 @@ export async function teamIds(me: Me): Promise<string[]> {
   return [me.id, ...team.map((t) => t.id)];
 }
 
-/** Prisma filter for the service orders this person may see. `{}` = all. */
+/**
+ * Prisma filter for the service orders this person may see. `{}` = all (MD, FIN, PUR).
+ * ENG: assigned to them or their team. Sales: the customers they are responsible for, and the orders that are theirs.
+ * Several roles: either. HR: none. (需求清单 v4 V4-P0-02)
+ */
 export async function orderScope(me: Me): Promise<Prisma.ServiceOrderWhereInput> {
   if (can.allOrders(me)) return {};
-  if (noOrders(me)) return { id: NONE };
-  const ids = await teamIds(me);
-  return { OR: [{ assigneeId: { in: ids } }, { createdById: { in: ids } }, { repairJobs: { some: { engineerId: { in: ids } } } }, { inspections: { some: { engineerId: { in: ids } } } }] };
+  return ownOrders(me);
+}
+/** The orders that are this person's as Sales or as engineer — whatever else they may see through another role. */
+async function ownOrders(me: Me): Promise<Prisma.ServiceOrderWhereInput> {
+  const or: Prisma.ServiceOrderWhereInput[] = [];
+  if (hasRole(me, "SALES")) or.push({ salesId: me.id }, { createdById: me.id }, { customer: { salesId: me.id } });
+  if (hasRole(me, "ENGINEER")) { const ids = await teamIds(me); or.push({ assigneeId: { in: ids } }, { createdById: { in: ids } }, { repairJobs: { some: { engineerId: { in: ids } } } }, { inspections: { some: { engineerId: { in: ids } } } }); }
+  return or.length ? { OR: or } : { id: NONE };
 }
 
-/** Customers this person may see: for the shop floor, those of their orders. */
+/** Customers this person may see: Sales their own; the shop floor those of their orders; HR and PUR none. */
 export async function customerScope(me: Me): Promise<Prisma.CustomerWhereInput> {
   if (can.customersAll(me)) return {};
-  if (!hasRole(me, "ENGINEER")) return { id: NONE }; // HR, PUR: no customers
-  return { serviceOrders: { some: await orderScope(me) } };
+  const or: Prisma.CustomerWhereInput[] = [];
+  if (hasRole(me, "SALES")) or.push({ salesId: me.id });
+  if (hasRole(me, "SALES", "ENGINEER")) or.push({ serviceOrders: { some: await ownOrders(me) } });
+  return or.length ? { OR: or } : { id: NONE };
+}
+
+/** Assets (machines) this person may see: those of the customers they may see. */
+export async function assetScope(me: Me): Promise<Prisma.AssetWhereInput> {
+  if (can.customersAll(me)) return {};
+  const c = await customerScope(me);
+  return "id" in c && c.id === NONE ? { id: NONE } : { OR: [{ customer: c }, { orderLinks: { some: { serviceOrder: await ownOrders(me) } } }] };
 }
 
 export async function mayOpenOrder(me: Me, orderId: string): Promise<boolean> {
   if (can.allOrders(me)) return true;
   return (await prisma.serviceOrder.count({ where: { id: orderId, ...(await orderScope(me)) } })) > 0;
+}
+
+/**
+ * 验收签字 (需求清单 v4 V4-P0-03): the order's engineer, their approver, the Sales person of the order, or the MD.
+ * FIN, PUR and HR read the acceptance; they never sign it.
+ */
+export async function mayAccept(me: Me, orderId: string): Promise<boolean> {
+  if (hasRole(me, "MD")) return true;
+  if (!hasRole(me, "SALES", "ENGINEER")) return false;
+  return (await prisma.serviceOrder.count({ where: { AND: [{ id: orderId }, await ownOrders(me)] } })) > 0;
 }
 
 /** For server actions on an order's pages: the person must be allowed to open that order. */
@@ -42,12 +71,14 @@ export async function assertOrderAccess(me: Me, orderNo: string) {
   if (o && !(await mayOpenOrder(me, o.id))) throw new Error("NO_PERMISSION");
 }
 
-/** Numbered documents a role may list, open and print. Financial papers and papers that carry the customer's price are not for the shop floor. */
-const FIN_DOCS = ["TI", "IV", "RC", "BL", "PV", "CN", "DB", "PF"], PRICE_DOCS = ["QT", "PO"];
+/**
+ * Numbered documents a person may list, open and print: the same table as the menu (需求清单 v4 V4-P0-04) — a kind is
+ * theirs when its menu entry is. PUR: PR, PO, IB, OB, DN. FIN: all. ENG: their reports and their own OB. Sales: theirs
+ * except payment vouchers. HR: none.
+ */
 export function docTypeAllowed(who: Who, type: string): boolean {
-  if (hasRole(who, "MD", "FINANCE")) return true;
-  const ok = (r: string) => r === "SALES" ? type !== "PV"
-    : r === "PURCHASING" ? !FIN_DOCS.includes(type) && type !== "QT" // POTH is theirs; the customer's price is not
-    : r === "ENGINEER" ? !FIN_DOCS.includes(type) && !PRICE_DOCS.includes(type) : false; // HR: none
-  return rolesOf(who).some(ok);
+  if (hasRole(who, "MD")) return true;
+  if (type === "QT" && !can.price(who)) return false; // the quote paper carries the customer's price
+  const place = DOC_PLACES[type];
+  return !!place && menuAllows(who, place.nav);
 }

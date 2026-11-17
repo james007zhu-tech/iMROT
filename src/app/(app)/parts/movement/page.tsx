@@ -34,7 +34,7 @@ export default async function Movement({ searchParams }: { searchParams: Promise
   ]);
   const warehouses = [...new Set(["RAYONG", ...whs.map((w) => w.warehouse)])];
   // 从工单出库: the order's part lines not yet issued are already on the form — part, quantity, the order's machine (需求清单 v3 P0-08)
-  const fromOrder = order && direction === "OUT" ? await issueNeeds(order) : null;
+  const fromOrder = order && direction === "OUT" && orders.some((o) => o.no === order) ? await issueNeeds(order) : null; // only an order this person may see
   const pre = fromOrder?.lines ?? [];
   // 维修出库: only the machines of the order's own customer (测试报告 P0-03); 贸易出库 picks no machine at all
   const custIds = [...new Set(orders.map((o) => o.customerId))];
@@ -42,8 +42,9 @@ export default async function Movement({ searchParams }: { searchParams: Promise
   const assetOptions = custAssets.map((a) => ({ value: a.code, label: `${a.code}${a.serialNumber ? ` · S/N ${a.serialNumber}` : ""}${a.location ? ` · ${a.location}` : ""}`, scope: a.customerId ?? "" }));
   const orderCustomer = Object.fromEntries(orders.map((o) => [o.no, o.customerId]));
   // 贸易出库从采购单带出: POTHs of trade orders with goods received
-  const pos = await prisma.purchaseOrder.findMany({ where: { kind: "PARTS", status: { in: ["PARTIAL", "RECEIVED"] }, serviceOrder: { mode: { in: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] }, status: { in: ["QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } } }, include: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, supplier: { select: { name: true } } }, orderBy: { orderedAt: "desc" }, take: 60 });
-  const poChoices: PoChoice[] = pos.map((p) => ({ no: p.no, orderNo: p.serviceOrder!.no, customer: p.serviceOrder!.customer.name, label: `${p.no} · ${p.serviceOrder!.customer.name} · ${p.supplier.name}`,
+  const names = can.customerNames(me); // PUR works by order number; who the customer is is not theirs to see
+  const pos = !can.purchase(me) ? [] : await prisma.purchaseOrder.findMany({ where: { kind: "PARTS", status: { in: ["PARTIAL", "RECEIVED"] }, serviceOrder: { mode: { in: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] }, status: { in: ["QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } } }, include: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, supplier: { select: { name: true } } }, orderBy: { orderedAt: "desc" }, take: 60 });
+  const poChoices: PoChoice[] = pos.map((p) => ({ no: p.no, orderNo: p.serviceOrder!.no, customer: names ? p.serviceOrder!.customer.name : "", label: `${p.no} · ${names ? p.serviceOrder!.customer.name : p.serviceOrder!.no} · ${p.supplier.name}`,
     lines: ((p.lines as { partSku?: string; receivedQty?: number }[] | null) ?? []).filter((l) => l.partSku && Number(l.receivedQty ?? 0) > 0).map((l) => ({ sku: l.partSku!, qty: Number(l.receivedQty) })) })).filter((c) => c.lines.length > 0);
   const backTo = order ? `/service-orders/${order}` : "/parts";
   async function save(f: FormData) {
@@ -73,7 +74,7 @@ export default async function Movement({ searchParams }: { searchParams: Promise
             <Field label={u("direction")} required><select name="direction" defaultValue={direction === "OUT" ? "OUT" : "IN"} className={inputCls}><option value="IN">{u("dirIn")}</option><option value="OUT">{u("dirOut")}</option></select></Field>
             <Field label={u("warehouse")}><select name="warehouse" defaultValue="RAYONG" className={inputCls}>{warehouses.map((w) => <option key={w} value={w}>{w}</option>)}</select></Field>
             <Field label={u("date")}><input name="movedAt" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={inputCls} /></Field>
-            <Field label={u("relatedOrder")}><select name="serviceOrderNo" defaultValue={order ?? ""} className={inputCls}><option value="">—</option>{orders.map((o) => <option key={o.id} value={o.no}>{o.no} · {o.customer.name}</option>)}</select></Field>
+            <Field label={u("relatedOrder")}><select name="serviceOrderNo" defaultValue={order ?? ""} className={inputCls}><option value="">—</option>{orders.map((o) => <option key={o.id} value={o.no}>{o.no}{names ? ` · ${o.customer.name}` : ""}</option>)}</select></Field>
             <div id="assetWrap"><Field label={u("relatedAssetRepair")}><ScopedSelect name="assetCode" options={assetOptions} follow="serviceOrderNo" via={orderCustomer} defaultValue={fromOrder?.assetCode} className={inputCls} /></Field></div>
             <Field label={u("supplierRef")}><input name="supplierRef" className={inputCls} /></Field>
             <Field label={u("handler")}><div className="min-h-10 rounded-md border bg-white px-2.5 py-2 text-sm">{me.code} {me.name}</div></Field>

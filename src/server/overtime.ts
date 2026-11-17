@@ -10,6 +10,7 @@ import { audit } from "@/server/audit";
 import { capHours, localToday, monthKeyOf, monthRange, OT_KINDS, OT_MULTIPLIER, overtimeHours, overtimePay, weekRange, WEEKLY_OT_CAP_HOURS, type OvertimeKind } from "@/lib/overtime";
 import type { Prisma } from "@prisma/client";
 import { hasRole } from "@/lib/caps";
+import { DEFAULT_SHIFT, dayKindOf, splitWork, type DayKind } from "@/lib/shift";
 
 const day = z.preprocess((v) => (v instanceof Date ? v : typeof v === "string" && v ? new Date(`${v.slice(0, 10)}T00:00:00Z`) : v), z.date());
 const hhmm = z.string().regex(/^\d{1,2}:\d{2}$/, "BAD_TIME");
@@ -18,7 +19,7 @@ export const OvertimeInput = z.object({
   actorCode: z.string(),
   employeeCode: z.string().optional(), /// the MD may file for someone else; everyone else files for themselves
   workDate: day, startTime: hhmm, endTime: hhmm, breakMinutes: z.coerce.number().int().min(0).max(240).default(0),
-  kind: z.enum(["WORKDAY_OT", "HOLIDAY_WORK", "HOLIDAY_OT"]),
+  kind: z.enum(["WORKDAY_OT", "HOLIDAY_WORK", "HOLIDAY_OT"]).optional(), /// ignored: the day and the shift say what it is (H-R66)
   reason: z.string().trim().min(1, "OT_REASON_REQUIRED"),
   serviceOrderNo: z.string().trim().optional(),
 });
@@ -45,7 +46,19 @@ async function checkRequest(employeeId: string, workDate: Date, start: string, e
   if (used + capHours(kind, hours) > WEEKLY_OT_CAP_HOURS) throw new Error(`OT_WEEKLY_CAP:${used}+${capHours(kind, hours)}>${WEEKLY_OT_CAP_HOURS}`);
 }
 
-/** 加班申请. The MD's own request is approved at once (no one above); everyone else waits for the manager or the MD. */
+/** What a day is for this company: a holiday on the list, the weekly rest day (Sunday), or a working day. */
+export async function dayKindFor(entityId: string, workDate: Date): Promise<DayKind> {
+  const h = await prisma.holiday.findUnique({ where: { entityId_date: { entityId, date: workDate } } });
+  return h ? "HOLIDAY" : dayKindOf(workDate.toISOString().slice(0, 10), []);
+}
+
+/**
+ * 加班申请 (H-R66, MD 2026-11-16: 标准班次 08:30–17:30，午休 1 小时). The employee gives the day and when they started
+ * and stopped — nothing else. The shift and the calendar say what it is: on a working day only the time outside the
+ * shift is overtime (×1.5), a stretch wholly inside the shift is refused; on a Sunday or a holiday the first 8 hours are
+ * holiday work and the rest holiday overtime. Nobody picks a kind or a multiplier. A stretch that falls into two kinds
+ * becomes two requests. The MD's own request is approved at once; everyone else waits for the approver.
+ */
 export async function requestOvertime(input: z.input<typeof OvertimeInput>) {
   const d = OvertimeInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
@@ -53,14 +66,59 @@ export async function requestOvertime(input: z.input<typeof OvertimeInput>) {
   if (forCode !== actor.code && !hasRole(actor, "MD")) throw new Error("OT_OWN_ONLY");
   const emp = await prisma.employee.findUniqueOrThrow({ where: { code: forCode } });
   if (!emp.active) throw new Error(`EMPLOYEE_INACTIVE:${emp.code}`);
-  const hours = overtimeHours(d.startTime, d.endTime, d.breakMinutes);
   if (d.serviceOrderNo && !(await prisma.serviceOrder.findUnique({ where: { no: d.serviceOrderNo } }))) throw new Error(`ORDER_NOT_FOUND:${d.serviceOrderNo}`);
-  await checkRequest(emp.id, d.workDate, d.startTime, d.endTime, d.kind, hours);
+  const split = splitWork({ dayKind: await dayKindFor(emp.entityId, d.workDate), start: d.startTime, end: d.endTime, otBreakMinutes: d.breakMinutes });
+  if (!split.segments.length) throw new Error(`OT_IN_SHIFT:${DEFAULT_SHIFT.start}–${DEFAULT_SHIFT.end}`);
+  for (const g of split.segments) await checkRequest(emp.id, d.workDate, g.start, g.end, g.kind, g.hours);
   const auto = hasRole(actor, "MD"); // the MD files for himself or on someone's behalf after agreeing it with them
-  const r = await prisma.overtimeRequest.create({ data: { entityId: emp.entityId, employeeId: emp.id, workDate: d.workDate, startTime: d.startTime, endTime: d.endTime, breakMinutes: d.breakMinutes, hours, kind: d.kind, reason: d.reason, serviceOrderNo: d.serviceOrderNo || null, status: auto ? "APPROVED" : "PENDING", approverId: auto ? actor.id : null, decidedAt: auto ? new Date() : null, decisionNote: auto ? "MD" : null, createdById: actor.id } });
-  await audit(actor.id, "OT_REQUEST", r.id, { employee: emp.code, date: localIso(d.workDate)!.slice(0, 10), hours, kind: d.kind });
-  return r;
+  const made = [];
+  for (const g of split.segments) {
+    const r = await prisma.overtimeRequest.create({ data: { entityId: emp.entityId, employeeId: emp.id, workDate: d.workDate, startTime: g.start, endTime: g.end, breakMinutes: g.breakMinutes, hours: g.hours, kind: g.kind, reason: d.reason, serviceOrderNo: d.serviceOrderNo || null, createdById: actor.id, ...(auto ? { status: "APPROVED" as const, approverId: actor.id, decidedAt: new Date() } : {}) } });
+    await audit(actor.id, "OT_REQUEST", r.id, { employee: emp.code, date: localIso(d.workDate)!.slice(0, 10), hours: g.hours, kind: g.kind, asked: `${d.startTime}–${d.endTime}` });
+    made.push(r);
+  }
+  return Object.assign(made[0], { all: made });
 }
+
+/**
+ * 现场超时自动生成加班草稿 (N-03, MD 2026-11-15). The hours on a finished RPTH / PMTH are split by the same shift rule;
+ * what lies outside the shift becomes a request waiting for the approver — marked 自动, with the report it came from.
+ * Nothing is paid before the approver says yes. A stretch the person already asked for is not drafted twice; a draft
+ * not yet decided follows the report when its times are corrected. A report that runs over more than one day is left
+ * alone (its start is the day the job was opened, not the hours of one day).
+ */
+export async function draftOvertimeFromWork(input: { employeeId: string; start: Date; end: Date; sourceNo: string; serviceOrderNo?: string | null }) {
+  const span = input.end.getTime() - input.start.getTime();
+  if (!(span > 0) || span > 16 * 3600000) return [];
+  const emp = await prisma.employee.findUniqueOrThrow({ where: { id: input.employeeId } });
+  const iso = localIso(input.start)!, st = iso.slice(11, 16), en = localIso(input.end)!.slice(11, 16);
+  const workDate = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  await prisma.overtimeRequest.deleteMany({ where: { employeeId: emp.id, origin: "SITE", sourceNo: input.sourceNo, status: "PENDING" } }); // the report was corrected: draft again
+  const split = splitWork({ dayKind: await dayKindFor(emp.entityId, workDate), start: st, end: en });
+  const near = await prisma.overtimeRequest.findMany({ where: { employeeId: emp.id, status: { in: ["PENDING", "APPROVED"] }, workDate: { gte: new Date(workDate.getTime() - 86_400_000), lte: new Date(workDate.getTime() + 86_400_000) } } });
+  const made = [];
+  for (const g of split.segments) {
+    const me = interval(workDate, g.start, g.end);
+    if (near.some((r) => { const o = interval(r.workDate, r.actualStart ?? r.startTime, r.actualEnd ?? r.endTime); return o.from < me.to && me.from < o.to; })) continue; // already asked for
+    const r = await prisma.overtimeRequest.create({ data: { entityId: emp.entityId, employeeId: emp.id, workDate, startTime: g.start, endTime: g.end, breakMinutes: g.breakMinutes, hours: g.hours, kind: g.kind, origin: "SITE", sourceNo: input.sourceNo, serviceOrderNo: input.serviceOrderNo ?? null, reason: `${input.sourceNo} ${st}–${en}`, createdById: emp.id } });
+    await audit(emp.id, "OT_DRAFT_FROM_SITE", r.id, { source: input.sourceNo, date: iso.slice(0, 10), worked: `${st}–${en}`, hours: g.hours, kind: g.kind });
+    made.push(r);
+  }
+  return made;
+}
+
+/** 公司假日: HR or the MD keeps the list. */
+export async function setHoliday(input: { actorCode: string; date: Date; name?: string; remove?: boolean }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (!hasRole(actor, "MD", "HR")) throw new Error("NO_PERMISSION");
+  const date = new Date(`${input.date.toISOString().slice(0, 10)}T00:00:00Z`);
+  if (input.remove) { await prisma.holiday.deleteMany({ where: { entityId: actor.entityId, date } }); await audit(actor.id, "HOLIDAY_REMOVE", date.toISOString().slice(0, 10)); return null; }
+  if (!input.name?.trim()) throw new Error("HOLIDAY_NAME_REQUIRED");
+  const h = await prisma.holiday.upsert({ where: { entityId_date: { entityId: actor.entityId, date } }, update: { name: input.name.trim() }, create: { entityId: actor.entityId, date, name: input.name.trim(), createdBy: actor.code } });
+  await audit(actor.id, "HOLIDAY_SET", date.toISOString().slice(0, 10), { name: h.name });
+  return h;
+}
+export async function holidaysOf(entityId: string, from: Date) { return prisma.holiday.findMany({ where: { entityId, date: { gte: from } }, orderBy: { date: "asc" }, take: 60 }); }
 
 /** The person's manager or the MD decides; nobody decides their own request (except the MD). A rejection needs a note. */
 export async function decideOvertime(input: { id: string; actorCode: string; decision: "APPROVED" | "REJECTED"; note?: string }) {
@@ -82,7 +140,10 @@ export async function confirmActualHours(input: { id: string; actorCode: string;
   if (r.status !== "APPROVED") throw new Error(`OT_NOT_APPROVED:${r.status}`);
   if (r.payMonthId) throw new Error("OT_ALREADY_PAID");
   const brk = input.breakMinutes ?? r.breakMinutes;
-  const actual = overtimeHours(input.actualStart, input.actualEnd, brk);
+  // the same shift rule as the request: only what lies outside the shift (or, on a holiday, in this request's part of the day) counts
+  const parts = splitWork({ dayKind: await dayKindFor(r.entityId, r.workDate), start: input.actualStart, end: input.actualEnd, otBreakMinutes: brk }).segments.filter((g) => g.kind === r.kind);
+  const actual = parts.reduce((a, g) => a + g.hours, 0);
+  if (!(actual > 0)) throw new Error(`OT_IN_SHIFT:${DEFAULT_SHIFT.start}–${DEFAULT_SHIFT.end}`);
   await checkRequest(r.employeeId, r.workDate, input.actualStart, input.actualEnd, r.kind, actual, r.id);
   const more = actual > Number(r.hours) + 0.001 && !hasRole(actor, "MD");
   const u = await prisma.overtimeRequest.update({ where: { id: r.id }, data: { actualStart: input.actualStart, actualEnd: input.actualEnd, breakMinutes: brk, actualHours: actual, confirmedAt: new Date(),
@@ -108,7 +169,7 @@ type Payable = Prisma.OvertimeRequestGetPayload<{ include: { employee: true } }>
 /** What a close of `month` would pay now: every APPROVED request not yet paid, worked before the month's end (late ones included). */
 async function payableFor(entityId: string, month: string): Promise<Payable[]> {
   const { to } = monthRange(month);
-  return prisma.overtimeRequest.findMany({ where: { entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to } }, include: { employee: true }, orderBy: { workDate: "asc" } });
+  return prisma.overtimeRequest.findMany({ where: { entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to }, OR: [{ payNotBefore: null }, { payNotBefore: { lte: month } }] }, include: { employee: true }, orderBy: { workDate: "asc" } });
 }
 
 async function linesFor(rows: Payable[], month: string) {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorCode } from "@/lib/errors";
+import { errorCode, errorStatus } from "@/lib/errors";
 import { bodyAsSession, jsonForSession, requireSession } from "@/server/api-auth";
 import { recordMovement } from "@/server/scm";
 
@@ -8,6 +8,6 @@ export async function POST(req: Request) {
   try {
     return jsonForSession(await recordMovement(await bodyAsSession(req)), { status: 201 });
   } catch (e) {
-    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) });
   }
 }

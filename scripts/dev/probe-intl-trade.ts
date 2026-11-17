@@ -6,13 +6,14 @@
  */
 import { prisma } from "../../src/lib/db";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { setQuoteLines } from "../../src/server/slm-docs";
+
 import { recordStockDoc } from "../../src/server/scm";
 import { addExportDocs, confirmShipment, issueShipment, shipmentFor } from "../../src/server/export";
 import { advanceServiceOrder } from "../../src/server/slm";
 import { issueTaxInvoice, recordPayment } from "../../src/server/to";
 import { buildFields } from "../../src/server/reports";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines } from "./_probe";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`INTL FAIL: ${m}`); console.log("  ok  " + m); };
 async function refused(f: () => Promise<unknown>, re: RegExp, m: string) {

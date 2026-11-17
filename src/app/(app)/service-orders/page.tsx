@@ -49,7 +49,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           {orders.map((o) => (
             <tr key={o.id}>
               <td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link>{o.customerRef ? <span className="block font-mono text-xs text-navy/60">{o.customerRef}</span> : null}</td>
-              <td>{o.customer.name}</td>
+              <td>{can.customerNames(me) ? o.customer.name : "—"}</td>
               <td className="font-mono">{o.assets.map((a) => a.asset.code).join(", ")}</td>
               <td className="max-w-xs">{o.reportedSymptom ? <FaultText>{o.reportedSymptom}{o.reportedAlarm ? ` ${o.reportedAlarm}` : ""}</FaultText> : ""}</td>
               <td className="whitespace-nowrap">{u(`mode_${o.mode}`)}{o.mode === "MAINTENANCE" ? <span className="block text-xs text-navy/60">{t(o.kind)}</span> : null}</td>

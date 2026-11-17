@@ -6,7 +6,8 @@ import { useEffect } from "react";
  */
 export default function GlobalError({ error }: { error: Error & { digest?: string } }) {
   const back = () => { try { sessionStorage.setItem("dcit-draft-restore", "1"); } catch { /* ignore */ } location.reload(); };
-  useEffect(() => { // the network is back: return to the form by itself
+  useEffect(() => {
+    try { localStorage.setItem("dcit-draft-failed", "1"); } catch { /* ignore */ } // the save did not arrive: the draft stays // the network is back: return to the form by itself
     window.addEventListener("online", back);
     return () => window.removeEventListener("online", back);
   }, []);

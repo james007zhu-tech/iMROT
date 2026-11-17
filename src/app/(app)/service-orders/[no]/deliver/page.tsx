@@ -12,6 +12,8 @@ import { reportsFor } from "@/lib/order-steps";
 import { QtyCheck } from "@/components/QtyCheck";
 import { Alert, Card, Field, Grid, Table, Tag, btnGhost, inputCls } from "@/components/ui";
 import { StepPage, dayNow, loadOrder, str, type Order } from "../_shell";
+import { issueNeeds } from "@/server/scm";
+import { pathAllows } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +31,8 @@ export default async function Deliver({ params, searchParams }: { params: Promis
   ]);
   const plants = await prisma.plant.findMany({ where: { customerId: order.customerId } });
   // 贸易: what the store can really give each line — the form starts from that, and says when it is less than is owed
+  const me0 = await currentEmployee();
+  const needOut = isTradeMode(order.mode) ? (await issueNeeds(no))?.lines ?? [] : []; // 先出库、再送货 (V4-P0-09)
   const stock = isTradeMode(order.mode) ? await tradeAvailable(order.id, lines) : null;
   const shortNow = !!stock && lines.some((l) => !l.isService && (stock.get(l.key)?.available ?? 0) < l.expected - l.deliveredBefore);
   const draft = order.deliveries.find((d) => d.status === "DRAFT");
@@ -104,6 +108,7 @@ export default async function Deliver({ params, searchParams }: { params: Promis
             <Table head={[u("source"), u("item"), t("asset"), u("toReturn"), u("deliveredBefore"), u("deliverNowCheck")]}>{back.map(row)}</Table>
           </>}
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="partial" defaultChecked={shortNow} /> {u("partialDelivery")}</label>
+          {needOut.length > 0 && <Alert>{u("deliverNeedsOut", { list: needOut.map((l) => `${l.sku} ×${l.qty}（${u("briefOnHand", { n: l.onHand })}）`).join("、") })} {pathAllows(me0, "/parts/movement") ? <Link href={`/parts/movement?direction=OUT&order=${no}`} className="font-semibold underline">{u("goIssue")} →</Link> : u("deliverNeedsOutTold")}</Alert>}
           {order.poStaleAt && !declined && <Alert>{u("poStale")} <Link href={`/service-orders/${no}/confirm`} className="font-semibold underline">{u("poStaleGo")}</Link></Alert>}
           {error?.startsWith("DELIVERY_MISMATCH") && <Alert>{u("mismatchBlocked", { detail: error.split(":").slice(1).join(":") })}</Alert>}
           <Grid cols={2}>

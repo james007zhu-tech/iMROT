@@ -54,9 +54,11 @@ model FxRate {
   rateToCny   Decimal   @db.Decimal(18, 8)
   buyRemit    Decimal?  @db.Decimal(18, 6) /// 现汇买入价 per 100 units, kept for audit
   sellRemit   Decimal?  @db.Decimal(18, 6) /// 现汇卖出价 per 100 units
-  source      String    @default("BOC")
+  source      String    @default("BOC") /// "BOC" 中国银行价 (fetched) | "MANUAL" 财务手工价 (overrides the BOC rate of that day)
   publishedAt DateTime?
   fetchedAt   DateTime  @default(now())
+  setBy       String? /// MANUAL: employee code
+  note        String? /// MANUAL: why
 
   @@unique([rateDate, currency, source])
   @@index([currency, rateDate])
@@ -159,6 +161,7 @@ model Employee {
   ordersAssigned     ServiceOrder[]         @relation("OrderAssignee")
   ordersCreated      ServiceOrder[]         @relation("OrderCreator")
   ordersSold         ServiceOrder[]         @relation("OrderSales")
+  customersOwned     Customer[]             @relation("CustomerSales")
   quoteDeclines      QuoteDecline[]
   inspections        Inspection[]
   repairJobs         RepairJob[]
@@ -317,6 +320,8 @@ model AuditLog {
 // ───────────────────────── CRM ─────────────────────────
 
 model Customer {
+  salesId            String? /// 负责销售 (需求清单 v4 V4-P0-02, P1-21): the Sales person who sees this customer and to whom orders opened by engineers go; empty = the MD only
+  sales              Employee?          @relation("CustomerSales", fields: [salesId], references: [id])
   id                String      @id @default(cuid())
   code              String      @unique /// CTH2610001
   entityId          String
@@ -881,6 +886,7 @@ model ServiceOrder {
   salesId            String? /// 销售负责人 (朱总 2026-11-11): whose target this order counts toward; empty = the person who opened it
   sales              Employee?          @relation("OrderSales", fields: [salesId], references: [id])
   customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
+  invoiceNudgedAt    DateTime? /// Sales pressed 催财务开票: the customer is waiting for the invoice (需求清单 v4 V4-P0-05)
   poStaleAt          DateTime? /// the quote changed after the customer's PO was confirmed: the PO is confirmed again before anything is delivered (需求清单 v3 P0-07)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
   requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH
@@ -889,6 +895,8 @@ model ServiceOrder {
   attachments        Json? /// [{name, url, kind: PO | REPORT_MSG | PHOTO}] — originals kept for later comparison
   currency           String             @default("THB")
   fxRateToCny        Decimal?           @db.Decimal(18, 8)
+  fxRateDate         DateTime?          @db.Date /// the day of the rate used
+  fxSource           String? /// "BOC" | "MANUAL"
   subtotal           Decimal?           @db.Decimal(18, 2)
   vatAmount          Decimal?           @db.Decimal(18, 2)
   total              Decimal?           @db.Decimal(18, 2)
@@ -1286,6 +1294,12 @@ model PurchaseOrder {
   serviceOrderId String?
   serviceOrder   ServiceOrder?       @relation(fields: [serviceOrderId], references: [id])
   status         PurchaseOrderStatus @default(DRAFT)
+  /// 所有 PO 都要 MD 审批, 不论金额 (MD 2026-11-17 18:29): asked by purchasing, decided by the MD; only an approved PO is sent or received
+  approvalAskedAt DateTime?
+  approvalAskedBy String?
+  approvedAt      DateTime?
+  approvedBy      String?
+  approvalNote    String?
   kind           PurchaseKind        @default(PARTS)
   warrantyDays   Int? /// SUBCONTRACT: = the customer's warranty (back-to-back)
   scope          String? /// SUBCONTRACT: repair scope / acceptance criteria the partner signed up to
@@ -1295,6 +1309,8 @@ model PurchaseOrder {
   expectedAt     DateTime?
   currency       String              @default("THB")
   fxRateToCny    Decimal?            @db.Decimal(18, 8)
+  fxRateDate         DateTime?          @db.Date /// the day of the rate used
+  fxSource           String? /// "BOC" | "MANUAL"
   subtotal       Decimal             @db.Decimal(18, 2)
   vatRate        Decimal             @db.Decimal(5, 4)
   vatAmount      Decimal             @db.Decimal(18, 2)
@@ -1391,7 +1407,9 @@ model SupplierInvoice {
   dueDate         DateTime
   status          PayableStatus @default(OPEN)
   paidAt          DateTime?
-  paymentNo       String? /// PVTH… issued when paid
+  paymentNo       String? /// PVTH… of the last payment
+  paidAmount      Decimal       @default(0) @db.Decimal(18, 2) /// paid so far (net): the invoice is PAID when it reaches `payable`
+  payments        SupplierPayment[]
   paymentRef      String? /// bank transfer reference, verbatim
   accrued         Boolean       @default(false) /// 暂估: goods received, the supplier's invoice not yet in — one row per POTH, replaced when the invoice is registered
   matchDiff       Decimal?      @db.Decimal(18, 2) /// invoice subtotal − value received when it was registered (三单匹配); beyond tolerance the MD releases
@@ -1403,6 +1421,38 @@ model SupplierInvoice {
 
   @@unique([supplierId, invoiceNo])
   @@index([status, dueDate])
+}
+
+/// PVTH — one payment to a supplier, in three steps by two people (MD 2026-11-17 18:29): finance asks (account, amount),
+/// the MD approves — whatever the amount —, finance uploads the bank slip and only then is it paid. A payment may cover
+/// part of an invoice. The withholding tax of the part paid is on it, with its 50 ทวิ number.
+model SupplierPayment {
+  id                String          @id @default(cuid())
+  no                String          @unique /// PVTH26111701
+  entityId          String
+  supplierInvoiceId String
+  supplierInvoice   SupplierInvoice @relation(fields: [supplierInvoiceId], references: [id], onDelete: Cascade)
+  account           String /// where the money leaves: a company bank account (bank + last digits), CASH or PETTY_CASH
+  amount            Decimal         @db.Decimal(18, 2) /// what leaves the account (net of withholding tax)
+  whtAmount         Decimal         @default(0) @db.Decimal(18, 2) /// the withholding tax of this part, remitted to the Revenue Department
+  whtCertNo         String? /// 50 ทวิ number, when tax is withheld
+  payDate           DateTime
+  status            String          @default("REQUESTED") /// REQUESTED → APPROVED → PAID; REJECTED; VOID (reversed)
+  requestedBy       String
+  requestedAt       DateTime        @default(now())
+  decidedBy         String?
+  decidedAt         DateTime?
+  decisionNote      String?
+  paidBy            String?
+  paidAt            DateTime?
+  paymentRef        String? /// bank transfer reference, verbatim
+  slip              Json? /// the bank slip: [{ name, url }]
+  voidedBy          String?
+  voidedAt          DateTime?
+  voidReason        String?
+
+  @@index([supplierInvoiceId])
+  @@index([status])
 }
 
 // ───────────────────────── T&O / FIN (Phase 1 slice) ─────────────────────────
@@ -1424,6 +1474,8 @@ model TaxInvoice {
   vatAmount         Decimal      @db.Decimal(18, 2)
   total             Decimal      @db.Decimal(18, 2)
   fxRateToCny       Decimal      @db.Decimal(18, 8)
+  fxRateDate         DateTime?          @db.Date /// the day of the rate used
+  fxSource           String? /// "BOC" | "MANUAL"
   totalCny          Decimal      @db.Decimal(18, 2)
   buyerTaxId        String?
   buyerBranch       String?
@@ -1674,12 +1726,27 @@ model OvertimeRequest {
   actualHours    Decimal?       @db.Decimal(5, 2) /// confirmed by the employee after the work; pays instead of `hours`
   confirmedAt    DateTime?
   payMonthId     String? /// set by the month-end close that paid it
+  origin         String         @default("MANUAL") /// "MANUAL" the employee asked · "SITE" drafted from the hours on an RPTH / PMTH
+  sourceNo       String? /// SITE: the report the hours came from
+  payNotBefore   String? /// "2026-12": carried to that month's pay (approved after the month's payroll had left HR) — shown as 补发
   payMonth       OvertimeMonth? @relation(fields: [payMonthId], references: [id])
   createdById    String
   createdAt      DateTime       @default(now())
 
   @@index([employeeId, workDate])
   @@index([status, payMonthId])
+}
+
+/// 公司假日 — a public or company holiday. Work on it is HOLIDAY_WORK / HOLIDAY_OT without anyone choosing (H-R66).
+model Holiday {
+  id        String   @id @default(cuid())
+  entityId  String
+  date      DateTime @db.Date
+  name      String
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@unique([entityId, date])
 }
 
 /// 加班费月结 — the month-end result per legal entity, closed automatically on the 1st (Bangkok) or by the MD.
@@ -1893,6 +1960,7 @@ model PayrollLine {
   reimbursement    Decimal    @default(0) @db.Decimal(14, 2) /// approved expense claims, not income
   net              Decimal    @db.Decimal(14, 2)
   employerCost     Decimal    @db.Decimal(14, 2)
+  otLateFrom       String[]   @default([]) /// months whose overtime is paid late in this one: 补发 ×月加班
   missing          String[]   @default([]) /// what the line could not find: SALARY, PERFORMANCE, OVERTIME_OPEN, TAX_ID, SSO_NO, BANK
   note             String?
 

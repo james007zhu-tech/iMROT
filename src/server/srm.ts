@@ -137,6 +137,7 @@ export const DispatchInput = z.object({
 export async function dispatchToPartner(input: z.input<typeof DispatchInput>) {
   const d = DispatchInput.parse(input);
   const [po, actor] = await Promise.all([poForCustody(d.poNo), actorOf(d.actorCode)]);
+  if (!po.approvedAt) throw new Error(`PO_NOT_APPROVED:${po.no}`); // 所有 PO 先经 MD 批准 (2026-11-17)
   const link = po.serviceOrder.assets.find((a) => a.asset.code === d.assetCode);
   if (!link) throw new Error(`ASSET_NOT_ON_ORDER:${d.assetCode}`);
   const state = custodyOf(assetStages(po, link.assetId));
@@ -375,33 +376,7 @@ export async function paymentNeedsMd(inv: { currency: string; payable: unknown; 
   return (await paymentHold(inv)) !== null;
 }
 
-/** The MD releases a payment that waits for him. */
-export async function approvePayment(input: { id: string; actorCode: string }) {
-  const actor = await actorOf(input.actorCode);
-  if (!hasRole(actor, "MD")) throw new Error("MD_ONLY");
-  const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
-  if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
-  if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
-  if (!(await paymentNeedsMd(inv))) throw new Error("PAY_NO_RELEASE_NEEDED");
-  await prisma.supplierInvoice.update({ where: { id: inv.id }, data: { mdApprovedBy: actor.code, mdApprovedAt: new Date() } });
-  await audit(actor.id, "PAYMENT_RELEASED", inv.invoiceNo, { payable: Number(inv.payable), currency: inv.currency });
-}
-
-/** Pay a supplier invoice: PVTH number, status PAID. The finance person only; the MD releases, he does not pay. */
-export async function paySupplierInvoice(input: { id: string; actorCode: string; paidAt?: Date; paymentRef?: string }) {
-  const actor = await actorOf(input.actorCode);
-  if (!hasRole(actor, "FINANCE")) throw new Error("FINANCE_PAYS");
-  const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
-  if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
-  if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
-  if (!inv.mdApprovedAt && (await paymentNeedsMd(inv))) throw new Error(`PAY_NEEDS_MD:${inv.invoiceNo}`);
-  return prisma.$transaction(async (tx) => {
-    const no = await allocateNumber(tx, { prefix: "PV", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.paidAt });
-    await tx.document.create({ data: { no, type: "PV", entityId: inv.entityId, countryCode: no.slice(2, 4), createdById: actor.id, issuedAt: input.paidAt } });
-    await audit(actor.id, "PAYABLE_PAID", inv.invoiceNo, { no, payable: Number(inv.payable), currency: inv.currency }, tx);
-    return tx.supplierInvoice.update({ where: { id: inv.id }, data: { status: "PAID", paidAt: input.paidAt ?? new Date(), paymentNo: no, paymentRef: input.paymentRef } });
-  });
-}
+// Paying a supplier invoice: server/pay.ts (three steps, two people — MD 2026-11-17).
 
 /** Open payables, earliest due first. */
 export async function openPayables(entityId?: string) {
