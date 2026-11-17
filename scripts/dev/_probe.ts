@@ -28,3 +28,13 @@ export async function approvePo(no: string) {
 }
 export const receivePurchaseOrder: typeof realReceive = async (input) => { await approvePo(input.poNo); return realReceive(input); };
 export const dispatchToPartner: typeof realDispatch = async (input) => { await approvePo(input.poNo); return realDispatch(input); };
+
+/** 付款三步、两人 (2026-11-17): finance asks → the MD approves → finance confirms with the slip. Returns the invoice. */
+import { confirmPayment, decidePayment, requestPayment } from "../../src/server/pay";
+export async function payInvoice(input: { id: string; actorCode: string; paymentRef?: string; amount?: number }) {
+  const p = await requestPayment({ invoiceId: input.id, actorCode: input.actorCode, account: "CASH", amount: input.amount });
+  const md = await prisma.employee.findFirstOrThrow({ where: { role: "MD", active: true } });
+  await decidePayment({ id: p.id, actorCode: md.code, approve: true });
+  await confirmPayment({ id: p.id, actorCode: input.actorCode, paymentRef: input.paymentRef ?? "probe-ref", slip: [{ name: "slip.jpg", url: "/uploads/probe-slip.jpg" }] });
+  return prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
+}

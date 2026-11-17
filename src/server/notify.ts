@@ -7,7 +7,6 @@
  *  FINANCE (+MD):   customer invoices due, supplier invoices to pay
  */
 import { can, scoped, hasRole, isApprover } from "@/lib/caps";
-import { paymentHold } from "@/server/srm";
 import { orderScope, teamIds, customerScope } from "@/server/scope";
 import { openResetRequests } from "@/server/password-reset";
 import { ensureCashPlan, mayPlan } from "@/server/cash-plan";
@@ -62,8 +61,6 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // 该付款了 — only what may be paid and falls due within 3 days.
   for (const p of payables) {
     if (p.accrued) { const waited = -daysUntil(p.invoiceDate, today); if (hasRole(me, "FINANCE") && waited >= 7) push("payableNoInvoice", -waited, p.purchaseOrder.no, `/purchasing/orders/${p.purchaseOrder.no}`, p.supplier.name); continue; }
-    const hold = p.mdApprovedAt ? null : await paymentHold(p);
-    if (hold) { if (hasRole(me, "MD")) push("payRelease", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name); continue; }
     if (hasRole(me, "FINANCE") && daysUntil(p.dueDate, today) <= 3) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
   }
   for (const e of staff) { const d = daysToBirthday(e.birthDate, today); if (d != null && d <= 7) push("staffBirthday", d, e.name, `/people/${e.code}`); }
@@ -102,6 +99,12 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     if (made && Number(date.slice(8, 10)) <= 7) push("cashPlanReady", 7 - Number(date.slice(8, 10)), month, `/finance/cash-plan?month=${month}`, Number((made.plan.totals as { out?: number }).out ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 }));
   }
   // 忘记密码: someone asked on the sign-in page; an MD issues the link from that person's ETH file
+  // 付款两人 (MD 2026-11-17): what finance has asked waits for the MD; what the MD approved waits for finance's bank slip
+  if (hasRole(me, "MD", "FINANCE")) for (const p of await prisma.supplierPayment.findMany({ where: { status: { in: ["REQUESTED", "APPROVED"] } }, select: { id: true, no: true, status: true, amount: true, requestedBy: true, supplierInvoice: { select: { currency: true, supplier: { select: { name: true } } } } }, take: 80 })) {
+    const who = `${p.supplierInvoice.supplier.name} · ${p.supplierInvoice.currency} ${Number(p.amount).toFixed(2)}`;
+    if (p.status === "REQUESTED" && hasRole(me, "MD")) push("payApprove", 0, p.no, "/finance/payables", who);
+    if (p.status === "APPROVED" && hasRole(me, "FINANCE")) push("payConfirm", 0, p.no, `/finance/payables/pay/${p.id}`, who);
+  }
   // PO 审批 (MD 2026-11-17): every draft POTH purchasing has handed over waits in the MD's list
   if (hasRole(me, "MD")) for (const po of await prisma.purchaseOrder.findMany({ where: { status: "DRAFT", approvalAskedAt: { not: null }, approvedAt: null }, select: { no: true, total: true, currency: true, supplier: { select: { name: true } } }, take: 60 }))
     push("poApprove", 0, po.no, `/purchasing/orders/${po.no}`, `${po.supplier.name} · ${po.currency} ${Number(po.total).toFixed(2)}`);
@@ -133,7 +136,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   }
   if (hasRole(me, "MD")) for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove";
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
 }

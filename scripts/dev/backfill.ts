@@ -21,6 +21,17 @@ async function main() {
   { const n = await prisma.purchaseOrder.updateMany({ where: { approvedAt: null, status: { in: ["SENT", "PARTIAL", "RECEIVED"] } }, data: { approvedAt: new Date(), approvedBy: "before-rule" } });
     console.log(`backfill: ${n.count} purchase order(s) already sent before the approval rule marked approved`); }
 
+  // 2026-11-17 付款三步: invoices paid before the rule get their payment row (PAID, "before-rule"), so that the amount
+  // paid is on file and a payment entered by mistake can be reversed (冲回) like any other.
+  { let n = 0;
+    for (const inv of await prisma.supplierInvoice.findMany({ where: { status: "PAID", payments: { none: {} } } })) {
+      const no = inv.paymentNo ?? `PV-${inv.invoiceNo}`;
+      if (await prisma.supplierPayment.findUnique({ where: { no } })) continue;
+      await prisma.supplierPayment.create({ data: { no, entityId: inv.entityId, supplierInvoiceId: inv.id, account: "before-rule", amount: inv.payable, whtAmount: inv.whtAmount, payDate: inv.paidAt ?? new Date(), status: "PAID", requestedBy: "before-rule", paidBy: "before-rule", paidAt: inv.paidAt, paymentRef: inv.paymentRef } });
+      await prisma.supplierInvoice.update({ where: { id: inv.id }, data: { paidAmount: inv.payable } }); n++;
+    }
+    console.log(`backfill: ${n} payment(s) made before the three-step rule put on file`); }
+
   // 2026-11-17 需求清单 v4 V4-P0-02: 负责销售. A customer whose orders all belong to one Sales person is theirs; the rest
   // stay with the MD until he says who (customer page).
   { let n = 0;

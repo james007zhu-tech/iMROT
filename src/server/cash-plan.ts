@@ -33,7 +33,7 @@ export async function buildCashPlan(entityId: string, month: string) {
   // ── suppliers: every open invoice due by the end of the month (what was due earlier is owed on the 1st)
   for (const s of await prisma.supplierInvoice.findMany({ where: { entityId, status: "OPEN", dueDate: { lt: next } }, include: { supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } } })) {
     const at = place(s.dueDate);
-    if (at) lines.push({ ...at, dir: "OUT", kind: "SUPPLIER", party: s.supplier.name, what: s.invoiceNo, amount: Number(s.payable), currency: s.currency, ref: s.purchaseOrder.no, href: "/finance/payables", fixed: true });
+    if (at) lines.push({ ...at, dir: "OUT", kind: "SUPPLIER", party: s.supplier.name, what: s.invoiceNo, amount: Math.round((Number(s.payable) - Number(s.paidAmount)) * 100) / 100, currency: s.currency, ref: s.purchaseOrder.no, href: "/finance/payables", fixed: true });
   }
 
   // ── the fixed payments

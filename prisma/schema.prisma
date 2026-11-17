@@ -1401,7 +1401,9 @@ model SupplierInvoice {
   dueDate         DateTime
   status          PayableStatus @default(OPEN)
   paidAt          DateTime?
-  paymentNo       String? /// PVTH… issued when paid
+  paymentNo       String? /// PVTH… of the last payment
+  paidAmount      Decimal       @default(0) @db.Decimal(18, 2) /// paid so far (net): the invoice is PAID when it reaches `payable`
+  payments        SupplierPayment[]
   paymentRef      String? /// bank transfer reference, verbatim
   accrued         Boolean       @default(false) /// 暂估: goods received, the supplier's invoice not yet in — one row per POTH, replaced when the invoice is registered
   matchDiff       Decimal?      @db.Decimal(18, 2) /// invoice subtotal − value received when it was registered (三单匹配); beyond tolerance the MD releases
@@ -1413,6 +1415,38 @@ model SupplierInvoice {
 
   @@unique([supplierId, invoiceNo])
   @@index([status, dueDate])
+}
+
+/// PVTH — one payment to a supplier, in three steps by two people (MD 2026-11-17 18:29): finance asks (account, amount),
+/// the MD approves — whatever the amount —, finance uploads the bank slip and only then is it paid. A payment may cover
+/// part of an invoice. The withholding tax of the part paid is on it, with its 50 ทวิ number.
+model SupplierPayment {
+  id                String          @id @default(cuid())
+  no                String          @unique /// PVTH26111701
+  entityId          String
+  supplierInvoiceId String
+  supplierInvoice   SupplierInvoice @relation(fields: [supplierInvoiceId], references: [id], onDelete: Cascade)
+  account           String /// where the money leaves: a company bank account (bank + last digits), CASH or PETTY_CASH
+  amount            Decimal         @db.Decimal(18, 2) /// what leaves the account (net of withholding tax)
+  whtAmount         Decimal         @default(0) @db.Decimal(18, 2) /// the withholding tax of this part, remitted to the Revenue Department
+  whtCertNo         String? /// 50 ทวิ number, when tax is withheld
+  payDate           DateTime
+  status            String          @default("REQUESTED") /// REQUESTED → APPROVED → PAID; REJECTED; VOID (reversed)
+  requestedBy       String
+  requestedAt       DateTime        @default(now())
+  decidedBy         String?
+  decidedAt         DateTime?
+  decisionNote      String?
+  paidBy            String?
+  paidAt            DateTime?
+  paymentRef        String? /// bank transfer reference, verbatim
+  slip              Json? /// the bank slip: [{ name, url }]
+  voidedBy          String?
+  voidedAt          DateTime?
+  voidReason        String?
+
+  @@index([supplierInvoiceId])
+  @@index([status])
 }
 
 // ───────────────────────── T&O / FIN (Phase 1 slice) ─────────────────────────
