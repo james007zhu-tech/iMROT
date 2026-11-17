@@ -47,6 +47,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
     const sent = files;
     const shown = [text.trim(), ...sent.map((f) => `📎 ${f.name}`)].filter(Boolean).join("\n");
     const next = [...msgs, { role: "user" as const, content: shown }];
+    voice.cancel(); // what was said is on its way: the box is empty from here, whatever the microphone still hears
     setMsgs(next); setInput(""); setFiles([]); setBusy(true);
     const onForm = variant === "float" && scope === "staff" && !!readForm(); // working on the form behind: the page says so
     if (onForm) window.dispatchEvent(new CustomEvent(ASSIST_BUSY, { detail: true }));

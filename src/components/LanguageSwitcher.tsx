@@ -20,7 +20,7 @@ export function LanguageSwitcher({ tone = "dark" }: { tone?: "dark" | "light" })
           key={l}
           disabled={pending}
           onClick={() => start(async () => { await setLocale(l); router.refresh(); })}
-          className={`rounded px-2 py-1 ${tone === "light" ? (l === locale ? "bg-blue font-bold text-white" : "bg-white text-blue hover:bg-[#EEF3F9]") : l === locale ? "bg-white/20 font-bold" : "hover:bg-white/10"}`}
+          className={`whitespace-nowrap rounded px-2 py-1 ${tone === "light" ? (l === locale ? "bg-blue font-bold text-white" : "bg-white text-blue hover:bg-[#EEF3F9]") : l === locale ? "bg-white/20 font-bold" : "hover:bg-white/10"}`}
         >
           {LABELS[l]}
         </button>
