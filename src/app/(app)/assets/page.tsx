@@ -6,6 +6,8 @@ import { ASSET_STATUSES } from "@/lib/lifecycle";
 import { PageHeader, Table, Tag, btnGhost, inputCls, filterCls } from "@/components/ui";
 import { AGE_BANDS, ageBand, ageRange } from "@/lib/asset-board";
 import { AssetType } from "@prisma/client";
+import { assetScope, customerScope } from "@/server/scope";
+import { currentEmployee } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 const PAGE = 20;
@@ -14,7 +16,10 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
   const { q, status, customerId, brand, type, age, page } = await searchParams;
   const [t, u, ts, te, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("assetStatus"), getTranslations("eventType"), getLocale()]);
   const p = Math.max(1, Number(page) || 1);
+  const me = await currentEmployee();
+  const [aScope, cScope] = await Promise.all([assetScope(me), customerScope(me)]); // 只看自己客户、自己单上的设备 (V4-P0-02)
   const where = {
+    AND: [aScope],
     status: ASSET_STATUSES.includes(status as never) ? (status as never) : undefined,
     customerId: customerId || undefined,
     model: brand === "-" ? { is: null } : brand ? { series: { brand: { code: brand } } } : undefined,
@@ -25,11 +30,11 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
   const [assets, total, byStatus, customers, brands, all] = await Promise.all([
     prisma.asset.findMany({ where, include: { model: { include: { series: { include: { brand: true } } } }, customer: { select: { name: true } }, plant: { select: { code: true } }, events: { orderBy: { occurredAt: "desc" }, take: 1 } }, orderBy: { createdAt: "desc" }, skip: (p - 1) * PAGE, take: PAGE }),
     prisma.asset.count({ where }),
-    prisma.asset.groupBy({ by: ["status"], _count: true }),
-    prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.asset.groupBy({ by: ["status"], where: aScope, _count: true }),
+    prisma.customer.findMany({ where: cScope, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.brand.findMany({ orderBy: { name: "asc" } }),
     // 看板: every machine still with us (retired ones leave the board), counted three ways
-    prisma.asset.findMany({ where: { status: { not: "RETIRED" } }, select: { type: true, installedAt: true, model: { select: { series: { select: { brand: { select: { code: true, name: true } } } } } } } }),
+    prisma.asset.findMany({ where: { AND: [aScope, { status: { not: "RETIRED" } }] }, select: { type: true, installedAt: true, model: { select: { series: { select: { brand: { select: { code: true, name: true } } } } } } } }),
   ]);
   const tally = <K extends string>(keys: K[]) => { const m = new Map<K, number>(); for (const k of keys) m.set(k, (m.get(k) ?? 0) + 1); return m; };
   const brandOf = new Map(all.map((a) => [a.model?.series.brand.code ?? "-", a.model?.series.brand.name ?? u("boardNoBrand")]));

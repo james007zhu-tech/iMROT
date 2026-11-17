@@ -57,11 +57,15 @@ export const can = {
   /** see that an order has been invoiced and paid (status and numbers, no issuing) */
   invoiceStatus: is("MD", "FINANCE", "SALES"),
   /** every order of the company; engineers see the ones assigned to them (approvers: to their team); HR none */
-  allOrders: is("MD", "FINANCE", "SALES", "PURCHASING"),
+  allOrders: is("MD", "FINANCE", "PURCHASING"), // Sales: the customers they are responsible for (需求清单 v4 V4-P0-02)
   /** create customers and edit their master data */
   customers: is("MD", "SALES"),
   /** every customer with tax id, terms, receivables */
-  customersAll: is("MD", "FINANCE", "SALES"),
+  customersAll: is("MD", "FINANCE"),
+  /** who the customer of an order is (name on lists and papers): not for PUR and HR */
+  customerNames: is("MD", "FINANCE", "SALES", "ENGINEER"),
+  /** tax id, terms and receivables of the customers one may see at all */
+  customerMoney: is("MD", "FINANCE", "SALES"),
   /** see suppliers and purchase orders (Sales: arrival status) */
   purchasing: is("MD", "FINANCE", "PURCHASING", "SALES"),
   /** suppliers, inquiries, purchase orders, receiving, parts master: create and change */
@@ -83,20 +87,23 @@ export const can = {
 /** People who work on the shop floor and see their own (or their team's) orders only. */
 export const scoped = (who: Who) => !can.allOrders(who) && hasRole(who, "ENGINEER");
 /** People who see no order at all (HR alone). */
-export const noOrders = (who: Who) => !can.allOrders(who) && !hasRole(who, "ENGINEER");
+export const noOrders = (who: Who) => !can.allOrders(who) && !hasRole(who, "ENGINEER", "SALES");
 
 /**
  * The menu each role gets, by nav key (src/lib/nav.ts). Not in the list = not in the menu and the page behind it is
  * refused. Several roles: the union. The MD may hide more for a role on 权限管理, never show more.
  */
-const HOME = ["dash", "shortcuts", "documents"], SELF = ["talent", "overtime", "payroll", "training", "expenses"];
-const ALM = ["series", "assets", "knowledge"], LEAN = ["inspectionReports", "repairReports", "maintenanceReports", "projects"];
+const HOME = ["dash", "shortcuts"], DOCS = ["documents"], SELF = ["talent", "overtime", "payroll", "training", "expenses"];
+const ALM = ["series", "assets", "knowledge"], REPORTS = ["inspectionReports", "repairReports", "maintenanceReports"];
+// 六角色的默认权限写在这里 (需求清单 v4 V4-P0-04): a new employee has them the moment a role is chosen — nobody ticks boxes.
 export const ROLE_MENU: Record<Exclude<Role, "MD">, string[]> = {
   HR: [...HOME, ...SELF],
-  FINANCE: [...HOME, ...SELF, "customers", "opportunities", "suppliers", "purchaseOrders", "stock", "ledger", "cashPlan", "finReports", "billing", "taxInvoices", "receipts", "entities"],
-  PURCHASING: [...HOME, ...SELF, "knowledge", "opportunities", "suppliers", "inquiries", "purchaseOrders", "stock", "dictionary"],
-  SALES: [...HOME, ...SELF, ...ALM, ...LEAN, "customers", "opportunities", "inquiries", "purchaseOrders", "stock", "billing"],
-  ENGINEER: [...HOME, ...SELF, ...ALM, ...LEAN, "customers", "opportunities", "inquiries", "stock"],
+  FINANCE: [...HOME, ...DOCS, ...SELF, "customers", "opportunities", "deliveryNotes", "acceptance", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut",
+    "ledger", "paymentVouchers", "statements", "cashPlan", "finReports", "proforma", "billing", "taxInvoices", "receipts", "entities"],
+  PURCHASING: [...HOME, ...DOCS, ...SELF, "knowledge", "opportunities", "deliveryNotes", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut", "dictionary"],
+  SALES: [...HOME, ...DOCS, ...SELF, ...ALM, ...REPORTS, "receiving", "deliveryNotes", "acceptance", "projects", "customers", "opportunities", "inquiries", "purchaseOrders", "stock",
+    "statements", "proforma", "billing", "taxInvoices", "receipts"],
+  ENGINEER: [...HOME, ...DOCS, ...SELF, ...ALM, ...REPORTS, "receiving", "acceptance", "projects", "customers", "opportunities", "inquiries", "stock", "stockOut"],
 };
 export const menuAllows = (who: Who, key: string) => rolesOf(who).some((r) => r === "MD" || (ROLE_MENU[r as Exclude<Role, "MD">] ?? HOME).includes(key));
 /** The roles a menu entry belongs to — for 「无权限，此功能属于 XX 角色」. */

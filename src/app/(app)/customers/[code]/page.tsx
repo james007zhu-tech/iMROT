@@ -1,4 +1,4 @@
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { redirect } from "next/navigation";
 import { customerScope, orderScope } from "@/server/scope";
 import { localIso } from "@/lib/dates";
@@ -16,21 +16,29 @@ import { maskEmail, maskLogin, maskName, maskPhone } from "@/lib/mask";
 import { Flash } from "@/components/Flash";
 import { businessClosureOn } from "@/lib/closure";
 import { AssetStatusBadge, OrderStatusBadge } from "@/components/StatusBadge";
-import { Card, Field, Grid, PageHeader, Table, Tag, Value, btnGhost, inputCls } from "@/components/ui";
+import { Card, Field, Grid, PageHeader, Table, Tag, Value, btnGhost, inputCls, btnBlue } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
 /** Customer page: company, plants, contacts (masked unless re-authorised), files, assets, orders. */
+/** Server actions of this page: the person must be allowed to change this customer (MD, or the Sales person who has it). */
+async function mayChange(code: string) {
+  const me = await currentEmployee();
+  if (!can.customers(me) || !(await prisma.customer.count({ where: { AND: [{ code }, await customerScope(me)] } }))) throw new Error("NO_PERMISSION");
+  return me;
+}
+
 export default async function CustomerDetail({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { code } = await params;
   const { ok, error } = await searchParams;
   const me0 = await currentEmployee();
-  const full = can.customersAll(me0), mayEdit = can.customers(me0); // 工程师、主管: name, plants, site contacts, machines, their own orders — no tax id, terms, receivables
+  const full = can.customerMoney(me0), mayEdit = can.customers(me0); // 工程师、主管: name, plants, site contacts, machines, their own orders — no tax id, terms, receivables
   const oScope = await orderScope(me0);
   const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: { include: { plant: true } }, assets: { include: { model: true, plant: true }, orderBy: { code: "asc" } }, serviceOrders: { where: oScope, orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
   if (!c) notFound();
-  if (!full && !(await prisma.customer.count({ where: { id: c.id, ...(await customerScope(me0)) } }))) redirect("/no-access");
+  if (!(await prisma.customer.count({ where: { AND: [{ id: c.id }, await customerScope(me0)] } }))) redirect("/no-access"); // 只看自己负责的 / 自己单上的客户
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
+  const salesPeople = hasRole(me0, "MD") ? await prisma.employee.findMany({ where: { active: true, OR: [{ role: "SALES" }, { extraRoles: { has: "SALES" } }] }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }) : [];
   const open = await revealActive(code);
   const show = <T,>(v: T, mask: (x: T) => string) => (open ? v : mask(v));
 
@@ -45,12 +53,23 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   }
   async function plant(f: FormData) {
     "use server";
-    await guarded(async () => { await addPlant(code, { code: String(f.get("code")), name: String(f.get("name")), address: String(f.get("address") || "") || undefined, accessNotes: String(f.get("access") || "") || undefined }); }, `/customers/${code}`);
+    await guarded(async () => { await mayChange(code); await addPlant(code, { code: String(f.get("code")), name: String(f.get("name")), address: String(f.get("address") || "") || undefined, accessNotes: String(f.get("access") || "") || undefined }); }, `/customers/${code}`);
   }
   async function contact(f: FormData) {
     "use server";
     const s = (k: string) => String(f.get(k) ?? "").trim() || undefined;
-    await guarded(async () => { await addContact(code, { name: s("name") ?? "", title: s("title"), plantCode: s("plant"), phone: s("phone"), lineId: s("line"), email: s("email"), birthday: s("birthday"), portalLogin: s("login"), portalPassword: s("pw") }); }, `/customers/${code}`);
+    await guarded(async () => { await mayChange(code); await addContact(code, { name: s("name") ?? "", title: s("title"), plantCode: s("plant"), phone: s("phone"), lineId: s("line"), email: s("email"), birthday: s("birthday"), portalLogin: s("login"), portalPassword: s("pw") }); }, `/customers/${code}`);
+  }
+  async function setSales(f: FormData) {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      if (!hasRole(me, "MD")) throw new Error("MD_ONLY");
+      const to = String(f.get("salesId") ?? "");
+      await prisma.customer.update({ where: { code }, data: { salesId: to || null } });
+      await prisma.auditLog.create({ data: { actorId: me.id, action: "CUSTOMER_SALES", target: code, detail: { salesId: to || null } } });
+      return "saved";
+    }, `/customers/${code}`);
   }
   async function complete() {
     "use server";
@@ -76,6 +95,12 @@ export default async function CustomerDetail({ params, searchParams }: { params:
         actions={!mayEdit ? undefined : <>{c.taxId && isThaiTaxId(c.taxId) && (!c.addressLocal || !c.addressEn || !c.billingAddress || !c.phone || !c.nameLocal) && <form action={complete}><button className={btnGhost}>🔎 {u("completeByTaxId")}</button></form>}{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
         newHref={`/service-orders/new?customer=${c.code}`} newLabel={u("newServiceOrder")} />
       <Flash ok={ok === "revealed" ? u("revealedFor5") : ok?.startsWith("completed:") ? u("completedN", { n: ok.split(":")[1] }) : ok === "completedNone" ? u("completedNone") : ok} error={errorCode} />
+      {hasRole(me0, "MD") ? <Card title={u("customerSales")}>
+        <form action={setSales} className="flex flex-wrap items-end gap-3 text-sm">
+          <select name="salesId" defaultValue={c.salesId ?? ""} className={`${inputCls} w-64`}><option value="">{u("customerSalesNone")}</option>{salesPeople.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name}</option>)}</select>
+          <button className={btnBlue}>{t("save")}</button><span className="text-xs text-navy/70">{u("customerSalesHint")}</span>
+        </form>
+      </Card> : null}
       <Card title={u("company")}>
         <Grid>
           <Field label={u("nameTh")}><Value>{c.nameLocal ?? "—"}</Value></Field>

@@ -4,7 +4,7 @@
  */
 import { audit } from "@/server/audit";
 import { can, hasRole } from "@/lib/caps";
-import { mayOpenOrder } from "@/server/scope";
+import { mayOpenOrder, mayAccept } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
@@ -359,9 +359,14 @@ export const AcceptanceInput = z.object({
 
 /** ACCEPTED / CONDITIONAL → assets back IN_SERVICE, order → ACCEPTED. REJECTED → assets to REPAIR, order back to DIAGNOSING. */
 export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
+  { // V4-P0-03: who is signing is settled before anything else is looked at
+    const [who, o] = await Promise.all([prisma.employee.findUnique({ where: { code: String(input.actorCode) } }), prisma.serviceOrder.findUnique({ where: { no: String(input.serviceOrderNo) }, select: { id: true } })]);
+    if (!who || !o || !(await mayAccept(who, o.id))) throw new Error("NO_PERMISSION");
+  }
   const d = AcceptanceInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { assets: { include: { asset: true } } } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
+  if (!(await mayAccept(actor, order.id))) throw new Error("NO_PERMISSION"); // V4-P0-03: not anyone who knows the number
   if (order.status !== "ACCEPTANCE_PENDING" && order.status !== "IN_PROGRESS") throw new Error(`${order.no} is ${order.status}; acceptance needs ACCEPTANCE_PENDING`);
   const ok = d.status !== "REJECTED";
   if (ok) {

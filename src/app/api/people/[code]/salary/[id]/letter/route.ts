@@ -1,7 +1,7 @@
 import { can } from "@/lib/caps";
 import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
-import { errorCode } from "@/lib/errors";
+import { errorCode, errorStatus } from "@/lib/errors";
 import { currentEmployee } from "@/server/auth";
 import { prisma } from "@/lib/db";
 import { renderSalaryLetter } from "@/server/salary-letter";
@@ -30,7 +30,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ code: string; i
       "x-unfilled-placeholders": r.unfilled.join(","),
     } });
   } catch (e) {
-    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) });
   } finally {
     await r?.cleanup();
   }

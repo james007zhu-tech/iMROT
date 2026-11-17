@@ -6,7 +6,7 @@ import { confirmSerial, looseDocsOf, relinkDoc } from "@/server/asset-first";
 import { maskName } from "@/lib/mask";
 import { PageHeader, btnGhost } from "@/components/ui";
 import { reportsFor } from "@/lib/order-steps";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { appendAssetEvent, relateAssets, getAssetPage, transferAsset } from "@/server/alm";
 import { AssetStatusBadge, OrderStatusBadge } from "@/components/StatusBadge";
@@ -16,6 +16,7 @@ import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { EventSummary } from "@/components/EventSummary";
 import { saveUpload } from "@/lib/uploads";
+import { assetScope, customerScope } from "@/server/scope";
 
 export const dynamic = "force-dynamic";
 const REL = { DRIVES: "relationDrives", INSTALLED_IN: "relationInstalledIn", CONTROLLED_BY: "relationControlledBy", COUPLED_TO: "relationCoupledTo" } as const;
@@ -35,14 +36,16 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
   if (!asset) notFound();
   // 统一角色权限表: the machine's history is for everyone; what it cost and what was charged is not
   const me = await currentEmployee();
+  const [aScope, cScope] = await Promise.all([assetScope(me), customerScope(me)]);
+  if (!(await prisma.asset.count({ where: { AND: [{ code }, aScope] } }))) redirect("/no-access"); // not a machine of their customers or orders
   asset.events = stripMoney(asset.events, me);
   const seePrice = can.price(me);
   const t = await getTranslations("common");
   const u = await getTranslations("ui");
   const orderDocs = (await prisma.document.findMany({ where: { serviceOrderId: { in: asset.orderLinks.map((l) => l.serviceOrderId) }, voidedAt: null }, include: { serviceOrder: { select: { no: true, acceptance: { select: { id: true } } } } }, orderBy: { issuedAt: "asc" } })).filter((d) => docTypeAllowed(me, d.type));
   const [customers, others] = await Promise.all([
-    prisma.customer.findMany({ orderBy: { name: "asc" }, include: { plants: true } }),
-    prisma.asset.findMany({ where: { customerId: asset.customerId ?? undefined, NOT: { code } }, select: { code: true, type: true, location: true }, orderBy: { code: "asc" }, take: 200 }),
+    prisma.customer.findMany({ where: cScope, orderBy: { name: "asc" }, include: { plants: true } }),
+    prisma.asset.findMany({ where: { AND: [aScope, { customerId: asset.customerId ?? undefined, NOT: { code } }] }, select: { code: true, type: true, location: true }, orderBy: { code: "asc" }, take: 200 }),
   ]);
   const back = `/assets/${code}`;
   // 设备优先: what this machine holds that no QTTH has claimed, and the open orders it could belong to

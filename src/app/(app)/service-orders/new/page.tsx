@@ -4,7 +4,9 @@ import { ScopedSelect } from "@/components/ScopedSelect";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { advanceServiceOrder, createServiceOrder } from "@/server/slm";
+import { hasRole } from "@/lib/caps";
 import { currentEmployee } from "@/server/auth";
+import { assetScope, customerScope } from "@/server/scope";
 import { saveUpload } from "@/lib/uploads";
 import { guarded } from "@/lib/action-result";
 import { maskName, staffContact } from "@/lib/mask";
@@ -25,13 +27,17 @@ export const dynamic = "force-dynamic";
 /** 新建业务单 — the business mode first (mockup business-modes-v0.1, 2026-11-09), then the fields that mode needs (wireframe 4). */
 export default async function NewOrder({ searchParams }: { searchParams: Promise<{ asset?: string; customer?: string; error?: string; mode?: string }> }) {
   const { asset, customer, error, mode: askedMode } = await searchParams;
-  const initialMode: Mode = OPEN_MODES.includes(askedMode as Mode) ? (askedMode as Mode) : "REPAIR";
+  const me = await currentEmployee();
+  // 需求清单 v4 V4-P0-02: an engineer opens 维修 and 维保 only, for the customers and machines of their own orders
+  const modes: readonly Mode[] = hasRole(me, "MD", "SALES") ? MODES : (["REPAIR", "MAINTENANCE"] as Mode[]);
+  const [cScope, aScope] = await Promise.all([customerScope(me), assetScope(me)]);
+  const initialMode: Mode = OPEN_MODES.includes(askedMode as Mode) && modes.includes(askedMode as Mode) ? (askedMode as Mode) : "REPAIR";
   const floors = await modeRules();
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [assets, engineers, contacts] = await Promise.all([
-    prisma.asset.findMany({ where: { status: { not: "RETIRED" }, customer: customer ? { code: customer } : undefined }, include: { customer: true, plant: true, model: true }, orderBy: { code: "asc" } }),
-    prisma.employee.findMany({ where: { active: true, role: isTradeMode(askedMode) || isProjectMode(askedMode) ? undefined : { in: ["ENGINEER", "MD"] } }, orderBy: { name: "asc" } }),
-    prisma.contact.findMany({ include: { customer: { select: { name: true } } }, orderBy: { name: "asc" } }),
+    prisma.asset.findMany({ where: { AND: [aScope, { status: { not: "RETIRED" }, customer: customer ? { code: customer } : undefined }] }, include: { customer: true, plant: true, model: true }, orderBy: { code: "asc" } }),
+    prisma.employee.findMany({ where: { active: true, OR: [{ role: "ENGINEER" }, { extraRoles: { has: "ENGINEER" } }] }, orderBy: { name: "asc" } }), // 派工只列 ENG
+    prisma.contact.findMany({ where: { customer: cScope }, include: { customer: { select: { name: true } } }, orderBy: { name: "asc" } }),
   ]);
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const trade = isTradeMode(initialMode);
@@ -39,9 +45,9 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
   const proj = isProjectMode(initialMode); // 自动化项目: customer + project card; BOM and milestones on the plan page
   const noAsset = trade || proj;
   // 贸易: customer + SKU lines; the datalist shows what is on the shelf
-  const plants = proj ? await prisma.plant.findMany({ orderBy: { code: "asc" }, include: { customer: { select: { name: true } } } }) : [];
+  const plants = proj ? await prisma.plant.findMany({ where: { customer: cScope }, orderBy: { code: "asc" }, include: { customer: { select: { name: true } } } }) : [];
   const [customers, parts, stock] = noAsset ? await Promise.all([
-    prisma.customer.findMany({ orderBy: { name: "asc" }, select: { id: true, code: true, name: true, nameLocal: true } }),
+    prisma.customer.findMany({ where: cScope, orderBy: { name: "asc" }, select: { id: true, code: true, name: true, nameLocal: true } }),
     prisma.part.findMany({ orderBy: { sku: "asc" }, take: 800, select: { id: true, sku: true, name: true, vendorPartNo: true, unit: true } }),
     prisma.stockMovement.groupBy({ by: ["partId", "direction"], where: { partId: { not: null } }, _sum: { qty: true } }),
   ]) : [[], [], []];
@@ -101,7 +107,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       <FormMemory formId="f" />
       <Card title={u("businessMode")}>
         <ModeCards form="f" initial={initialMode} inputCls={inputCls}
-          cards={MODES.map((m) => ({ mode: m, name: u(`mode_${m}`), sub: u(`modeSub_${m}`), desc: u(`modeDesc_${m}`), floor: u("marginFloorTag", { pct: Math.round(floors[m] * 100) }), assetNote: u(m === "AUTOMATION_PROJECT" ? "modeAssetTbd" : modeNeedsAsset(m) ? (m === "MAINTENANCE" ? "modeAssetMany" : "modeAsset") : "modeSkuOnly"), open: OPEN_MODES.includes(m) }))}
+          cards={modes.map((m) => ({ mode: m, name: u(`mode_${m}`), sub: u(`modeSub_${m}`), desc: u(`modeDesc_${m}`), floor: u("marginFloorTag", { pct: Math.round(floors[m] * 100) }), assetNote: u(m === "AUTOMATION_PROJECT" ? "modeAssetTbd" : modeNeedsAsset(m) ? (m === "MAINTENANCE" ? "modeAssetMany" : "modeAsset") : "modeSkuOnly"), open: OPEN_MODES.includes(m) }))}
           kinds={MODE_KINDS.MAINTENANCE.map((k) => ({ value: k, label: t(k) }))}
           labels={{ kind: u("maintenanceKind"), reason: u("partnerReason"), reasonPh: u("partnerReasonPh"), soon: u("modeComingSoon") }} />
       </Card>

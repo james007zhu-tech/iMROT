@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorCode } from "@/lib/errors";
+import { errorCode, errorStatus } from "@/lib/errors";
 import { requireSession } from "@/server/api-auth";
 import { createDashboard, listDashboards } from "@/server/dashboards";
 import { currentEmployee } from "@/server/auth";
@@ -11,5 +11,5 @@ export async function POST(req: Request) {
     const me = await currentEmployee();
     const b = await req.json();
     return NextResponse.json(await createDashboard(String(b.name ?? "Dashboard"), b.spec, me.code), { status: 201 });
-  } catch (e) { return NextResponse.json({ error: errorCode(e) }, { status: 400 }); }
+  } catch (e) { return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) }); }
 }

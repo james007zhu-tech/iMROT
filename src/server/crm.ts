@@ -3,7 +3,7 @@
  * New customers are created only from DBD / ภ.พ.20 / billing documents (files kept on the customer);
  * DBD data is stored with the record and fields a person changed afterwards are listed in `editedFields`.
  */
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { actorWith } from "@/server/guard";
 import { z } from "zod";
 import { cleanBirthday } from "@/lib/notify";
@@ -62,6 +62,7 @@ export async function createCustomer(input: z.input<typeof CustomerInput>) {
     const code = await allocateNumber(tx, { prefix: "C", createdByEmployeeCode: actor.code, entityId: entity.id });
     const c = await tx.customer.create({
       data: {
+        salesId: hasRole(actor, "SALES") && !hasRole(actor, "MD") ? actor.id : undefined, // the Sales person who opens a customer is responsible for it
         code, entityId: entity.id, name: d.name, nameLocal: d.nameLocal || (d.overseas ? null : d.name), taxId: d.taxId || null, branchCode: d.overseas ? null : d.branchCode, phone: d.phone,
         addressLocal: d.addressLocal, addressEn: d.addressEn, billingAddress: d.billingAddress, registeredCapital: d.registeredCapital, foundedAt: d.foundedAt,
         defaultCurrency: d.defaultCurrency, paymentTermDays: d.paymentTermDays, monthlyStatement: d.monthlyStatement,

@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { missingForAcceptance, recordAcceptance } from "@/server/slm-docs";
 import { currentEmployee } from "@/server/auth";
+import { mayAccept } from "@/server/scope";
 import { guarded } from "@/lib/action-result";
 import { maskName, staffContact } from "@/lib/mask";
 import { saveUpload } from "@/lib/uploads";
@@ -45,7 +46,7 @@ export default async function Accept({ params, searchParams }: { params: Promise
     }, `/service-orders/${no}/accept`);
   }
   return (
-    <StepPage order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={u("saveAcceptance")}>
+    <StepPage order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={(await mayAccept(me, order.id)) ? u("saveAcceptance") : ""} notice={(await mayAccept(me, order.id)) ? undefined : u("acceptReadOnly")}>
       <form id="f" action={save} className="space-y-4">
         <Card title={u("acceptChecklist")}>
           <ul className="grid gap-1 text-sm md:grid-cols-2">

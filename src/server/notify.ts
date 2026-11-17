@@ -8,7 +8,7 @@
  */
 import { can, scoped, hasRole, isApprover } from "@/lib/caps";
 import { paymentHold } from "@/server/srm";
-import { orderScope, teamIds } from "@/server/scope";
+import { orderScope, teamIds, customerScope } from "@/server/scope";
 import { openResetRequests } from "@/server/password-reset";
 import { ensureCashPlan, mayPlan } from "@/server/cash-plan";
 import { MD_LIMIT_THB, PAYROLL_ROLES } from "@/lib/pay-rules";
@@ -33,7 +33,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, ...mine }, select: { no: true, status: true, project: true, requestLines: true, quoteSentAt: true, reportedAt: true, assigneeId: true, marginApproval: true, priceHint: true, total: true, _count: { select: { lines: true } }, customer: { select: { name: true } } }, take: 400 }),
     prisma.projectMilestone.findMany({ where: { doneAt: null, plannedOn: { lt: soon(3) }, serviceOrder: { status: { in: [...OPEN] }, ...mine } }, select: { phase: true, plannedOn: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } }, take: 100 }),
     hasRole(me, "HR") || hasRole(me, "FINANCE") ? [] : prisma.repairJob.findMany({ where: { nextDueAt: { gte: soon(-60), lte: soon(14) }, ...(team ? { engineerId: { in: team } } : {}) }, orderBy: { nextDueAt: "desc" }, select: { no: true, assetId: true, nextDueAt: true, finishedAt: true, asset: { select: { code: true, customer: { select: { name: true } } } } }, take: 200 }),
-    !can.customers(me) || hasRole(me, "FINANCE") ? [] : prisma.contact.findMany({ where: { birthday: { not: null } }, select: { id: true, name: true, birthday: true, customer: { select: { code: true, name: true } } } }),
+    !can.customers(me) || hasRole(me, "FINANCE") ? [] : prisma.contact.findMany({ where: { birthday: { not: null }, customer: await customerScope(me) }, select: { id: true, name: true, birthday: true, customer: { select: { code: true, name: true } } } }),
     money ? prisma.invoice.findMany({ where: { paidAt: null, cancelledAt: null, dueAt: { lte: soon(3) } }, select: { no: true, dueAt: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } }, take: 200 }) : [],
     money ? prisma.supplierInvoice.findMany({ where: { status: "OPEN" }, select: { invoiceNo: true, invoiceDate: true, dueDate: true, accrued: true, mdApprovedAt: true, currency: true, payable: true, subtotal: true, matchDiff: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } }, take: 300 }) : [],
     can.staff(me) ? prisma.employee.findMany({ where: { active: true, birthDate: { not: null } }, select: { code: true, name: true, birthDate: true } }) : [],

@@ -2464,7 +2464,11 @@
     "approverTag": "Team approver",
     "ok_paySubmitted": "Submitted — finance has been notified.",
     "err_PAYROLL_NOT_SUBMITTED": "HR has not submitted the {detail} payroll for review yet.",
-    "workGate_quoteDraft": "The quote of {no} is still a draft: sales must confirm the price and send it, then the customer's PO is confirmed before the report. Open the quote:"
+    "workGate_quoteDraft": "The quote of {no} is still a draft: sales must confirm the price and send it, then the customer's PO is confirmed before the report. Open the quote:",
+    "acceptReadOnly": "Acceptance is signed by this order's engineer, their supervisor, Sales or the MD — you can only read it.",
+    "customerSales": "Responsible Sales person",
+    "customerSalesNone": "— none (MD only) —",
+    "customerSalesHint": "Sales sees only their own customers; orders an engineer opens for this customer go to this person for pricing."
   },
   "role": {
     "MD": "MD Managing Director",

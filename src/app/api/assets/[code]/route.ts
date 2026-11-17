@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorCode } from "@/lib/errors";
+import { errorCode, errorStatus } from "@/lib/errors";
 import { bodyAsSession, jsonForSession, requireSession } from "@/server/api-auth";
 import { getAssetPage, transferAsset } from "@/server/alm";
 
@@ -20,6 +20,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ code: string 
     const ev = await transferAsset({ assetCode: code, ...body });
     return jsonForSession(ev);
   } catch (e) {
-    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) });
   }
 }

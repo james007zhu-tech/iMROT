@@ -17,6 +17,15 @@ async function main() {
     }
     console.log(`backfill: ${n} 暂估应付 written for goods already received`); }
 
+  // 2026-11-17 需求清单 v4 V4-P0-02: 负责销售. A customer whose orders all belong to one Sales person is theirs; the rest
+  // stay with the MD until he says who (customer page).
+  { let n = 0;
+    for (const c of await prisma.customer.findMany({ where: { salesId: null }, select: { id: true, serviceOrders: { select: { salesId: true, sales: { select: { role: true, extraRoles: true } } } } } })) {
+      const owners = [...new Set(c.serviceOrders.filter((o) => o.salesId && (o.sales?.role === "SALES" || o.sales?.extraRoles.includes("SALES"))).map((o) => o.salesId!))];
+      if (owners.length === 1) { await prisma.customer.update({ where: { id: c.id }, data: { salesId: owners[0] } }); n++; }
+    }
+    console.log(`backfill: ${n} customer(s) given to the Sales person of their orders`); }
+
   // 2026-11-16 六角色 (朱总 16:31): 内勤 → Sales, 仓库 → PUR, 经理 → ENG + 本组审批人; whoever has people reporting to them approves for them.
   { const moved: string[] = [];
     for (const [from, to, approver] of [["ADMIN", "SALES", false], ["WAREHOUSE", "PURCHASING", false], ["MANAGER", "ENGINEER", true]] as const) {

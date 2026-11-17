@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorCode } from "@/lib/errors";
+import { errorCode, errorStatus } from "@/lib/errors";
 import { sessionEmployeeCode } from "@/server/auth";
 import { decideAction } from "@/server/ai-actions";
 
@@ -10,5 +10,5 @@ export async function POST(req: Request) {
   try {
     const { id, go } = await req.json();
     return NextResponse.json(await decideAction(String(id), code, !!go));
-  } catch (e) { return NextResponse.json({ error: errorCode(e) }, { status: 400 }); }
+  } catch (e) { return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) }); }
 }

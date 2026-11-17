@@ -1,6 +1,6 @@
 import { currentEmployee } from "@/server/auth";
 import { docTypeAllowed, orderScope } from "@/server/scope";
-import { can } from "@/lib/caps";
+import { can, pathAllows } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
@@ -37,7 +37,7 @@ export default async function Documents({ searchParams }: { searchParams: Promis
   const like = (v: string) => ({ contains: v, mode: "insensitive" as const });
 
   const step = type ? newStep(type) : undefined;
-  const newButton = place?.newHref ? <Link href={place.newHref} className={btnBlue}>＋ {d("new", { name: title })}</Link> : step ? <Link href={href({ new: true })} className={btnBlue}>＋ {d("new", { name: title })}</Link> : null;
+  const newButton = place?.newHref ? !pathAllows(me, place.newHref.split("?")[0]) ? null : <Link href={place.newHref} className={btnBlue}>＋ {d("new", { name: title })}</Link> : step ? <Link href={href({ new: true })} className={btnBlue}>＋ {d("new", { name: title })}</Link> : null;
 
   let total = 0;
   let body: React.ReactNode;
@@ -69,7 +69,7 @@ export default async function Documents({ searchParams }: { searchParams: Promis
               <td className="font-mono"><Link href={p ? p.open(x.no, x.serviceOrder?.no) : `/search?q=${x.no}`} className="text-blue hover:underline">{x.no}</Link></td>
               {!type && <td>{p ? n(p.nav) : x.type}</td>}
               <td className="whitespace-nowrap">{day(x.issuedAt)}</td>
-              <td>{x.customer?.name ?? x.serviceOrder?.customer.name ?? ""}</td>
+              <td>{can.customerNames(me) ? x.customer?.name ?? x.serviceOrder?.customer.name ?? "" : "—"}</td>
               <td className="font-mono">{x.serviceOrder && x.serviceOrder.no !== x.no ? <Link href={`/service-orders/${x.serviceOrder.no}`} className="hover:underline">{x.serviceOrder.no}</Link> : ""}</td>
               <td>{x.createdBy.name}</td>
               <td className="text-right">{x.templateCode ? <a href={`/api/documents/${x.no}/render?format=pdf`} className="text-xs text-blue hover:underline">PDF</a> : null}</td>

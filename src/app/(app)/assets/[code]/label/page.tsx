@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
 import { prisma } from "@/lib/db";
+import { assetScope, customerScope } from "@/server/scope";
+import { currentEmployee } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function Label({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ n?: string }> }) {
   const { code } = await params;
   const { n } = await searchParams;
-  const asset = await prisma.asset.findUnique({ where: { code }, include: { model: { include: { series: { include: { brand: true } } } }, customer: true } });
+  const asset = await prisma.asset.findFirst({ where: { AND: [{ code }, await assetScope(await currentEmployee())] }, include: { model: { include: { series: { include: { brand: true } } } }, customer: true } });
   if (!asset) notFound();
   const base = process.env.PUBLIC_BASE_URL ?? "https://opth.ducheng-industrial.com";
   const qr = await QRCode.toDataURL(`${base}/portal/report?asset=${asset.code}`, { margin: 0, width: 240 });

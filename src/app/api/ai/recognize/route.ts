@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorCode } from "@/lib/errors";
+import { errorCode, errorStatus } from "@/lib/errors";
 import { saveUpload } from "@/lib/uploads";
 import { sessionContactId, sessionEmployeeCode } from "@/server/auth";
 import { recognizeDocuments } from "@/server/recognize";
@@ -26,6 +26,6 @@ export async function POST(req: Request) {
     const kindLabel = r.docKind && RECOGNIZE[kind].accept?.includes(r.docKind.toUpperCase()) ? r.docKind.toUpperCase() : RECOGNIZE[kind].attachKind;
     return NextResponse.json({ ...r, attachments: files.map((f) => ({ name: f.original, url: f.url, kind: kindLabel })) });
   } catch (e) {
-    return NextResponse.json({ error: errorCode(e) }, { status: 400 });
+    return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) });
   }
 }

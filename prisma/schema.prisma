@@ -159,6 +159,7 @@ model Employee {
   ordersAssigned     ServiceOrder[]         @relation("OrderAssignee")
   ordersCreated      ServiceOrder[]         @relation("OrderCreator")
   ordersSold         ServiceOrder[]         @relation("OrderSales")
+  customersOwned     Customer[]             @relation("CustomerSales")
   quoteDeclines      QuoteDecline[]
   inspections        Inspection[]
   repairJobs         RepairJob[]
@@ -317,6 +318,8 @@ model AuditLog {
 // ───────────────────────── CRM ─────────────────────────
 
 model Customer {
+  salesId            String? /// 负责销售 (需求清单 v4 V4-P0-02, P1-21): the Sales person who sees this customer and to whom orders opened by engineers go; empty = the MD only
+  sales              Employee?          @relation("CustomerSales", fields: [salesId], references: [id])
   id                String      @id @default(cuid())
   code              String      @unique /// CTH2610001
   entityId          String
