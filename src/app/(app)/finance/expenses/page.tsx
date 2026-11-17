@@ -53,7 +53,7 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
                 {files.length === 0 && <span className="text-[#9A5B00]">{t("expNoReceipt")}</span>}
                 {r.approver && <span>{t(r.status === "REJECTED" ? "expRejectedBy" : "expApprovedBy", { name: r.approver.name })}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span>}
                 {r.paidRef && <span>{r.paidRef}</span>}
-                {r.status === "APPROVED" && r.paidBy === "SELF" && <span>{t("expWithPayroll")}</span>}
+                {r.status === "APPROVED" && r.paidBy === "SELF" && <span>{t("expWithPayroll", { month: r.payrollMonth ?? new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 7) })}</span>}
               </div>
               {r.status === "APPROVED" && r.payrollMonth && <p className="mt-2 text-[13px] text-navy">{t("expWithPayroll", { month: r.payrollMonth })}</p>}
               {(r.canDecide || (r.status === "PENDING" && r.employeeId === me.id) || r.canPay) && <div className="mt-2 flex flex-wrap items-center gap-2">
