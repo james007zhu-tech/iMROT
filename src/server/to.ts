@@ -50,6 +50,7 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   if (order.decline && !feeLines?.length) throw new Error(`FEE_WAIVED:${order.no}`);
   const first = order.decline ? order.status === "DECLINED" : order.status === "ACCEPTED";
   if (!first && !reissue) throw new Error(order.status === "INVOICED" ? `TI_EXISTS:${order.taxInvoices.find((t) => !t.voidedAt)?.no ?? ""}` : `${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
+  if (!order.decline && Number(order.total ?? 0) <= 0) throw new Error(`INVOICE_ZERO:${order.no}`); // 0 元不开票 (V4-P0-06)
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const issuedAt = d.issuedAt ?? new Date();
   const currency = order.entity.localCurrency;

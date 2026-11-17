@@ -9,7 +9,7 @@ import { prisma } from "../../src/lib/db";
 import { createPurchaseOrder, createSupplier, receivePurchaseOrder } from "../../src/server/purchasing";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
 import { setQuoteLines } from "../../src/server/slm-docs";
-import { recordStockDoc, stockOnHand } from "../../src/server/scm";
+import { issueNeeds, recordStockDoc, stockOnHand } from "../../src/server/scm";
 import { issueDelivery, deliveryPlan } from "../../src/server/delivery";
 import { allocateNumber } from "../../src/lib/numbering-db";
 
@@ -52,6 +52,9 @@ async function main() {
   check("P0-07 confirmed again: same status, the delivery lines are the memory card", !after.poStaleAt && after.status === "IN_PROGRESS" && plan1.lines.length === 1 && plan1.lines[0].partSku === p2.sku, `${after.status} ${plan1.lines.map((l) => l.description).join()}`);
   await setQuoteLines({ serviceOrderNo: o.no, actorCode: md.code, lines: [{ partSku: p2.sku, description: "TEST v3 memory card", qty: 1, unit: "pcs", unitPrice: 280, unitCost: 50 }] });
   check("P0-07 a price change alone does not ask for a new PO", !(await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } })).poStaleAt);
+
+  // ── V4-P0-10: what an order still needs from stock can always be read (the page behind 领料 crashed on a bad filter)
+  { const need = await issueNeeds(o.no); check("V4-P0-10 issueNeeds answers for an order", !!need && Array.isArray(need.lines), JSON.stringify(need?.lines)); }
 
   // ── P1-03
   const asset = await prisma.asset.findFirst({ where: { customerId: { not: null }, status: { not: "RETIRED" } } });

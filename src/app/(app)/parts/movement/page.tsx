@@ -34,7 +34,7 @@ export default async function Movement({ searchParams }: { searchParams: Promise
   ]);
   const warehouses = [...new Set(["RAYONG", ...whs.map((w) => w.warehouse)])];
   // 从工单出库: the order's part lines not yet issued are already on the form — part, quantity, the order's machine (需求清单 v3 P0-08)
-  const fromOrder = order && direction === "OUT" ? await issueNeeds(order) : null;
+  const fromOrder = order && direction === "OUT" && orders.some((o) => o.no === order) ? await issueNeeds(order) : null; // only an order this person may see
   const pre = fromOrder?.lines ?? [];
   // 维修出库: only the machines of the order's own customer (测试报告 P0-03); 贸易出库 picks no machine at all
   const custIds = [...new Set(orders.map((o) => o.customerId))];

@@ -11,6 +11,7 @@ import { shortDate, localIso } from "@/lib/dates";
 import { RevealRows } from "@/components/RevealRows";
 import { Alert, Card, Field, Grid, inputCls } from "@/components/ui";
 import { StepPage, atts, dayNow, loadOrder, str } from "../_shell";
+import { issueNeeds } from "@/server/scm";
 
 export const dynamic = "force-dynamic";
 const ROWS = 8;
@@ -20,6 +21,8 @@ export default async function Accept({ params, searchParams }: { params: Promise
   const [{ no }, { error }] = await Promise.all([params, searchParams]);
   const order = await loadOrder(no);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
+  // 备件：已出库 i/n (V4-P0-10) — the person signing sees whether the quoted parts really left the store
+  const partsQuoted = order.lines.filter((l) => l.partId).length, partsLeft = (await issueNeeds(no))?.lines.length ?? 0;
   const [contacts, me, missing] = await Promise.all([prisma.contact.findMany({ where: { customerId: order.customerId }, orderBy: { name: "asc" } }), currentEmployee(), missingForAcceptance(no)]);
   const required = ["INTH", order.kind === "MAINTENANCE" || order.kind === "CONTRACT" ? "PMTH" : "RPTH", ...(order.repairJobs.some((j) => j.location === "WORKSHOP") ? ["ERTH", "DNTH"] : [])];
   // Deliverables default to the job's tests (what was proven), then parts and the parameter backup.
@@ -46,7 +49,7 @@ export default async function Accept({ params, searchParams }: { params: Promise
     }, `/service-orders/${no}/accept`);
   }
   return (
-    <StepPage order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={(await mayAccept(me, order.id)) ? u("saveAcceptance") : ""} notice={(await mayAccept(me, order.id)) ? undefined : u("acceptReadOnly")}>
+    <StepPage badge={partsQuoted ? <span className={`rounded-full px-3 py-1 text-xs font-semibold ${partsLeft ? "bg-alert/15 text-alert-ink" : "bg-blue/10 text-navy"}`}>{u("acceptParts", { done: partsQuoted - partsLeft, all: partsQuoted })}</span> : undefined} order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={(await mayAccept(me, order.id)) ? u("saveAcceptance") : ""} notice={(await mayAccept(me, order.id)) ? undefined : u("acceptReadOnly")}>
       <form id="f" action={save} className="space-y-4">
         <Card title={u("acceptChecklist")}>
           <ul className="grid gap-1 text-sm md:grid-cols-2">

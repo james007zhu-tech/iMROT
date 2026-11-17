@@ -16,6 +16,7 @@ import { prisma } from "@/lib/db";
 import { localToday } from "@/lib/overtime";
 import { maskName } from "@/lib/mask";
 import { daysToBirthday, daysUntil, orderDue, sortNotices, type Notice } from "@/lib/notify";
+import { issueNeeds } from "@/server/scm";
 
 const OPEN = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] as const;
 
@@ -101,6 +102,22 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     if (made && Number(date.slice(8, 10)) <= 7) push("cashPlanReady", 7 - Number(date.slice(8, 10)), month, `/finance/cash-plan?month=${month}`, Number((made.plan.totals as { out?: number }).out ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 }));
   }
   // 忘记密码: someone asked on the sign-in page; an MD issues the link from that person's ETH file
+  // 验收后通知财务开票 (需求清单 v4 V4-P0-05): the moment an order is accepted it stands in finance's list — number,
+  // customer, amount — and opens on its invoice. Sales can press 催财务开票; after 48 hours both are reminded.
+  if (hasRole(me, "FINANCE", "MD", "SALES")) {
+    const waiting = await prisma.serviceOrder.findMany({ where: { AND: [hasRole(me, "FINANCE", "MD") ? {} : await orderScope(me), { status: "ACCEPTED", total: { gt: 0 }, NOT: { kind: "CONTRACT" } }] }, select: { no: true, total: true, currency: true, invoiceNudgedAt: true, customer: { select: { name: true } }, acceptance: { select: { acceptedAt: true } } }, take: 100 });
+    for (const o of waiting) {
+      const hours = o.acceptance?.acceptedAt ? (Date.now() - o.acceptance.acceptedAt.getTime()) / 3600000 : 0;
+      if (hasRole(me, "FINANCE")) push(o.invoiceNudgedAt ? "toInvoiceUrgent" : hours > 48 ? "toInvoiceLate" : "toInvoice", -Math.floor(hours / 24), o.no, `/service-orders/${o.no}/invoice`, `${o.customer.name} · ${o.currency} ${Number(o.total).toFixed(2)}`);
+      else if (hours > 48 && !hasRole(me, "MD")) push("invoiceWaiting", -Math.floor(hours / 24), o.no, `/service-orders/${o.no}`, o.customer.name);
+    }
+  }
+  // 待出库 (需求清单 v4 V4-P0-09): a trade order whose PO is confirmed waits for the store to issue the goods — the
+  // delivery note can only be written after the OBTH.
+  if (hasRole(me, "PURCHASING")) {
+    const trade = await prisma.serviceOrder.findMany({ where: { mode: { in: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] }, status: "IN_PROGRESS" }, select: { no: true }, orderBy: { reportedAt: "desc" }, take: 40 });
+    for (const o of trade) { const need = await issueNeeds(o.no); if (need?.lines.some((l) => l.onHand >= l.qty)) push("stockOutDue", 0, o.no, `/parts/movement?direction=OUT&order=${o.no}`); }
+  }
   // 待我审批 (需求清单 v3 P2-24): overtime and expense claims of the people who report to me — the bell counts them the
   // moment they are filed. The MD also gets those of people who have nobody else above them.
   if (isApprover(me)) {
@@ -113,7 +130,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   }
   if (hasRole(me, "MD")) for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "payrollApprove";
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice");
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
 }

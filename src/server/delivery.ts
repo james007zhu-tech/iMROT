@@ -9,7 +9,7 @@ import { prisma } from "@/lib/db";
 import { partnerDeliveryBlockers } from "@/server/srm";
 import { allocateNumber } from "@/lib/numbering-db";
 import { audit } from "@/server/audit";
-import { findPart, normPartNo, recordStockDoc, stockOnHand } from "@/server/scm";
+import { findPart, normPartNo, stockOnHand } from "@/server/scm";
 import { poLinesFromQuote, progressOrder, type PoLine } from "@/server/slm";
 import { isTradeMode } from "@/lib/modes";
 import { RETURN_UNREPAIRED, returnRemark } from "@/lib/decline";
@@ -86,8 +86,8 @@ async function tradeParts(orderId: string, plan: DeliveryLine[]) {
 }
 
 /**
- * What the store can give each goods line of a trade order right now (the delivery form starts from it: a line is
- * offered what is really there, not what is still owed). Lines without a part yet are left out.
+ * What may be delivered on each goods line of a trade order right now: what the store has issued for this order (OBTH)
+ * and has not been delivered yet (需求清单 v4 V4-P0-09). Lines without a part yet are left out.
  */
 export async function tradeAvailable(orderId: string, plan: DeliveryLine[]): Promise<Map<string, { sku: string; available: number }>> {
   const parts = await tradeParts(orderId, plan);
@@ -99,7 +99,7 @@ export async function tradeAvailable(orderId: string, plan: DeliveryLine[]): Pro
     if (!left.has(part.sku)) {
       const taken = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: orderId } });
       const before = plan.filter((x) => parts.get(x.key)?.sku === part.sku).reduce((n, x) => n + x.deliveredBefore, 0);
-      left.set(part.sku, Math.max(0, (await stockOnHand(part.sku)) + Math.max(0, Number(taken._sum.qty ?? 0) - before)));
+      left.set(part.sku, Math.max(0, Number(taken._sum.qty ?? 0) - before)); // 先出库、再送货 (V4-P0-09): only what the store has issued for this order can be delivered
     }
     const due = Math.max(0, l.expected - l.deliveredBefore), give = Math.min(due, left.get(part.sku)!);
     out.set(l.key, { sku: part.sku, available: give });
@@ -122,17 +122,17 @@ async function tradeStock(orderId: string, plan: DeliveryLine[], delivered: Reco
     before.set(part.sku, (before.get(part.sku) ?? 0) + l.deliveredBefore);
   }
   const short: string[] = [];
-  const issue: { partSku: string; qty: number }[] = []; // what still has to leave the store for this note
+  const notOut: string[] = []; // in the store, but no OBTH for this order yet
   for (const [sku, qty] of now) {
     if (qty <= 0) continue;
     const part = await prisma.part.findUniqueOrThrow({ where: { sku } });
     const out = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: orderId } });
     const taken = Math.max(0, Number(out._sum.qty ?? 0) - (before.get(sku) ?? 0)); // already out of the store for this order and not yet delivered
     const onHand = await stockOnHand(sku);
-    if (qty > onHand + taken + 1e-9) short.push(`${sku} ${qty}/${Math.max(0, onHand + taken)}`);
-    else if (qty > taken) issue.push({ partSku: sku, qty: qty - taken });
+    // 没出库不能开送货单 (V4-P0-09): the note delivers only what an OBTH of this order already took out of the store
+    if (qty > taken + 1e-9) (onHand + taken + 1e-9 < qty ? short : notOut).push(`${sku} ${qty}/${taken}（库存 ${onHand}）`);
   }
-  return { parts, noPart, short, issue };
+  return { parts, noPart, short, notOut };
 }
 
 /** Lines whose delivered quantity does not match what is still due. Service lines are never delivered. */
@@ -178,6 +178,7 @@ export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
   const trade = !d.draft && isTradeMode(order.mode) ? await tradeStock(order.id, lines, d.delivered) : null;
   if (trade?.noPart.length) throw new Error(`DELIVERY_NO_PART:${trade.noPart.join("; ")}`);
   if (trade?.short.length) throw new Error(`DELIVERY_NO_STOCK:${trade.short.join("; ")}`);
+  if (trade?.notOut.length) throw new Error(`DELIVERY_NOT_ISSUED_FROM_STOCK:${trade.notOut.join("; ")}`);
   const driver = d.driverCode ? await prisma.employee.findUniqueOrThrow({ where: { code: d.driverCode } }) : null;
   const draft = await prisma.deliveryNote.findFirst({ where: { serviceOrderId: order.id, status: "DRAFT" } });
   const data = {
@@ -194,11 +195,7 @@ export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
     await tx.document.create({ data: { no: dn.no, type: "DN", entityId: order.entityId, countryCode: dn.no.slice(2, 4), customerId: order.customerId, serviceOrderId: order.id, createdById: actor.id, templateCode: "19", issuedAt: d.deliverOn } });
     if (bad.length) await audit(actor.id, "DELIVERY_OVERRIDE", dn.no, { reason: d.overrideReason, mismatch: bad.map((b) => ({ key: b.key, due: b.due, now: b.now })) }, tx);
     return dn;
-  });  // the goods leave the store with the note (one OBTH), so the next order sees what is really left
-  if (trade?.issue.length) {
-    const ob = await recordStockDoc({ actorCode: actor.code, direction: "OUT", serviceOrderNo: order.no, movedAt: d.deliverOn, lines: trade.issue });
-    await audit(actor.id, "DELIVERY_STOCK_OUT", dn.no, { obth: ob.no, lines: trade.issue });
-  }
+  });
   return dn;
 }
 

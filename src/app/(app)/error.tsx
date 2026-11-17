@@ -21,6 +21,7 @@ export default function AppError({ error }: { error: Error & { digest?: string }
   const [offline, setOffline] = useState(false);
   const back = () => { try { sessionStorage.setItem("dcit-draft-restore", "1"); } catch { /* ignore */ } location.reload(); };
   useEffect(() => {
+    try { localStorage.setItem("dcit-draft-failed", "1"); } catch { /* ignore */ } // the save did not arrive: the draft stays
     setOffline(typeof navigator !== "undefined" && navigator.onLine === false);
     const on = () => back(); // the network is back: return to the form, filled in, ready to be saved again
     const off = () => setOffline(true);

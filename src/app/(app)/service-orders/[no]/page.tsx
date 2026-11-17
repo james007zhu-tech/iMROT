@@ -82,6 +82,15 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const waitsMargin = order.marginApproval === "PENDING";
   const primary0 = businessClosureOn() || !steps.primary || !money(steps.primary) ? steps.primary : undefined;
   const primary = primary0 && mine(primary0) ? primary0 : undefined;
+  async function nudge() {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
+      await prisma.serviceOrder.update({ where: { no }, data: { invoiceNudgedAt: new Date() } });
+      await prisma.auditLog.create({ data: { actorId: me.id, action: "INVOICE_NUDGE", target: no } });
+      return "nudged";
+    }, `/service-orders/${no}`);
+  }
   const handedToFinance = !!primary0 && money(primary0) && !seeInv; // 验收完成 → 已通知财务开票
   const also = (businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k))).filter(mine);
   const stepLabel = (s: StepKey) => (s === "buy" ? u(`step_buy_${buying ?? "QUOTE"}`) : u(`step_${s}`));
@@ -188,7 +197,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
           {/* a quote under the margin floor goes nowhere until the MD has decided: say so here, not after the next form is filled */}
           {waitsMargin && seeCost ? (hasRole(me, "MD") ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-alert bg-alert/10 px-3 py-2 text-sm font-semibold text-alert-ink">{u("marginWaitingMd")}</span>)
-            : handedToFinance ? <span className="rounded-lg border border-navy/25 bg-white px-3 py-2 text-sm text-navy">✓ {u("handedToFinance")}</span>
+            : handedToFinance ? <form action={nudge} className="flex items-center gap-2"><span className="rounded-lg border border-navy/25 bg-white px-3 py-2 text-sm text-navy">✓ {u("handedToFinance")}{order.acceptance?.acceptedAt ? ` · ${localIso(order.acceptance.acceptedAt)?.slice(5, 16).replace("T", " ")}` : ""}{order.invoiceNudgedAt ? ` · ${u("nudgedAt", { time: localIso(order.invoiceNudgedAt)?.slice(5, 16).replace("T", " ") ?? "" })}` : ""}</span><button className={btnGhost}>{u("nudgeFinance")}</button></form>
             : primary && primary !== "assign" && primary !== "contractDirect" && <Link href={hrefOf(primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />

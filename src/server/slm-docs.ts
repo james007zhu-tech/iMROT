@@ -8,7 +8,7 @@ import { mayOpenOrder, mayAccept } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
-import { findPart, resolveParts } from "@/server/scm";
+import { findPart, issueNeeds, recordStockDoc, resolveParts, stockOnHand } from "@/server/scm";
 import { openOrderFor, verifySerial } from "@/server/asset-first";
 import { prisma } from "@/lib/db";
 import { finishGap, workGap } from "@/lib/work-gate";
@@ -243,6 +243,7 @@ export const RepairJobInput = z.object({
   rootCause: z.string().optional(),
   workPerformed: z.string().optional(),
   partsReplaced: z.array(z.object({ partSku: z.string(), name: z.string().optional(), qty: z.number().positive(), oldSerial: z.string().optional(), newSerial: z.string().optional(), obthNo: z.string().optional(), oldDisposition: z.enum(["SCRAP", "RETURN_TO_CUSTOMER", "KEEP_FOR_ANALYSIS"]).optional() })).optional(),
+  partsSkipReason: z.string().optional(), /// why a quoted part was not fitted (需求清单 v4 V4-P0-10)
   configBackupRef: z.string().optional(),
   laborHours: z.number().optional(),
   tests: z.array(TestRow).optional(),
@@ -278,6 +279,23 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
   const gap = workGap(order, { maintenance, rework });
   if (gap) throw new Error(`WORK_TOO_EARLY_${gap.toUpperCase()}:${order.no}`);
   if (d.finishedAt && !maintenance) { const f = finishGap(d.tests); if (f) throw new Error(`REPAIR_${f}`); }
+  // 维修用料进库存账 (需求清单 v4 V4-P0-10). Finishing a repair: every part written on the report has left the store —
+  // the OBTH of this order is put on its line, or the part is issued now from stock; and a part that was quoted but
+  // neither issued nor fitted needs a word why.
+  if (d.finishedAt && !maintenance) {
+    for (const p of d.partsReplaced ?? []) {
+      if (!p.partSku?.trim() || p.obthNo) continue;
+      const part = await findPart(p.partSku).catch(() => null);
+      if (!part) continue; // not a part of the catalogue (written free hand): nothing to take from stock
+      const issued = await prisma.stockMovement.findFirst({ where: { partId: part.id, direction: "OUT", serviceOrderId: order.id }, orderBy: { movedAt: "desc" } });
+      if (issued) { p.obthNo = issued.no; continue; }
+      const onHand = await stockOnHand(part.sku);
+      if (onHand < p.qty) throw new Error(`PARTS_NO_STOCK:${part.sku} ×${p.qty}（库存 ${onHand}）`);
+      p.obthNo = (await recordStockDoc({ actorCode: eng.code, direction: "OUT", serviceOrderNo: order.no, assetCode: asset.code, lines: [{ partSku: part.sku, qty: p.qty }] })).no;
+    }
+    const rest = (await issueNeeds(order.no))?.lines ?? [];
+    if (rest.length && !d.partsSkipReason?.trim()) throw new Error(`PARTS_UNUSED:${rest.map((l) => `${l.sku} ×${l.qty}`).join("、")}`);
+  }
   const prefix = d.kind === "MAINTENANCE" ? "PM" : "RP";
   const workStatus: AssetStatus = d.kind === "MAINTENANCE" ? "MAINTENANCE" : d.kind === "OVERHAUL" ? "OVERHAUL" : "REPAIR";
   const target: AssetStatus = d.finishedAt ? "ACCEPTANCE" : workStatus;
@@ -294,7 +312,7 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
       engineerId: eng.id, kind: d.kind, location: d.location,
       startedAt: d.startedAt ?? open?.startedAt ?? new Date(), finishedAt: v(d.finishedAt), confirmedFault: v(d.confirmedFault), rootCause: v(d.rootCause),
       workPerformed: v(d.workPerformed), partsReplaced: list(d.partsReplaced), configBackupRef: v(d.configBackupRef),
-      laborHours: v(d.laborHours), tests: list(d.tests), openIssues: v(d.openIssues), conclusion: v(d.conclusion),
+      laborHours: v(d.laborHours), tests: list(d.tests), openIssues: d.partsSkipReason?.trim() ? [d.openIssues, `备件未换：${d.partsSkipReason.trim()}`].filter(Boolean).join("；") : v(d.openIssues), conclusion: v(d.conclusion),
       attachments: (d.attachments?.length ? [...((open?.attachments as unknown[] | null) ?? []), ...d.attachments] : open?.attachments ?? undefined) as Prisma.InputJsonValue | undefined,
       level: v(d.level), runHours: v(d.runHours), checklist: list(d.checklist), hazards: v(d.hazards), handled: v(d.handled),
       recommendation: v(d.recommendation), conditionRating: v(d.conditionRating), nextDueAt: v(d.nextDueAt), nextDueHours: v(d.nextDueHours),

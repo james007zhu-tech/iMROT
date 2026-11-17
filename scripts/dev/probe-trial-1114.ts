@@ -56,7 +56,7 @@ const refused = async (fn: () => Promise<unknown>) => { try { await fn(); return
   const plan = await deliveryPlan(o.no);
   const all = Object.fromEntries(plan.lines.map((l) => [l.key, l.expected - l.deliveredBefore]));
   const over = await refused(() => issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: all }));
-  check("three cannot be delivered with two in stock", over.startsWith("DELIVERY_NO_STOCK") && over.includes("3/2"), over);
+  check("three cannot be delivered with two in stock", over.startsWith("DELIVERY_NO_STOCK") && over.includes("3/0（库存 2）"), over);
   const forced = await refused(() => issueDelivery({ serviceOrderNo: o.no, actorCode: md.code, deliverOn: new Date(), delivered: all, overrideReason: "customer insists" }));
   check("…and no reason overrides it", forced.startsWith("DELIVERY_NO_STOCK"), forced.slice(0, 40));
   const outOver = await refused(() => recordStockDoc({ actorCode: md.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: oem, qty: 3 }] }));

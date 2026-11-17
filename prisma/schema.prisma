@@ -884,6 +884,7 @@ model ServiceOrder {
   salesId            String? /// 销售负责人 (朱总 2026-11-11): whose target this order counts toward; empty = the person who opened it
   sales              Employee?          @relation("OrderSales", fields: [salesId], references: [id])
   customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
+  invoiceNudgedAt    DateTime? /// Sales pressed 催财务开票: the customer is waiting for the invoice (需求清单 v4 V4-P0-05)
   poStaleAt          DateTime? /// the quote changed after the customer's PO was confirmed: the PO is confirmed again before anything is delivered (需求清单 v3 P0-07)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
   requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH

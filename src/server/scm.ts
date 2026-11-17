@@ -184,7 +184,7 @@ export async function createPart(input: { brandCode?: string; vendorPartNo: stri
  * when there is exactly one, and the open PRTH if the missing parts are already being bought.
  */
 export async function issueNeeds(orderNo: string) {
-  const o = await prisma.serviceOrder.findUnique({ where: { no: orderNo }, include: { lines: { include: { part: { select: { sku: true } } } }, assets: { include: { asset: { select: { code: true } } } }, inquiries: { where: { status: { notIn: ["CANCELLED", "CLOSED"] as never[] } }, select: { no: true }, take: 1 } } });
+  const o = await prisma.serviceOrder.findUnique({ where: { no: orderNo }, include: { lines: { include: { part: { select: { sku: true } } } }, assets: { include: { asset: { select: { code: true } } } }, inquiries: { where: { status: { not: "CANCELLED" } }, select: { no: true }, take: 1 } } });
   if (!o) return null;
   const want = new Map<string, number>();
   const po = (o.poLines as { sku?: string; qty: number; isService?: boolean }[] | null) ?? [];
