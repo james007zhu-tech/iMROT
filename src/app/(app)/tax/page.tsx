@@ -1,4 +1,5 @@
 import { localIso } from "@/lib/dates";
+import { fxMark } from "@/lib/fx-label";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { businessClosureOn } from "@/lib/closure";
@@ -21,7 +22,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ d
   const doc = d === "rc" || d === "ti" ? d : "iv";
   const me = await currentEmployee();
   const oScope = await orderScope(me); // Sales: the invoices of their own customers only (V4-P0-02)
-  const t = await getTranslations("common");
+  const t = await getTranslations("common"), u = await getTranslations("ui");
   const n = await getTranslations("nav");
   const dn = await getTranslations("docs");
   const title = n(doc === "iv" ? "billing" : doc === "rc" ? "receipts" : "taxInvoices");
@@ -47,7 +48,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ d
     const rows = await prisma.taxInvoice.findMany({ where: { AND: [{ serviceOrder: oScope }, showVoid ? {} : { voidedAt: null }] }, orderBy: { issuedAt: "desc" }, take: 200, include: { serviceOrder: { include: { customer: true } } } });
     body = (
       <Table head={[n("taxInvoices"), "QTTH", t("customer"), t("date"), <span key="s" className="block text-right">{t("subtotal")}</span>, <span key="v" className="block text-right">VAT</span>, <span key="a" className="block text-right">{t("amount")}</span>, <span key="c" className="block text-right">CNY</span>, t("status")]}>
-        {rows.map((x) => <tr key={x.id} className={x.voidedAt ? "text-navy/40 line-through" : ""}><td className="font-mono">{x.no}</td><td>{order(x.serviceOrder.no)}</td><td>{x.serviceOrder.customer.name}</td><td className="whitespace-nowrap">{day(x.issuedAt)}</td><td className="text-right">{x.currency} {money(x.subtotal)}</td><td className="text-right">{money(x.vatAmount)}</td><td className="text-right">{money(x.total)}</td><td className="text-right">{money(x.totalCny)}</td><td className="whitespace-nowrap">{t(x.voidedAt ? "invState_VOID" : x.voidStatus === "REQUESTED" ? "invState_VOIDASKED" : "invState_LIVE")}</td></tr>)}
+        {rows.map((x) => <tr key={x.id} className={x.voidedAt ? "text-navy/40 line-through" : ""}><td className="font-mono">{x.no}</td><td>{order(x.serviceOrder.no)}</td><td>{x.serviceOrder.customer.name}</td><td className="whitespace-nowrap">{day(x.issuedAt)}</td><td className="text-right">{x.currency} {money(x.subtotal)}</td><td className="text-right">{money(x.vatAmount)}</td><td className="text-right">{money(x.total)}</td><td className="text-right">{money(x.totalCny)}<span className="block whitespace-nowrap text-[11px] text-navy/60">@{Number(x.fxRateToCny).toFixed(4)} {fxMark(u, x.fxSource, x.fxRateDate)}</span></td><td className="whitespace-nowrap">{t(x.voidedAt ? "invState_VOID" : x.voidStatus === "REQUESTED" ? "invState_VOIDASKED" : "invState_LIVE")}</td></tr>)}
         {rows.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-navy/60">{t("noInvoices")}</td></tr>}
       </Table>
     );

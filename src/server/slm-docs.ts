@@ -2,6 +2,7 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { fxFields, rateForNew } from "@/server/fx";
 import { audit } from "@/server/audit";
 import { can, hasRole } from "@/lib/caps";
 import { mayOpenOrder, mayAccept } from "@/server/scope";
@@ -186,7 +187,7 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   // 国际贸易: an export is zero-rated (src/lib/export.ts — until the accountant says otherwise)
   const vatRate = d.vatRate ?? (order.mode === "INTERNATIONAL_TRADE" ? EXPORT_VAT_RATE : Number(order.entity.vatRate));
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
-  const fx = order.currency === "CNY" ? 1 : (await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny;
+  const fxr = await rateForNew(order.currency), fx = fxr?.rateToCny; // 中国银行价 (or 财务手工价) of today, kept on the quote with its day
   const parts = await resolveParts(d.lines.map((l) => l.partSku).filter((s): s is string => !!s));
   const partnerCosts = order.mode === "PARTNER_REPAIR" ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
   // 报价单成本必填 (MD 2026-11-17 18:29): a quote without cost has no margin. Whoever may see what we paid gets the last
@@ -220,7 +221,7 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
     const updated = await tx.serviceOrder.update({
       where: { id: order.id },
       data: {
-        subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx ? Number(fx) : undefined, totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined,
+        subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, ...fxFields(fxr), totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined,
         costTotal: cost, marginPct: pct, marginApproval: approval, marginApprovedById: null, marginApprovedAt: null, marginNote: null,
         ...(d.warrantyDays !== undefined ? { warrantyDays: d.warrantyDays } : {}),
       },

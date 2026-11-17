@@ -3,6 +3,7 @@
  * into the QTTH (margin) → customer signs → POTH → goods arrive on an IBTH against the POTH.
  * PRTH and POTH can also be raised on their own (stock replenishment, parts sale) — serviceOrderNo is optional.
  */
+import { fxFields, rateForNew } from "@/server/fx";
 import { actorWith } from "@/server/guard";
 import { can, hasRole } from "@/lib/caps";
 
@@ -249,11 +250,11 @@ export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInp
   const paymentTerms = d.paymentTerms ?? (kind === "SUBCONTRACT" ? paymentTermsText(supplier.paymentMode, supplier.paymentDays) : undefined);
   const vatRate = d.vatRate ?? Number(actor.entity.vatRate);
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
-  const fx = d.currency === "CNY" ? 1 : Number((await prisma.fxRate.findFirst({ where: { currency: d.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny ?? 0) || undefined;
+  const fxr = await rateForNew(d.currency), fx = fxr?.rateToCny || undefined;
   const lines = d.lines.map((l, i) => ({ lineNo: i + 1, ...l, amount: round2(l.qty * l.unitPrice), receivedQty: 0 }));
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "PO", createdByEmployeeCode: actor.code, entityId: order?.entityId ?? actor.entityId });
-    const po = await tx.purchaseOrder.create({ data: { no, entityId: order?.entityId ?? actor.entityId, supplierId: d.supplierId, inquiryId: inq?.id, serviceOrderId: order?.id, kind, warrantyDays: d.warrantyDays, scope: d.scope, expectedAt: d.expectedAt, currency: d.currency, fxRateToCny: fx, subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, totalCny: fx ? round2(t.total * fx) : undefined, supplierRef: d.supplierRef, paymentTerms, lines: lines as unknown as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined, createdById: actor.id } });
+    const po = await tx.purchaseOrder.create({ data: { no, entityId: order?.entityId ?? actor.entityId, supplierId: d.supplierId, inquiryId: inq?.id, serviceOrderId: order?.id, kind, warrantyDays: d.warrantyDays, scope: d.scope, expectedAt: d.expectedAt, currency: d.currency, ...fxFields(fxr), subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, totalCny: fx ? round2(t.total * fx) : undefined, supplierRef: d.supplierRef, paymentTerms, lines: lines as unknown as Prisma.InputJsonValue, attachments: d.attachments as Prisma.InputJsonValue | undefined, createdById: actor.id } });
     await tx.document.create({ data: { no, type: "PO", entityId: po.entityId, countryCode: no.slice(2, 4), customerId: order?.customerId, serviceOrderId: order?.id, createdById: actor.id } });
     if (inq) await tx.purchaseInquiry.update({ where: { id: inq.id }, data: { status: "ORDERED" } });
     for (const a of order?.assets ?? []) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "STATUS_CHANGED", actorId: actor.id, serviceOrderId: order!.id, sourceDocNo: no, summary: `${no} · ${d.currency} ${t.total.toFixed(2)}`, payload: { purchaseOrder: no, total: t.total } as Prisma.InputJsonValue } });

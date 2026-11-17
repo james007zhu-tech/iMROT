@@ -54,9 +54,11 @@ model FxRate {
   rateToCny   Decimal   @db.Decimal(18, 8)
   buyRemit    Decimal?  @db.Decimal(18, 6) /// 现汇买入价 per 100 units, kept for audit
   sellRemit   Decimal?  @db.Decimal(18, 6) /// 现汇卖出价 per 100 units
-  source      String    @default("BOC")
+  source      String    @default("BOC") /// "BOC" 中国银行价 (fetched) | "MANUAL" 财务手工价 (overrides the BOC rate of that day)
   publishedAt DateTime?
   fetchedAt   DateTime  @default(now())
+  setBy       String? /// MANUAL: employee code
+  note        String? /// MANUAL: why
 
   @@unique([rateDate, currency, source])
   @@index([currency, rateDate])
@@ -893,6 +895,8 @@ model ServiceOrder {
   attachments        Json? /// [{name, url, kind: PO | REPORT_MSG | PHOTO}] — originals kept for later comparison
   currency           String             @default("THB")
   fxRateToCny        Decimal?           @db.Decimal(18, 8)
+  fxRateDate         DateTime?          @db.Date /// the day of the rate used
+  fxSource           String? /// "BOC" | "MANUAL"
   subtotal           Decimal?           @db.Decimal(18, 2)
   vatAmount          Decimal?           @db.Decimal(18, 2)
   total              Decimal?           @db.Decimal(18, 2)
@@ -1305,6 +1309,8 @@ model PurchaseOrder {
   expectedAt     DateTime?
   currency       String              @default("THB")
   fxRateToCny    Decimal?            @db.Decimal(18, 8)
+  fxRateDate         DateTime?          @db.Date /// the day of the rate used
+  fxSource           String? /// "BOC" | "MANUAL"
   subtotal       Decimal             @db.Decimal(18, 2)
   vatRate        Decimal             @db.Decimal(5, 4)
   vatAmount      Decimal             @db.Decimal(18, 2)
@@ -1468,6 +1474,8 @@ model TaxInvoice {
   vatAmount         Decimal      @db.Decimal(18, 2)
   total             Decimal      @db.Decimal(18, 2)
   fxRateToCny       Decimal      @db.Decimal(18, 8)
+  fxRateDate         DateTime?          @db.Date /// the day of the rate used
+  fxSource           String? /// "BOC" | "MANUAL"
   totalCny          Decimal      @db.Decimal(18, 2)
   buyerTaxId        String?
   buyerBranch       String?

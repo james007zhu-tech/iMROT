@@ -41,6 +41,34 @@ async function main() {
   await askPoApproval({ no: po.no, actorCode: pur.code }); await decidePurchaseOrder({ no: po.no, actorCode: md.code, approve: true });
   check("approved: sent, then received", (await msg(sendPurchaseOrder({ no: po.no, actorCode: pur.code }))) === "ok" && (await msg(receivePurchaseOrder({ poNo: po.no, actorCode: pur.code, received: [{ lineNo: 1, qty: 1 }] }))) === "ok");
 
+  console.log("第 1 条 记账汇率：中国银行价 + 日期；财务手工覆盖留痕");
+  { const { rateFor, overrideRate, removeOverride } = await import("../../src/server/fx");
+    const fin = await mk("FINANCE");
+    const day = (n: number) => { const d = new Date(); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - n)); };
+    await prisma.fxRate.deleteMany({ where: { currency: "XTS" } });
+    await prisma.fxRate.create({ data: { currency: "XTS", rateDate: day(1), rateToCny: 0.2, source: "BOC" } });
+    const r0 = await rateFor("XTS");
+    check("the rate is the Bank of China one, with its day", r0?.source === "BOC" && r0.rateToCny === 0.2 && r0.rateDate.getTime() === day(1).getTime());
+    check("Sales cannot set a rate", /NO_PERMISSION/.test(await msg(overrideRate({ actorCode: sales.code, currency: "XTS", rateDate: day(0), rateToCny: 0.21, note: "x" }))));
+    check("an override needs a reason", /REASON_REQUIRED/.test(await msg(overrideRate({ actorCode: fin.code, currency: "XTS", rateDate: day(0), rateToCny: 0.21, note: " " }))));
+    check("not for a day to come, not zero", /FX_FUTURE/.test(await msg(overrideRate({ actorCode: fin.code, currency: "XTS", rateDate: day(-1), rateToCny: 0.21, note: "x" }))) && /FX_RATE_REQUIRED/.test(await msg(overrideRate({ actorCode: fin.code, currency: "XTS", rateDate: day(0), rateToCny: 0, note: "x" }))));
+    const row = await overrideRate({ actorCode: fin.code, currency: "xts", rateDate: day(0), rateToCny: 0.21, note: "TEST bank slip rate" });
+    const r1 = await rateFor("XTS");
+    check("finance's rate of today stands in front", r1?.source === "MANUAL" && r1.rateToCny === 0.21 && r1.rateDate.getTime() === day(0).getTime());
+    check("yesterday's documents still get the Bank of China rate", (await rateFor("XTS", day(1)))?.source === "BOC");
+    const sup2 = await createSupplier({ actorCode: md.code, name: `TEST d2 fx supplier ${tag}` });
+    const fxPo = await createPurchaseOrder({ actorCode: pur.code, supplierId: sup2.id, currency: "XTS", vatRate: 0, lines: [{ vendorPartNo: part.vendorPartNo!, description: "TEST d2 bolt", qty: 1, unitPrice: 100 }], allowRepeat: true } as never);
+    const kept = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: fxPo.no } });
+    check("a new document keeps rate, day and source (财务手工价 + today)", Number(kept.fxRateToCny) === 0.21 && kept.fxSource === "MANUAL" && kept.fxRateDate?.getTime() === day(0).getTime() && Number(kept.totalCny) === 21, `${kept.fxRateToCny} ${kept.fxSource} ${kept.totalCny}`);
+    const a1 = await prisma.auditLog.findFirst({ where: { action: "FX_OVERRIDE", actorId: fin.id } });
+    check("the override is on record: who, the rate, the Bank of China rate it replaced, why", (a1?.detail as { boc?: number; note?: string })?.boc === 0.2 && (a1?.detail as { note?: string })?.note === "TEST bank slip rate");
+    check("removing needs a reason; a Bank of China rate cannot be removed", /REASON_REQUIRED/.test(await msg(removeOverride({ actorCode: fin.code, id: row.id, note: "" }))) && /FX_NOT_MANUAL/.test(await msg(removeOverride({ actorCode: fin.code, id: (await prisma.fxRate.findFirstOrThrow({ where: { currency: "XTS", source: "BOC" } })).id, note: "x" }))));
+    await removeOverride({ actorCode: fin.code, id: row.id, note: "TEST done" });
+    check("removed: back to the Bank of China rate, and the removal is on record; the document keeps what it was written with", (await rateFor("XTS"))?.source === "BOC" && !!(await prisma.auditLog.findFirst({ where: { action: "FX_OVERRIDE_REMOVED", actorId: fin.id } })) && (await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: fxPo.no } })).fxSource === "MANUAL");
+    await prisma.purchaseOrder.update({ where: { no: fxPo.no }, data: { status: "CANCELLED" } }).catch(() => null);
+    await prisma.fxRate.deleteMany({ where: { currency: "XTS" } });
+    await prisma.employee.update({ where: { id: fin.id }, data: { active: false } }); }
+
   await prisma.serviceOrder.update({ where: { no: o.no }, data: { status: "CANCELLED" } });
   await prisma.employee.updateMany({ where: { id: { in: [sales.id, pur.id] } }, data: { active: false } });
   console.log(failed ? `\n${failed} FAILED` : "\nall passed");

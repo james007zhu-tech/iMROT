@@ -1,4 +1,5 @@
 import { can, hasRole } from "@/lib/caps";
+import { fxMark } from "@/lib/fx-label";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -100,7 +101,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
         <Table head={["#", u("partSku"), u("vendorPartNo"), t("description"), t("qty"), ...(seeCost ? [u("unitPriceExVat"), t("amount")] : []), u("received")]}>
           {lines.map((l) => <tr key={l.lineNo}><td>{l.lineNo}</td><td className="font-mono">{l.partSku ? <Link href={`/parts/${l.partSku}`} className="text-blue hover:underline">{l.partSku}</Link> : <span className="text-alert-ink">{u("noSkuYet")}</span>}</td><td className="font-mono">{l.vendorPartNo ?? ""}</td><td>{l.description}</td><td>{l.qty} {l.unit}</td>{seeCost && <><td className="text-right">{l.unitPrice.toFixed(2)}</td><td className="text-right">{l.amount.toFixed(2)}</td></>}<td className={l.receivedQty < l.qty ? "font-semibold text-alert-ink" : ""}>{l.receivedQty} / {l.qty}</td></tr>)}
         </Table>
-        {seeCost && <p className="text-right text-[13px]">{t("subtotal")} {Number(po.subtotal).toFixed(2)} · {t("vat")} {(Number(po.vatRate) * 100).toFixed(0)}% {Number(po.vatAmount).toFixed(2)} · <b>{t("total")} {po.currency} {Number(po.total).toFixed(2)}</b>{po.totalCny != null ? ` · CNY ${Number(po.totalCny).toFixed(2)}` : ""}</p>}
+        {seeCost && <p className="text-right text-[13px]">{t("subtotal")} {Number(po.subtotal).toFixed(2)} · {t("vat")} {(Number(po.vatRate) * 100).toFixed(0)}% {Number(po.vatAmount).toFixed(2)} · <b>{t("total")} {po.currency} {Number(po.total).toFixed(2)}</b>{po.totalCny != null ? ` · CNY ${Number(po.totalCny).toFixed(2)} @${Number(po.fxRateToCny).toFixed(4)}（${fxMark(u, po.fxSource, po.fxRateDate)}）` : ""}</p>}
       </Card>
       {receiptsByNo.size > 0 && <Card title={u("receiptsIb")}>
         <Table head={["IBTH", t("date"), u("partSku"), t("qty"), ...(seeCost ? [u("unitCost")] : []), u("supplierDocNo")]}>
