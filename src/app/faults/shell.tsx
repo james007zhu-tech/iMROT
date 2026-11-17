@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import Link from "next/link";
 import { CONTACT, PUBLIC_LANGS, publicT, type PublicLang } from "@/lib/kb-public";
 
@@ -37,7 +38,7 @@ export function ContactCta({ lang, code }: { lang: PublicLang; code?: string }) 
   return (
     <div className="mt-5">
       <a href={CONTACT.phoneHref} className="block rounded-xl bg-blue px-4 py-3 text-center font-semibold text-white">
-        {t("cta")}<span className="mt-0.5 block text-sm font-normal opacity-90">☎ {CONTACT.phone}</span>
+        {t("cta")}<span className="mt-0.5 block text-sm font-normal opacity-90"><Icon name="phone" /> {CONTACT.phone}</span>
       </a>
       <a href={`mailto:${CONTACT.email}?subject=${encodeURIComponent(`${t("ctaSubject")} ${code ?? ""}`.trim())}`} className="mt-2 block text-center text-sm text-blue underline">{CONTACT.email}</a>
     </div>

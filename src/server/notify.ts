@@ -111,7 +111,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // 付款两人 (MD 2026-11-17): what finance has asked waits for the MD; what the MD approved waits for finance's bank slip
   if (hasRole(me, "MD", "FINANCE")) for (const p of await prisma.supplierPayment.findMany({ where: { status: { in: ["REQUESTED", "APPROVED"] } }, select: { id: true, no: true, status: true, amount: true, requestedBy: true, supplierInvoice: { select: { currency: true, supplier: { select: { name: true } } } } }, take: 80 })) {
     const who = `${p.supplierInvoice.supplier.name} · ${p.supplierInvoice.currency} ${Number(p.amount).toFixed(2)}`;
-    if (p.status === "REQUESTED" && hasRole(me, "MD")) push("payApprove", 0, p.no, "/finance/payables", who);
+    if (p.status === "REQUESTED" && hasRole(me, "MD")) push("payApprove", 0, p.no, `/finance/payables#${p.no}`, who); // straight to this payment, lit up
     if (p.status === "APPROVED" && hasRole(me, "FINANCE")) push("payConfirm", 0, p.no, `/finance/payables/pay/${p.id}`, who);
   }
   // PO 审批 (MD 2026-11-17): every draft POTH purchasing has handed over waits in the MD's list

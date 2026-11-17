@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { assertOrderAccess } from "@/server/scope";
 import { fxMark } from "@/lib/fx-label";
 import { can, hasRole, isApprover } from "@/lib/caps";
@@ -218,7 +219,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             </Grid>
             <Field label={u("projectScope")}><Value className="whitespace-pre-line">{(order.project as ProjectInfo | null)?.scope ?? "—"}</Value></Field>
             <div className="flex flex-wrap gap-1.5 text-xs">{order.milestones.map((m) => <span key={m.id} className={`rounded-full border px-2 py-0.5 ${m.doneAt ? "border-navy bg-navy text-white" : nextMilestone(msShape)?.seq === m.seq ? "border-blue text-blue" : "border-navy/25 text-navy/60"}`}>{m.seq}. {u(`phase_${m.phase}`)}{m.payPct ? ` ${Math.round(Number(m.payPct) * 100)}%` : ""}</span>)}</div>
-            {atts.length > 0 && <div className="mt-2 flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.name}</a>)}</div>}
+            {atts.length > 0 && <div className="mt-2 flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold"><Icon name="doc" /> {a.name}</a>)}</div>}
           </Card> : isTradeMode(order.mode) ? <Card title={u("customerAndInquiry")}>
             <Grid>
               <Field label={t("customer")}><Value>{order.customer.name}</Value></Field>
@@ -231,7 +232,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy")]}>
               {((order.requestLines as { sku?: string; description: string; qty: number; unit: string; neededBy?: string }[] | null) ?? []).map((l, i) => <tr key={i}><td>{i + 1}</td><td className="font-mono">{l.sku ?? "—"}</td><td>{l.description}</td><td className="text-right">{l.qty}</td><td>{l.unit}</td><td>{l.neededBy ?? ""}</td></tr>)}
             </Table>
-            {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.name}</a>)}</div>}
+            {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold"><Icon name="doc" /> {a.name}</a>)}</div>}
           </Card> : <Card title={u("assetAndReport")}>
             <Grid>
               <Field label={t("asset")}><div className="space-y-2 rounded-md border bg-white px-2.5 py-2 text-sm">{order.assets.map((l) => <AssetTriple key={l.assetId} asset={l.asset} />)}</div></Field>
@@ -239,7 +240,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
               <Field label={t("customerRef")}><Value className="font-mono">{order.customerRef ?? "—"}</Value></Field>
             </Grid>
             <Field label={t("symptom")}><Value><FaultText>{order.reportedSymptom ?? "—"}{order.reportedAlarm ? ` · ${order.reportedAlarm}` : ""}</FaultText>{order.productionImpact ? <span className="ml-2 text-navy/80">· {["STOPPED", "DEGRADED", "NONE"].includes(order.productionImpact) ? u(`impact${order.productionImpact[0]}${order.productionImpact.slice(1).toLowerCase()}`) : order.productionImpact}</span> : null}</Value></Field>
-            {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {["INQUIRY", "PO", "MESSAGE", "PAYMENT", "CUSTOMER_DN"].includes(a.kind) ? `${u(`kind_${a.kind}`)} · ` : ""}{a.name}</a>)}</div>}
+            {atts.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold"><Icon name="doc" /> {["INQUIRY", "PO", "MESSAGE", "PAYMENT", "CUSTOMER_DN"].includes(a.kind) ? `${u(`kind_${a.kind}`)} · ` : ""}{a.name}</a>)}</div>}
           </Card>}
 
           {terms && <div id="export-docs"><Card title={u("exportDocs")}>
@@ -250,7 +251,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
                 return (
                   <div key={k} className="flex flex-wrap items-center gap-2 rounded-md border bg-white px-2.5 py-2 text-sm">
                     <span className="w-44 font-semibold">{u(`kind_${k}`)}</span>
-                    <span className="flex flex-1 flex-wrap gap-2 text-xs">{files.length ? files.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 px-2.5 py-0.5 font-semibold">📄 {a.name}</a>) : <Tag hot>{u("exportDocMissing")}</Tag>}</span>
+                    <span className="flex flex-1 flex-wrap gap-2 text-xs">{files.length ? files.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 px-2.5 py-0.5 font-semibold"><Icon name="doc" /> {a.name}</a>) : <Tag hot>{u("exportDocMissing")}</Tag>}</span>
                     {order.status !== "CLOSED" && order.status !== "CANCELLED" && <form action={exportDocAction.bind(null, no, k)} className="flex items-center gap-1"><input name="files" type="file" multiple required accept="image/*,application/pdf" className="w-52 text-xs" /><button className={btnGhost}>{u("upload")}</button></form>}
                   </div>
                 );
@@ -277,7 +278,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             <Table head={["#", t("asset"), u("descEnTh"), t("qty"), ...(seePrice ? [t("price"), t("amount")] : [])]}>
               {order.lines.map((l) => <tr key={l.id}><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-navy/70">{l.descriptionLocal}</span> : null}</td><td>{Number(l.qty)} {l.unit}</td>{seePrice && <><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></>}</tr>)}
             </Table>
-            {seePrice && <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}（${fxMark(u, order.fxSource, order.fxRateDate)}）` : ""}</p>}
+            {seePrice && <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}（${fxMark(u, order.fxSource, order.fxRateDate, order.fxBy)}）` : ""}</p>}
             {seeCost && order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: localIso(order.lockedAt)!.slice(0, 10) })}` : ""}</p>}
             {order.marginApproval === "PENDING" && hasRole(me, "MD") && (
               <form id="margin" action={decideMargin} className="mt-2 flex scroll-mt-24 flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">

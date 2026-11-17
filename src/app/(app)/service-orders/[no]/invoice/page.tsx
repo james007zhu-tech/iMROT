@@ -1,5 +1,5 @@
 import { can, hasRole } from "@/lib/caps";
-import { rateFor } from "@/server/fx";
+import { fxFields, rateFor } from "@/server/fx";
 import { fxMark } from "@/lib/fx-label";
 import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
@@ -130,7 +130,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
           <Table head={["#", u("descThRequired"), u("descEn"), t("qty"), t("price"), t("amount")]}>
             {shown.map((l, i) => <tr key={l.id}><td>{l.lineNo}</td><td><input name={`th${i}`} required defaultValue={l.descriptionLocal ?? ""} className={inputCls} /></td><td>{l.description}</td><td>{l.qty}</td><td className="text-right">{l.unitPrice.toFixed(2)}</td><td className="text-right">{l.amount.toFixed(2)}</td></tr>)}
           </Table>
-          <p className="text-right text-[13px]">{t("subtotal")} {sum.subtotal.toFixed(2)} · {t("vat")} {sum.vatAmount.toFixed(2)} · <b>{t("total")} {sum.total.toFixed(2)}</b>{fx ? ` · CNY ${(sum.total * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} （${fxMark(u, fx.source, fx.rateDate)}）` : ""}</p>
+          <p className="text-right text-[13px]">{t("subtotal")} {sum.subtotal.toFixed(2)} · {t("vat")} {sum.vatAmount.toFixed(2)} · <b>{t("total")} {sum.total.toFixed(2)}</b>{fx ? ` · CNY ${(sum.total * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} （${fxMark(u, fx.source, fx.rateDate, fxFields(fx).fxBy)}）` : ""}</p>
         </Card>
         <Card title={u("invoiceIv")}>
           <Grid>

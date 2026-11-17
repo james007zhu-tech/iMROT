@@ -59,7 +59,7 @@ async function main() {
     const sup2 = await createSupplier({ actorCode: md.code, name: `TEST d2 fx supplier ${tag}` });
     const fxPo = await createPurchaseOrder({ actorCode: pur.code, supplierId: sup2.id, currency: "XTS", vatRate: 0, lines: [{ vendorPartNo: part.vendorPartNo!, description: "TEST d2 bolt", qty: 1, unitPrice: 100 }], allowRepeat: true } as never);
     const kept = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: fxPo.no } });
-    check("a new document keeps rate, day and source (财务手工价 + today)", Number(kept.fxRateToCny) === 0.21 && kept.fxSource === "MANUAL" && kept.fxRateDate?.getTime() === day(0).getTime() && Number(kept.totalCny) === 21, `${kept.fxRateToCny} ${kept.fxSource} ${kept.totalCny}`);
+    check("a new document keeps rate, day and source (财务手工价 + today)", Number(kept.fxRateToCny) === 0.21 && kept.fxSource === "MANUAL" && kept.fxRateDate?.getTime() === day(0).getTime() && (kept.fxBy ?? "").startsWith(fin.code) && Number(kept.totalCny) === 21, `${kept.fxRateToCny} ${kept.fxSource} ${kept.totalCny}`);
     const a1 = await prisma.auditLog.findFirst({ where: { action: "FX_OVERRIDE", actorId: fin.id } });
     check("the override is on record: who, the rate, the Bank of China rate it replaced, why", (a1?.detail as { boc?: number; note?: string })?.boc === 0.2 && (a1?.detail as { note?: string })?.note === "TEST bank slip rate");
     check("removing needs a reason; a Bank of China rate cannot be removed", /REASON_REQUIRED/.test(await msg(removeOverride({ actorCode: fin.code, id: row.id, note: "" }))) && /FX_NOT_MANUAL/.test(await msg(removeOverride({ actorCode: fin.code, id: (await prisma.fxRate.findFirstOrThrow({ where: { currency: "XTS", source: "BOC" } })).id, note: "x" }))));

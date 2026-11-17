@@ -2564,7 +2564,7 @@
     "err_FX_NOT_MANUAL": "A Bank of China rate cannot be removed",
     "ok_payRecounted": "Computed again; waiting for the finance review",
     "ok_payCarried": "Carried to next month's pay",
-    "otShiftRule": "Enter only start and end. The system splits by the standard shift {start}–{end} (1 h lunch): on a working day only time outside the shift counts ×1.5; on Sundays and company holidays the first 8 h ×1, beyond ×3. Time inside the shift cannot be claimed; kind and multiplier are not chosen.",
+    "otShiftRule": "Enter only start and end. The system splits by the standard shift {start}–{end} (1 h lunch): on a working day only time outside the shift counts ×1.5; on Sundays and company holidays time inside the shift ×1, outside ×3. Shift time on a working day cannot be claimed; kind and multiplier are not chosen.",
     "otAuto": "Auto · from site report",
     "otCarried": "paid with {month}",
     "holidays": "Company holidays",
@@ -2574,7 +2574,16 @@
     "holidayAdd": "Add holiday",
     "holidayRemove": "Remove",
     "err_OT_IN_SHIFT": "This time lies wholly inside the normal shift {detail}; it cannot be claimed as overtime",
-    "err_HOLIDAY_NAME_REQUIRED": "Enter the holiday's name"
+    "err_HOLIDAY_NAME_REQUIRED": "Enter the holiday's name",
+    "payGross": "Amount due this time (incl. VAT)",
+    "payWhtRate": "Withholding rate %",
+    "payWhtAmount": "Tax withheld",
+    "payNet": "Paid out",
+    "err_PAY_WHT_RATE": "The withholding rate must be between 0 and 15 %",
+    "otEveryone": "Everyone's overtime",
+    "otPayPending": "Waiting for approval",
+    "otPayNone": "Not paid",
+    "otPayExpected": "Expected with {month}"
   },
   "role": {
     "MD": "MD Managing Director",
@@ -2769,7 +2778,11 @@
     "signedBy": "Signed by",
     "ac_ACCEPTED": "Accepted",
     "ac_CONDITIONAL": "Conditional",
-    "ac_REJECTED": "Rejected"
+    "ac_REJECTED": "Rejected",
+    "acceptedBy": "Accepted {date} · signed {who}",
+    "notCandidates": "Not candidates, and why",
+    "outNoAcceptance": "no acceptance record",
+    "outZero": "amount is 0"
   },
   "chain": {
     "title": "Document chain",

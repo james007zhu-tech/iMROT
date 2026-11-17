@@ -7,7 +7,8 @@ import { Flash } from "@/components/Flash";
 import { PageHeader, Table, Tag, btnBlue, btnGhost, inputCls } from "@/components/ui";
 import { mismatch } from "@/lib/pay-rules";
 import { decideAction, requestAction, voidAction, withdrawAction } from "./actions";
-import { outstandingOf, payAccounts } from "@/server/pay";
+import { outstandingOf, payAccounts, grossOpenOf } from "@/server/pay";
+import { PayStartFields } from "@/components/PayStartFields";
 import { can, hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export default async function Payables({ searchParams }: { searchParams: Promise
   const rows = await prisma.supplierInvoice.findMany({ where: all ? {} : { status: "OPEN" }, orderBy: [{ status: "asc" }, { dueDate: "asc" }], take: 200, include: { supplier: true, payments: { orderBy: { requestedAt: "asc" } }, purchaseOrder: { select: { no: true, kind: true, serviceOrder: { select: { no: true } } } } } });
   const accounts = await payAccounts(me.entityId), acct = new Map(accounts.map((a) => [a.id, a.label]));
   // what can still be asked for: open, minus what is already on its way
-  const openOf = (r: (typeof rows)[number]) => outstandingOf(r) - r.payments.filter((p) => p.status === "REQUESTED" || p.status === "APPROVED").reduce((x, p) => x + Number(p.amount), 0);
+  const openOf = (r: (typeof rows)[number]) => grossOpenOf(r, r.payments); // 应付 still uncovered, VAT included, before withholding
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const mayPay = hasRole(me, "FINANCE"), md = hasRole(me, "MD");
   const openTotal = rows.filter((r) => r.status === "OPEN").reduce((s, r) => s + outstandingOf(r), 0);
@@ -44,8 +45,8 @@ export default async function Payables({ searchParams }: { searchParams: Promise
               <td className="min-w-64 space-y-1 text-xs">
                 {/* 付款三步、两人 (MD 2026-11-17): 发起 → MD 批准 → 上传回单确认。一步点击不再记成已付。 */}
                 {!r.accrued && Number(r.paidAmount) > 0 && <div className="text-navy/80">{u("payPaidOpen", { paid: Number(r.paidAmount).toFixed(2), open: outstandingOf(r).toFixed(2) })}</div>}
-                {r.payments.map((p) => <div key={p.id} className={`rounded-lg border p-1.5 ${p.status === "VOID" || p.status === "REJECTED" ? "text-navy/50 line-through decoration-navy/30" : ""}`}>
-                  <span className="font-mono">{p.no}</span> · {r.currency} {Number(p.amount).toFixed(2)} · {acct.get(p.account) ?? (p.account === "before-rule" ? "—" : p.account)} · <b className="no-underline">{u(`payState_${p.status}`)}</b>
+                {r.payments.map((p) => <div key={p.id} id={p.no} className={`scroll-mt-24 rounded-lg border p-1.5 target:border-blue target:bg-tint target:ring-2 target:ring-blue ${p.status === "VOID" || p.status === "REJECTED" ? "text-navy/50 line-through decoration-navy/30" : ""}`}>
+                  <span className="font-mono">{p.no}</span> · {u("payNet")} {r.currency} {Number(p.amount).toFixed(2)}{Number(p.whtAmount) > 0 ? ` · ${u("payWhtAmount")} ${Number(p.whtAmount).toFixed(2)}` : ""} · {acct.get(p.account) ?? (p.account === "before-rule" ? "—" : p.account)} · <b className="no-underline">{u(`payState_${p.status}`)}</b>
                   {p.whtCertNo && p.status !== "VOID" && p.status !== "REJECTED" ? <> · <Link href={`/finance/payables/wht/${p.id}`} className="text-blue hover:underline">50 ทวิ {p.whtCertNo}</Link></> : null}
                   {p.decisionNote ? <span className="block">{p.decisionNote}</span> : null}{p.voidReason ? <span className="block">{u("payVoidWhy")}: {p.voidReason}</span> : null}
                   {p.status === "REQUESTED" && md && p.requestedBy !== me.code && <form action={decideAction} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="id" value={p.id} /><input name="note" placeholder={u("poDecideNotePh")} className={`${inputCls} w-40`} /><button name="decision" value="yes" className={btnBlue}>{u("poApprove")}</button><button name="decision" value="no" className={btnGhost}>{u("payRefuse")}</button></form>}
@@ -57,8 +58,8 @@ export default async function Payables({ searchParams }: { searchParams: Promise
                 {r.status === "OPEN" && !r.accrued && mayPay && openOf(r) > 0.005 && <details open={r.payments.every((p) => p.status === "VOID" || p.status === "REJECTED")}><summary className="cursor-pointer font-semibold text-blue">{u("payStart")}</summary>
                   <form action={requestAction} className="mt-1 grid grid-cols-1 gap-1"><input type="hidden" name="id" value={r.id} />
                     <select name="account" required defaultValue="" className={inputCls}><option value="" disabled>{u("payAccountPh")}</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</select>
-                    <div className="flex gap-1"><input name="amount" type="number" step="0.01" min="0.01" max={openOf(r).toFixed(2)} defaultValue={openOf(r).toFixed(2)} className={`${inputCls} w-32`} /><input name="payDate" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={`${inputCls} w-36`} /></div>
-                    {Number(r.whtAmount) > 0 && <span className="text-navy/70">{u("payWhtNote", { wht: Number(r.whtAmount).toFixed(2) })}</span>}
+                    <PayStartFields open={openOf(r)} baseShare={Number(r.total) > 0 ? Number(r.subtotal) / Number(r.total) : 1} rate={Number(r.whtRate)} currency={r.currency} cls={inputCls} labels={{ gross: u("payGross"), rate: u("payWhtRate"), wht: u("payWhtAmount"), net: u("payNet"), date: t("date") }} />
+                    <input name="payDate" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={`${inputCls} w-36`} />
                     <button className={`${btnBlue} whitespace-nowrap`}>{u("payStartBtn")}</button>
                   </form></details>}
                 {r.status === "OPEN" && !r.accrued && can.finance(me) && Number(r.paidAmount) === 0 && r.payments.every((p) => p.status === "VOID" || p.status === "REJECTED") && <details><summary className="cursor-pointer text-blue">{u("withdrawBtn")}</summary><form action={withdrawAction} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="id" value={r.id} /><input name="reason" required placeholder={u("withdrawReason")} className={`${inputCls} w-44`} /><button className={btnGhost}>{u("withdrawBtn")}</button></form></details>}

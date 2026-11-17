@@ -3,6 +3,7 @@
  * basic info, contacts, work history rows, quick credential entry (filled by the upload box), payroll identifiers.
  * The whole file is one form, saved once (mockup v0.1, 2026-11-08). Input `name`s match RECOGNIZE.employee fields.
  */
+import { Icon } from "@/components/Icon";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
 import { CONTRACT_TYPES } from "@/server/opd";
@@ -39,7 +40,7 @@ export async function EmployeeFormFields({ e, managers, show, contactsOpen = tru
     contactsOpen ? <input name={name} type={type} defaultValue={(e?.[name] as string | null | undefined) ?? ""} className={inputCls} /> : <div className={`${inputCls} bg-tint text-navy/70`}>{show(e?.[name] as string | null | undefined, kind) || "—"}</div>;
 
   const contacts = (
-    <Card title={<>{t("empContacts")} <Tag>{contactsOpen ? t("revealed") : `🔒 ${t("masked")}`}</Tag></>}>
+    <Card title={<>{t("empContacts")} <Tag>{contactsOpen ? t("revealed") : <><Icon name="lock" /> {t("masked")}</>}</Tag></>}>
       <Grid>
         <Field label={t("empPhoneTh")}>{contactInput("phone", "phone")}</Field>
         <Field label={t("empPhoneHome")}>{contactInput("phone2", "phone")}</Field>

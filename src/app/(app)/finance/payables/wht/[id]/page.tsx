@@ -15,7 +15,7 @@ export default async function WhtCertificate({ params }: { params: Promise<{ id:
   if (!p || !p.whtCertNo) notFound();
   const inv = p.supplierInvoice, s = inv.supplier;
   const e = await prisma.legalEntity.findUniqueOrThrow({ where: { id: p.entityId } });
-  const base = Number(inv.whtRate) > 0 ? Number(p.whtAmount) / Number(inv.whtRate) : 0;
+  const rate = Number(p.whtRate ?? inv.whtRate), base = rate > 0 ? Number(p.whtAmount) / rate : 0;
   const row = (k: string, v: string) => <tr><td className="w-56 border px-2 py-1 text-navy/70">{k}</td><td className="border px-2 py-1">{v}</td></tr>;
   return (
     <div className="mx-auto max-w-3xl space-y-4 rounded-xl border bg-white p-6 text-sm text-navy print:border-0">
@@ -34,7 +34,7 @@ export default async function WhtCertificate({ params }: { params: Promise<{ id:
         {row("ใบแจ้งหนี้ / Invoice", `${inv.invoiceNo} · ${localIso(inv.invoiceDate)!.slice(0, 10)}`)}
         {row("วันที่จ่าย / Date paid", localIso(p.paidAt ?? p.payDate)!.slice(0, 10))}
         {row("จำนวนเงินที่จ่าย / Amount paid (before tax)", `${inv.currency} ${base.toFixed(2)}`)}
-        {row("อัตรา / Rate", `${(Number(inv.whtRate) * 100).toFixed(0)} %`)}
+        {row("อัตรา / Rate", `${(rate * 100).toFixed(rate * 100 % 1 ? 2 : 0)} %`)}
         {row("ภาษีที่หักและนำส่ง / Tax withheld", `${inv.currency} ${Number(p.whtAmount).toFixed(2)}`)}
         {row("เลขที่ใบสำคัญจ่าย / Payment voucher", p.no)}
       </tbody></table>

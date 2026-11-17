@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { can, hasRole } from "@/lib/caps";
 import { redirect } from "next/navigation";
 import { customerScope, orderScope } from "@/server/scope";
@@ -92,7 +93,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/customers", label: u("backToCustomers") }} title={<><span className="font-mono">{c.code}</span> <span className="text-lg font-semibold">{c.name}</span></>} badge={c.dbdStatus ? <Tag>DBD · {c.dbdStatus}</Tag> : undefined}
-        actions={!mayEdit ? undefined : <>{c.taxId && isThaiTaxId(c.taxId) && (!c.addressLocal || !c.addressEn || !c.billingAddress || !c.phone || !c.nameLocal) && <form action={complete}><button className={btnGhost}>🔎 {u("completeByTaxId")}</button></form>}{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
+        actions={!mayEdit ? undefined : <>{c.taxId && isThaiTaxId(c.taxId) && (!c.addressLocal || !c.addressEn || !c.billingAddress || !c.phone || !c.nameLocal) && <form action={complete}><button className={btnGhost}><Icon name="search" /> {u("completeByTaxId")}</button></form>}{c.monthlyStatement && businessClosureOn() && <form action={statement}><button className={btnGhost}>{t("blthThisMonth")}</button></form>}<Link href={`/assets/new?customerId=${c.id}`} className={btnGhost}>＋ {u("newAsset")}</Link></>}
         newHref={`/service-orders/new?customer=${c.code}`} newLabel={u("newServiceOrder")} />
       <Flash ok={ok === "revealed" ? u("revealedFor5") : ok?.startsWith("completed:") ? u("completedN", { n: ok.split(":")[1] }) : ok === "completedNone" ? u("completedNone") : ok} error={errorCode} />
       {hasRole(me0, "MD") ? <Card title={u("customerSales")}>
@@ -113,7 +114,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
           <Field label={u("legalEntity")}><Value>{c.entity.code}</Value></Field>
           <Field label={t("phone")}><Value>{c.phone ?? "—"}</Value></Field>
         </Grid>
-        {full && files.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{files.map((f) => <a key={f.url} href={f.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {f.kind} · {f.name}</a>)}</div>}
+        {full && files.length > 0 && <div className="flex flex-wrap gap-2 text-xs">{files.map((f) => <a key={f.url} href={f.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold"><Icon name="doc" /> {f.kind} · {f.name}</a>)}</div>}
       </Card>
       <Card title={u("plants")}>
         <Table head={[u("plantCode"), u("plantName"), t("address"), u("accessNotes")]}>
@@ -123,7 +124,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
       </Card>
       <Card title={u("contacts")}>
         <div className="flex flex-wrap items-center gap-2">
-          <Tag>{open ? u("revealed") : `🔒 ${u("masked")}`}</Tag>
+          <Tag>{open ? u("revealed") : <><Icon name="lock" /> {u("masked")}</>}</Tag>
           {!open && <form action={reveal} className="flex items-center gap-2"><input name="password" type="password" required placeholder={u("reenterPassword")} className={`${inputCls} w-48`} /><button className={`${btnGhost} whitespace-nowrap`}>{u("showFull")}</button></form>}
         </div>
         <Table head={[u("personName"), u("jobTitle"), t("plant"), u("phoneLine"), t("email"), u("portalLogin")]}>
@@ -158,7 +159,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
       </Card>
       {full && <Card title={<>{u("inquiryHistory")} <Tag>{inquiryFiles.length}</Tag></>}>
         {inquiryFiles.length ? <Table head={[t("date"), "QTTH", u("file")]}>
-          {inquiryFiles.map((f) => <tr key={f.url}><td>{localIso(f.at)!.slice(0, 10)}</td><td><Link href={`/service-orders/${f.orderNo}`} className="font-mono text-blue hover:underline">{f.orderNo}</Link></td><td><a href={f.url} target="_blank" className="text-blue hover:underline">📄 {f.name}</a></td></tr>)}
+          {inquiryFiles.map((f) => <tr key={f.url}><td>{localIso(f.at)!.slice(0, 10)}</td><td><Link href={`/service-orders/${f.orderNo}`} className="font-mono text-blue hover:underline">{f.orderNo}</Link></td><td><a href={f.url} target="_blank" className="text-blue hover:underline"><Icon name="doc" /> {f.name}</a></td></tr>)}
         </Table> : <p className="text-sm text-navy/60">{u("noInquiryFiles")}</p>}
       </Card>}
       {statements.length > 0 && <Card title={u("statementsBl")}>

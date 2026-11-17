@@ -1,4 +1,5 @@
 import { PartDropdown } from "@/components/PartDropdown";
+import { can } from "@/lib/caps";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -19,10 +20,11 @@ const ROWS = 10;
 export default async function NewPurchaseOrder({ searchParams }: { searchParams: Promise<{ error?: string; order?: string }> }) {
   const { error, order } = await searchParams;
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
+  const names = can.customerNames(await currentEmployee());
   const [suppliers, parts, orders] = await Promise.all([
     prisma.supplier.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500, select: { sku: true, name: true, vendorPartNo: true, unit: true } }),
-    prisma.serviceOrder.findMany({ where: { lockedAt: null, status: { notIn: ["CLOSED", "CANCELLED"] } }, orderBy: { createdAt: "desc" }, take: 100, select: { no: true, customer: { select: { name: true } } } }),
+    prisma.serviceOrder.findMany({ where: { lockedAt: null, status: { notIn: ["CLOSED", "CANCELLED"] } }, orderBy: { createdAt: "desc" }, take: 100, select: { no: true, ...(names ? { customer: { select: { name: true } } } : {}) } }) as Promise<{ no: string; customer?: { name: string } }[]>, // purchasing never gets a customer name (H-R65)
   ]);
   async function save(f: FormData) {
     "use server";
@@ -46,7 +48,7 @@ export default async function NewPurchaseOrder({ searchParams }: { searchParams:
         <Card title={u("poHeader")}>
           <Grid>
             <Field label={u("supplier")} required><select name="supplierId" required className={inputCls}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.code} · {s.name}</option>)}</select></Field>
-            <Field label="QTTH"><select name="serviceOrderNo" defaultValue={order ?? ""} className={inputCls}><option value="">—</option>{orders.map((o) => <option key={o.no} value={o.no}>{o.no} · {o.customer.name}</option>)}</select></Field>
+            <Field label="QTTH"><select name="serviceOrderNo" defaultValue={order ?? ""} className={inputCls}><option value="">—</option>{orders.map((o) => <option key={o.no} value={o.no}>{o.no}{o.customer ? ` · ${o.customer.name}` : ""}</option>)}</select></Field>
             <Field label={u("quoteNo")}><input name="supplierRef" className={`${inputCls} font-mono`} /></Field>
             <Field label={t("currency")}><select name="currency" className={inputCls}>{["THB", "USD", "CNY", "EUR", "JPY"].map((c) => <option key={c}>{c}</option>)}</select></Field>
             <Field label={u("vatRateDec")}><input name="vatRate" type="number" step="0.0001" defaultValue="0.07" className={inputCls} /></Field>

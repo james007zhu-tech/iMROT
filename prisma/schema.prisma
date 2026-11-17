@@ -34,6 +34,7 @@ model LegalEntity {
   bookCurrency       String    @default("CNY") /// accounting currency for the whole group
   vatRate            Decimal   @default(0.07) @db.Decimal(5, 4)
   bankDetails        Json? /// bank, branch, swift, accounts by currency
+  payAccounts        Json? /// accounts payments leave from, besides the one above: [{bank, branch?, currency, accountNo}]
   vatRegisteredFrom  DateTime? /// printed in the tax-invoice footer (ภ.พ.20 effective date)
   taxInvoiceBookSize Int       @default(50) /// tax invoices per เล่ม (book); books are numbered consecutively per entity (朱总 2026-11-08)
   createdAt          DateTime  @default(now())
@@ -897,6 +898,7 @@ model ServiceOrder {
   fxRateToCny        Decimal?           @db.Decimal(18, 8)
   fxRateDate         DateTime?          @db.Date /// the day of the rate used
   fxSource           String? /// "BOC" | "MANUAL"
+  fxBy               String? /// MANUAL: who set the rate and when — "ETH2611009 2026-11-17 20:10"
   subtotal           Decimal?           @db.Decimal(18, 2)
   vatAmount          Decimal?           @db.Decimal(18, 2)
   total              Decimal?           @db.Decimal(18, 2)
@@ -1311,6 +1313,7 @@ model PurchaseOrder {
   fxRateToCny    Decimal?            @db.Decimal(18, 8)
   fxRateDate         DateTime?          @db.Date /// the day of the rate used
   fxSource           String? /// "BOC" | "MANUAL"
+  fxBy               String? /// MANUAL: who set the rate and when — "ETH2611009 2026-11-17 20:10"
   subtotal       Decimal             @db.Decimal(18, 2)
   vatRate        Decimal             @db.Decimal(5, 4)
   vatAmount      Decimal             @db.Decimal(18, 2)
@@ -1435,6 +1438,8 @@ model SupplierPayment {
   account           String /// where the money leaves: a company bank account (bank + last digits), CASH or PETTY_CASH
   amount            Decimal         @db.Decimal(18, 2) /// what leaves the account (net of withholding tax)
   whtAmount         Decimal         @default(0) @db.Decimal(18, 2) /// the withholding tax of this part, remitted to the Revenue Department
+  whtRate           Decimal?        @db.Decimal(5, 4) /// the rate withheld on this payment (on its share of the amount before VAT)
+  gross             Decimal?        @db.Decimal(18, 2) /// the part of the invoice this payment settles: amount + whtAmount
   whtCertNo         String? /// 50 ทวิ number, when tax is withheld
   payDate           DateTime
   status            String          @default("REQUESTED") /// REQUESTED → APPROVED → PAID; REJECTED; VOID (reversed)
@@ -1476,6 +1481,7 @@ model TaxInvoice {
   fxRateToCny       Decimal      @db.Decimal(18, 8)
   fxRateDate         DateTime?          @db.Date /// the day of the rate used
   fxSource           String? /// "BOC" | "MANUAL"
+  fxBy               String? /// MANUAL: who set the rate and when — "ETH2611009 2026-11-17 20:10"
   totalCny          Decimal      @db.Decimal(18, 2)
   buyerTaxId        String?
   buyerBranch       String?

@@ -35,7 +35,7 @@ export default async function ConfirmPayment({ params, searchParams }: { params:
           <dt className="text-navy/60">{u("supplierInvoiceNo")}</dt><dd className="font-mono">{inv.invoiceNo}</dd>
           <dt className="text-navy/60">POTH</dt><dd className="font-mono">{inv.purchaseOrder.no}</dd>
           <dt className="text-navy/60">{u("payableAmount")}</dt><dd>{inv.currency} {Number(inv.payable).toFixed(2)} · {u("payPaidOpen", { paid: Number(inv.paidAmount).toFixed(2), open: (Number(inv.payable) - Number(inv.paidAmount)).toFixed(2) })}</dd>
-          {Number(p.whtAmount) > 0 && <><dt className="text-navy/60">{t("wht")}</dt><dd>{inv.currency} {Number(p.whtAmount).toFixed(2)} · 50 ทวิ {p.whtCertNo}</dd></>}
+          {Number(p.whtAmount) > 0 && <><dt className="text-navy/60">{u("payGross")}</dt><dd>{inv.currency} {(Number(p.amount) + Number(p.whtAmount)).toFixed(2)}</dd><dt className="text-navy/60">{t("wht")} {p.whtRate != null ? `${(Number(p.whtRate) * 100).toFixed(2).replace(/\.?0+$/, "")}%` : ""}</dt><dd>{inv.currency} {Number(p.whtAmount).toFixed(2)} · 50 ทวิ {p.whtCertNo}</dd></>}
           <dt className="text-navy/60">{u("payApprovedByMd")}</dt><dd>{p.decidedBy} · {p.decidedAt ? localIso(p.decidedAt)!.slice(0, 16).replace("T", " ") : ""}</dd>
         </dl>
       </Card>

@@ -1,5 +1,5 @@
 import { actorWith } from "@/server/guard";
-import { rateFor } from "@/server/fx";
+import { fxFields, rateFor } from "@/server/fx";
 import { can, hasRole } from "@/lib/caps";
 import { countryOfNo, isTestNo } from "@/lib/numbering";
 /**
@@ -103,7 +103,7 @@ export async function writeTaxInvoice(tx: Prisma.TransactionClient, a: {
   const fxr = await rateFor(currency, issuedAt);
   const ti = await tx.taxInvoice.create({
     data: {
-      ...(fxr && fxr.rateToCny === fx ? { fxRateDate: fxr.rateDate, fxSource: fxr.source === "CNY" ? "BOC" : fxr.source } : {}),
+      ...(fxr && fxr.rateToCny === fx ? { fxRateDate: fxr.rateDate, fxSource: fxr.source === "CNY" ? "BOC" : fxr.source, fxBy: fxFields(fxr).fxBy } : {}),
       no, serviceOrderId: order.id, issuedAt, currency, seq, bookNo, bookSeq,
       lines: lines.map((l) => ({ ...l, amount: round2(l.qty * l.unitPrice) })) as Prisma.InputJsonValue,
       subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx, totalCny: round2(t.total * fx),

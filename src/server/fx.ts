@@ -26,7 +26,7 @@ export async function refreshBocRates(): Promise<{ rateDate: string; count: numb
   return { rateDate: localIso(rateDate)!.slice(0, 10), count };
 }
 
-export type Rate = { rateToCny: number; rateDate: Date; source: "BOC" | "MANUAL" | "CNY"; note?: string | null; setBy?: string | null };
+export type Rate = { rateToCny: number; rateDate: Date; source: "BOC" | "MANUAL" | "CNY"; note?: string | null; setBy?: string | null; setAt?: Date | null };
 const utcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
 /**
@@ -37,7 +37,7 @@ const utcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(
 export async function rateFor(currency: string, onOrBefore: Date = new Date()): Promise<Rate | null> {
   if (currency === "CNY") return { rateToCny: 1, rateDate: utcDay(onOrBefore), source: "CNY" };
   const r = await prisma.fxRate.findFirst({ where: { currency, rateDate: { lte: onOrBefore } }, orderBy: [{ rateDate: "desc" }, { source: "desc" }] }); // MANUAL before BOC
-  return r ? { rateToCny: Number(r.rateToCny), rateDate: r.rateDate, source: r.source === "MANUAL" ? "MANUAL" : "BOC", note: r.note, setBy: r.setBy } : null;
+  return r ? { rateToCny: Number(r.rateToCny), rateDate: r.rateDate, source: r.source === "MANUAL" ? "MANUAL" : "BOC", note: r.note, setBy: r.setBy, setAt: r.source === "MANUAL" ? r.fetchedAt : null } : null;
 }
 /** The same, for writing a document today: when today's rate is not in yet, it is fetched first (a few seconds at most). */
 export async function rateForNew(currency: string): Promise<Rate | null> {
@@ -52,7 +52,7 @@ export async function rateForNew(currency: string): Promise<Rate | null> {
   return r;
 }
 /** What a document stores about its rate. */
-export const fxFields = (r: Rate | null | undefined) => (r ? { fxRateToCny: r.rateToCny, fxRateDate: r.rateDate, fxSource: r.source === "CNY" ? "BOC" : r.source } : {});
+export const fxFields = (r: Rate | null | undefined) => (r ? { fxRateToCny: r.rateToCny, fxRateDate: r.rateDate, fxSource: r.source === "CNY" ? "BOC" : r.source, fxBy: r.source === "MANUAL" ? `${r.setBy ?? ""} ${r.setAt ? localIso(r.setAt)!.slice(0, 16).replace("T", " ") : ""}`.trim() : null } : {});
 
 /**
  * 财务手工覆盖 — finance (or the MD) sets the rate of a day by hand, with a reason. It stands in front of the Bank of

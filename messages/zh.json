@@ -2564,7 +2564,7 @@
     "err_FX_NOT_MANUAL": "中国银行价不能撤销",
     "ok_payRecounted": "已补算，等财务重新复核",
     "ok_payCarried": "已挂到下月发放",
-    "otShiftRule": "只填开始和结束时间，系统按标准班次 {start}–{end}（午休 1 小时）自动拆分：工作日只算班外时间 ×1.5；周日和公司假日前 8 小时 ×1，超出部分 ×3。班内时间不能报加班，类型和倍率不用选、也不能改。",
+    "otShiftRule": "只填开始和结束时间，系统按标准班次 {start}–{end}（午休 1 小时）自动拆分：工作日只算班外时间 ×1.5；周日和公司假日，班内时间 ×1，班外时间 ×3。工作日的班内时间不能报加班，类型和倍率不用选、也不能改。",
     "otAuto": "自动 · 来自现场报工",
     "otCarried": "挂到 {month} 发放",
     "holidays": "公司假日",
@@ -2574,7 +2574,16 @@
     "holidayAdd": "添加假日",
     "holidayRemove": "删除",
     "err_OT_IN_SHIFT": "这段时间全部在正常班次 {detail} 之内，不能报加班",
-    "err_HOLIDAY_NAME_REQUIRED": "请填假日名称"
+    "err_HOLIDAY_NAME_REQUIRED": "请填假日名称",
+    "payGross": "本次应付（含 VAT）",
+    "payWhtRate": "预扣税率 %",
+    "payWhtAmount": "预扣税额",
+    "payNet": "实付",
+    "err_PAY_WHT_RATE": "预扣税率要在 0 到 15 % 之间",
+    "otEveryone": "全员加班",
+    "otPayPending": "待审批，未计入",
+    "otPayNone": "不计入",
+    "otPayExpected": "预计计入 {month}"
   },
   "role": {
     "MD": "MD 董事总经理",
@@ -2769,7 +2778,11 @@
     "signedBy": "客户签收人",
     "ac_ACCEPTED": "验收通过",
     "ac_CONDITIONAL": "有条件通过",
-    "ac_REJECTED": "未通过"
+    "ac_REJECTED": "未通过",
+    "acceptedBy": "验收 {date} · 签字 {who}",
+    "notCandidates": "没进候选的单和原因",
+    "outNoAcceptance": "没有真实的验收记录",
+    "outZero": "金额为 0"
   },
   "chain": {
     "title": "单据链",

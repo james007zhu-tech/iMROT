@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { localIso } from "@/lib/dates";
 import { getLocale, getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
@@ -64,7 +65,7 @@ export default async function Training({ searchParams }: { searchParams: Promise
                 {r.score != null && <span>{t("trScore", { n: Number(r.score) })}</span>}
                 {r.certificateNo && <span className="font-mono">{r.certificateNo}</span>}
                 {r.expiresAt && <span className={r.expiresAt < soon ? "font-semibold text-[#9A5B00]" : ""}>{t("trValidTo", { date: localIso(r.expiresAt)!.slice(0, 10) })}</span>}
-                {files.map((a) => <a key={a.url} href={a.url} target="_blank" className="text-blue hover:underline">📄 {a.name}</a>)}
+                {files.map((a) => <a key={a.url} href={a.url} target="_blank" className="text-blue hover:underline"><Icon name="doc" /> {a.name}</a>)}
               </div>
               {r.note && <p className="mt-1 text-xs text-navy/80">{r.note}</p>}
               {(hasRole(me, "MD") || r.createdById === me.id) && <form action={removeAction.bind(null, r.id)} className="mt-2"><button className={`${btnGhost} !min-h-8 !px-3 text-xs`}>{t("remove")}</button></form>}

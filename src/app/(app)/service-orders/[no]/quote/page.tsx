@@ -106,7 +106,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
                 <input name={`q${i}`} type="number" step="0.001" defaultValue={l ? Number(l.qty) : ""} className={inputCls} />
                 <input name={`u${i}`} defaultValue={l?.unit ?? "pcs"} className={inputCls} />
                 {seePrice && <input name={`p${i}`} type="number" step="0.01" readOnly={!edit} defaultValue={l?.unitPrice != null ? Number(l.unitPrice) : ""} className={`${inputCls} ${edit ? "" : "bg-[#F1F4F8] text-navy/70"}`} />}
-                {seeCost && <input name={`c${i}`} type="number" step="0.01" readOnly={!edit} defaultValue={l?.unitCost != null && (seeHist || saved) ? Number(l.unitCost) : seeHist && l?.costRef != null ? Number(l.costRef) : ""} placeholder={u("costPh")} className={`${inputCls} ${edit ? "" : "bg-[#F1F4F8] text-navy/70"} ${badCost.includes(i + 1) ? "field-bad" : ""}`} />}
+                {seeCost && <input name={`c${i}`} type="number" step="0.01" readOnly={!edit} defaultValue={l?.unitCost != null && (seeHist || (saved && Number(l.unitPrice ?? 0) > 0)) ? Number(l.unitCost) : seeHist && l?.costRef != null ? Number(l.costRef) : ""} placeholder={u("costPh")} className={`${inputCls} ${edit ? "" : "bg-[#F1F4F8] text-navy/70"} ${badCost.includes(i + 1) ? "field-bad" : ""}`} />}
                 {edit && !seeHist && byPrice.get(i) && <span className="text-[11px] text-navy/70 md:col-span-full">{u("priceHint", { n: i + 1, suggest: byPrice.get(i)!.suggest.toFixed(2), min: byPrice.get(i)!.min.toFixed(2) })}</span>}
               </div>); })}
           </RevealRows>

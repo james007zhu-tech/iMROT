@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getLocale, getTranslations } from "next-intl/server";
@@ -48,7 +49,7 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
                 {r.vatAmount != null && <span>VAT {Number(r.vatAmount).toFixed(2)}</span>}
                 <span>{t(`paidBy_${r.paidBy}`)}</span>
                 {r.serviceOrderNo && <Link href={`/service-orders/${r.serviceOrderNo}`} className="font-mono text-blue hover:underline">{r.serviceOrderNo}</Link>}
-                {files.map((a) => <a key={a.url} href={a.url} target="_blank" className="text-blue hover:underline">📄 {a.name}</a>)}
+                {files.map((a) => <a key={a.url} href={a.url} target="_blank" className="text-blue hover:underline"><Icon name="doc" /> {a.name}</a>)}
                 {files.length === 0 && <span className="text-[#9A5B00]">{t("expNoReceipt")}</span>}
                 {r.approver && <span>{t(r.status === "REJECTED" ? "expRejectedBy" : "expApprovedBy", { name: r.approver.name })}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span>}
                 {r.paidRef && <span>{r.paidRef}</span>}

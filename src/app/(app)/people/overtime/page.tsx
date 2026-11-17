@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
-import { autoCloseOvertime, myOvertime, overtimeMonths, overtimeToApprove, previewOvertimeMonth, holidaysOf } from "@/server/overtime";
+import { autoCloseOvertime, myOvertime, overtimeMonths, overtimeToApprove, previewOvertimeMonth, holidaysOf, allOvertime } from "@/server/overtime";
 import { DEFAULT_SHIFT } from "@/lib/shift";
 import { localToday, OT_KINDS, OT_MULTIPLIER, WEEKLY_OT_CAP_HOURS } from "@/lib/overtime";
 import { Flash } from "@/components/Flash";
@@ -31,6 +31,19 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
   const holidays = await holidaysOf(me.entityId, new Date(`${today.slice(0, 4)}-01-01T00:00:00Z`)), keepsHolidays = hasRole(me, "MD", "HR");
   const kind = (k: string) => `${u(`ot_${k}`)} ×${OT_MULTIPLIER[k as keyof typeof OT_MULTIPLIER]}`;
   const hrs = (r: { hours: unknown; actualHours: unknown }) => Number(r.actualHours ?? r.hours);
+  // 计入月份 (H-R70): never a bare "—" — the month it was paid in, the month it is expected in, or why it is in none
+  const closedMonths = new Set((await overtimeMonths(me.entityId)).map((m) => m.month));
+  const paidIn = (r: { status: string; workDate: Date; payNotBefore: string | null; payMonth: { month: string } | null }) => {
+    if (r.payMonth) return r.payMonth.month;
+    if (r.status === "PENDING") return u("otPayPending");
+    if (r.status !== "APPROVED") return u("otPayNone");
+    let m = r.workDate.toISOString().slice(0, 7);
+    if (r.payNotBefore && r.payNotBefore > m) m = r.payNotBefore;
+    while (closedMonths.has(m)) { const [y, mo] = m.split("-").map(Number); m = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`; }
+    if (m < month) m = month; // approved late: paid with the running month
+    return u("otPayExpected", { month: m });
+  };
+  const everyone = hasRole(me, "MD", "HR") ? await allOvertime(me.entityId) : [];
   const prevClosed = months.some((m) => m.month === previousMonth);
   return (
     <div className="space-y-4">
@@ -76,7 +89,7 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
               <td className="whitespace-nowrap">{r.startTime}–{r.endTime}{r.actualStart ? <span className="block text-xs text-navy/60">{u("otActual")} {r.actualStart}–{r.actualEnd}</span> : null}</td>
               <td className="font-semibold">{hrs(r)}</td><td className="text-xs">{kind(r.kind)}</td><td>{r.origin === "SITE" ? <Tag>{u("otAuto")}</Tag> : null} {r.reason}</td>
               <td><Tag hot={r.status === "PENDING" || r.status === "REJECTED"}>{u(`otStatus_${r.status}`)}</Tag>{r.approver ? <span className="block text-xs text-navy/60">{r.approver.name}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span> : null}</td>
-              <td>{r.payMonth?.month ?? (r.payNotBefore && r.status === "APPROVED" ? <span className="text-xs">{u("otCarried", { month: r.payNotBefore })}</span> : "—")}</td>
+              <td className="text-xs">{paidIn(r)}</td>
               <td>{open && <div className="flex flex-wrap gap-1">
                 {r.status === "APPROVED" && <form action={actualAction.bind(null, r.id)} className="flex gap-1"><input name="actualStart" type="time" defaultValue={r.actualStart ?? r.startTime} className={`${inputCls} w-24`} /><input name="actualEnd" type="time" defaultValue={r.actualEnd ?? r.endTime} className={`${inputCls} w-24`} /><button className={btnGhost}>{u("otConfirmActual")}</button></form>}
                 <form action={cancelAction.bind(null, r.id)}><button className="text-xs text-navy/60 hover:underline">{u("otWithdraw")}</button></form>
@@ -86,6 +99,20 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
           {!mine.length && <tr><td colSpan={8} className="py-4 text-center text-navy/60">{u("otNone")}</td></tr>}
         </Table>
       </Card>
+
+      {hasRole(me, "MD", "HR") && <Card title={u("otEveryone")}>
+        <Table head={[t("employees"), u("otDate"), u("otTime"), u("otHours"), u("otKind"), u("otReason"), t("status"), u("otPaidIn")]}>
+          {everyone.map((r) => <tr key={r.id}>
+            <td className="whitespace-nowrap"><span className="font-mono text-xs">{r.employee.code}</span> {r.employee.name}</td>
+            <td className="whitespace-nowrap">{localIso(r.workDate)!.slice(0, 10)}</td>
+            <td className="whitespace-nowrap">{r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime}</td>
+            <td className="font-semibold">{hrs(r)}</td><td className="whitespace-nowrap text-xs">{kind(r.kind)}</td><td>{r.origin === "SITE" ? <Tag>{u("otAuto")}</Tag> : null} {r.reason}</td>
+            <td><Tag hot={r.status === "PENDING" || r.status === "REJECTED"}>{u(`otStatus_${r.status}`)}</Tag>{r.approver ? <span className="block text-xs text-navy/60">{r.approver.name}</span> : null}</td>
+            <td className="text-xs">{paidIn(r)}</td>
+          </tr>)}
+          {!everyone.length && <tr><td colSpan={8} className="py-4 text-center text-navy/60">{u("otNone")}</td></tr>}
+        </Table>
+      </Card>}
 
       <Card title={u("holidays")}>
         <p className="mb-2 text-xs text-navy/70">{u("holidaysHint")}</p>

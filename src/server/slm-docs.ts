@@ -197,7 +197,7 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
     const noCost = d.lines.map((l, i) => (l.qty > 0 && l.unitCost == null && !(can.cost(actor) && l.partSku && Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) > 0) ? i + 1 : 0)).filter(Boolean);
     if (noCost.length) throw new Error(`QUOTE_COST_REQUIRED:${noCost.join("、")}`);
   }
-  const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
+  const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku && can.cost(actor) ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts); // the last purchase cost is filled in only for those who may see it (派修单 v3 第 5 条)
   const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 
   // 需求清单 v3 P0-07: what is quoted changed after the customer's PO was confirmed → the PO on file no longer says
