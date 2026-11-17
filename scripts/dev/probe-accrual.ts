@@ -1,10 +1,11 @@
 /** 暂估应付 and 三单匹配 (测试报告 P0-10): goods in → accrued payable; invoice → real payable; a mismatch waits for the MD. */
 import { prisma } from "../../src/lib/db";
-import { createPurchaseOrder, createSupplier, receivePurchaseOrder } from "../../src/server/purchasing";
+import { createPurchaseOrder, createSupplier } from "../../src/server/purchasing";
 import { approvePayment, paySupplierInvoice, registerSupplierInvoice } from "../../src/server/srm";
 import { buildCashPlan } from "../../src/server/cash-plan";
 import { financeReport } from "../../src/server/fin-report";
 import { localIso } from "../../src/lib/dates";
+import { receivePurchaseOrder } from "./_probe";
 
 let bad = 0;
 const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) bad++; };

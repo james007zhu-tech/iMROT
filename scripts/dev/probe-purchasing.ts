@@ -6,10 +6,11 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote, approveMargin } from "../../src/server/slm";
-import { createInspection, setQuoteLines } from "../../src/server/slm-docs";
-import { createSupplier, createInquiry, inquiryLinesFromOrder, addSupplierQuote, selectSupplierQuote, receivePurchaseOrder } from "../../src/server/purchasing";
+import { createInspection } from "../../src/server/slm-docs";
+import { createSupplier, createInquiry, inquiryLinesFromOrder, addSupplierQuote, selectSupplierQuote } from "../../src/server/purchasing";
 import { allocateNumber } from "../../src/lib/numbering-db";
 import { parseNumber } from "../../src/lib/numbering";
+import { setQuoteLines, receivePurchaseOrder } from "./_probe";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`PURCHASING FAIL: ${m}`); console.log("  ok  " + m); };
 

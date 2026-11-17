@@ -5,11 +5,12 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, advanceServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, setQuoteLines, createRepairJob, recordAcceptance, receiveEquipment } from "../../src/server/slm-docs";
+import { createInspection, createRepairJob, recordAcceptance, receiveEquipment } from "../../src/server/slm-docs";
 import { recordStockDoc } from "../../src/server/scm";
 import { deliveryPlan, issueDelivery, signDelivery } from "../../src/server/delivery";
 import { issueTaxInvoice, issueInvoice, recordPayment } from "../../src/server/to";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines } from "./_probe";
 
 const out: { probe: string; result: "PASS" | "GAP"; note: string }[] = [];
 const pass = (p: string, n: string) => out.push({ probe: p, result: "PASS", note: n });

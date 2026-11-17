@@ -19,7 +19,7 @@ const str = (f: FormData, k: string) => { const v = String(f.get(k) ?? "").trim(
 export default async function Inquiry({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const [{ no }, { ok, error }] = await Promise.all([params, searchParams]);
   const [t, u, ts] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("inquiryStatus")]);
-  const inq = await prisma.purchaseInquiry.findUnique({ where: { no }, include: { serviceOrder: { select: { no: true, lockedAt: true, warrantyDays: true, customer: { select: { name: true } } } }, requestedBy: { select: { name: true } }, quotes: { orderBy: { createdAt: "asc" }, include: { supplier: true } }, orders: { select: { no: true, status: true } } } });
+  const inq = await prisma.purchaseInquiry.findUnique({ where: { no }, include: { serviceOrder: { select: { no: true, lockedAt: true, warrantyDays: true } }, requestedBy: { select: { name: true } }, quotes: { orderBy: { createdAt: "asc" }, include: { supplier: true } }, orders: { select: { no: true, status: true } } } });
   if (!inq) notFound();
   const me = await currentEmployee();
   // 供应商价格 only for those who see cost: the others see what was asked for and where it stands
@@ -70,7 +70,7 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
       <Flash ok={ok} error={error} />
       <Card title={u("inquiryHeader")}>
         <div className="grid gap-2 text-sm md:grid-cols-4">
-          <div><span className="text-navy/60">QTTH</span><br />{inq.serviceOrder ? <Link href={`/service-orders/${inq.serviceOrder.no}`} className="font-mono text-blue hover:underline">{inq.serviceOrder.no}</Link> : "—"}{inq.serviceOrder ? <span className="block text-xs text-navy/70">{inq.serviceOrder.customer.name}</span> : null}</div>
+          <div><span className="text-navy/60">QTTH</span><br />{inq.serviceOrder ? <Link href={`/service-orders/${inq.serviceOrder.no}`} className="font-mono text-blue hover:underline">{inq.serviceOrder.no}</Link> : "—"}</div>
           <div><span className="text-navy/60">{u("requestedBy")}</span><br />{inq.requestedBy.name} · {localIso(inq.createdAt)!.slice(0, 10)}</div>
           <div><span className="text-navy/60">{u("neededBy")}</span><br />{localIso(inq.neededBy)?.slice(0, 10) ?? "—"}</div>
           <div><span className="text-navy/60">POTH</span><br />{inq.orders.length ? inq.orders.map((o) => <Link key={o.no} href={`/purchasing/orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link>) : "—"}</div>

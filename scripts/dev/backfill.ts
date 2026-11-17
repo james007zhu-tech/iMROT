@@ -17,6 +17,10 @@ async function main() {
     }
     console.log(`backfill: ${n} 暂估应付 written for goods already received`); }
 
+  // 2026-11-17 所有 PO 都要 MD 审批: POs that had already gone out before the rule stand as approved (by the rule's date).
+  { const n = await prisma.purchaseOrder.updateMany({ where: { approvedAt: null, status: { in: ["SENT", "PARTIAL", "RECEIVED"] } }, data: { approvedAt: new Date(), approvedBy: "before-rule" } });
+    console.log(`backfill: ${n.count} purchase order(s) already sent before the approval rule marked approved`); }
+
   // 2026-11-17 需求清单 v4 V4-P0-02: 负责销售. A customer whose orders all belong to one Sales person is theirs; the rest
   // stay with the MD until he says who (customer page).
   { let n = 0;

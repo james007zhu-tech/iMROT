@@ -18,7 +18,7 @@ export default async function Inquiries({ searchParams }: { searchParams: Promis
   const seeCost = can.cost(me);
   // 采购申请: the shop floor sees its own requests and those of its orders; supplier prices only for those who see cost
   const own = can.allOrders(me) ? {} : { OR: [{ requestedById: me.id }, { serviceOrder: await orderScope(me) }] };
-  const rows = await prisma.purchaseInquiry.findMany({ where: own, orderBy: { createdAt: "desc" }, take: 200, include: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, requestedBy: { select: { name: true } }, quotes: { select: { id: true, selected: true, subtotal: true, currency: true, supplier: { select: { name: true } } } }, orders: { select: { no: true } } } });
+  const rows = await prisma.purchaseInquiry.findMany({ where: own, orderBy: { createdAt: "desc" }, take: 200, include: { serviceOrder: { select: { no: true } }, requestedBy: { select: { name: true } }, quotes: { select: { id: true, selected: true, subtotal: true, currency: true, supplier: { select: { name: true } } } }, orders: { select: { no: true } } } });
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/parts", label: t("nav_scm") }} title={u("inquiries")} badge={<Tag>{rows.length}</Tag>} actions={<>{can.purchase(me) && <><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link></>}</>} newHref="/purchasing/inquiries/new" newLabel={u("newInquiry")} />
@@ -29,7 +29,7 @@ export default async function Inquiries({ searchParams }: { searchParams: Promis
             <tr key={r.id}>
               <td><Link href={`/purchasing/inquiries/${r.no}`} className="font-mono text-blue hover:underline">{r.no}</Link></td>
               <td><Tag hot={r.status === "OPEN"}>{ts(r.status)}</Tag></td>
-              <td>{r.serviceOrder ? <Link href={`/service-orders/${r.serviceOrder.no}`} className="font-mono text-blue hover:underline">{r.serviceOrder.no}</Link> : ""}{r.serviceOrder ? <span className="block text-xs text-navy/70">{r.serviceOrder.customer.name}</span> : null}</td>
+              <td>{r.serviceOrder ? <Link href={`/service-orders/${r.serviceOrder.no}`} className="font-mono text-blue hover:underline">{r.serviceOrder.no}</Link> : ""}</td>
               <td>{(r.lines as unknown[]).length}</td><td>{r.quotes.length}</td>
               <td>{sel ? (seeCost ? `${sel.supplier.name} · ${sel.currency} ${Number(sel.subtotal).toFixed(2)}` : "✓") : ""}</td>
               <td className="font-mono">{r.orders.map((o) => <Link key={o.no} href={`/purchasing/orders/${o.no}`} className="text-blue hover:underline">{o.no}</Link>)}</td>

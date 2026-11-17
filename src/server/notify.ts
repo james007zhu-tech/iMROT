@@ -102,6 +102,9 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     if (made && Number(date.slice(8, 10)) <= 7) push("cashPlanReady", 7 - Number(date.slice(8, 10)), month, `/finance/cash-plan?month=${month}`, Number((made.plan.totals as { out?: number }).out ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 }));
   }
   // 忘记密码: someone asked on the sign-in page; an MD issues the link from that person's ETH file
+  // PO 审批 (MD 2026-11-17): every draft POTH purchasing has handed over waits in the MD's list
+  if (hasRole(me, "MD")) for (const po of await prisma.purchaseOrder.findMany({ where: { status: "DRAFT", approvalAskedAt: { not: null }, approvedAt: null }, select: { no: true, total: true, currency: true, supplier: { select: { name: true } } }, take: 60 }))
+    push("poApprove", 0, po.no, `/purchasing/orders/${po.no}`, `${po.supplier.name} · ${po.currency} ${Number(po.total).toFixed(2)}`);
   // 验收后通知财务开票 (需求清单 v4 V4-P0-05): the moment an order is accepted it stands in finance's list — number,
   // customer, amount — and opens on its invoice. Sales can press 催财务开票; after 48 hours both are reminded.
   if (hasRole(me, "FINANCE", "MD", "SALES")) {
@@ -130,7 +133,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   }
   if (hasRole(me, "MD")) for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice");
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove";
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
 }

@@ -447,7 +447,8 @@
     "saveFailed_other": "系统处理这一步时出错了。",
     "saveFailedKept": "你填的内容已经留在这台设备上。点下面的按钮回到表单，内容都在，再点一次保存就行。保存前先到列表看一眼有没有已经存上，免得存两张。",
     "saveFailedOffline": "现在没有网络。网络一恢复，会自动回到表单。",
-    "saveFailedBack": "回到表单（内容都在）"
+    "saveFailedBack": "回到表单（内容都在）",
+    "noAccessScope": "无权限：这条记录不在你的范围内，请找销售或 MD。"
   },
   "ai": {
     "title": "AI 助手",
@@ -2486,7 +2487,25 @@
     "nudgedAt": "已催 {time}",
     "ok_nudged": "已提醒财务。",
     "err_INVOICE_ZERO": "{detail} 金额为 0，不能开票。",
-    "err_INVOICE_NOT_CHECKED": "先勾选“已核对”，再确认开具。"
+    "err_INVOICE_NOT_CHECKED": "先勾选“已核对”，再确认开具。",
+    "priceHint": "第 {n} 行：建议售价 {suggest} · 最低售价 {min}",
+    "err_QUOTE_COST_REQUIRED": "第 {detail} 行缺成本，无法计算毛利。在标红的成本框里填这张单的估算成本，再保存。已填的内容都还在。",
+    "poAsk": "提交 MD 审批",
+    "poWaitingMd": "待 MD 批准，批准前不能发给供应商、不能收货",
+    "poDecide": "这张采购单等你审批",
+    "poDecideNotePh": "备注（驳回必须写原因）",
+    "poApprove": "批准",
+    "poRefuse": "驳回，退给采购",
+    "poRefusedNote": "MD 驳回：{note}。修改后重新提交审批。",
+    "poApprovedBy": "MD 已批准（{by}），可以发给供应商了。",
+    "poNotApproved": "这张采购单还没经 MD 批准，不能收货。",
+    "ok_poAsked": "已提交 MD 审批。",
+    "ok_poApproved": "已批准。",
+    "ok_poRefused": "已驳回，退给采购。",
+    "err_PO_NOT_APPROVED": "{detail} 还没经 MD 批准。所有采购单都要先审批，才能发给供应商或收货。",
+    "err_PO_NOT_WAITING": "{detail} 不在待审批状态。",
+    "err_PO_NOT_DRAFT": "{detail} 已经不是草稿。",
+    "err_REASON_REQUIRED": "必须写原因。"
   },
   "role": {
     "MD": "MD 董事总经理",
@@ -2649,7 +2668,8 @@
     "k_toInvoice": "{ref} 已验收，等你开票",
     "k_toInvoiceLate": "{ref} 验收超过 48 小时还没开票",
     "k_toInvoiceUrgent": "{ref} 销售在催：客户等发票",
-    "k_invoiceWaiting": "{ref} 验收超过 48 小时，财务还没开票"
+    "k_invoiceWaiting": "{ref} 验收超过 48 小时，财务还没开票",
+    "k_poApprove": "采购单 {ref} 等你审批"
   },
   "reports": {
     "searchPh": "报告号、设备编号、序列号、客户",

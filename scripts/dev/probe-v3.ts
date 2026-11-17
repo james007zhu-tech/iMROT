@@ -6,12 +6,13 @@
  *     npx tsx scripts/dev/probe-v3.ts
  */
 import { prisma } from "../../src/lib/db";
-import { createPurchaseOrder, createSupplier, receivePurchaseOrder } from "../../src/server/purchasing";
+import { createPurchaseOrder, createSupplier } from "../../src/server/purchasing";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { setQuoteLines } from "../../src/server/slm-docs";
+
 import { issueNeeds, recordStockDoc, stockOnHand } from "../../src/server/scm";
 import { issueDelivery, deliveryPlan } from "../../src/server/delivery";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines, receivePurchaseOrder } from "./_probe";
 
 let failed = 0;
 const check = (m: string, c: unknown, d = "") => { console.log(`${c ? "✓" : "✗"} ${m}${d ? ` — ${d}` : ""}`); if (!c) failed++; };

@@ -137,6 +137,7 @@ export const DispatchInput = z.object({
 export async function dispatchToPartner(input: z.input<typeof DispatchInput>) {
   const d = DispatchInput.parse(input);
   const [po, actor] = await Promise.all([poForCustody(d.poNo), actorOf(d.actorCode)]);
+  if (!po.approvedAt) throw new Error(`PO_NOT_APPROVED:${po.no}`); // 所有 PO 先经 MD 批准 (2026-11-17)
   const link = po.serviceOrder.assets.find((a) => a.asset.code === d.assetCode);
   if (!link) throw new Error(`ASSET_NOT_ON_ORDER:${d.assetCode}`);
   const state = custodyOf(assetStages(po, link.assetId));

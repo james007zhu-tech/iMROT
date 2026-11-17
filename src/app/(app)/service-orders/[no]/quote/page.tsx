@@ -26,6 +26,8 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
   // 统一角色权限表: sales and the MD set the price; 内勤 and finance see it; the shop floor works on parts, quantities and wording only
   const seePrice = can.price(me), seeCost = can.margin(me), edit = can.editPrice(me);
+  const seeHist = can.cost(me); // what we paid before: MD, FIN, PUR. Sales writes its own estimate (MD 2026-11-17)
+  const badCost = error?.startsWith("QUOTE_COST_REQUIRED:") ? error.split(":")[1].split("、").map(Number) : [];
   const items = !edit && hasRole(me, "ENGINEER") && ["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(order.status);
   const [parts, rate] = await Promise.all([prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500 }), latestRate(order.currency)]);
   refreshIfStale(rate?.ageDays); // a missing or day-old BoC rate is fetched again in the background
@@ -76,6 +78,11 @@ export default async function Quote({ params, searchParams }: { params: Promise<
     "use server";
     await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await suggestPrice({ no, actorCode: me.code, note: String(f.get("note") ?? "") }); return { ok: "priceHintSent", to: `/service-orders/${no}/quote` }; }, `/service-orders/${no}/quote`);
   }
+  // Sales does not see what we paid; the system turns it into two prices to quote by (MD 2026-11-17 18:29):
+  // 最低售价 = cost ÷ (1 − margin floor of this business), 建议售价 = 10 % above it.
+  const saved = order.lines.length > 0;
+  const byPrice = new Map<number, { min: number; suggest: number }>();
+  lines.forEach((l, i) => { const part = parts.find((p) => (l.partId && p.id === l.partId) || (l.partSku && p.sku === l.partSku)); const c = Number(part?.lastCost ?? 0); if (c > 0 && floor < 1) { const min = c / (1 - floor); byPrice.set(i, { min, suggest: min * 1.1 }); } });
   const cols = seeCost ? "md:grid-cols-[120px_150px_2fr_2fr_70px_60px_100px_100px]" : seePrice ? "md:grid-cols-[120px_150px_2fr_2fr_70px_60px_100px]" : "md:grid-cols-[120px_150px_2fr_2fr_70px_60px]";
   return (
     <StepPage order={order} title={u("step_quote")} ok={ok === "quoteItemsSaved" ? u("quoteItemsSaved") : ok === "priceHintSent" ? u("priceHintSent") : ok} error={error} kind="quote" uploadTitle={u("upQuoteTitle")} uploadHint={u("upQuoteHint")} lineFields={{ description: "d", qty: "q", unit: "u", unitPrice: "c" }} saveLabel={edit ? u("saveQuote") : items ? u("saveQuoteItems") : ""}>
@@ -86,7 +93,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
           {!edit && <Alert>{u(items ? "quoteItemsNote" : "quoteReadOnly")}</Alert>}
           {edit && order.priceHint && <Alert>{u("priceHintFrom")}：{order.priceHint}</Alert>}
           {seeCost && order.marginPct != null && Number(order.marginPct) < floor && <Alert>{u("marginBelowFloor", { pct: (Number(order.marginPct) * 100).toFixed(1), floor: Math.round(floor * 100) })}</Alert>}
-          {partner && seeCost && <p className="mb-2 text-xs text-navy/70">{u("partnerQuoteNote")}{[...partnerCosts].map(([a, c]) => ` · ${a}: ${c.toFixed(2)}`).join("")}</p>}
+          {partner && seeHist && <p className="mb-2 text-xs text-navy/70">{u("partnerQuoteNote")}{[...partnerCosts].map(([a, c]) => ` · ${a}: ${c.toFixed(2)}`).join("")}</p>}
           <div className={`hidden gap-2 text-xs text-navy/70 md:grid ${cols}`}><span>{t("asset")}</span><span>{u("partSku")}</span><span>{u("descEn")}</span><span>{u("descTh")}</span><span>{t("qty")}</span><span>{u("uom")}</span>{seePrice && <span>{t("price")}</span>}{seeCost && <span>{u("unitCost")}</span>}</div>
           <RevealRows initial={Math.max(lines.length, 2)} addLabel={u("addLine")}>
             {Array.from({ length: ROWS }, (_, i) => { const l = lines[i]; return (
@@ -98,7 +105,8 @@ export default async function Quote({ params, searchParams }: { params: Promise<
                 <input name={`q${i}`} type="number" step="0.001" defaultValue={l ? Number(l.qty) : ""} className={inputCls} />
                 <input name={`u${i}`} defaultValue={l?.unit ?? "pcs"} className={inputCls} />
                 {seePrice && <input name={`p${i}`} type="number" step="0.01" readOnly={!edit} defaultValue={l?.unitPrice != null ? Number(l.unitPrice) : ""} className={`${inputCls} ${edit ? "" : "bg-[#F1F4F8] text-navy/70"}`} />}
-                {seeCost && <input name={`c${i}`} type="number" step="0.01" readOnly={!edit} defaultValue={l?.unitCost != null ? Number(l.unitCost) : l?.costRef != null ? Number(l.costRef) : ""} placeholder={u("costPh")} className={`${inputCls} ${edit ? "" : "bg-[#F1F4F8] text-navy/70"}`} />}
+                {seeCost && <input name={`c${i}`} type="number" step="0.01" readOnly={!edit} defaultValue={l?.unitCost != null && (seeHist || saved) ? Number(l.unitCost) : seeHist && l?.costRef != null ? Number(l.costRef) : ""} placeholder={u("costPh")} className={`${inputCls} ${edit ? "" : "bg-[#F1F4F8] text-navy/70"} ${badCost.includes(i + 1) ? "field-bad" : ""}`} />}
+                {edit && !seeHist && byPrice.get(i) && <span className="text-[11px] text-navy/70 md:col-span-full">{u("priceHint", { n: i + 1, suggest: byPrice.get(i)!.suggest.toFixed(2), min: byPrice.get(i)!.min.toFixed(2) })}</span>}
               </div>); })}
           </RevealRows>
           <PartDropdown formId="f" sku="s" name="d" local="l" unit="u" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, nameLocal: p.nameLocal, unit: p.unit }))} />

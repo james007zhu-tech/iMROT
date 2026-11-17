@@ -9,15 +9,16 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, setQuoteLines, receiveEquipment, missingForAcceptance, recordAcceptance } from "../../src/server/slm-docs";
-import { addSupplierQuote, createPurchaseOrder, createSupplier, receivePurchaseOrder, selectSupplierQuote } from "../../src/server/purchasing";
-import { addMilestone, createSubcontractInquiry, dispatchToPartner, paySupplierInvoice, rateSupplier, recommendPartners, recordRetest, registerSupplierInvoice, returnFromPartner, reopenAsPartner, revisePurchaseOrder, savePartnerProfile } from "../../src/server/srm";
+import { createInspection, receiveEquipment, missingForAcceptance, recordAcceptance } from "../../src/server/slm-docs";
+import { addSupplierQuote, createPurchaseOrder, createSupplier, selectSupplierQuote } from "../../src/server/purchasing";
+import { addMilestone, createSubcontractInquiry, paySupplierInvoice, rateSupplier, recommendPartners, recordRetest, registerSupplierInvoice, returnFromPartner, reopenAsPartner, revisePurchaseOrder, savePartnerProfile } from "../../src/server/srm";
 import { deliveryPlan, issueDelivery, signDelivery } from "../../src/server/delivery";
 import { buildFields, renderDocument } from "../../src/server/reports";
 import { readFile } from "node:fs/promises";
 import { readZip } from "../../src/lib/docx/zip";
 import { createEmployee } from "../../src/server/opd";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines, receivePurchaseOrder, dispatchToPartner } from "./_probe";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`PARTNER FAIL: ${m}`); console.log("  ok  " + m); };
 const refused = async (fn: () => Promise<unknown>, re: RegExp, m: string) => { try { await fn(); assert(false, m); } catch (e) { assert(re.test((e as Error).message), `${m} (${(e as Error).message.split("\n")[0]})`); } };

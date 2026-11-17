@@ -7,12 +7,13 @@
 import { createInquiry, skuGaps } from "../../src/server/purchasing";
 import { prisma } from "../../src/lib/db";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { setQuoteLines } from "../../src/server/slm-docs";
+
 import { recordStockDoc } from "../../src/server/scm";
 import { issueDelivery, signDelivery, deliveryPlan } from "../../src/server/delivery";
 import { issueTaxInvoice } from "../../src/server/to";
 import { buildFields } from "../../src/server/reports";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines } from "./_probe";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`TRADE FAIL: ${m}`); console.log("  ok  " + m); };
 async function refused(f: () => Promise<unknown>, re: RegExp, m: string) {

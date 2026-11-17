@@ -189,6 +189,12 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const fx = order.currency === "CNY" ? 1 : (await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny;
   const parts = await resolveParts(d.lines.map((l) => l.partSku).filter((s): s is string => !!s));
   const partnerCosts = order.mode === "PARTNER_REPAIR" ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
+  // 报价单成本必填 (MD 2026-11-17 18:29): a quote without cost has no margin. Whoever may see what we paid gets the last
+  // purchase price where they wrote nothing; Sales writes its own estimate on every line — a line without one is refused.
+  if (!itemsOnly && order.mode !== "PARTNER_REPAIR") {
+    const noCost = d.lines.map((l, i) => (l.qty > 0 && l.unitCost == null && !(can.cost(actor) && l.partSku && Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) > 0) ? i + 1 : 0)).filter(Boolean);
+    if (noCost.length) throw new Error(`QUOTE_COST_REQUIRED:${noCost.join("、")}`);
+  }
   const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
   const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 

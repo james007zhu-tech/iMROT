@@ -1,7 +1,7 @@
 import { can, hasRole } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee, revealActive } from "@/server/auth";
@@ -10,7 +10,6 @@ import { guarded } from "@/lib/action-result";
 import { maskEmail, maskLogin, maskName, maskPhone } from "@/lib/mask";
 import { maskAmount, statutoryFor } from "@/lib/payroll";
 import { Flash } from "@/components/Flash";
-import { Forbidden } from "@/components/Forbidden";
 import { FormMemory } from "@/components/FormMemory";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { RevealRows } from "@/components/RevealRows";
@@ -29,7 +28,7 @@ const pct = (v: unknown) => (v === null || v === undefined ? "—" : `${(Number(
 export default async function EmployeeFile({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ ok?: string; error?: string; reset?: string }> }) {
   const [{ code }, { ok, error, reset }] = await Promise.all([params, searchParams]);
   const me = await currentEmployee();
-  if (!mayViewEmployee(me, code)) return <Forbidden />;
+  if (!mayViewEmployee(me, code)) redirect("/no-access?roles=MD%20/%20HR");
   const md = can.staff(me), isMd = hasRole(me, "MD");
   const self = me.code === code;
   const e = await getEmployeeFile(me, code);

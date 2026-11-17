@@ -4,7 +4,9 @@
  * PRTH and POTH can also be raised on their own (stock replenishment, parts sale) — serviceOrderNo is optional.
  */
 import { actorWith } from "@/server/guard";
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
+
+const audit = (actorId: string, action: string, target: string, detail?: object) => prisma.auditLog.create({ data: { actorId, action, target, detail: detail as Prisma.InputJsonValue } });
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -260,6 +262,34 @@ export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInp
 }
 
 /** 客户回签 → 按 PRTH 生成 POTH: one draft POTH per compared inquiry of the order (from its selected quote). */
+/** PUR hands a draft POTH to the MD. Every PO is approved before it leaves, whatever the amount (MD 2026-11-17). */
+export async function askPoApproval(input: { no: string; actorCode: string }) {
+  const actor = await actorWith(input.actorCode, can.purchase);
+  const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.no } });
+  if (po.status !== "DRAFT") throw new Error(`PO_NOT_DRAFT:${po.no}`);
+  if (po.approvedAt) return po;
+  await audit(actor.id, "PO_APPROVAL_ASKED", po.no, { total: Number(po.total), currency: po.currency });
+  return prisma.purchaseOrder.update({ where: { id: po.id }, data: { approvalAskedAt: new Date(), approvalAskedBy: actor.code, approvalNote: null } });
+}
+/** The MD's decision. A refusal sends the draft back to purchasing with the reason. */
+export async function decidePurchaseOrder(input: { no: string; actorCode: string; approve: boolean; note?: string }) {
+  const actor = await actorWith(input.actorCode, (w) => hasRole(w, "MD"), "MD_ONLY");
+  const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.no } });
+  if (po.status !== "DRAFT" || !po.approvalAskedAt) throw new Error(`PO_NOT_WAITING:${po.no}`);
+  if (!input.approve && !input.note?.trim()) throw new Error("REASON_REQUIRED");
+  await audit(actor.id, input.approve ? "PO_APPROVED" : "PO_REFUSED", po.no, { total: Number(po.total), note: input.note });
+  return prisma.purchaseOrder.update({ where: { id: po.id }, data: input.approve ? { approvedAt: new Date(), approvedBy: actor.code, approvalNote: input.note?.trim() || null } : { approvalAskedAt: null, approvalNote: input.note!.trim() } });
+}
+/** Approved → sent to the supplier. */
+export async function sendPurchaseOrder(input: { no: string; actorCode: string }) {
+  const actor = await actorWith(input.actorCode, can.purchase);
+  const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.no } });
+  if (po.status !== "DRAFT") throw new Error(`PO_NOT_DRAFT:${po.no}`);
+  if (!po.approvedAt) throw new Error(`PO_NOT_APPROVED:${po.no}`);
+  await audit(actor.id, "PO_SENT", po.no);
+  return prisma.purchaseOrder.update({ where: { id: po.id }, data: { status: "SENT" } });
+}
+
 export async function raisePurchaseOrdersForOrder(no: string, actorCode: string) {
   const inqs = await prisma.purchaseInquiry.findMany({ where: { serviceOrder: { no }, status: "COMPARED" }, include: { quotes: { where: { selected: true }, include: { supplier: true } }, serviceOrder: { select: { warrantyDays: true } } } });
   const made: string[] = [];
@@ -282,6 +312,7 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
   await actorWith(input.actorCode, can.purchase); // 六角色: 入库归 PUR
   const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.poNo }, include: { serviceOrder: true } });
   if (po.status === "CANCELLED" || po.status === "RECEIVED") throw new Error(`PO_CLOSED:${po.no}`);
+  if (!po.approvedAt) throw new Error(`PO_NOT_APPROVED:${po.no}`); // nothing is received on a PO the MD has not approved
   if (po.kind === "SUBCONTRACT") throw new Error(`PO_IS_SUBCONTRACT:${po.no}`); // the machine comes back on a 外协返回 IBTH (srm.returnFromPartner)
   const lines = po.lines as { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; unitPrice: number; receivedQty: number }[];
   const take = input.received.filter((r) => r.qty > 0);

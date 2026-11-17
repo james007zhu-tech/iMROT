@@ -1290,6 +1290,12 @@ model PurchaseOrder {
   serviceOrderId String?
   serviceOrder   ServiceOrder?       @relation(fields: [serviceOrderId], references: [id])
   status         PurchaseOrderStatus @default(DRAFT)
+  /// 所有 PO 都要 MD 审批, 不论金额 (MD 2026-11-17 18:29): asked by purchasing, decided by the MD; only an approved PO is sent or received
+  approvalAskedAt DateTime?
+  approvalAskedBy String?
+  approvedAt      DateTime?
+  approvedBy      String?
+  approvalNote    String?
   kind           PurchaseKind        @default(PARTS)
   warrantyDays   Int? /// SUBCONTRACT: = the customer's warranty (back-to-back)
   scope          String? /// SUBCONTRACT: repair scope / acceptance criteria the partner signed up to

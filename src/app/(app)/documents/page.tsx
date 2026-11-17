@@ -69,7 +69,7 @@ export default async function Documents({ searchParams }: { searchParams: Promis
               <td className="font-mono"><Link href={p ? p.open(x.no, x.serviceOrder?.no) : `/search?q=${x.no}`} className="text-blue hover:underline">{x.no}</Link></td>
               {!type && <td>{p ? n(p.nav) : x.type}</td>}
               <td className="whitespace-nowrap">{day(x.issuedAt)}</td>
-              <td>{can.customerNames(me) ? x.customer?.name ?? x.serviceOrder?.customer.name ?? "" : "—"}</td>
+              <td>{can.customerNames(me) && !["PR", "PO"].includes(x.type) ? x.customer?.name ?? x.serviceOrder?.customer.name ?? "" : "—"}</td>{/* 询价、采购单不带客户 */}
               <td className="font-mono">{x.serviceOrder && x.serviceOrder.no !== x.no ? <Link href={`/service-orders/${x.serviceOrder.no}`} className="hover:underline">{x.serviceOrder.no}</Link> : ""}</td>
               <td>{x.createdBy.name}</td>
               <td className="text-right">{x.templateCode ? <a href={`/api/documents/${x.no}/render?format=pdf`} className="text-xs text-blue hover:underline">PDF</a> : null}</td>

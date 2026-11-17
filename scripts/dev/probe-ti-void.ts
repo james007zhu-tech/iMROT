@@ -11,10 +11,11 @@ import { invoiceState, outstandingOf } from "../../src/server/to";
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder } from "../../src/server/slm";
-import { setQuoteLines } from "../../src/server/slm-docs";
+
 import { decideReceiptVoid, decideTaxInvoiceVoid, issueCreditNote, issueInvoice, issueTaxInvoice, recordPayment, requestReceiptVoid, requestTaxInvoiceVoid, voidCreditNote } from "../../src/server/to";
 import { createEmployee } from "../../src/server/opd";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines } from "./_probe";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`TI VOID FAIL: ${m}`); console.log("  ok  " + m); };
 const refused = async (fn: () => Promise<unknown>, re: RegExp, m: string) => { try { await fn(); assert(false, m); } catch (e) { assert(re.test((e as Error).message), `${m} (${(e as Error).message.split("\n")[0]})`); } };

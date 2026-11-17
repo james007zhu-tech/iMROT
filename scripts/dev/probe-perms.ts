@@ -5,7 +5,7 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { advanceServiceOrder, confirmCustomerPo, createServiceOrder, getServiceOrder, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, recordAcceptance, setQuoteLines, suggestPrice } from "../../src/server/slm-docs";
+import { createInspection, recordAcceptance, suggestPrice } from "../../src/server/slm-docs";
 import { issueTaxInvoice, recordPayment } from "../../src/server/to";
 import { createCustomer } from "../../src/server/crm";
 import { createPurchaseOrder, createSupplier } from "../../src/server/purchasing";
@@ -17,6 +17,7 @@ import { mayOpenOrder, mayAccept, customerScope, assetScope, orderScope, docType
 import { stripMoney } from "../../src/lib/caps";
 import { noticesFor } from "../../src/server/notify";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines } from "./_probe";
 
 let bad = 0;
 const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) bad++; };
@@ -89,7 +90,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     const forEng = JSON.stringify(stripMoney(full, "ENGINEER")), forPur = JSON.stringify(stripMoney(full, "PURCHASING")), forSales = JSON.stringify(stripMoney(full, "SALES"));
     check("engineer and supervisor: no price, no cost, no margin in the order", !/12345\.67|15345\.67|6543\.21|marginPct|costTotal|unitPrice/.test(forEng) && JSON.stringify(stripMoney(full, mgr)) === forEng);
     check("PUR: no price, no margin", !/12345\.67|15345\.67|marginPct|unitPrice/.test(forPur));
-    check("sales: price, cost and margin", /12345\.67/.test(forSales) && /6543\.21/.test(forSales));
+    check("Sales: price, the quote's own cost and margin — never what we paid (MD 2026-11-17)", /12345\.67/.test(forSales) && /unitCost/.test(forSales) && !/lastCost|costRef/.test(forSales));
 
     console.log("5. 菜单和单据");
     const hid = async (r: string) => hiddenFor(r as never);

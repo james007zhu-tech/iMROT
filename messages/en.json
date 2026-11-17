@@ -447,7 +447,8 @@
     "saveFailed_other": "The system hit an error on this step.",
     "saveFailedKept": "What you typed is kept on this device. Go back to the form — it is all there — and press save again. Check the list first so it is not saved twice.",
     "saveFailedOffline": "You are offline. When the network is back you are taken to the form automatically.",
-    "saveFailedBack": "Back to the form (nothing lost)"
+    "saveFailedBack": "Back to the form (nothing lost)",
+    "noAccessScope": "No permission — this record is outside your scope. Ask Sales or the MD."
   },
   "ai": {
     "title": "AI assistant",
@@ -2486,7 +2487,25 @@
     "nudgedAt": "reminded {time}",
     "ok_nudged": "Finance has been reminded.",
     "err_INVOICE_ZERO": "{detail}: the amount is zero — nothing to invoice.",
-    "err_INVOICE_NOT_CHECKED": "Tick that you have checked the draft before issuing."
+    "err_INVOICE_NOT_CHECKED": "Tick that you have checked the draft before issuing.",
+    "priceHint": "Line {n}: suggested price {suggest} · lowest price {min}",
+    "err_QUOTE_COST_REQUIRED": "Line {detail}: no cost, so no margin can be worked out. Enter the estimated cost in the red box and save again.",
+    "poAsk": "Submit for MD approval",
+    "poWaitingMd": "Waiting for the MD — not sent or received before approval",
+    "poDecide": "This purchase order is waiting for your approval",
+    "poDecideNotePh": "Note (required to refuse)",
+    "poApprove": "Approve",
+    "poRefuse": "Refuse, back to purchasing",
+    "poRefusedNote": "Refused by the MD: {note}. Correct it and submit again.",
+    "poApprovedBy": "Approved by the MD ({by}) — it can be sent to the supplier.",
+    "poNotApproved": "This purchase order is not approved by the MD yet — nothing can be received.",
+    "ok_poAsked": "Submitted to the MD.",
+    "ok_poApproved": "Approved.",
+    "ok_poRefused": "Refused and sent back.",
+    "err_PO_NOT_APPROVED": "{detail} is not approved by the MD yet. Every purchase order is approved before it is sent or received.",
+    "err_PO_NOT_WAITING": "{detail} is not waiting for approval.",
+    "err_PO_NOT_DRAFT": "{detail} is no longer a draft.",
+    "err_REASON_REQUIRED": "A reason is required."
   },
   "role": {
     "MD": "MD Managing Director",
@@ -2649,7 +2668,8 @@
     "k_toInvoice": "{ref} is accepted — waiting for your invoice",
     "k_toInvoiceLate": "{ref}: accepted more than 48 h ago, not invoiced",
     "k_toInvoiceUrgent": "{ref}: Sales asks — the customer is waiting for the invoice",
-    "k_invoiceWaiting": "{ref}: accepted more than 48 h ago, finance has not invoiced"
+    "k_invoiceWaiting": "{ref}: accepted more than 48 h ago, finance has not invoiced",
+    "k_poApprove": "Purchase order {ref} is waiting for your approval"
   },
   "reports": {
     "searchPh": "Report no., machine, serial, customer",

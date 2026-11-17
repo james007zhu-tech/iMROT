@@ -1,10 +1,10 @@
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { receivePurchaseOrder } from "@/server/purchasing";
+import { receivePurchaseOrder, askPoApproval, decidePurchaseOrder, sendPurchaseOrder } from "@/server/purchasing";
 import { registerSupplierInvoice } from "@/server/srm";
 import { mismatch } from "@/lib/pay-rules";
 import { findPart } from "@/server/scm";
@@ -14,7 +14,7 @@ import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { FormMemory } from "@/components/FormMemory";
-import { Alert, Card, Field, Grid, PageHeader, Table, Tag, btnGhost, btnPrimary, inputCls } from "@/components/ui";
+import { Alert, Card, Field, Grid, PageHeader, Table, Tag, btnGhost, btnPrimary, inputCls, btnBlue } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 const str = (f: FormData, k: string) => { const v = String(f.get(k) ?? "").trim(); return v || undefined; };
@@ -30,7 +30,15 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
   const openPo = po.status !== "RECEIVED" && po.status !== "CANCELLED";
   async function markSent() {
     "use server";
-    await guarded(async () => { await prisma.purchaseOrder.update({ where: { no }, data: { status: "SENT" } }); return { ok: no, to: `/purchasing/orders/${no}` }; }, `/purchasing/orders/${no}`);
+    await guarded(async () => { const me = await currentEmployee(); await sendPurchaseOrder({ no, actorCode: me.code }); return { ok: no, to: `/purchasing/orders/${no}` }; }, `/purchasing/orders/${no}`);
+  }
+  async function askApproval() {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await askPoApproval({ no, actorCode: me.code }); return "poAsked"; }, `/purchasing/orders/${no}`);
+  }
+  async function decide(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await decidePurchaseOrder({ no, actorCode: me.code, approve: f.get("decision") === "yes", note: String(f.get("note") ?? "") }); return f.get("decision") === "yes" ? "poApproved" : "poRefused"; }, `/purchasing/orders/${no}`);
   }
   async function receive(f: FormData) {
     "use server";
@@ -67,7 +75,17 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/purchasing/orders", label: u("purchaseOrders") }} title={<span className="font-mono">{po.no}</span>} badge={<Tag hot={po.status === "SENT" || po.status === "PARTIAL"}>{ts(po.status)}</Tag>}
-        actions={po.status === "DRAFT" ? <form action={markSent}><button className={btnGhost}>{u("markSent")}</button></form> : null} />
+        actions={po.status !== "DRAFT" || !can.purchase(me) ? null : po.approvedAt ? <form action={markSent}><button className={btnBlue}>{u("markSent")}</button></form>
+          : po.approvalAskedAt ? <span className="rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-3 py-2 text-sm text-[#7A4A00]">{u("poWaitingMd")}</span>
+          : <form action={askApproval}><button className={btnBlue}>{u("poAsk")}</button></form>} />
+      {/* 所有 PO 都要 MD 审批 (2026-11-17): the state, the MD's two buttons, and why nothing can be sent or received yet */}
+      {po.status === "DRAFT" && !po.approvedAt && po.approvalNote && <Alert>{u("poRefusedNote", { note: po.approvalNote })}</Alert>}
+      {po.status === "DRAFT" && po.approvedAt && <p className="text-sm text-navy">✓ {u("poApprovedBy", { by: po.approvedBy ?? "MD" })}</p>}
+      {po.status === "DRAFT" && po.approvalAskedAt && !po.approvedAt && hasRole(me, "MD") && <Card title={u("poDecide")} accent>
+        <form action={decide} className="flex flex-wrap items-end gap-3 text-sm">
+          <input name="note" placeholder={u("poDecideNotePh")} className={`${inputCls} w-72`} />
+          <button name="decision" value="yes" className={btnBlue}>{u("poApprove")}</button><button name="decision" value="no" className={btnGhost}>{u("poRefuse")}</button>
+        </form></Card>}
       <Flash ok={ok} error={error?.startsWith("UNKNOWN_SKU") ? undefined : error} />
       {error?.startsWith("UNKNOWN_SKU") && <Alert>{u("unknownSku", { list: error.split(":").slice(1).join(":") })} {error.split(":").slice(1).join(":").split(",").map((s) => <Link key={s} href={`/parts/new?vendor=${encodeURIComponent(s.replace(/^[A-Z]{2,4}-/, ""))}&back=/purchasing/orders/${po.no}`} className="ml-2 underline">＋ {s}</Link>)}</Alert>}
       <Card title={u("poHeader")}>
@@ -108,7 +126,8 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
           <div className="text-right"><button className={btnPrimary}>{u("registerSupplierInvoice")}</button></div>
         </form>}
       </Card>}
-      {openPo && (<>
+      {openPo && !po.approvedAt && <Alert>{u("poNotApproved")}</Alert>}
+      {openPo && po.approvedAt && (<>
         <FormMemory formId="r" />
         <UploadRecognize kind="stock" formId="r" title={u("upReceiptTitle")} hint={u("upReceiptHint")} />
         <form id="r" action={receive}>
