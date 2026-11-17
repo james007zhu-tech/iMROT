@@ -10,8 +10,10 @@ import { prisma } from "@/lib/db";
 import { overLimit } from "@/lib/pay-rules";
 import { audit } from "@/server/audit";
 import { allocateNumber } from "@/lib/numbering-db";
+import { hasRole, isApprover } from "@/lib/caps";
 
 const SEE_ALL = ["MD", "FINANCE"];
+type Actor = { id: string; role: string; extraRoles?: string[] | null; approver?: boolean | null };
 export const PAID_BY = ["SELF", "PETTY_CASH", "COMPANY"] as const;
 
 export const ExpenseInput = z.object({
@@ -28,7 +30,7 @@ export async function fileExpense(input: z.input<typeof ExpenseInput>) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   // filing for someone else is for the MD and finance (a driver's fuel receipts handed in on paper)
   const forCode = d.employeeCode && d.employeeCode !== actor.code ? d.employeeCode : actor.code;
-  if (forCode !== actor.code && !SEE_ALL.includes(actor.role)) throw new Error("EXPENSE_NOT_YOURS");
+  if (forCode !== actor.code && !hasRole(actor, ...SEE_ALL)) throw new Error("EXPENSE_NOT_YOURS");
   const who = forCode === actor.code ? actor : await prisma.employee.findUniqueOrThrow({ where: { code: forCode } });
   if (d.vatAmount != null && d.vatAmount >= d.amount) throw new Error("EXPENSE_VAT_TOO_HIGH");
   if (d.spentOn.getTime() > Date.now() + 86_400_000) throw new Error("EXPENSE_FUTURE_DATE");
@@ -48,24 +50,25 @@ export async function fileExpense(input: z.input<typeof ExpenseInput>) {
 }
 
 /** The finance person pays claims, never their own; the finance person's own claim is paid by the MD. */
-export function mayPayClaim(actor: { id: string; role: string }, claim: { employeeId: string; employee: { role: string } }) {
+export function mayPayClaim(actor: Actor, claim: { employeeId: string; employee: { role: string; extraRoles?: string[] | null } }) {
   if (claim.employeeId === actor.id) return false;
-  return actor.role === "FINANCE" || (actor.role === "MD" && claim.employee.role === "FINANCE");
+  return hasRole(actor, "FINANCE") || (hasRole(actor, "MD") && hasRole(claim.employee, "FINANCE"));
 }
 
-async function mayDecide(actorId: string, role: string, claim: { employeeId: string; employee: { managerId: string | null } }) {
-  if (claim.employeeId === actorId && role !== "MD") return false; // nobody approves their own claim; the MD has no one above
-  return role === "MD" || claim.employee.managerId === actorId;
+async function mayDecide(actor: Actor, claim: { employeeId: string; employee: { managerId: string | null } }) {
+  const actorId = actor.id, md = hasRole(actor, "MD");
+  if (claim.employeeId === actorId && !md) return false; // nobody approves their own claim; the MD has no one above
+  return md || claim.employee.managerId === actorId;
 }
 
 export async function decideExpense(input: { id: string; actorCode: string; decision: "APPROVED" | "REJECTED"; note?: string }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const c = await prisma.expenseClaim.findUniqueOrThrow({ where: { id: input.id }, include: { employee: { select: { managerId: true } } } });
   if (c.status !== "PENDING") throw new Error("EXPENSE_NOT_PENDING");
-  if (!(await mayDecide(actor.id, actor.role, c))) throw new Error("EXPENSE_NOT_APPROVER");
+  if (!(await mayDecide(actor, c))) throw new Error("EXPENSE_NOT_APPROVER");
   if (input.decision === "REJECTED" && !input.note?.trim()) throw new Error("EXPENSE_REJECT_NEEDS_REASON");
   // one claim above the limit is the MD's to approve, whoever the manager is (THB; a foreign-currency claim always goes up)
-  if (input.decision === "APPROVED" && actor.role !== "MD" && (c.currency !== "THB" || overLimit(Number(c.amount)))) throw new Error("EXPENSE_NEEDS_MD");
+  if (input.decision === "APPROVED" && !hasRole(actor, "MD") && (c.currency !== "THB" || overLimit(Number(c.amount)))) throw new Error("EXPENSE_NEEDS_MD");
   await prisma.expenseClaim.update({ where: { id: c.id }, data: { status: input.decision, approverId: actor.id, decidedAt: new Date(), decisionNote: input.note?.trim() || null } });
   await audit(actor.id, `EXPENSE_${input.decision}`, c.id, { amount: Number(c.amount) });
 }
@@ -73,7 +76,7 @@ export async function decideExpense(input: { id: string; actorCode: string; deci
 export async function cancelExpense(input: { id: string; actorCode: string }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const c = await prisma.expenseClaim.findUniqueOrThrow({ where: { id: input.id } });
-  if (c.employeeId !== actor.id && actor.role !== "MD") throw new Error("EXPENSE_NOT_YOURS");
+  if (c.employeeId !== actor.id && !hasRole(actor, "MD")) throw new Error("EXPENSE_NOT_YOURS");
   if (c.status !== "PENDING") throw new Error("EXPENSE_NOT_PENDING");
   await prisma.expenseClaim.update({ where: { id: c.id }, data: { status: "CANCELLED" } });
 }
@@ -95,9 +98,9 @@ export async function payExpense(input: { id: string; actorCode: string; paidRef
 
 export async function expensesFor(actorCode: string, filter: { status?: string; mine?: boolean } = {}) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  const scope: Prisma.ExpenseClaimWhereInput = filter.mine || !(SEE_ALL.includes(a.role) || a.role === "MANAGER") ? { employeeId: a.id }
-    : SEE_ALL.includes(a.role) ? { entityId: a.entityId } : { OR: [{ employeeId: a.id }, { employee: { managerId: a.id } }] };
-  const rows = await prisma.expenseClaim.findMany({ where: { ...scope, ...(filter.status ? { status: filter.status as never } : {}) }, include: { employee: { select: { id: true, code: true, name: true, managerId: true, role: true } }, approver: { select: { name: true } } }, orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }], take: 200 });
+  const scope: Prisma.ExpenseClaimWhereInput = filter.mine || !(hasRole(a, ...SEE_ALL) || isApprover(a)) ? { employeeId: a.id }
+    : hasRole(a, ...SEE_ALL) ? { entityId: a.entityId } : { OR: [{ employeeId: a.id }, { employee: { managerId: a.id } }] };
+  const rows = await prisma.expenseClaim.findMany({ where: { ...scope, ...(filter.status ? { status: filter.status as never } : {}) }, include: { employee: { select: { id: true, code: true, name: true, managerId: true, role: true, extraRoles: true } }, approver: { select: { name: true } } }, orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }], take: 200 });
   const runs = new Map((await prisma.payrollRun.findMany({ where: { id: { in: rows.map((r) => r.payrollRunId).filter((x): x is string => !!x) } }, select: { id: true, month: true } })).map((x) => [x.id, x.month]));
-  return { me: a, rows: await Promise.all(rows.map(async (r) => ({ ...r, payrollMonth: r.payrollRunId ? runs.get(r.payrollRunId) ?? null : null, canDecide: r.status === "PENDING" && (await mayDecide(a.id, a.role, r)), canPay: r.status === "APPROVED" && !r.payrollRunId && mayPayClaim(a, r) }))), seeAll: SEE_ALL.includes(a.role) };
+  return { me: a, rows: await Promise.all(rows.map(async (r) => ({ ...r, payrollMonth: r.payrollRunId ? runs.get(r.payrollRunId) ?? null : null, canDecide: r.status === "PENDING" && (await mayDecide(a, r)), canPay: r.status === "APPROVED" && !r.payrollRunId && mayPayClaim(a, r) }))), seeAll: hasRole(a, ...SEE_ALL) };
 }

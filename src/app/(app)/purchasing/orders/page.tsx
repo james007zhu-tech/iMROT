@@ -14,7 +14,7 @@ export default async function PurchaseOrders({ searchParams }: { searchParams: P
   const { ok, error } = await searchParams;
   const [t, u, ts] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("poStatus")]);
   const me = await currentEmployee();
-  const seeCost = can.cost(me.role); // 单价、金额 only for those who see cost; the rest see what has arrived
+  const seeCost = can.cost(me); // 单价、金额 only for those who see cost; the rest see what has arrived
   const rows = await prisma.purchaseOrder.findMany({ orderBy: { createdAt: "desc" }, take: 200, include: { supplier: { select: { name: true } }, serviceOrder: { select: { no: true } }, inquiry: { select: { no: true } }, createdBy: { select: { name: true } } } });
   return (
     <div className="space-y-4">

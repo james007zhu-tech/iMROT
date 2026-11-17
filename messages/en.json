@@ -394,7 +394,7 @@
     "saved": "Saved",
     "edit": "Edit",
     "payablesLink": "Payables",
-    "noAccess": "No permission: your role cannot open this page. If you need it, ask the MD.",
+    "noAccess": "No permission — this function belongs to the {roles} role.",
     "yes": "Yes",
     "no": "No",
     "open": "Open",
@@ -2458,17 +2458,24 @@
     "err_FIXED_RANGE": "The end month cannot be before the start month.",
     "cashFixedStopped": "Stopped",
     "cashFixedShowStopped": "Show stopped",
-    "cashFixedHideStopped": "Hide stopped"
+    "cashFixedHideStopped": "Hide stopped",
+    "extraRolesLabel": "Further roles (permissions add up)",
+    "approverLabel": "Approver for their team (supervisor): overtime, leave, expenses, reports — sees money as their role does",
+    "approverTag": "Team approver",
+    "ok_paySubmitted": "Submitted — finance has been notified.",
+    "err_PAYROLL_NOT_SUBMITTED": "HR has not submitted the {detail} payroll for review yet.",
+    "workGate_quoteDraft": "The quote of {no} is still a draft: sales must confirm the price and send it, then the customer's PO is confirmed before the report. Open the quote:"
   },
   "role": {
-    "MD": "Managing Director",
-    "ADMIN": "Office administrator",
-    "MANAGER": "Supervisor",
-    "ENGINEER": "Engineer",
+    "MD": "MD Managing Director",
+    "ADMIN": "(retired) Clerk",
+    "MANAGER": "(retired) Supervisor",
+    "ENGINEER": "ENG Engineer",
     "SALES": "Sales",
-    "FINANCE": "Finance",
-    "WAREHOUSE": "Warehouse",
-    "HR": "HR"
+    "FINANCE": "FIN Finance",
+    "WAREHOUSE": "(retired) Warehouse",
+    "HR": "HR",
+    "PURCHASING": "PUR Purchasing"
   },
   "inquiryStatus": {
     "OPEN": "Awaiting quotes",
@@ -2611,7 +2618,11 @@
     "k_voidAsked": "{ref}: a void request is waiting for you",
     "k_needsPrice": "{ref}: items are in — waiting for your price",
     "k_priceHint": "{ref}: the shop floor has a word about the price",
-    "k_payableNoInvoice": "{ref}: goods received, no invoice yet — chase the supplier"
+    "k_payableNoInvoice": "{ref}: goods received, no invoice yet — chase the supplier",
+    "k_otApprove": "Overtime of {ref} is waiting for your approval",
+    "k_expenseApprove": "Expense claim {ref} is waiting for your approval",
+    "k_payrollReview": "Payroll {ref} is waiting for your review",
+    "k_payrollApprove": "Payroll {ref} is reviewed and waiting for your approval"
   },
   "reports": {
     "searchPh": "Report no., machine, serial, customer",
@@ -2784,7 +2795,7 @@
     "payBlockedList": "{n} cannot be approved yet:",
     "miss_SALARY": "No salary record",
     "miss_PERFORMANCE": "Not scored",
-    "miss_OVERTIME_OPEN": "Overtime month not closed",
+    "miss_OVERTIME_OPEN": "Overtime still waiting for approval",
     "miss_TAX_ID": "No tax ID",
     "miss_SSO_NO": "No SSO number",
     "miss_BANK": "No bank account",
@@ -2900,6 +2911,15 @@
     "payReviewNoted": "Other gaps ({n} people) — tick “acknowledged” to review",
     "payReviewAck": "I have seen the gaps above",
     "payGoConfirmOt": "Confirm the overtime",
-    "miss_JOINED": "No start date — tax estimated for a full year"
+    "miss_JOINED": "No start date — tax estimated for a full year",
+    "extraRolesLabel": "Further roles",
+    "approverTag": "Team approver",
+    "payStage_COMPUTING": "Draft (HR computing)",
+    "payStage_REVIEW": "Waiting for finance review",
+    "payStage_APPROVE": "Waiting for MD approval",
+    "payStage_APPROVED": "Approved",
+    "payStage_PAID": "Paid",
+    "paySubmit": "Submit for finance review",
+    "payNotSubmitted": "HR has not submitted it for review yet"
   }
 }

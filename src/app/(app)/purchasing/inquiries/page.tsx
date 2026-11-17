@@ -15,13 +15,13 @@ export default async function Inquiries({ searchParams }: { searchParams: Promis
   const { ok, error } = await searchParams;
   const [t, u, ts] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("inquiryStatus")]);
   const me = await currentEmployee();
-  const seeCost = can.cost(me.role);
+  const seeCost = can.cost(me);
   // 采购申请: the shop floor sees its own requests and those of its orders; supplier prices only for those who see cost
-  const own = can.allOrders(me.role) ? {} : { OR: [{ requestedById: me.id }, { serviceOrder: await orderScope(me) }] };
+  const own = can.allOrders(me) ? {} : { OR: [{ requestedById: me.id }, { serviceOrder: await orderScope(me) }] };
   const rows = await prisma.purchaseInquiry.findMany({ where: own, orderBy: { createdAt: "desc" }, take: 200, include: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, requestedBy: { select: { name: true } }, quotes: { select: { id: true, selected: true, subtotal: true, currency: true, supplier: { select: { name: true } } } }, orders: { select: { no: true } } } });
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: "/parts", label: t("nav_scm") }} title={u("inquiries")} badge={<Tag>{rows.length}</Tag>} actions={<>{can.purchasing(me.role) && <><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link></>}</>} newHref="/purchasing/inquiries/new" newLabel={u("newInquiry")} />
+      <PageHeader back={{ href: "/parts", label: t("nav_scm") }} title={u("inquiries")} badge={<Tag>{rows.length}</Tag>} actions={<>{can.purchase(me) && <><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link></>}</>} newHref="/purchasing/inquiries/new" newLabel={u("newInquiry")} />
       <Flash ok={ok} error={error} />
       <div className="rounded-xl border bg-white p-2">
         <Table head={["PRTH", t("status"), "QTTH", u("lines"), u("quotesReceived"), u("selectedQuote"), "POTH", u("requestedBy"), t("date")]}>

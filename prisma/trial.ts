@@ -28,8 +28,8 @@ async function main() {
   const staffPw = password();
   const existing = await prisma.employee.findUnique({ where: { email: STAFF_EMAIL } });
   const staff = existing
-    ? await updateEmployee({ actorCode: md.code, code: existing.code, role: "MANAGER", active: true, password: staffPw })
-    : await createEmployee({ actorCode: md.code, entityCode: ENTITY, name: "[TRIAL] Grok Tester", nameLocal: "[试用] Grok 测试员", role: "MANAGER", email: STAFF_EMAIL, locale: "zh", password: staffPw });
+    ? await updateEmployee({ actorCode: md.code, code: existing.code, role: "ENGINEER", approver: true, active: true, password: staffPw })
+    : await createEmployee({ actorCode: md.code, entityCode: ENTITY, name: "[TRIAL] Grok Tester", nameLocal: "[试用] Grok 测试员", role: "ENGINEER", approver: true, email: STAFF_EMAIL, locale: "zh", password: staffPw });
 
   // 2. trial customer + portal contact
   const portalPw = password();

@@ -1,6 +1,7 @@
 /** 数据字典: pick-lists people maintain. Seeds appear the first time a group is read. */
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
+import { can } from "@/lib/caps";
 
 type Seed = [code: string, th: string, zh: string, en: string];
 export const DICT_GROUPS: Record<string, Seed[]> = {
@@ -35,7 +36,7 @@ export async function dictMap(group: string, locale: string) {
 
 async function mayEdit(actorCode: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  if (!["MD", "ADMIN"].includes(a.role)) throw new Error("ADMIN_ONLY");
+  if (!can.purchase(a)) throw new Error("ADMIN_ONLY");
   return a;
 }
 export async function saveDictItem(actorCode: string, input: { group: string; code: string; labelTh: string; labelZh: string; labelEn: string; sort?: number; active?: boolean }) {

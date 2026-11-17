@@ -13,7 +13,7 @@ import { renderSalaryLetter } from "@/server/salary-letter";
 export async function GET(req: Request, ctx: { params: Promise<{ code: string; id: string }> }) {
   const me = await currentEmployee().catch(() => null);
   if (!me) return NextResponse.json({ error: "not signed in" }, { status: 401 });
-  if (!can.staff(me.role)) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (!can.staff(me)) return NextResponse.json({ error: "not found" }, { status: 404 });
   const { code, id } = await ctx.params;
   const rec = await prisma.salaryRecord.findFirst({ where: { id, employee: { code } } });
   if (!rec) return NextResponse.json({ error: "not found" }, { status: 404 });

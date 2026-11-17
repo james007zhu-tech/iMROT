@@ -8,6 +8,7 @@ import { localToday, OT_KINDS, OT_MULTIPLIER, WEEKLY_OT_CAP_HOURS } from "@/lib/
 import { Flash } from "@/components/Flash";
 import { Card, Field, Grid, PageHeader, Table, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { actualAction, cancelAction, closeMonthAction, decideAction, requestAction } from "./actions";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function Overtime({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { ok, error } = await searchParams;
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
-  const md = me.role === "MD";
+  const md = hasRole(me, "MD");
   await autoCloseOvertime().catch(() => []); // the hourly job may have missed a restart around midnight — closing is idempotent
   const { date: today, month, previousMonth } = localToday();
   const [mine, pending, months, preview, staff] = await Promise.all([

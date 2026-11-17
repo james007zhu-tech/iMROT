@@ -3,14 +3,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
-import { BLOCKING, REVIEW_BLOCKING, REVIEW_NOTED, payrollDetail } from "@/server/payroll";
+import { BLOCKING, REVIEW_BLOCKING, REVIEW_NOTED, payrollDetail, payrollStage } from "@/server/payroll";
 import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { payslipNo } from "@/lib/numbering";
 import { DEFAULT_BANDS, type PerfBand, type Withholding } from "@/lib/payroll-run";
 import { localToday } from "@/lib/overtime";
 import { Flash } from "@/components/Flash";
 import { Alert, Card, PageHeader, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
-import { taxAction, approveAction, bandsAction, computeAction, paidAction, reopenAction, saveLinesAction } from "../actions";
+import { taxAction, approveAction, bandsAction, computeAction, paidAction, reopenAction, saveLinesAction, submitAction } from "../actions";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,8 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
   const { month } = await params;
   const { ok, error } = await searchParams;
   const [t, me] = await Promise.all([getTranslations("ops"), currentEmployee()]);
-  if (!PAYROLL_ROLES.includes(me.role)) notFound();
-  const md = me.role === "MD", prep = me.role === "HR", fin = me.role === "FINANCE";
+  if (!hasRole(me, ...PAYROLL_ROLES)) notFound();
+  const md = hasRole(me, "MD"), prep = hasRole(me, "HR"), fin = hasRole(me, "FINANCE");
   const run = await payrollDetail(me.entityId, month);
   if (!run) notFound();
   const x = run.totals as Record<string, number>;
@@ -38,12 +39,13 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
   const Row = ({ k, v, strong = false, minus = false }: { k: string; v: unknown; strong?: boolean; minus?: boolean }) => Number(v) === 0 && !strong ? null : <div className={`flex justify-between gap-3 ${strong ? "font-semibold text-navy" : ""}`}><span>{k}</span><span className="tabular-nums">{minus && Number(v) !== 0 ? "−" : ""}{money(v)}</span></div>;
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: "/people/payroll", label: t("payTitle") }} title={<span className="font-mono">{month}</span>} badge={<Tag hot={draft}>{t(`pay_${run.status}`)}</Tag>}
+      <PageHeader back={{ href: "/people/payroll", label: t("payTitle") }} title={<span className="font-mono">{month}</span>} badge={<Tag hot={draft}>{t(`payStage_${payrollStage(run)}`)}</Tag>}
         actions={<>
           <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{t("payExport")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">
             {["bank", "sso", "pnd1", "full"].filter((k) => !(k === "bank" && bankGap)).map((k) => <a key={k} href={`/api/payroll/${month}/export?kind=${k}`} className="rounded px-2 py-1 hover:bg-tint">{t(`payExport_${k}`)}</a>)}
           </div></details>
           {draft && prep && <form action={computeAction.bind(null, month)}><button className={btnGhost}>{t("payRefresh")}</button></form>}
+          {draft && prep && !run.submittedAt && <form action={submitAction.bind(null, month)}><button className={btnBlue}>{t("paySubmit")}</button></form>}
           {draft && md && <form action={approveAction.bind(null, month)}><button className={btnBlue} disabled={blocking.length > 0 || !run.taxConfirmedAt} title={blocking.length ? t("payBlocked") : !run.taxConfirmedAt ? t("payTaxFirst") : undefined} style={blocking.length || !run.taxConfirmedAt ? { opacity: 0.5 } : undefined}>{t("payApprove")}</button></form>}
           {run.status === "APPROVED" && md && <form action={reopenAction.bind(null, month)}><button className={btnGhost}>{t("payReopen")}</button></form>}
           {run.status === "APPROVED" && fin && <form action={paidAction.bind(null, month)} className="flex items-center gap-2"><input name="paidAt" type="date" defaultValue={localToday().date} className={`${inputCls} w-40`} aria-label={t("payPaidOn")} /><button className={btnBlue}>{t("payMarkPaid")}</button></form>}
@@ -63,7 +65,8 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
       {draft && <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-[13px] ${run.taxConfirmedAt ? "border-navy/20 bg-white text-navy" : "border-[#E6A23C] bg-[#FFF4E5] text-[#7A4A00]"}`}>
         <span className="min-w-0 flex-1">{run.taxConfirmedAt ? t("payTaxDone", { who: run.taxConfirmedBy ?? "", date: localIso(run.taxConfirmedAt)!.slice(0, 10) }) : t("payTaxTodo")}</span>
         <a href={`/api/payroll/${month}/export?kind=pnd1`} className={btnGhost}>{t("payExport_pnd1")}</a>
-        {fin && <form action={taxAction.bind(null, month, !run.taxConfirmedAt)} className="flex flex-wrap items-center gap-2">
+        {fin && !run.submittedAt && <span className="text-[13px] text-navy/70">{t("payNotSubmitted")}</span>}
+        {fin && !!run.submittedAt && <form action={taxAction.bind(null, month, !run.taxConfirmedAt)} className="flex flex-wrap items-center gap-2">
           {!run.taxConfirmedAt && reviewStop.length === 0 && reviewNoted.length > 0 && <label className="flex items-center gap-1.5 text-[13px]"><input type="checkbox" name="ack" required className="h-4 w-4" />{t("payReviewAck")}</label>}
           <button disabled={!run.taxConfirmedAt && reviewStop.length > 0} className={`${run.taxConfirmedAt ? btnGhost : btnPrimary} disabled:cursor-not-allowed disabled:opacity-40`}>{run.taxConfirmedAt ? t("payTaxUndo") : t("payTaxConfirm")}</button>
         </form>}

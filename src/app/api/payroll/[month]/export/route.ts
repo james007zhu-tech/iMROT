@@ -6,6 +6,7 @@ import { sessionEmployeeCode } from "@/server/auth";
 import { payrollDetail } from "@/server/payroll";
 import { audit } from "@/server/audit";
 import { payslipNo } from "@/lib/numbering";
+import { hasRole } from "@/lib/caps";
 
 const cell = (v: unknown) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const f2 = (n: unknown) => Number(n).toFixed(2);
@@ -13,7 +14,7 @@ const f2 = (n: unknown) => Number(n).toFixed(2);
 export async function GET(req: Request, { params }: { params: Promise<{ month: string }> }) {
   const code = await sessionEmployeeCode();
   const me = code ? await prisma.employee.findUnique({ where: { code } }) : null;
-  if (!me || !PAYROLL_ROLES.includes(me.role)) return NextResponse.json({ error: "PAYROLL_OFFICE_ONLY" }, { status: 403 });
+  if (!me || !hasRole(me, ...PAYROLL_ROLES)) return NextResponse.json({ error: "PAYROLL_OFFICE_ONLY" }, { status: 403 });
   const { month } = await params;
   const kind = new URL(req.url).searchParams.get("kind") ?? "full";
   const run = await payrollDetail(me.entityId, month);

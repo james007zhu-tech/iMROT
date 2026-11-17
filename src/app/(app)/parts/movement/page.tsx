@@ -26,7 +26,7 @@ export default async function Movement({ searchParams }: { searchParams: Promise
   const { direction, order, error, ok } = await searchParams;
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const me = await currentEmployee();
-  const seeCost = can.cost(me.role);
+  const seeCost = can.cost(me);
   const [parts, orders, whs] = await Promise.all([
     prisma.part.findMany({ orderBy: { sku: "asc" }, select: { sku: true, vendorPartNo: true, name: true, unit: true } }),
     prisma.serviceOrder.findMany({ where: { AND: [await orderScope(me), { status: { in: ["ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } }] }, include: { customer: true }, orderBy: { reportedAt: "desc" } }),

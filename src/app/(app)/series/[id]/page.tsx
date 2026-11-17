@@ -33,7 +33,7 @@ export default async function SeriesPage({ params, searchParams }: { params: Pro
   const qs = (o: Record<string, string | number | undefined>) => `/series/${id}?${new URLSearchParams(Object.entries({ ...sp, ok: undefined, error: undefined, ...o }).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`;
   const tabCls = (on: boolean) => `border-b-2 px-4 py-2 text-sm ${on ? "border-blue font-semibold text-navy" : "border-transparent text-navy/60"}`;
   const docs = (s?.documents ?? []) as Source[];
-  const editable = canEditDictionary(me.role);
+  const editable = canEditDictionary(me);
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/series", label: u("kbSeriesTitle") }} title={s ? s.name : u("kbNewSeries")}
@@ -110,7 +110,7 @@ export default async function SeriesPage({ params, searchParams }: { params: Pro
             <button className={btnPrimary}>{t("search")}</button>
           </form>
           <div className="rounded-xl border bg-white p-2">
-            <CodeTable rows={codes.rows} back={qs({})} showSeries={false} canReview={canApprove(me.role)} />
+            <CodeTable rows={codes.rows} back={qs({})} showSeries={false} canReview={canApprove(me)} />
           </div>
           <Pager page={page} total={codes.total} size={SIZE} href={(n) => qs({ page: n })} prev={u("prevPage")} next={u("nextPage")} />
         </>

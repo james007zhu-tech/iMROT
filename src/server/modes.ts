@@ -3,6 +3,7 @@
  */
 import { prisma } from "@/lib/db";
 import { DEFAULT_MARGIN_FLOOR, MODES, marginFloorFor, type Mode } from "@/lib/modes";
+import { hasRole } from "@/lib/caps";
 
 type Db = Pick<typeof prisma, "modeRule">;
 
@@ -19,7 +20,7 @@ export async function marginFloor(mode: string, db: Db = prisma): Promise<number
 /** MD only. pct is a fraction (0.2 = 20 %). */
 export async function setModeRules(input: { actorCode: string; floors: Partial<Record<Mode, number>> }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  if (actor.role !== "MD") throw new Error("FORBIDDEN");
+  if (!hasRole(actor, "MD")) throw new Error("FORBIDDEN");
   for (const [mode, pct] of Object.entries(input.floors) as [Mode, number][]) {
     if (!MODES.includes(mode) || !Number.isFinite(pct) || pct < 0 || pct >= 1) throw new Error(`INVALID_INPUT:${mode}`);
     await prisma.modeRule.upsert({ where: { mode }, create: { mode, minMarginPct: pct, updatedBy: actor.code }, update: { minMarginPct: pct, updatedBy: actor.code } });

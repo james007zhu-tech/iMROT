@@ -13,8 +13,8 @@ import { MessageCenter } from "@/components/MessageCenter";
 import { PhoneTables } from "@/components/PhoneTables";
 import { MenuGuard } from "@/components/MenuGuard";
 import { DraftKeeper } from "@/components/DraftKeeper";
-import { hiddenFor, menuKeyOf } from "@/server/perm";
-import { pathAllows } from "@/lib/caps";
+import { hiddenFor, menuKeyOf, ownersOf } from "@/server/perm";
+import { pathAllows, hasRole } from "@/lib/caps";
 import { headers } from "next/headers";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -23,10 +23,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const c = await getTranslations("common");
   const notices = await noticesFor(me).catch(() => []); // a reminder query must never take the page down
   // 权限管理: entries this role may not open leave the menu, and the page behind them is refused (server on arrival, client on moves inside the app)
-  const hidden = await hiddenFor(me.role).catch(() => new Set<string>());
+  const hidden = await hiddenFor(me).catch(() => new Set<string>());
   const here = (await headers()).get("x-dcit-path");
-  const refused = !!here && (hidden.has(menuKeyOf(here) ?? "") || !pathAllows(me.role, here.split("?")[0]));
-  const guardItems = NAV.flatMap((g) => g.items.map((i) => ({ href: i.href, blocked: hidden.has(i.key) })));
+  const refused = !!here && (hidden.has(menuKeyOf(here) ?? "") || !pathAllows(me, here.split("?")[0]));
+  const guardItems = NAV.flatMap((g) => g.items.map((i) => ({ href: i.href, blocked: hidden.has(i.key), owners: hidden.has(i.key) ? ownersOf(i.href) : "" })));
   async function out() { "use server"; await signOut(); redirect("/login"); }
   return (
     <div className="min-h-screen md:flex">
@@ -40,7 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
         <form action="/search" className="mx-3 mb-2 flex gap-1 md:hidden"><input name="q" placeholder={c("search")} className="w-full rounded-md border px-3 py-2 text-sm" /><button className="rounded-md border border-navy/45 px-3 text-sm">⌕</button></form>
         {/* OPD: the MD sees the employee list; everyone else sees only their own file (decision 2026-11-08). */}
-        <Suspense><NavLinks groups={NAV.filter((g) => g.href || g.items.some((i) => (!i.mdOnly || me.role === "MD") && !hidden.has(i.key))).map((g) => ({ key: g.key, label: t(g.key), href: g.href, items: g.items.filter((i) => (!i.mdOnly || me.role === "MD") && !hidden.has(i.key)).map((i) => i.key === "talent" && me.role !== "MD" ? { key: i.key, href: `/people/${me.code}`, label: t("opdSelf") } : { key: i.key, href: i.href, label: t(i.key), soon: i.soon }) }))} /></Suspense>
+        <Suspense><NavLinks groups={NAV.filter((g) => g.href || g.items.some((i) => (!i.mdOnly || hasRole(me, "MD")) && !hidden.has(i.key))).map((g) => ({ key: g.key, label: t(g.key), href: g.href, items: g.items.filter((i) => (!i.mdOnly || hasRole(me, "MD")) && !hidden.has(i.key)).map((i) => i.key === "talent" && !hasRole(me, "MD") ? { key: i.key, href: `/people/${me.code}`, label: t("opdSelf") } : { key: i.key, href: i.href, label: t(i.key), soon: i.soon }) }))} /></Suspense>
         <div className="mt-auto flex items-center justify-between border-t border-hair px-4 py-3 text-sm text-navy/70 md:hidden"><Link href="/me" className="text-navy">👤 {c("me")} · {me.name}</Link><form action={out}><button className="text-blue">{c("signOut")}</button></form></div>
         <VersionTag className="px-4 pb-3 md:mt-auto md:px-5 md:pt-3" />
       </aside>
@@ -51,7 +51,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <form action="/search" className="hidden w-full max-w-md gap-1 md:flex"><input name="q" placeholder={c("search")} className="w-full rounded-md border px-3 py-1.5 text-sm" /><button className="rounded-md border border-navy/45 px-3 text-sm">⌕</button></form>
           <div className="flex items-center gap-3 text-sm text-navy/70 md:ml-auto"><MessageCenter notices={notices} /><Link href="/me" title={c("me")} className="hidden rounded-full border border-hair px-3 py-1 text-navy hover:bg-tint md:inline">👤 {c("me")} · {me.name}</Link><form action={out} className="hidden md:block"><button className="text-blue">{c("signOut")}</button></form></div>
         </header>
-        <main className="p-4 pb-24 md:p-6">{refused ? <div className="rounded-xl border bg-white p-8 text-center text-sm text-navy">{c("noAccess")}</div> : <Suspense><DraftKeeper labels={{ found: c("draftFound", { time: "{time}" }), restore: c("draftRestore"), drop: c("draftDrop"), restored: c("draftRestored") }} /><MenuGuard items={guardItems} message={c("noAccess")}>{children}</MenuGuard></Suspense>}</main>
+        <main className="p-4 pb-24 md:p-6">{refused ? <div className="rounded-xl border bg-white p-8 text-center text-sm text-navy">{c("noAccess", { roles: ownersOf(here ?? "") })}</div> : <Suspense><DraftKeeper labels={{ found: c("draftFound", { time: "{time}" }), restore: c("draftRestore"), drop: c("draftDrop"), restored: c("draftRestored") }} /><MenuGuard items={guardItems} message={c("noAccess", { roles: "{roles}" })}>{children}</MenuGuard></Suspense>}</main>
       </div>
       <Suspense><PhoneTables more={c("oneMoreLine")} /></Suspense>
       <AiAssistant scope="staff" />

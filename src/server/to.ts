@@ -1,5 +1,5 @@
 import { actorWith } from "@/server/guard";
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { countryOfNo, isTestNo } from "@/lib/numbering";
 /**
  * T&O / FIN Phase 1 slice: TITH tax invoice (local currency, Thai text, VAT separate), IVTH invoice (also the payment record),
@@ -216,7 +216,7 @@ export async function issueMonthlyStatement(customerCode: string, period: string
 
 /** Ask to void a tax invoice. Refused when a payment was already recorded against it (then a credit note is the way, not a void). */
 export async function requestTaxInvoiceVoid(input: { taxInvoiceNo: string; actorCode: string; reason: string }) {
-  await actorWith(input.actorCode, can.invoiceStatus); // 统一角色权限表
+  await actorWith(input.actorCode, can.invoice); // 统一角色权限表
   const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no: input.taxInvoiceNo }, include: { invoices: { include: { receipts: true } }, serviceOrder: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   if (ti.voidedAt) throw new Error(`TI_ALREADY_VOID:${ti.no}`);
@@ -233,7 +233,7 @@ export async function requestTaxInvoiceVoid(input: { taxInvoiceNo: string; actor
  */
 export async function decideTaxInvoiceVoid(input: { taxInvoiceNo: string; actorCode: string; decision: "APPROVED" | "REJECTED"; note?: string }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  if (!hasRole(actor, "MD")) throw new Error("MD_ONLY");
   const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no: input.taxInvoiceNo }, include: { invoices: { include: { receipts: true } }, serviceOrder: { include: { assets: true } } } });
   if (ti.voidStatus !== "REQUESTED") throw new Error(`TI_VOID_NOT_REQUESTED:${ti.no}`);
   const now = new Date();
@@ -281,7 +281,7 @@ export async function requestReceiptVoid(input: { receiptNo: string; actorCode: 
 /** MD decision. APPROVED voids the receipt (number kept) and gives its cash and WHT back to the IVTH: the receivable is open again. */
 export async function decideReceiptVoid(input: { receiptNo: string; actorCode: string; decision: "APPROVED" | "REJECTED"; note?: string }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  if (!hasRole(actor, "MD")) throw new Error("MD_ONLY");
   const rc = await prisma.receipt.findUniqueOrThrow({ where: { no: input.receiptNo }, include: { invoice: { include: { receipts: true } } } });
   if (rc.voidStatus !== "REQUESTED") throw new Error(`RC_VOID_NOT_REQUESTED:${rc.no}`);
   const now = new Date();
@@ -313,7 +313,7 @@ export async function issueCreditNote(input: z.input<typeof CreditNoteInput>) {
   assertBusinessClosure("TI");
   const d = CreditNoteInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
-  if (actor.role !== "MD" && actor.role !== "FINANCE") throw new Error("FINANCE_ONLY");
+  if (!hasRole(actor, "MD") && !hasRole(actor, "FINANCE")) throw new Error("FINANCE_ONLY");
   const ti = await prisma.taxInvoice.findUniqueOrThrow({ where: { no: d.taxInvoiceNo }, include: { serviceOrder: true, creditNotes: { where: { voidedAt: null } }, invoices: { where: { cancelledAt: null }, orderBy: { issuedAt: "desc" } } } });
   if (ti.voidedAt) throw new Error(`TI_ALREADY_VOID:${ti.no}`);
   const left = round2(Number(ti.subtotal) - ti.creditNotes.reduce((s, c) => s + Number(c.subtotal), 0));
@@ -335,7 +335,7 @@ export async function issueCreditNote(input: z.input<typeof CreditNoteInput>) {
 /** A wrong credit note is voided by the MD: the amount goes back onto the IVTH. */
 export async function voidCreditNote(input: { no: string; actorCode: string; reason: string }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  if (!hasRole(actor, "MD")) throw new Error("MD_ONLY");
   if (!input.reason.trim()) throw new Error("VOID_REASON_REQUIRED");
   const cn = await prisma.creditNote.findUniqueOrThrow({ where: { no: input.no } });
   if (cn.voidedAt) throw new Error(`CN_ALREADY_VOID:${cn.no}`);
@@ -357,7 +357,7 @@ export async function withdrawVoidRequest(input: { no: string; actorCode: string
   const row = ti ?? rc;
   if (!row) throw new Error(`NOT_FOUND:${input.no}`);
   if (row.voidStatus !== "REQUESTED" || row.voidedAt) throw new Error(`VOID_NOT_PENDING:${input.no}`);
-  if (!(row.voidRequestedById === actor.id || can.invoice(actor.role))) throw new Error("NO_PERMISSION");
+  if (!(row.voidRequestedById === actor.id || can.invoice(actor))) throw new Error("NO_PERMISSION");
   const data = { voidStatus: "NONE" as const, voidRequestedById: null, voidRequestReason: null };
   if (ti) await prisma.taxInvoice.update({ where: { id: ti.id }, data }); else await prisma.receipt.update({ where: { id: rc!.id }, data });
   await audit(actor.id, "VOID_REQUEST_WITHDRAWN", input.no, { reason: row.voidRequestReason });

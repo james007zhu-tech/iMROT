@@ -1,4 +1,4 @@
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -30,7 +30,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
   const [{ code }, { ok, error, reset }] = await Promise.all([params, searchParams]);
   const me = await currentEmployee();
   if (!mayViewEmployee(me, code)) return <Forbidden />;
-  const md = can.staff(me.role), isMd = me.role === "MD";
+  const md = can.staff(me), isMd = hasRole(me, "MD");
   const self = me.code === code;
   const e = await getEmployeeFile(me, code);
   if (!e) notFound();
@@ -52,7 +52,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
   return (
     <div className="space-y-4">
       <PageHeader back={md ? { href: "/people", label: t("backToEmployees") } : undefined} title={<><span className="font-mono">{e.code}</span> <span className="font-normal">· {e.name}{e.nameLocal ? ` ${e.nameLocal}` : ""}</span></>}
-        badge={<><Tag>{r(e.role)}</Tag><Tag>{e.entity.code}</Tag>{status}</>}
+        badge={<>{[e.role, ...e.extraRoles].map((x) => <Tag key={x}>{r(x)}</Tag>)}{e.approver && <Tag>{t("approverTag")}</Tag>}<Tag>{e.entity.code}</Tag>{status}</>}
         actions={<>{(self || md) && <Link href="/people/overtime" className={btnGhost}>{t("overtime")}</Link>}{revealForm}{md ? <button form="f" className={btnPrimary}>{c("save")}</button> : <button form="own" className={btnPrimary}>{t("empSaveContacts")}</button>}</>} />
       <Flash ok={ok === "revealed" ? t("revealedFor5") : ok === "saved" ? c("saved") : ok} error={error} />
       {(alerts.length > 0 || due) && (
@@ -74,7 +74,9 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
             <Card title={t("empAccount")}>
               <Grid cols={4}>
                 <Field label={t("emailLogin")}><Value>{show(e.email, "email") || "—"}</Value></Field>
-                <Field label={c("role")}>{isMd ? <select name="role" defaultValue={e.role} className={inputCls}>{[...new Set([...STAFF_ROLES, e.role])].map((x) => <option key={x} value={x}>{r(x)}</option>)}</select> : <><input type="hidden" name="role" value={e.role} /><Value>{r(e.role)}</Value></>}</Field>
+                <Field label={c("role")}>{isMd ? <select name="role" defaultValue={e.role} className={inputCls}>{STAFF_ROLES.map((x) => <option key={x} value={x}>{r(x)}</option>)}</select> : <><input type="hidden" name="role" value={e.role} /><Value>{[e.role, ...e.extraRoles].map((x) => r(x)).join(" + ")}</Value></>}</Field>
+                {isMd && <div className="md:col-span-2"><Field label={t("extraRolesLabel")}><div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">{STAFF_ROLES.filter((x) => x !== "MD").map((x) => <label key={x} className="flex items-center gap-1.5"><input type="checkbox" name="extraRoles" value={x} defaultChecked={(e.extraRoles as string[]).includes(x)} />{r(x)}</label>)}</div></Field>
+                  <label className="mt-2 flex items-start gap-2 text-sm"><input type="checkbox" name="approver" defaultChecked={e.approver} className="mt-1" /><span>{t("approverLabel")}</span></label></div>}
                 <Field label={t("uiLanguage")}><select name="locale" defaultValue={e.locale} className={inputCls}><option value="th">ไทย</option><option value="zh">中文</option><option value="en">English</option></select></Field>
                 {isMd && <Field label={c("newPassword")}><input name="password" type="password" minLength={6} className={inputCls} /></Field>}
                 <Field label={t("empLastLogin")}><Value>{e.lastLoginAt ? localIso(e.lastLoginAt)!.replace("T", " ").slice(0, 16) : "—"}</Value></Field>

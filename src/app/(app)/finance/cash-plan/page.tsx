@@ -20,7 +20,7 @@ const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 
 export default async function CashPlanPage({ searchParams }: { searchParams: Promise<{ month?: string; v?: string; ok?: string; error?: string }> }) {
   const sp = await searchParams;
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
-  if (!mayPlan(me.role)) notFound();
+  if (!mayPlan(me)) notFound();
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : thisMonth();
   const current = month === thisMonth();
   if (current) await ensureCashPlan(me.entityId, month);
@@ -39,7 +39,7 @@ export default async function CashPlanPage({ searchParams }: { searchParams: Pro
     "use server";
     await guarded(async () => {
       const who = await currentEmployee();
-      if (!mayPlan(who.role)) throw new Error("FORBIDDEN");
+      if (!mayPlan(who)) throw new Error("FORBIDDEN");
       const v = String(f.get("opening") ?? "").replace(/,/g, "").trim();
       await setOpeningBalance(who.entityId, month, v === "" ? null : Number(v), who.id);
       return "saved";

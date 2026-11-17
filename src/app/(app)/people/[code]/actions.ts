@@ -1,5 +1,6 @@
 "use server";
 /** Server actions of the ETH file page. Kept in their own module so nothing but `code` is bound (rule: actions never close over translators or helpers). */
+import { hasRole } from "@/lib/caps";
 import { currentEmployee, grantReveal } from "@/server/auth";
 import { saveLetterDetails } from "@/server/salary-letter";
 import { addCredential, addQuickCredentials, addReview, addSalaryRecord, auditSalaryView, authorizeEmployeeReveal, removeCredential, setCareers, updateEmployee, updateOwnContacts } from "@/server/opd";
@@ -17,7 +18,7 @@ export async function save(code: string, f: FormData) {
   await guarded(async () => {
     const me = await currentEmployee();
     const { profile, careers, quick, attachments } = readEmployeeForm(f);
-    await updateEmployee({ ...profile, actorCode: me.code, code, role: f.get("role") as "ENGINEER", active: f.get("active") === "on", locale: str(f, "locale"), password: str(f, "password"), attachments });
+    await updateEmployee({ ...profile, actorCode: me.code, code, role: f.get("role") as "ENGINEER", ...(hasRole(me, "MD") ? { extraRoles: f.getAll("extraRoles").map(String) as "ENGINEER"[], approver: f.get("approver") === "on" } : {}), active: f.get("active") === "on", locale: str(f, "locale"), password: str(f, "password"), attachments });
     await setCareers(me.code, code, careers);
     await addQuickCredentials(me.code, code, quick);
     return "saved";
@@ -31,7 +32,7 @@ export async function reveal(code: string, f: FormData) {
     const me = await currentEmployee();
     await authorizeEmployeeReveal(me.code, String(f.get("password") ?? ""), code);
     await grantReveal(me.code, code);
-    if (can.staff(me.role)) await auditSalaryView(me.code, code);
+    if (can.staff(me)) await auditSalaryView(me.code, code);
     return "revealed";
   }, back(code));
 }

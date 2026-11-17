@@ -11,10 +11,11 @@
 import { prisma } from "@/lib/db";
 import { localIso } from "@/lib/dates";
 import { dayIn, monthStart, nextMonth, prevMonth, recursIn, sortLines, totalsOf, type CashLine } from "@/lib/cash-plan";
+import { can, type Who } from "@/lib/caps";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const day = (d: Date) => localIso(d)!.slice(0, 10);
-export const mayPlan = (role: string) => ["MD", "FINANCE"].includes(role);
+export const mayPlan = (who: Who) => can.finance(who);
 export const thisMonth = (now = new Date()) => localIso(now)!.slice(0, 7);
 
 export async function buildCashPlan(entityId: string, month: string) {
@@ -108,7 +109,7 @@ export async function setOpeningBalance(entityId: string, month: string, amount:
 
 export interface RecurringInput { payee: string; purpose: string; amount: number; dayOfMonth: number; startMonth: string; endMonth?: string; note?: string; currency?: string }
 export async function saveRecurring(entityId: string, actor: { id: string; role: string }, id: string | null, d: RecurringInput) {
-  if (!mayPlan(actor.role)) throw new Error("FORBIDDEN");
+  if (!mayPlan(actor)) throw new Error("FORBIDDEN");
   if (d.endMonth && /^\d{4}-\d{2}$/.test(d.endMonth) && /^\d{4}-\d{2}$/.test(d.startMonth) && d.endMonth < d.startMonth) throw new Error("FIXED_RANGE"); // 需求清单 v3 P2-20: say which field
   if (!d.payee.trim() || !d.purpose.trim() || !(d.amount > 0) || !(d.dayOfMonth >= 1 && d.dayOfMonth <= 31) || !/^\d{4}-\d{2}$/.test(d.startMonth) || (d.endMonth && (!/^\d{4}-\d{2}$/.test(d.endMonth) || d.endMonth < d.startMonth))) throw new Error("INVALID_INPUT");
   const data = { payee: d.payee.trim(), purpose: d.purpose.trim(), amount: d.amount, dayOfMonth: Math.round(d.dayOfMonth), startMonth: d.startMonth, endMonth: d.endMonth || null, note: d.note?.trim() || null, currency: d.currency || "THB" };
@@ -117,7 +118,7 @@ export async function saveRecurring(entityId: string, actor: { id: string; role:
   return r;
 }
 export async function stopRecurring(actor: { id: string; role: string }, id: string) {
-  if (!mayPlan(actor.role)) throw new Error("FORBIDDEN");
+  if (!mayPlan(actor)) throw new Error("FORBIDDEN");
   const r = await prisma.recurringPayment.update({ where: { id }, data: { active: false } });
   await prisma.auditLog.create({ data: { actorId: actor.id, action: "FIXED_PAYMENT_STOPPED", target: r.payee, detail: { purpose: r.purpose } } });
 }

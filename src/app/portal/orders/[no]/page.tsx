@@ -32,7 +32,7 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
     const me = await currentContact();
     const o = await prisma.serviceOrder.findFirstOrThrow({ where: { no, customerId: me.customerId } });
     if (o.status !== "QUOTE_PENDING") redirect(`/portal/orders/${no}`);
-    const desk = await prisma.employee.findFirstOrThrow({ where: { entityId: o.entityId, active: true, role: { in: ["MD", "ADMIN", "MANAGER"] } }, orderBy: { code: "asc" } });
+    const desk = await prisma.employee.findFirstOrThrow({ where: { entityId: o.entityId, active: true, role: { in: ["MD", "SALES"] } }, orderBy: { code: "asc" } });
     let attachments: { name: string; url: string; kind: string }[] = [];
     try { attachments = JSON.parse(String(form.get("attachments") || "[]")); } catch { /* none */ }
     await confirmCustomerPo({ no, actorCode: desk.code, customerRef: String(form.get("customerRef") || "") || undefined, poLines: await poLinesFromQuote(no), attachments: attachments.map((a) => ({ ...a, kind: "PO" })), note: `portal · ${me.name}` });
@@ -43,7 +43,7 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
     const me = await currentContact();
     const o = await prisma.serviceOrder.findFirstOrThrow({ where: { no, customerId: me.customerId }, include: { repairJobs: true } });
     if (o.status !== "ACCEPTANCE_PENDING") redirect(`/portal/orders/${no}`);
-    const desk = await prisma.employee.findFirstOrThrow({ where: { entityId: o.entityId, active: true, role: { in: ["MD", "ADMIN", "MANAGER"] } }, orderBy: { code: "asc" } });
+    const desk = await prisma.employee.findFirstOrThrow({ where: { entityId: o.entityId, active: true, role: { in: ["MD", "SALES"] } }, orderBy: { code: "asc" } });
     const tests = (o.repairJobs.at(-1)?.tests as { test: string; criterion?: string; result?: string }[] | null) ?? [];
     let attachments: { url: string }[] = [];
     try { attachments = JSON.parse(String(form.get("attachments") || "[]")); } catch { /* none */ }

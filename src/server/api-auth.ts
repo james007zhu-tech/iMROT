@@ -52,7 +52,7 @@ export async function bodyAsSession(req: Request): Promise<any> {
 /** A JSON answer without the figures the asker's role may not see. */
 export async function jsonForSession(data: unknown, init?: { status?: number }) {
   const me = await staffMe();
-  return NextResponse.json(me ? stripMoney(JSON.parse(JSON.stringify(data)), me.role) : data, init);
+  return NextResponse.json(me ? stripMoney(JSON.parse(JSON.stringify(data)), me) : data, init);
 }
 
 /** Staff may read a numbered document when their role may see that kind and — for the shop floor — the order is theirs. */
@@ -60,8 +60,8 @@ export async function staffMayReadDocument(no: string): Promise<boolean> {
   const me = await staffMe();
   if (!me) return false;
   const doc = await prisma.document.findUnique({ where: { no }, select: { type: true, serviceOrderId: true, createdById: true } });
-  if (!doc) return can.allOrders(me.role); // not a registered document number (e.g. a report rendered from an order): the order pages decide
-  if (!docTypeAllowed(me.role, doc.type)) return false;
-  if (can.allOrders(me.role)) return true;
+  if (!doc) return can.allOrders(me); // not a registered document number (e.g. a report rendered from an order): the order pages decide
+  if (!docTypeAllowed(me, doc.type)) return false;
+  if (can.allOrders(me)) return true;
   return doc.serviceOrderId ? mayOpenOrder(me, doc.serviceOrderId) : doc.createdById === me.id;
 }

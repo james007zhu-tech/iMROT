@@ -15,7 +15,7 @@ const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 
 export default async function FixedPayments({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; stopped?: string }> }) {
   const sp = await searchParams;
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
-  if (!mayPlan(me.role)) notFound();
+  if (!mayPlan(me)) notFound();
   const showStopped = sp.stopped === "1";
   const stoppedRows = showStopped ? await prisma.recurringPayment.findMany({ where: { entityId: me.entityId, active: false }, orderBy: [{ payee: "asc" }] }) : [];
   const rows = await prisma.recurringPayment.findMany({ where: { entityId: me.entityId, active: true }, orderBy: [{ dayOfMonth: "asc" }, { payee: "asc" }] });

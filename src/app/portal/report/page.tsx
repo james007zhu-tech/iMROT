@@ -24,7 +24,7 @@ export default async function PortalReport({ searchParams }: { searchParams: Pro
     const a = await prisma.asset.findFirst({ where: { code, customerId: me.customerId } });
     if (!a) redirect("/portal/report");
     // The portal has no employee; the order is created in the name of the entity's service desk (MD / manager).
-    const desk = await prisma.employee.findFirst({ where: { entityId: a.entityId, active: true, role: { in: ["MD", "ADMIN", "MANAGER"] } }, orderBy: { code: "asc" } });
+    const desk = await prisma.employee.findFirst({ where: { entityId: a.entityId, active: true, role: { in: ["MD", "SALES"] } }, orderBy: { code: "asc" } });
     if (!desk) throw new Error("no service desk employee configured for this entity");
     let attachments: { name: string; url: string; kind: string }[] = [];
     try { attachments = JSON.parse(String(form.get("attachments") || "[]")); } catch { /* none */ }

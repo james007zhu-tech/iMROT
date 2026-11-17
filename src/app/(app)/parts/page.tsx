@@ -11,7 +11,7 @@ export default async function Parts({ searchParams }: { searchParams: Promise<{ 
   const { q, movement, order, page } = await searchParams;
   const pg = Math.max(1, Number(page) || 1);
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
-  const seeCost = can.cost(me.role);
+  const seeCost = can.cost(me);
   const where = q ? { OR: [{ sku: { contains: q, mode: "insensitive" as const } }, { name: { contains: q, mode: "insensitive" as const } }] } : undefined;
   const total = await prisma.part.count({ where });
   const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(movement ? { movement } : {}), ...(order ? { order } : {}), page: String(n) })}`;
@@ -22,7 +22,7 @@ export default async function Parts({ searchParams }: { searchParams: Promise<{ 
   const mvHref = `/parts/movement${movement || order ? `?${new URLSearchParams({ ...(movement ? { direction: movement } : {}), ...(order ? { order } : {}) })}` : ""}`;
   return (
     <div className="space-y-4">
-      <PageHeader title={t("parts")} badge={<Tag>{total}</Tag>} actions={<><Link href="/purchasing/inquiries" className="text-sm text-blue hover:underline">PRTH →</Link>{can.purchasing(me.role) && <><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link></>}<Link href={mvHref} className={btnGhost}>{u("newMovement")}</Link></>} newHref="/parts/new" newLabel={u("newPart")} />
+      <PageHeader title={t("parts")} badge={<Tag>{total}</Tag>} actions={<><Link href="/purchasing/inquiries" className="text-sm text-blue hover:underline">PRTH →</Link>{can.purchasing(me) && <><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link></>}<Link href={mvHref} className={btnGhost}>{u("newMovement")}</Link></>} newHref="/parts/new" newLabel={u("newPart")} />
       <form className="flex gap-2"><input name="q" defaultValue={q} placeholder={u("searchParts")} className={`${inputCls} max-w-sm`} /><button className={btnGhost}>{t("search")}</button></form>
       <div className="rounded-xl border bg-white p-2">
         <Table head={[t("sku"), t("name"), t("brand"), u("onHand"), t("inBoms"), ...(seeCost ? [t("lastCost")] : [])]}>

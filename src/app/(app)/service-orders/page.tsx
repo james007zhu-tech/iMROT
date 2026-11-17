@@ -18,7 +18,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const p = Math.max(1, Number(page) || 1);
   const [t, u, ts, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getLocale()]);
   const me = await currentEmployee();
-  const seePrice = can.price(me.role); // 工程师、主管不看金额 (统一角色权限表)
+  const seePrice = can.price(me); // 工程师、主管不看金额 (统一角色权限表)
   const where = {
     AND: [await orderScope(me)], // 只看派给自己的 (工程师) / 本组的 (主管)
     status: ORDER_STATUSES.includes(status as never) ? (status as never) : undefined,

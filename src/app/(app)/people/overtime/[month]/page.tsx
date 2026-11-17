@@ -8,6 +8,7 @@ import { OT_KINDS } from "@/lib/overtime";
 import { Flash } from "@/components/Flash";
 import { Card, PageHeader, Table, Tag, btnGhost } from "@/components/ui";
 import { reopenMonthAction } from "../actions";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function OvertimeMonth({ params, searchParams }: { params: Promise<{ month: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const [{ month }, { ok, error }] = await Promise.all([params, searchParams]);
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
-  if (me.role !== "MD") notFound();
+  if (!hasRole(me, "MD")) notFound();
   const m = await overtimeMonthDetail(me.entityId, month);
   if (!m) notFound();
   return (

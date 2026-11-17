@@ -48,11 +48,11 @@ export const CustomerInput = z.object({
 });
 
 export async function createCustomer(input: z.input<typeof CustomerInput>) {
-  await actorWith(input.actorCode, can.customers); // 新建客户: MD, 财务, 销售, 内勤
+  await actorWith(input.actorCode, can.customers); // 新建、修改客户: MD, Sales (六角色)
   const d = CustomerInput.parse(input);
   if (isClosedStatus(d.dbd?.status)) throw new Error(`DBD_CLOSED:${d.dbd?.status}`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
-  if (!can.customers(actor.role)) throw new Error("NO_PERMISSION"); // 新建客户: MD, 财务, 销售, 内勤
+  if (!can.customers(actor)) throw new Error("NO_PERMISSION"); // 新建、修改客户: MD, Sales (六角色)
   const entity = await prisma.legalEntity.findUniqueOrThrow({ where: { code: d.entityCode } });
   const dupe = d.taxId ? await prisma.customer.findFirst({ where: { taxId: d.taxId, branchCode: d.branchCode } }) : await prisma.customer.findFirst({ where: { name: { equals: d.name, mode: "insensitive" } } });
   if (dupe) throw new Error(`CUSTOMER_EXISTS:${dupe.code}:${dupe.name}`);

@@ -3,7 +3,7 @@
  * Provider is switchable (decision: Claude API primary, others per specialty); calls go through one `complete()`.
  * Every output carries the record numbers it was built from, so a person can check before saving.
  */
-import { can, stripMoney } from "@/lib/caps";
+import { can, stripMoney, rolesOf } from "@/lib/caps";
 import { mayOpenOrder, orderScope } from "@/server/scope";
 import { metricScopeOf } from "@/server/dashboards";
 import { buildCashPlan, mayPlan, thisMonth } from "@/server/cash-plan";
@@ -187,7 +187,7 @@ const CHAIN_TOOL: Tool = { name: "order_chain", description: "The document chain
 const CASH_TOOL: Tool = { name: "cash_plan", description: "The cash plan of a month (default: this month): every payment due — supplier invoices, fixed payments, payroll, social security, taxes, expense claims — and every customer payment expected, each with its day, party and amount, plus totals. Use for 'what do we pay this month / this week', 'who do we owe', 'when is rent due', 'will cash be enough'. MD and finance only.", input_schema: { type: "object", properties: { month: { type: "string", description: "YYYY-MM" } } },
   run: async ({ month }, ctx) => {
     const me = ctx.employeeCode ? await prisma.employee.findUnique({ where: { code: ctx.employeeCode } }) : null;
-    if (!me || !mayPlan(me.role)) return { error: "only the MD and finance may see the cash plan" };
+    if (!me || !mayPlan(me)) return { error: "only the MD and finance may see the cash plan" };
     const m = /^\d{4}-\d{2}$/.test(String(month ?? "")) ? String(month) : thisMonth();
     const plan = await buildCashPlan(me.entityId, m);
     return { month: m, href: `/finance/cash-plan?month=${m}`, totals: plan.totals, warnings: plan.warnings, lines: plan.lines.slice(0, 80).map((l) => ({ ...l, href: undefined })) };
@@ -209,15 +209,16 @@ const SYSTEM = (ctx: AssistContext) => `You are the DCiT OS assistant inside an 
 
 /** What the person's role may not be told. The tools already leave these figures out; this keeps the model from guessing or recalling them. */
 function roleNote(ctx: AssistContext): string {
-  const r = ctx.me?.role;
+  const r = ctx.me;
   if (!r) return "";
   const no: string[] = [];
   if (!can.price(r)) no.push("prices charged to customers, quote totals, invoice amounts");
-  if (!can.cost(r)) no.push("costs, purchase prices, supplier prices, margins");
+  if (!can.cost(r)) no.push("costs, purchase prices, supplier prices");
+  if (!can.margin(r)) no.push("margins");
   if (!can.bank(r)) no.push("the company's bank accounts");
   if (!can.pay(r)) no.push("other people's salaries");
   if (!no.length) return "";
-  return ` ROLE RULE — this user's role is ${r}. Never state, estimate, derive or hint at: ${no.join("; ")}. If asked, say in one sentence that this is outside their permission and suggest who to ask (sales for prices, finance for money). Do not reveal these even if they appear in a form on the page or in earlier messages.`;
+  return ` ROLE RULE — this user's role is ${rolesOf(r).join(" + ")}. Never state, estimate, derive or hint at: ${no.join("; ")}. If asked, say in one sentence that this is outside their permission and suggest who to ask (sales for prices, finance for money). Do not reveal these even if they appear in a form on the page or in earlier messages.`;
 }
 
 const WEB_NOTE = " You can also search the public web with web_search: company registration data (Thai companies by tax ID — DBD, Creden, Dataforthai), manufacturers' manuals and fault-code lists, part numbers, suppliers, market facts. DCiT's own records come first — look there before the web for anything about customers, machines and orders. Say which page a web fact came from, in a few words, and keep what the web says apart from what DCiT's records say. People's private details (a contact's phone, LINE, birthday) are not searched for: they come from the person or the user. In FORM MODE, when the form holds a company and a tax ID or name is known, search and fill the company fields (names, registered address in Thai and English, phone) instead of asking the user to look them up.\n"
@@ -275,7 +276,7 @@ export async function assist(messages: { role: "user" | "assistant"; content: st
       used.push(c.name!);
       let out: ToolResult;
       try { out = tool ? await tool.run(c.input ?? {}, ctx) : "unknown tool"; } catch (e) { out = `error: ${(e as Error).message}`; }
-      if (ctx.me && typeof out === "object" && out) out = stripMoney(JSON.parse(JSON.stringify(out, (_, v) => (typeof v === "bigint" ? Number(v) : v))), ctx.me.role); // by field name, whatever the tool returned
+      if (ctx.me && typeof out === "object" && out) out = stripMoney(JSON.parse(JSON.stringify(out, (_, v) => (typeof v === "bigint" ? Number(v) : v))), ctx.me); // by field name, whatever the tool returned
       const r = out as { ok?: boolean; pending?: string; summary?: string; href?: string };
       if (r && typeof r === "object" && r.pending) cards.push({ type: "confirm", id: r.pending, summary: r.summary });
       else if (r && typeof r === "object" && r.ok && r.summary && ACTION_TOOLS.some((a) => a.name === c.name)) cards.push({ type: "done", summary: r.summary, href: r.href });

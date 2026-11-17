@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
-import { METRICS, defaultMetric, mySlips, payrollRuns, salesProgress, scorable } from "@/server/payroll";
+import { METRICS, defaultMetric, mySlips, payrollRuns, salesProgress, scorable, payrollStage } from "@/server/payroll";
 import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { payslipNo } from "@/lib/numbering";
 import { localToday } from "@/lib/overtime";
@@ -10,6 +10,7 @@ import { DEFAULT_BANDS, perfFactor, quarterOf, targetFactor, type PerfBand } fro
 import { Flash } from "@/components/Flash";
 import { Card, PageHeader, Table, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { computeAction, scoresAction, targetAction } from "./actions";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
 export default async function Payroll({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; month?: string }> }) {
   const sp = await searchParams;
   const [t, me] = await Promise.all([getTranslations("ops"), currentEmployee()]);
-  const md = me.role === "MD", seeRuns = PAYROLL_ROLES.includes(me.role), prep = me.role === "HR";
+  const md = hasRole(me, "MD"), seeRuns = hasRole(me, ...PAYROLL_ROLES), prep = hasRole(me, "HR");
   const { month: thisMonth, previousMonth } = localToday();
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : previousMonth;
   const [slips, everyone, runs] = await Promise.all([mySlips(me.id), scorable(me.code), seeRuns ? payrollRuns(me.entityId) : Promise.resolve([])]);
@@ -47,7 +48,7 @@ export default async function Payroll({ searchParams }: { searchParams: Promise<
         <p className="mb-2 text-xs text-navy/70">{t("payThree")}</p>
         <Table head={[t("month"), t("status"), t("payPeople"), t("payGross"), "SSO", t("payWht"), t("payNet"), t("payCost"), ""]}>
           {runs.map((r) => { const x = r.totals as Record<string, number>; return (
-            <tr key={r.id}><td className="font-mono">{r.month}</td><td><Tag hot={r.status === "DRAFT"}>{t(`pay_${r.status}`)}</Tag></td><td className="text-right">{x.people}</td><td className="text-right tabular-nums">{money(x.gross)}</td><td className="text-right tabular-nums">{money(x.sso)}</td><td className="text-right tabular-nums">{money(x.wht)}</td><td className="text-right font-semibold tabular-nums">{money(x.net)}</td><td className="text-right tabular-nums">{money(x.employerCost)}</td><td><Link href={`/people/payroll/${r.month}`} className="text-blue hover:underline">{t("open")}</Link></td></tr>
+            <tr key={r.id}><td className="font-mono">{r.month}</td><td><Tag hot={r.status === "DRAFT"}>{t(`payStage_${payrollStage(r)}`)}</Tag></td><td className="text-right">{x.people}</td><td className="text-right tabular-nums">{money(x.gross)}</td><td className="text-right tabular-nums">{money(x.sso)}</td><td className="text-right tabular-nums">{money(x.wht)}</td><td className="text-right font-semibold tabular-nums">{money(x.net)}</td><td className="text-right tabular-nums">{money(x.employerCost)}</td><td><Link href={`/people/payroll/${r.month}`} className="text-blue hover:underline">{t("open")}</Link></td></tr>
           ); })}
           {runs.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-navy/60">{t("payNoRuns")}</td></tr>}
         </Table>

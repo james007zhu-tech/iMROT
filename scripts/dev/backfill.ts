@@ -17,6 +17,16 @@ async function main() {
     }
     console.log(`backfill: ${n} 暂估应付 written for goods already received`); }
 
+  // 2026-11-16 六角色 (朱总 16:31): 内勤 → Sales, 仓库 → PUR, 经理 → ENG + 本组审批人; whoever has people reporting to them approves for them.
+  { const moved: string[] = [];
+    for (const [from, to, approver] of [["ADMIN", "SALES", false], ["WAREHOUSE", "PURCHASING", false], ["MANAGER", "ENGINEER", true]] as const) {
+      const n = await prisma.employee.updateMany({ where: { role: from }, data: { role: to, ...(approver ? { approver: true } : {}) } });
+      if (n.count) moved.push(`${n.count} ${from} → ${to}`);
+    }
+    const leads = await prisma.employee.updateMany({ where: { approver: false, reports: { some: {} } }, data: { approver: true } });
+    await prisma.roleMenu.deleteMany({ where: { role: { in: ["ADMIN", "WAREHOUSE", "MANAGER"] } } });
+    console.log(`backfill: six roles — ${moved.join(", ") || "nobody to move"}; ${leads.count} more team approver(s)`); }
+
   // 2026-11-16 需求清单 v3 P0-16 / P1-22: every live tax invoice has its 请款单 (older ones were issued without), and
   // "paid" is said only of invoices with nothing left to collect (a part payment used to stamp paidAt).
   { const { writeInvoice, outstandingOf } = await import("../../src/server/to"); let made = 0, cleared = 0;

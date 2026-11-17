@@ -30,7 +30,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [assets, engineers, contacts] = await Promise.all([
     prisma.asset.findMany({ where: { status: { not: "RETIRED" }, customer: customer ? { code: customer } : undefined }, include: { customer: true, plant: true, model: true }, orderBy: { code: "asc" } }),
-    prisma.employee.findMany({ where: { active: true, role: isTradeMode(askedMode) || isProjectMode(askedMode) ? undefined : { in: ["ENGINEER", "MANAGER", "MD", "ADMIN"] } }, orderBy: { name: "asc" } }),
+    prisma.employee.findMany({ where: { active: true, role: isTradeMode(askedMode) || isProjectMode(askedMode) ? undefined : { in: ["ENGINEER", "MD"] } }, orderBy: { name: "asc" } }),
     prisma.contact.findMany({ include: { customer: { select: { name: true } } }, orderBy: { name: "asc" } }),
   ]);
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);

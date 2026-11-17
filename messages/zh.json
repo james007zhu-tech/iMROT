@@ -394,7 +394,7 @@
     "saved": "已保存",
     "edit": "编辑",
     "payablesLink": "应付",
-    "noAccess": "无权限：您的角色不能打开这个页面。如确有需要，请联系 MD。",
+    "noAccess": "无权限，此功能属于 {roles} 角色。",
     "yes": "是",
     "no": "否",
     "open": "打开",
@@ -2458,17 +2458,24 @@
     "err_FIXED_RANGE": "结束月不能早于开始月。",
     "cashFixedStopped": "已停用",
     "cashFixedShowStopped": "显示已停用",
-    "cashFixedHideStopped": "隐藏已停用"
+    "cashFixedHideStopped": "隐藏已停用",
+    "extraRolesLabel": "再加的角色（权限取并集）",
+    "approverLabel": "本组审批人（主管）：批本组的加班、请假、报销、报告和知识库；金额可见范围不变",
+    "approverTag": "本组审批人",
+    "ok_paySubmitted": "已提交财务复核，财务会收到提醒。",
+    "err_PAYROLL_NOT_SUBMITTED": "{detail} 的工资 HR 还没提交复核。",
+    "workGate_quoteDraft": "{no} 的报价还是草稿：需要销售确认价格并发给客户，等客户 PO 确认后才能写报告。打开报价："
   },
   "role": {
-    "MD": "董事总经理 MD",
-    "ADMIN": "内勤（行政）",
-    "MANAGER": "主管",
-    "ENGINEER": "工程师",
-    "SALES": "销售",
-    "FINANCE": "财务",
-    "WAREHOUSE": "仓库",
-    "HR": "人事 HR"
+    "MD": "MD 董事总经理",
+    "ADMIN": "（已取消）内勤",
+    "MANAGER": "（已取消）主管",
+    "ENGINEER": "ENG 工程师",
+    "SALES": "Sales 销售",
+    "FINANCE": "FIN 财务",
+    "WAREHOUSE": "（已取消）仓库",
+    "HR": "HR 人事",
+    "PURCHASING": "PUR 采购和供应链"
   },
   "inquiryStatus": {
     "OPEN": "询价中",
@@ -2611,7 +2618,11 @@
     "k_voidAsked": "{ref} 申请作废，等你批准",
     "k_needsPrice": "{ref} 现场已填好物料，等你定价",
     "k_priceHint": "{ref} 现场对价格有建议",
-    "k_payableNoInvoice": "{ref} 货已到、票未到——催供应商要票"
+    "k_payableNoInvoice": "{ref} 货已到、票未到——催供应商要票",
+    "k_otApprove": "{ref} 的加班等你审批",
+    "k_expenseApprove": "报销 {ref} 等你审批",
+    "k_payrollReview": "{ref} 的工资等你复核",
+    "k_payrollApprove": "{ref} 的工资已复核，等你批准"
   },
   "reports": {
     "searchPh": "报告号、设备编号、序列号、客户",
@@ -2784,7 +2795,7 @@
     "payBlockedList": "还有 {n} 人不能批准：",
     "miss_SALARY": "没有薪资记录",
     "miss_PERFORMANCE": "未做绩效评估",
-    "miss_OVERTIME_OPEN": "加班费未月结",
+    "miss_OVERTIME_OPEN": "有加班还在等主管审批",
     "miss_TAX_ID": "缺个人税号",
     "miss_SSO_NO": "缺社保号",
     "miss_BANK": "缺银行账号",
@@ -2900,6 +2911,15 @@
     "payReviewNoted": "其他缺失项（{n} 人）——勾“已知悉”后可以复核",
     "payReviewAck": "已知悉上面的缺失项",
     "payGoConfirmOt": "去确认加班",
-    "miss_JOINED": "缺入职日期，个税按全年估算"
+    "miss_JOINED": "缺入职日期，个税按全年估算",
+    "extraRolesLabel": "再加的角色",
+    "approverTag": "本组审批人",
+    "payStage_COMPUTING": "草稿（HR 计算中）",
+    "payStage_REVIEW": "待财务复核",
+    "payStage_APPROVE": "待 MD 批准",
+    "payStage_APPROVED": "已批准",
+    "payStage_PAID": "已发放",
+    "paySubmit": "提交财务复核",
+    "payNotSubmitted": "HR 还没提交复核"
   }
 }

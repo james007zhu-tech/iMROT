@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
 import { capHours, localToday, monthKeyOf, monthRange, OT_KINDS, OT_MULTIPLIER, overtimeHours, overtimePay, weekRange, WEEKLY_OT_CAP_HOURS, type OvertimeKind } from "@/lib/overtime";
 import type { Prisma } from "@prisma/client";
+import { hasRole } from "@/lib/caps";
 
 const day = z.preprocess((v) => (v instanceof Date ? v : typeof v === "string" && v ? new Date(`${v.slice(0, 10)}T00:00:00Z`) : v), z.date());
 const hhmm = z.string().regex(/^\d{1,2}:\d{2}$/, "BAD_TIME");
@@ -49,13 +50,13 @@ export async function requestOvertime(input: z.input<typeof OvertimeInput>) {
   const d = OvertimeInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const forCode = d.employeeCode && d.employeeCode !== actor.code ? d.employeeCode : actor.code;
-  if (forCode !== actor.code && actor.role !== "MD") throw new Error("OT_OWN_ONLY");
+  if (forCode !== actor.code && !hasRole(actor, "MD")) throw new Error("OT_OWN_ONLY");
   const emp = await prisma.employee.findUniqueOrThrow({ where: { code: forCode } });
   if (!emp.active) throw new Error(`EMPLOYEE_INACTIVE:${emp.code}`);
   const hours = overtimeHours(d.startTime, d.endTime, d.breakMinutes);
   if (d.serviceOrderNo && !(await prisma.serviceOrder.findUnique({ where: { no: d.serviceOrderNo } }))) throw new Error(`ORDER_NOT_FOUND:${d.serviceOrderNo}`);
   await checkRequest(emp.id, d.workDate, d.startTime, d.endTime, d.kind, hours);
-  const auto = actor.role === "MD"; // the MD files for himself or on someone's behalf after agreeing it with them
+  const auto = hasRole(actor, "MD"); // the MD files for himself or on someone's behalf after agreeing it with them
   const r = await prisma.overtimeRequest.create({ data: { entityId: emp.entityId, employeeId: emp.id, workDate: d.workDate, startTime: d.startTime, endTime: d.endTime, breakMinutes: d.breakMinutes, hours, kind: d.kind, reason: d.reason, serviceOrderNo: d.serviceOrderNo || null, status: auto ? "APPROVED" : "PENDING", approverId: auto ? actor.id : null, decidedAt: auto ? new Date() : null, decisionNote: auto ? "MD" : null, createdById: actor.id } });
   await audit(actor.id, "OT_REQUEST", r.id, { employee: emp.code, date: localIso(d.workDate)!.slice(0, 10), hours, kind: d.kind });
   return r;
@@ -66,8 +67,8 @@ export async function decideOvertime(input: { id: string; actorCode: string; dec
   const [r, actor] = await Promise.all([prisma.overtimeRequest.findUniqueOrThrow({ where: { id: input.id }, include: { employee: true } }), prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } })]);
   if (r.status !== "PENDING") throw new Error(`OT_NOT_PENDING:${r.status}`);
   const isManager = r.employee.managerId === actor.id;
-  if (actor.role !== "MD" && !isManager) throw new Error("OT_NOT_APPROVER");
-  if (r.employeeId === actor.id && actor.role !== "MD") throw new Error("OT_NOT_APPROVER");
+  if (!hasRole(actor, "MD") && !isManager) throw new Error("OT_NOT_APPROVER");
+  if (r.employeeId === actor.id && !hasRole(actor, "MD")) throw new Error("OT_NOT_APPROVER");
   if (input.decision === "REJECTED" && !input.note?.trim()) throw new Error("OT_REJECT_NOTE_REQUIRED");
   const u = await prisma.overtimeRequest.update({ where: { id: r.id }, data: { status: input.decision, approverId: actor.id, decidedAt: new Date(), decisionNote: input.note?.trim() || null } });
   await audit(actor.id, input.decision === "APPROVED" ? "OT_APPROVE" : "OT_REJECT", r.id, { employee: r.employee.code, hours: Number(r.hours), note: input.note });
@@ -77,13 +78,13 @@ export async function decideOvertime(input: { id: string; actorCode: string; dec
 /** After the work: the actual times. More hours than approved go back to the approver; fewer or equal stay approved. */
 export async function confirmActualHours(input: { id: string; actorCode: string; actualStart: string; actualEnd: string; breakMinutes?: number }) {
   const [r, actor] = await Promise.all([prisma.overtimeRequest.findUniqueOrThrow({ where: { id: input.id } }), prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } })]);
-  if (r.employeeId !== actor.id && actor.role !== "MD") throw new Error("OT_OWN_ONLY");
+  if (r.employeeId !== actor.id && !hasRole(actor, "MD")) throw new Error("OT_OWN_ONLY");
   if (r.status !== "APPROVED") throw new Error(`OT_NOT_APPROVED:${r.status}`);
   if (r.payMonthId) throw new Error("OT_ALREADY_PAID");
   const brk = input.breakMinutes ?? r.breakMinutes;
   const actual = overtimeHours(input.actualStart, input.actualEnd, brk);
   await checkRequest(r.employeeId, r.workDate, input.actualStart, input.actualEnd, r.kind, actual, r.id);
-  const more = actual > Number(r.hours) + 0.001 && actor.role !== "MD";
+  const more = actual > Number(r.hours) + 0.001 && !hasRole(actor, "MD");
   const u = await prisma.overtimeRequest.update({ where: { id: r.id }, data: { actualStart: input.actualStart, actualEnd: input.actualEnd, breakMinutes: brk, actualHours: actual, confirmedAt: new Date(),
     ...(more ? { status: "PENDING", hours: actual, approverId: null, decidedAt: null, decisionNote: `actual ${actual} h > approved ${Number(r.hours)} h` } : {}) } });
   await audit(actor.id, "OT_ACTUAL", r.id, { actual, approved: Number(r.hours), backToApprover: more });
@@ -93,7 +94,7 @@ export async function confirmActualHours(input: { id: string; actorCode: string;
 /** Withdraw a request that has not been paid yet: the person themself, or the MD. */
 export async function cancelOvertime(input: { id: string; actorCode: string }) {
   const [r, actor] = await Promise.all([prisma.overtimeRequest.findUniqueOrThrow({ where: { id: input.id } }), prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } })]);
-  if (r.employeeId !== actor.id && actor.role !== "MD") throw new Error("OT_OWN_ONLY");
+  if (r.employeeId !== actor.id && !hasRole(actor, "MD")) throw new Error("OT_OWN_ONLY");
   if (r.payMonthId) throw new Error("OT_ALREADY_PAID");
   if (!["PENDING", "APPROVED"].includes(r.status)) throw new Error(`OT_NOT_OPEN:${r.status}`);
   await audit(actor.id, "OT_CANCEL", r.id);
@@ -136,9 +137,11 @@ export async function previewOvertimeMonth(entityId: string, month: string) {
  * 月结: freeze the month's overtime pay per employee and mark the requests paid. Only after the month has ended (Bangkok).
  * Idempotent — a second close returns the first one. `closedBy` is an employee code or "SYSTEM".
  */
-export async function closeOvertimeMonth(input: { entityId: string; month: string; closedBy: string; now?: Date }) {
+export async function closeOvertimeMonth(input: { entityId: string; month: string; closedBy: string; now?: Date; early?: boolean }) {
   if (!/^\d{4}-\d{2}$/.test(input.month)) throw new Error(`BAD_MONTH:${input.month}`);
-  if (input.month >= localToday(input.now).month) throw new Error(`OT_MONTH_NOT_ENDED:${input.month}`);
+  // `early`: the payroll of this month is being approved before the month is over — what is approved by now is frozen
+  // with it; overtime approved later is paid with the next month (需求清单 v3 P0-10, 第 7 轮).
+  if (!input.early && input.month >= localToday(input.now).month) throw new Error(`OT_MONTH_NOT_ENDED:${input.month}`);
   const existing = await prisma.overtimeMonth.findUnique({ where: { entityId_month: { entityId: input.entityId, month: input.month } } });
   if (existing) return existing;
   const lines = await linesFor(await payableFor(input.entityId, input.month), input.month);
@@ -162,7 +165,7 @@ export async function closeOvertimeMonth(input: { entityId: string; month: strin
 /** MD: reopen the latest closed month (e.g. a salary was missing), so it can be closed again. */
 export async function reopenOvertimeMonth(input: { entityId: string; month: string; actorCode: string }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  if (!hasRole(actor, "MD")) throw new Error("MD_ONLY");
   const m = await prisma.overtimeMonth.findUniqueOrThrow({ where: { entityId_month: { entityId: input.entityId, month: input.month } } });
   const later = await prisma.overtimeMonth.findFirst({ where: { entityId: input.entityId, month: { gt: input.month } } });
   if (later) throw new Error(`OT_LATER_MONTH_CLOSED:${later.month}`);

@@ -9,6 +9,7 @@ import { NAV } from "@/lib/nav";
 import { ALWAYS_ON, MD_ONLY, ROLES, setRole, setRoleMenu } from "@/server/perm";
 import { Flash } from "@/components/Flash";
 import { Card, PageHeader, btnGhost, btnPrimary, inputCls } from "@/components/ui";
+import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 const BACK = "/admin/permissions";
@@ -20,9 +21,9 @@ const BACK = "/admin/permissions";
 export default async function Permissions({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
   const { ok, error } = await searchParams;
   const [t, n, r, me] = await Promise.all([getTranslations("ops"), getTranslations("nav"), getTranslations("role"), currentEmployee()]);
-  if (me.role !== "MD") notFound();
+  if (!hasRole(me, "MD")) notFound();
   const [staff, hidden] = await Promise.all([
-    prisma.employee.findMany({ where: { active: true }, orderBy: { code: "asc" }, select: { code: true, name: true, role: true, position: true } }),
+    prisma.employee.findMany({ where: { active: true }, orderBy: { code: "asc" }, select: { code: true, name: true, role: true, extraRoles: true, approver: true, position: true } }),
     prisma.roleMenu.findMany(),
   ]);
   const off = new Set(hidden.map((h) => `${h.role}|${h.key}`));
@@ -34,7 +35,7 @@ export default async function Permissions({ searchParams }: { searchParams: Prom
   }
   async function saveRole(code: string, f: FormData) {
     "use server";
-    await guarded(async () => { const actor = await currentEmployee(); await setRole(actor.code, code, String(f.get("role")) as EmployeeRole); return code; }, BACK);
+    await guarded(async () => { const actor = await currentEmployee(); await setRole(actor.code, code, String(f.get("role")) as EmployeeRole, f.getAll("extra").map(String) as EmployeeRole[], f.get("approver") === "on"); return code; }, BACK);
   }
   return (
     <div className="space-y-4">
@@ -44,7 +45,9 @@ export default async function Permissions({ searchParams }: { searchParams: Prom
         <ul className="grid gap-2 md:grid-cols-2">
           {staff.map((s) => <li key={s.code}><form action={saveRole.bind(null, s.code)} className="flex flex-wrap items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm">
             <span className="min-w-0 flex-1"><span className="font-semibold text-navy">{s.name}</span> <span className="font-mono text-xs text-navy/60">{s.code}</span>{s.position ? <span className="block text-xs text-navy/60">{s.position}</span> : null}</span>
-            <select name="role" defaultValue={s.role} aria-label={`${t("permRole")} ${s.name}`} className={`${inputCls} w-40`}>{ROLES.map((x) => <option key={x} value={x}>{r(x)}</option>)}</select>
+            <select name="role" defaultValue={ROLES.includes(s.role) ? s.role : "ENGINEER"} aria-label={`${t("permRole")} ${s.name}`} className={`${inputCls} w-48`}>{ROLES.map((x) => <option key={x} value={x}>{r(x)}</option>)}</select>
+            <span className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-xs text-navy/80"><span>{t("extraRolesLabel")}:</span>{ROLES.filter((x) => x !== "MD").map((x) => <label key={x} className="flex items-center gap-1"><input type="checkbox" name="extra" value={x} defaultChecked={s.extraRoles.includes(x)} />{r(x).split(" ")[0]}</label>)}
+              <label className="flex items-center gap-1 font-semibold"><input type="checkbox" name="approver" defaultChecked={s.approver} />{t("approverTag")}</label></span>
             <button className={btnGhost}>{t("save")}</button>
           </form></li>)}
         </ul>

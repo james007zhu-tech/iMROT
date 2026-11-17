@@ -18,11 +18,11 @@ export default async function Customers({ searchParams }: { searchParams: Promis
     prisma.customer.findMany({ where, orderBy: { code: "asc" }, include: { entity: true, _count: { select: { assets: true, serviceOrders: true, plants: true } } }, skip: (p - 1) * PAGE_SIZE, take: PAGE_SIZE }),
     prisma.customer.count({ where }),
   ]);
-  const full = can.customers(me.role); // 税号、开票信息 are not for the shop floor
+  const full = can.customersAll(me); // 税号、开票信息 are not for the shop floor
   const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), page: String(n) })}`;
   return (
     <div className="space-y-4">
-      <PageHeader title={u("customers")} badge={<Tag>{total}</Tag>} newHref={can.customers(me.role) ? "/customers/new" : undefined} newLabel={u("newCustomer")} />
+      <PageHeader title={u("customers")} badge={<Tag>{total}</Tag>} newHref={can.customers(me) ? "/customers/new" : undefined} newLabel={u("newCustomer")} />
       <form className="flex gap-2"><input name="q" defaultValue={q} placeholder={u("searchCustomers")} className={`${inputCls} max-w-sm`} /><button className={btnGhost}>{t("search")}</button></form>
       <div className="rounded-xl border bg-white p-2">
         <Table head={["CTH", t("customer"), ...(full ? [t("taxId")] : []), u("legalEntity"), u("plants"), t("assets"), t("serviceOrders")]}>

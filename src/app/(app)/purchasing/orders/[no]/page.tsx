@@ -52,7 +52,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
     }, `/purchasing/orders/${no}`);
   }
   const me = await currentEmployee();
-  const seeCost = can.cost(me.role), fin = can.finance(me.role);
+  const seeCost = can.cost(me), fin = can.finance(me);
   // 暂估 and 三单匹配: what was received and not yet invoiced, and how each invoice sits against the receipts
   const accrual = po.invoices.find((i) => i.accrued), invoices = po.invoices.filter((i) => !i.accrued);
   const mayInvoice = po.kind === "PARTS" && (po.status === "PARTIAL" || po.status === "RECEIVED") && invoices.reduce((x, i) => x + Number(i.subtotal), 0) < Number(po.subtotal) - 0.01;

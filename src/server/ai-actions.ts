@@ -26,6 +26,7 @@ import { fileExpense } from "@/server/expense";
 import { setOrderSales } from "@/server/payroll";
 import { recordTraining } from "@/server/training";
 import { dictItems } from "@/server/dict";
+import { hasRole } from "@/lib/caps";
 
 type In = Record<string, unknown>;
 export interface ActionCtx { employeeCode: string }
@@ -141,7 +142,7 @@ const TOOLS: ActionTool[] = [
       const fields = Object.fromEntries(Object.entries(i).filter(([k, v]) => k !== "employee" && str(v))) as Record<string, string>;
       if (!Object.keys(fields).length) throw new Error("nothing to write");
       const CONTACT = ["phone", "phone2", "lineId", "wechatId", "personalEmail", "address", "emergencyName", "emergencyRelation", "emergencyPhone"];
-      if (actor.role === "MD") await updateEmployee({ actorCode: actor.code, code: e.code, ...fields });
+      if (hasRole(actor, "MD")) await updateEmployee({ actorCode: actor.code, code: e.code, ...fields });
       else if (e.code === actor.code && Object.keys(fields).every((k) => CONTACT.includes(k))) await updateOwnContacts(actor.code, fields);
       else throw new Error("only the MD may change these fields; a person may change their own contact details");
       return { ok: true, summary: `${e.code} ${e.name}: ${Object.keys(fields).join(", ")}`, href: `/people/${e.code}` };

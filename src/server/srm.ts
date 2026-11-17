@@ -9,7 +9,7 @@
  * Principle: the partner never meets the customer — we carry the machine both ways, no direct delivery exists.
  */
 import { actorWith } from "@/server/guard";
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -257,7 +257,7 @@ export const RevisionInput = z.object({
 
 /** 变更 POTH: same number, version +1. More cost or a later date needs the customer's written consent first; the new cost flows into the QTTH margin. */
 export async function revisePurchaseOrder(input: z.input<typeof RevisionInput>) {
-  await actorWith(input.actorCode, can.cost); // 统一角色权限表
+  await actorWith(input.actorCode, can.purchase); // 统一角色权限表
   const d = RevisionInput.parse(input);
   const [po, actor] = await Promise.all([prisma.purchaseOrder.findUniqueOrThrow({ where: { no: d.poNo }, include: { serviceOrder: true } }), actorOf(d.actorCode)]);
   if (po.kind !== "SUBCONTRACT") throw new Error(`NOT_SUBCONTRACT_PO:${po.no}`);
@@ -378,7 +378,7 @@ export async function paymentNeedsMd(inv: { currency: string; payable: unknown; 
 /** The MD releases a payment that waits for him. */
 export async function approvePayment(input: { id: string; actorCode: string }) {
   const actor = await actorOf(input.actorCode);
-  if (actor.role !== "MD") throw new Error("MD_ONLY");
+  if (!hasRole(actor, "MD")) throw new Error("MD_ONLY");
   const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
   if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
   if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
@@ -390,7 +390,7 @@ export async function approvePayment(input: { id: string; actorCode: string }) {
 /** Pay a supplier invoice: PVTH number, status PAID. The finance person only; the MD releases, he does not pay. */
 export async function paySupplierInvoice(input: { id: string; actorCode: string; paidAt?: Date; paymentRef?: string }) {
   const actor = await actorOf(input.actorCode);
-  if (actor.role !== "FINANCE") throw new Error("FINANCE_PAYS");
+  if (!hasRole(actor, "FINANCE")) throw new Error("FINANCE_PAYS");
   const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id } });
   if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
   if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
@@ -430,7 +430,7 @@ export async function savePartnerProfile(input: z.input<typeof PartnerProfileInp
  */
 export async function withdrawSupplierInvoice(input: { id: string; actorCode: string; reason: string }) {
   const actor = await actorOf(input.actorCode);
-  if (!can.finance(actor.role)) throw new Error("NO_PERMISSION");
+  if (!can.finance(actor)) throw new Error("NO_PERMISSION");
   if (!input.reason.trim()) throw new Error("WITHDRAW_REASON_REQUIRED");
   const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.id }, include: { purchaseOrder: { select: { id: true, no: true, kind: true } } } });
   if (inv.accrued) throw new Error("PAYABLE_ACCRUED");

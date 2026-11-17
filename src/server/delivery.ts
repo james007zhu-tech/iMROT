@@ -13,6 +13,7 @@ import { findPart, normPartNo, recordStockDoc, stockOnHand } from "@/server/scm"
 import { poLinesFromQuote, progressOrder, type PoLine } from "@/server/slm";
 import { isTradeMode } from "@/lib/modes";
 import { RETURN_UNREPAIRED, returnRemark } from "@/lib/decline";
+import { hasRole } from "@/lib/caps";
 
 export type DeliveryLine = { key: string; kind: "PO" | "RETURN" | "MACHINE"; poLineNo?: number; description: string; assetCode?: string; partSku?: string; expected: number; deliveredBefore: number; source?: string; isService?: boolean };
 
@@ -170,7 +171,7 @@ export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
   const { lines } = await deliveryPlan(order.no);
   const bad = d.draft ? [] : mismatches(lines, d.delivered, d.partial);
   if (bad.length && !d.overrideReason) throw new Error(`DELIVERY_MISMATCH:${bad.map((b) => `${b.description} ${b.now}/${b.due}`).join("; ")}`);
-  if (bad.length && actor.role !== "MD") throw new Error("DELIVERY_OVERRIDE_MD_ONLY");
+  if (bad.length && !hasRole(actor, "MD")) throw new Error("DELIVERY_OVERRIDE_MD_ONLY");
   if (!d.draft && !lines.some((l) => (d.delivered[l.key] ?? 0) > 0)) throw new Error("DELIVERY_EMPTY");
   // 贸易 (trial finding 2026-11-14: three were delivered with two in stock): goods on a trade order can go out only if they
   // are in the store or were already taken out of it for this order — and no reason overrides that, the goods are not there

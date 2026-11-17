@@ -21,7 +21,7 @@ export default async function PartPage({ params, searchParams }: { params: Promi
   const part = await prisma.part.findUnique({ where: { sku }, include: { brand: true, movements: { orderBy: { movedAt: "desc" }, take: 30, include: { asset: { select: { code: true } } } } } });
   if (!part) notFound();
   const [byWh, assets, me] = await Promise.all([stockByWarehouse(sku), assetsUsingPart(sku), currentEmployee()]);
-  const onHand = [...byWh.values()].reduce((a, b) => a + b, 0), seeCost = can.cost(me.role);
+  const onHand = [...byWh.values()].reduce((a, b) => a + b, 0), seeCost = can.cost(me);
   async function move(f: FormData) {
     "use server";
     await guarded(async () => { const me = await currentEmployee(); const mv = await recordMovement({ actorCode: me.code, direction: f.get("direction") as "IN", partSku: sku, qty: Number(f.get("qty")), batch: String(f.get("batch") || "") || undefined, assetCode: String(f.get("assetCode") || "") || undefined, serviceOrderNo: String(f.get("serviceOrderNo") || "") || undefined, oldPartDisposition: String(f.get("old") || "") || undefined, unitCost: f.get("unitCost") ? Number(f.get("unitCost")) : undefined, costCurrency: "THB" }); return mv.no; }, `/parts/${sku}`);

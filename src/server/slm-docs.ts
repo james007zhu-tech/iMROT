@@ -3,7 +3,7 @@
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
 import { audit } from "@/server/audit";
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { mayOpenOrder } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { EXPORT_VAT_RATE } from "@/lib/export";
@@ -171,9 +171,9 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   // 只有销售和 MD 定价 (需求清单 v3 P0-04). The shop floor and 内勤 save what the job needs — parts, quantities, hours,
   // wording; the prices already on the quote stay as they are, new lines carry none, and the quote goes nowhere:
   // it waits for sales. Once the customer has the quote, only sales changes it.
-  const itemsOnly = !can.editPrice(actor.role);
+  const itemsOnly = !can.editPrice(actor);
   if (itemsOnly) {
-    if (!["ENGINEER", "MANAGER", "ADMIN", "WAREHOUSE"].includes(actor.role)) throw new Error("NO_PERMISSION");
+    if (!hasRole(actor, "ENGINEER")) throw new Error("NO_PERMISSION");
     if (!["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(order.status)) throw new Error("QUOTE_PRICED_SALES_ONLY");
     const before = await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, include: { part: { select: { sku: true } } } });
     const left = [...before];

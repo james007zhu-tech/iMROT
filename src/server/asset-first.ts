@@ -13,6 +13,7 @@
 import type { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
+import { isApprover } from "@/lib/caps";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 const DONE: ServiceOrderStatus[] = ["CLOSED", "CANCELLED"];
@@ -76,14 +77,14 @@ export async function relinkDoc(input: { docNo: string; orderNo: string | null; 
 /** 序列号核对: someone held the machine and confirmed the ATH's serial number against it. Internal numbers need a manager or the MD. */
 export async function verifySerial(db: Db, assetId: string, actor: { id: string; role: string }) {
   const a = await db.asset.findUniqueOrThrow({ where: { id: assetId }, select: { serialSource: true, serialVerifiedAt: true } });
-  if (a.serialSource === "INTERNAL" && !["MD", "MANAGER", "ADMIN"].includes(actor.role)) return false; // stays waiting for a manager
+  if (a.serialSource === "INTERNAL" && !isApprover(actor)) return false; // stays waiting for a manager
   if (!a.serialVerifiedAt) await db.asset.update({ where: { id: assetId }, data: { serialVerifiedAt: new Date(), serialVerifiedById: actor.id } });
   return true;
 }
 export async function confirmSerial(input: { assetCode: string; actorCode: string }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const a = await prisma.asset.findUniqueOrThrow({ where: { code: input.assetCode } });
-  if (a.serialSource === "INTERNAL" && !["MD", "MANAGER", "ADMIN"].includes(actor.role)) throw new Error("SERIAL_CONFIRM_NEEDS_MANAGER");
+  if (a.serialSource === "INTERNAL" && !isApprover(actor)) throw new Error("SERIAL_CONFIRM_NEEDS_MANAGER");
   await prisma.asset.update({ where: { id: a.id }, data: { serialVerifiedAt: new Date(), serialVerifiedById: actor.id } });
   await audit(actor.id, "SERIAL_VERIFIED", a.code, { serial: a.serialNumber, source: a.serialSource });
 }

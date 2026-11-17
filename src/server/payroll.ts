@@ -7,8 +7,10 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
 import { monthRange } from "@/lib/overtime";
+import { previewOvertimeMonth, closeOvertimeMonth } from "@/server/overtime";
 import type { Allowance } from "@/lib/payroll";
 import { DEFAULT_BANDS, computeLine, isQuarterEnd, periodsInYear, quarterOf, type PerfBand, type TaxProfile } from "@/lib/payroll-run";
+import { hasRole, isApprover } from "@/lib/caps";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -20,14 +22,14 @@ export const REVIEW_NOTED = ["TAX_ID", "SSO_NO", "JOINED"];
 
 async function md(actorCode: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  if (a.role !== "MD") throw new Error("MD_ONLY");
+  if (!hasRole(a, "MD")) throw new Error("MD_ONLY");
   return a;
 }
 
 /** 内勤 computes, 财务 reviews and pays, the MD approves — three different people (朱总 2026-11-15). */
 async function roleOf(actorCode: string, role: "HR" | "FINANCE", err: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  if (a.role !== role) throw new Error(err);
+  if (!hasRole(a, role)) throw new Error(err);
   return a;
 }
 
@@ -59,7 +61,10 @@ export async function computePayroll(input: { entityId: string; month: string; a
   const quarter = quarterOf(input.month), qEnd = isQuarterEnd(input.month);
   const targets = await salesProgress(input.entityId, [input.month, ...(qEnd ? [quarter] : [])], ids);
   // 加班费未月结 is said only of people who have overtime waiting (需求清单 v3 P1-16) — not of the whole company
-  const otWaiting = new Set(otMonth ? [] : (await prisma.overtimeRequest.findMany({ where: { entityId: input.entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to } }, select: { employeeId: true } })).map((r) => r.employeeId));
+  // (需求清单 v3 P0-10 第 7 轮) Approved overtime is in the draft at once — no waiting for the month-end close, which now
+  // happens when the MD approves the payroll. What still stops the month is overtime nobody has decided yet.
+  const otWaiting = new Set((await prisma.overtimeRequest.findMany({ where: { entityId: input.entityId, status: "PENDING", workDate: { lt: to } }, select: { employeeId: true } })).map((r) => r.employeeId));
+  const otPreview = otMonth ? null : await previewOvertimeMonth(input.entityId, input.month);
 
   const lines: (Prisma.PayrollLineUncheckedCreateWithoutRunInput & { claimIds: string[] })[] = [];
   const skipped: string[] = [];
@@ -76,11 +81,11 @@ export async function computePayroll(input: { entityId: string; month: string; a
     const review = reviews.find((r) => r.employeeId === e.id);
     const mine = claims.filter((c) => c.employeeId === e.id);
     const reimbursement = r2(mine.reduce((s, c) => s + Number(c.amount), 0));
-    const overtime = Number(otMonth?.lines.find((l) => l.employeeId === e.id)?.total ?? 0);
+    const overtime = otMonth ? Number(otMonth.lines.find((l) => l.employeeId === e.id)?.total ?? 0) : r2(otPreview?.find((l) => l.employeeId === e.id)?.pay.total ?? 0);
     const variablePay = Number(salary?.variablePay ?? 0);
     const missing: string[] = [];
     // sales are paid on targets (朱总 2026-11-11), everyone else on the manager's monthly score
-    const sales = e.role === "SALES";
+    const sales = hasRole(e, "SALES");
     const mt = targets.find((t) => t.employeeId === e.id && t.period === input.month), qt = targets.find((t) => t.employeeId === e.id && t.period === quarter);
     const quarterlyPay = qEnd ? r2(Number(salary.quarterlyPay ?? 0) * 3) : 0;
     if (sales ? variablePay > 0 && !mt : variablePay > 0 && !review) missing.push(sales ? "TARGET" : "PERFORMANCE");
@@ -154,6 +159,7 @@ export async function approvePayroll(input: { entityId: string; month: string; a
   // 朱总 2026-11-11 "按照会计的来": the withholding figures must have been checked against the accountant's before the month locks
   if (!run.taxConfirmedAt) throw new Error(`PAYROLL_TAX_UNCONFIRMED:${input.month}`);
   if (new Set([run.preparedBy, run.taxConfirmedBy, actor.code]).size < 3) throw new Error("PAYROLL_SAME_PERSON");
+  await closeOvertimeMonth({ entityId: input.entityId, month: input.month, closedBy: actor.code, early: true }); // the overtime in this pay is frozen with it
   await prisma.payrollRun.update({ where: { id: run.id }, data: { status: "APPROVED", approvedBy: actor.code, approvedAt: new Date() } });
   await audit(actor.id, "PAYROLL_APPROVE", input.month, { net: (run.totals as { net: number }).net });
 }
@@ -162,7 +168,7 @@ export async function reopenPayroll(input: { entityId: string; month: string; ac
   const actor = await md(input.actorCode);
   const run = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: input.entityId, month: input.month } } });
   if (run.status === "PAID") throw new Error(`PAYROLL_PAID:${input.month}`);
-  await prisma.payrollRun.update({ where: { id: run.id }, data: { status: "DRAFT", approvedBy: null, approvedAt: null, taxConfirmedBy: null, taxConfirmedAt: null } });
+  await prisma.payrollRun.update({ where: { id: run.id }, data: { status: "DRAFT", approvedBy: null, approvedAt: null, taxConfirmedBy: null, taxConfirmedAt: null } }); // back to finance: the review is done again, HR need not resubmit
   await audit(actor.id, "PAYROLL_REOPEN", input.month);
 }
 
@@ -182,7 +188,7 @@ export async function markPayrollPaid(input: { entityId: string; month: string; 
 /** 月度绩效: who may score whom — the MD everyone, a manager the people who report to them; nobody scores themselves. */
 export async function scorable(actorCode: string) {
   const a = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  return prisma.employee.findMany({ where: { active: true, entityId: a.entityId, id: { not: a.id }, ...(a.role === "MD" ? {} : { managerId: a.id }) }, orderBy: { code: "asc" }, select: { id: true, code: true, name: true, position: true, managerId: true } });
+  return prisma.employee.findMany({ where: { active: true, entityId: a.entityId, id: { not: a.id }, ...(hasRole(a, "MD") ? {} : { managerId: a.id }) }, orderBy: { code: "asc" }, select: { id: true, code: true, name: true, position: true, managerId: true } });
 }
 
 export async function saveScores(input: { actorCode: string; month: string; scores: { code: string; score: number; conclusion?: string }[] }) {
@@ -218,6 +224,19 @@ export async function mySlips(employeeId: string) {
 }
 
 /** 财务复核: the finance person ticks that the month is right and every withholding figure matches the accountant's. Not the person who computed it. */
+/** HR hands the computed month to finance (需求清单 v3 P2-21): one clear step, one clear state, and finance is told. */
+export async function submitPayroll(input: { entityId: string; month: string; actorCode: string }) {
+  const actor = await roleOf(input.actorCode, "HR", "PAYROLL_PREPARER_ONLY");
+  const run = await computePayroll(input);
+  if (run.status !== "DRAFT") throw new Error(`PAYROLL_LOCKED:${input.month}`);
+  await prisma.payrollRun.update({ where: { id: run.id }, data: { submittedAt: new Date() } });
+  await audit(actor.id, "PAYROLL_SUBMITTED", input.month);
+}
+/** Where a month stands, in the words of the people who wait for it. */
+export function payrollStage(run: { status: string; submittedAt: Date | null; taxConfirmedAt: Date | null }): "COMPUTING" | "REVIEW" | "APPROVE" | "APPROVED" | "PAID" {
+  return run.status === "PAID" ? "PAID" : run.status === "APPROVED" ? "APPROVED" : run.taxConfirmedAt ? "APPROVE" : run.submittedAt ? "REVIEW" : "COMPUTING";
+}
+
 export async function confirmTax(input: { entityId: string; month: string; actorCode: string; confirmed: boolean; acknowledged?: boolean }) {
   const actor = await roleOf(input.actorCode, "FINANCE", "PAYROLL_REVIEWER_ONLY");
   const run = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: input.entityId, month: input.month } }, include: { lines: { select: { missing: true, employee: { select: { code: true } } } } } });
@@ -228,6 +247,7 @@ export async function confirmTax(input: { entityId: string; month: string; actor
     if (run.lines.some((l) => l.missing.some((m) => REVIEW_NOTED.includes(m))) && !input.acknowledged) throw new Error("PAYROLL_REVIEW_ACK");
   }
   if (run.status !== "DRAFT") throw new Error(`PAYROLL_LOCKED:${input.month}`);
+  if (input.confirmed && !run.submittedAt) throw new Error(`PAYROLL_NOT_SUBMITTED:${input.month}`);
   if (run.preparedBy === actor.code) throw new Error("PAYROLL_SAME_PERSON");
   await prisma.payrollRun.update({ where: { id: run.id }, data: input.confirmed ? { taxConfirmedBy: actor.code, taxConfirmedAt: new Date() } : { taxConfirmedBy: null, taxConfirmedAt: null } });
   if (input.confirmed) await audit(actor.id, "PAYROLL_TAX_CONFIRMED", input.month);
@@ -289,7 +309,7 @@ export async function setSalesTarget(input: { actorCode: string; employeeCode: s
 /** 销售负责人 of an order: set by the MD, a manager, the administrator, or a salesperson (taking or handing over an order). */
 export async function setOrderSales(input: { no: string; actorCode: string; salesCode: string | null }) {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  if (!["MD", "MANAGER", "ADMIN", "SALES"].includes(actor.role)) throw new Error("SALES_OWNER_NOT_ALLOWED");
+  if (!(hasRole(actor, "MD", "SALES") || isApprover(actor))) throw new Error("SALES_OWNER_NOT_ALLOWED");
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, select: { id: true, salesId: true } });
   const to = input.salesCode ? await prisma.employee.findUniqueOrThrow({ where: { code: input.salesCode } }) : null;
   await prisma.serviceOrder.update({ where: { id: order.id }, data: { salesId: to?.id ?? null } });

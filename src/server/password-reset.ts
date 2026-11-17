@@ -8,6 +8,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
+import { hasRole } from "@/lib/caps";
 
 const LINK_MINUTES = 30, ASK_HOURS = 24;
 const sha = (t: string) => createHash("sha256").update(t).digest("hex");
@@ -32,7 +33,7 @@ export async function issueResetLink(input: { employeeCode: string; actorCode?: 
   if (!e.active) throw new Error(`EMPLOYEE_INACTIVE:${e.code}`);
   const actor = input.actorCode ? await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } }) : null;
   // the MD for anyone; HR for staff other than the MD (a new person sets their own password through this link)
-  if (actor && !(actor.role === "MD" || (actor.role === "HR" && e.role !== "MD"))) throw new Error("MD_ONLY");
+  if (actor && !(hasRole(actor, "MD") || (hasRole(actor, "HR") && !hasRole(e, "MD")))) throw new Error("MD_ONLY");
   const token = randomBytes(32).toString("base64url");
   await prisma.$transaction(async (tx) => {
     await tx.passwordReset.deleteMany({ where: { employeeId: e.id, usedAt: null } }); // the request is answered, older links die

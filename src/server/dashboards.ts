@@ -32,7 +32,7 @@ export async function updateDashboard(id: string, patch: { name?: string; spec?:
 /** Whose numbers a person sees on any dashboard: money only for the MD and finance; the shop floor its own orders. */
 export async function metricScopeOf(me: { id: string; role: string }): Promise<MetricScope> {
   const orders = await orderScope(me);
-  return { money: can.finance(me.role), orders: Object.keys(orders).length ? orders : undefined };
+  return { money: can.finance(me), orders: Object.keys(orders).length ? orders : undefined };
 }
 
 export async function renderDashboard(id: string | "default", me?: { id: string; role: string }) {
