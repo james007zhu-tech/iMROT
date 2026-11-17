@@ -13,14 +13,14 @@ export async function middleware(req: NextRequest) {
   headers.set("x-dcit-path", path);
   if (req.nextUrl.pathname !== "/no-access" && req.cookies.has("dcit_session")) {
     try {
-      const r = await fetch(`http://127.0.0.1:${process.env.PORT ?? req.nextUrl.port ?? "3000"}/api/gate?path=${encodeURIComponent(path)}`, { headers: { cookie: req.headers.get("cookie") ?? "", "x-dcit-gate": gateKey() }, cache: "no-store" });
+      const r = await fetch(`http://127.0.0.1:${process.env.PORT || "3000"}/api/gate?path=${encodeURIComponent(path)}`, { headers: { cookie: req.headers.get("cookie") ?? "", "x-dcit-gate": gateKey() }, cache: "no-store" });
       const g = (await r.json()) as { ok?: boolean; roles?: string };
       if (r.ok && g.ok === false) {
         const to = req.nextUrl.clone(); to.pathname = "/no-access"; to.search = `?roles=${encodeURIComponent(g.roles ?? "MD")}`;
         headers.set("x-dcit-path", "/no-access");
         return NextResponse.rewrite(to, { status: 403, request: { headers } });
       }
-    } catch { /* the gate could not be asked: the template and the pages' own checks still stand */ }
+    } catch (e) { console.error("[gate] could not be asked:", (e as Error).message); /* the template and the pages' own checks still stand */ }
   }
   return NextResponse.next({ request: { headers } });
 }
