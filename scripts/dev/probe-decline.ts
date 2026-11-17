@@ -9,12 +9,13 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { advanceServiceOrder, createServiceOrder } from "../../src/server/slm";
-import { createInspection, receiveEquipment, setQuoteLines } from "../../src/server/slm-docs";
+import { createInspection, receiveEquipment } from "../../src/server/slm-docs";
 import { declineQuote, undoDecline } from "../../src/server/decline";
 import { deliveryPlan, issueDelivery, signDelivery } from "../../src/server/delivery";
 import { issueInvoice, issueTaxInvoice, recordPayment } from "../../src/server/to";
 import { buildFields, renderDocument } from "../../src/server/reports";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines } from "./_probe";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`DECLINE FAIL: ${m}`); console.log("  ok  " + m); };
 const refused = async (fn: () => Promise<unknown>, re: RegExp, m: string) => { try { await fn(); assert(false, m); } catch (e) { assert(re.test((e as Error).message), `${m} (${(e as Error).message.split("\n")[0]})`); } };

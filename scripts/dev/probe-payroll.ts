@@ -6,7 +6,8 @@
 import { prisma } from "@/lib/db";
 import { addSalaryRecord } from "@/server/opd";
 import { decideExpense, fileExpense } from "@/server/expense";
-import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, payrollDetail, reopenPayroll, salesProgress, saveScores, setOrderSales, setSalesTarget, submitPayroll, payrollStage } from "@/server/payroll";
+import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, payrollDetail, reopenPayroll, salesProgress, saveScores, setOrderSales, setSalesTarget, submitPayroll, payrollStage, lateOvertime, recountPayroll, carryOvertime } from "@/server/payroll";
+import { previewOvertimeMonth } from "@/server/overtime";
 import { payslipNo } from "@/lib/numbering";
 import { runAction } from "@/server/ai-actions";
 import { hiddenFor, menuKeyOf, setRoleMenu } from "@/server/perm";
@@ -27,6 +28,9 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
   const filled: string[] = [];
   // a salesperson on a 60,000 package: 50 % base, 30 % monthly target, 20 % quarterly target (朱总 2026-11-11)
   const seller = await prisma.employee.create({ data: { code: `ETH19${String(Date.now() % 100000).padStart(5, "0")}`, entityId: md.entityId, name: `Probe Sales ${tag}`, role: "SALES", managerId: md.id, joinedAt: new Date("2018-01-01"), taxNo: "1100000000002", ssoNo: "1100000000002", bankAccount: "123-4-56789-1", bankName: "KBANK" } });
+  { // an earlier run left this month's overtime closed: open it again so the month behaves like a running one
+    const om = await prisma.overtimeMonth.findUnique({ where: { entityId_month: { entityId: md.entityId, month: MONTH } } });
+    if (om) { await prisma.overtimeRequest.updateMany({ where: { payMonthId: om.id }, data: { payMonthId: null, status: "CANCELLED" } }); await prisma.overtimePayLine.deleteMany({ where: { monthId: om.id } }); await prisma.overtimeMonth.delete({ where: { id: om.id } }); } }
   try {
     await addSalaryRecord(MD, eng.code, { effectiveFrom: "2019-01-01", baseSalary: 30000, variablePay: 5000, allowances: [{ name: "Transport", amount: 2000 }], reason: "probe" } as never);
     await addSalaryRecord(MD, seller.code, { effectiveFrom: "2019-01-01", baseSalary: 30000, variablePay: 18000, quarterlyPay: 12000, allowances: [], reason: "probe" } as never);
@@ -111,11 +115,37 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
       const unticked = await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true }).catch((e) => String(e.message));
       check("other gaps (tax id, SSO no.) must be acknowledged", unticked === undefined || /PAYROLL_REVIEW_ACK/.test(String(unticked)), String(unticked).slice(0, 40));
       await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true, acknowledged: true });
+      // H-R67 — overtime approved after the month has left HR must not vanish
+      const ot = (hours: number, start: string, end: string) => prisma.overtimeRequest.create({ data: { entityId: md.entityId, employeeId: eng.id, workDate: new Date(`${MONTH}-12T00:00:00Z`), startTime: start, endTime: end, hours, kind: "WORKDAY_OT", reason: "probe late overtime", status: "APPROVED", approverId: md.id, decidedAt: new Date(), createdById: eng.id } });
+      const lineOt = async () => Number((await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: eng.id, run: { entityId: md.entityId, month: MONTH } } })).overtime);
+      const ot0 = await lineOt();
+      const A = await ot(2, "18:00", "20:00");
+      let late = await lateOvertime(md.entityId, MONTH);
+      check("overtime approved while the month waits for the MD is announced: 1 request, 2 h, not in the pay yet", late.rows.length === 1 && late.hours === 2 && !late.locked && (await lineOt()) === ot0, `${late.rows.length} ${late.hours}`);
+      check("only HR computes again", /PAYROLL_PREPARER_ONLY/.test(String(await recountPayroll({ entityId: md.entityId, month: MONTH, actorCode: fin.code }).catch((e) => e.message))));
+      await recountPayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code });
+      const again = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: md.entityId, month: MONTH } } });
+      check("补算: the 2 h are in (30,000 ÷ 30 ÷ 8 × 1.5 × 2 = 375) and finance reviews again", (await lineOt()) === ot0 + 375 && payrollStage(again) === "REVIEW" && (await lateOvertime(md.entityId, MONTH)).rows.length === 0, `${await lineOt()} ${payrollStage(again)}`);
+      await prisma.overtimeRequest.update({ where: { id: A.id }, data: { status: "CANCELLED" } });
+      await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code });
+      await confirmTax({ entityId: md.entityId, month: MONTH, actorCode: fin.code, confirmed: true, acknowledged: true });
+      const B = await ot(1, "20:00", "21:00");
+      check("finance cannot carry it over", /NO_PERMISSION/.test(String(await carryOvertime({ entityId: md.entityId, month: MONTH, actorCode: fin.code }).catch((e) => e.message))));
+      const carried = await carryOvertime({ entityId: md.entityId, month: MONTH, actorCode: adm.code });
+      late = await lateOvertime(md.entityId, MONTH);
+      const nextM = `${MONTH.slice(0, 5)}${String(Number(MONTH.slice(5)) + 1).padStart(2, "0")}`;
+      const nextLine = (await previewOvertimeMonth(md.entityId, nextM)).find((l) => l.employeeId === eng.id);
+      check("挂到下月: this month stays as reviewed, the request waits for next month's pay as 补发", carried === 1 && late.rows.length === 0 && (await lineOt()) === ot0 && (await prisma.overtimeRequest.findUniqueOrThrow({ where: { id: B.id } })).payNotBefore === nextM && !!nextLine?.lateFrom.includes(MONTH) && !(await previewOvertimeMonth(md.entityId, MONTH)).find((l) => l.employeeId === eng.id)?.requests.some((q) => q.id === B.id), `${carried} ${late.rows.length} ${nextLine?.lateFrom}`);
       const admApproves = await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code }).catch((e) => String(e.message));
       check("only the MD approves", /MD_ONLY/.test(String(admApproves)), String(admApproves).slice(0, 40));
       await approvePayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
       const after = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: md.entityId, month: MONTH } } });
       check("the month names its three people", after.preparedBy === adm.code && after.taxConfirmedBy === fin.code && after.approvedBy === MD, `${after.preparedBy} ${after.taxConfirmedBy} ${after.approvedBy}`);
+      check("the carried request was not frozen with this month", (await prisma.overtimeRequest.findUniqueOrThrow({ where: { id: B.id } })).payMonthId === null);
+      const C = await ot(1, "21:00", "22:00");
+      const lk = await lateOvertime(md.entityId, MONTH);
+      check("approved after the month is locked: said on the page, paid with next month", lk.locked && lk.rows.some((q) => q.id === C.id));
+      await prisma.overtimeRequest.deleteMany({ where: { id: { in: [B.id, C.id] } } });
       const locked = await computePayroll({ entityId: md.entityId, month: MONTH, actorCode: adm.code }).catch((e) => String(e.message));
       check("an approved month cannot be recomputed", /PAYROLL_LOCKED/.test(String(locked)));
       await reopenPayroll({ entityId: md.entityId, month: MONTH, actorCode: MD });
@@ -154,6 +184,7 @@ const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? 
     await prisma.auditLog.deleteMany({ where: { target: { startsWith: seller.code } } });
     await prisma.employee.delete({ where: { id: seller.id } });
     for (const x of [adm, fin]) { await prisma.auditLog.deleteMany({ where: { actorId: x.id } }); await prisma.employee.delete({ where: { id: x.id } }); }
+    await prisma.overtimeRequest.deleteMany({ where: { employeeId: eng.id } });
     await prisma.salaryRecord.deleteMany({ where: { employeeId: eng.id } });
     await prisma.auditLog.deleteMany({ where: { OR: [{ actorId: eng.id }, { target: eng.code }] } });
     await prisma.aiAction.deleteMany({ where: { employeeId: eng.id } });

@@ -7,7 +7,7 @@
  */
 import { prisma } from "../../src/lib/db";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { setQuoteLines } from "../../src/server/slm-docs";
+
 import { completeMilestone, invoiceMilestone, savePlan } from "../../src/server/project";
 import { issueDelivery, signDelivery, deliveryPlan } from "../../src/server/delivery";
 import { issueTaxInvoice, recordPayment } from "../../src/server/to";
@@ -16,6 +16,7 @@ import { allocateNumber } from "../../src/lib/numbering-db";
 import { PHASES } from "../../src/lib/project";
 import { onboardAsset } from "../../src/server/alm";
 import { attachProjectAsset } from "../../src/server/asset-first";
+import { setQuoteLines } from "./_probe";
 
 const assert = (c: unknown, m: string) => { if (!c) throw new Error(`PROJECT FAIL: ${m}`); console.log("  ok  " + m); };
 async function refused(f: () => Promise<unknown>, re: RegExp, m: string) {

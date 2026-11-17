@@ -5,11 +5,12 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, advanceServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, setQuoteLines, createRepairJob, recordAcceptance, receiveEquipment } from "../../src/server/slm-docs";
+import { createInspection, createRepairJob, recordAcceptance, receiveEquipment } from "../../src/server/slm-docs";
 import { recordStockDoc } from "../../src/server/scm";
 import { deliveryPlan, issueDelivery, signDelivery } from "../../src/server/delivery";
 import { issueTaxInvoice, issueInvoice, recordPayment } from "../../src/server/to";
 import { allocateNumber } from "../../src/lib/numbering-db";
+import { setQuoteLines } from "./_probe";
 
 const out: { probe: string; result: "PASS" | "GAP"; note: string }[] = [];
 const pass = (p: string, n: string) => out.push({ probe: p, result: "PASS", note: n });
@@ -67,7 +68,14 @@ async function main() {
     await confirmCustomerPo({ no: o.no, actorCode: admin.code, customerRef: "PO-PRB-1", poLines: await poLinesFromQuote(o.no) });
     await receiveEquipment({ serviceOrderNo: o.no, assetCode: vfd.code, actorCode: admin.code, sender: "truck" });
     await recordStockDoc({ actorCode: admin.code, direction: "OUT", serviceOrderNo: o.no, lines: [{ partSku: part.sku, qty: 1, assetCode: vfd.code }] });
-    await createRepairJob({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", confirmedFault: "fan", workPerformed: "replaced", finishedAt: new Date(), tests: [{ test: "run", criterion: "ok", result: "ok", pass: true }] });
+    { // N-03: a report 08:30–20:00 drafts the time outside the shift as overtime for the approver — and nothing is paid
+      const d0 = new Date(); const at = (h: number, m: number) => new Date(d0.getFullYear(), d0.getMonth(), d0.getDate(), h, m);
+      const job = await createRepairJob({ serviceOrderNo: o.no, assetCode: vfd.code, engineerCode: admin.code, kind: "REPAIR", location: "WORKSHOP", confirmedFault: "fan", workPerformed: "replaced", startedAt: at(8, 30), finishedAt: at(20, 0), tests: [{ test: "run", criterion: "ok", result: "ok", pass: true }] });
+      const drafts = await prisma.overtimeRequest.findMany({ where: { sourceNo: job.no }, orderBy: { startTime: "asc" } });
+      const sunday = d0.getDay() === 0, hours = drafts.reduce((x, r) => x + Number(r.hours), 0);
+      const okDraft = drafts.every((r) => r.status === "PENDING" && r.origin === "SITE" && r.payMonthId === null) && (sunday ? drafts.length === 2 && hours === 10.5 : drafts.length === 1 && drafts[0].startTime === "17:30" && drafts[0].endTime === "20:00" && hours === 2.5);
+      console.log(`${okDraft ? "PASS" : "FAIL"} N-03 ${job.no} 08:30–20:00 drafts ${hours} h of overtime outside the shift, waiting for the approver`); if (!okDraft) process.exitCode = 1;
+      await prisma.overtimeRequest.deleteMany({ where: { sourceNo: job.no } }); }
     const plan = await deliveryPlan(o.no);
     const dn = await issueDelivery({ serviceOrderNo: o.no, actorCode: admin.code, deliverOn: new Date(), delivered: Object.fromEntries(plan.lines.map((l) => [l.key, l.expected - l.deliveredBefore])) } as never);
     await signDelivery({ no: dn.no, actorCode: admin.code, signedBy: "Khun Probe" });

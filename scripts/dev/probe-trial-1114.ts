@@ -9,10 +9,11 @@ import { prisma } from "../../src/lib/db";
 import { allocateNumber } from "../../src/lib/numbering-db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, createRepairJob, missingForAcceptance, setQuoteLines } from "../../src/server/slm-docs";
+import { createInspection, createRepairJob, missingForAcceptance } from "../../src/server/slm-docs";
 import { recordStockDoc, resolveParts, stockOnHand } from "../../src/server/scm";
-import { createPurchaseOrder, receivePurchaseOrder } from "../../src/server/purchasing";
+import { createPurchaseOrder } from "../../src/server/purchasing";
 import { deliveryPlan, issueDelivery } from "../../src/server/delivery";
+import { setQuoteLines, receivePurchaseOrder } from "./_probe";
 
 let failed = 0;
 const check = (name: string, ok: boolean, detail = "") => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) failed++; };

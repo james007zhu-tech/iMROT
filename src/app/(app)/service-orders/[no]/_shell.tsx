@@ -15,6 +15,7 @@ import { FormMemory } from "@/components/FormMemory";
 import { AssetTriple, FaultText, PageHeader, Tag, btnGhost, btnPrimary } from "@/components/ui";
 import { OrderStatusBadge } from "@/components/StatusBadge";
 import type { RecognizeKind } from "@/lib/recognize";
+import { can } from "@/lib/caps";
 import { assetBriefing, orderContext } from "@/server/briefing";
 import { AssetBrief } from "@/components/AssetBrief";
 
@@ -23,7 +24,14 @@ export type Order = NonNullable<Awaited<ReturnType<typeof getServiceOrder>>>;
 export async function loadOrder(no: string): Promise<Order> {
   const o = await getServiceOrder(no);
   if (!o) notFound();
-  if (!(await mayOpenOrder(await currentEmployee(), o.id))) redirect("/no-access"); // 数据范围: an order outside the person's range answers 无权限
+  const me = await currentEmployee();
+  if (!(await mayOpenOrder(me, o.id))) redirect("/no-access?scope=1"); // 数据范围: an order outside the person's range answers 无权限
+  // PUR works by order number (派修单 v2 第 4 条): who the customer is — name, address, tax id, people — never reaches their pages
+  if (!can.customerNames(me)) {
+    const c = o.customer as Record<string, unknown>;
+    for (const k of Object.keys(c)) if (!["id", "code", "paymentTermDays", "paymentTerms", "entityId", "countryCode", "currency"].includes(k) && (typeof c[k] === "string" || Array.isArray(c[k]))) c[k] = Array.isArray(c[k]) ? [] : k === "name" ? "—" : "";
+    (o as { contact?: unknown; reportedBy?: unknown }).contact = null; (o as { reportedBy?: unknown }).reportedBy = null;
+  }
   return o;
 }
 

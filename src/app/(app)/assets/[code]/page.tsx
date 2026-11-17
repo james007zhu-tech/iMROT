@@ -37,7 +37,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
   // 统一角色权限表: the machine's history is for everyone; what it cost and what was charged is not
   const me = await currentEmployee();
   const [aScope, cScope] = await Promise.all([assetScope(me), customerScope(me)]);
-  if (!(await prisma.asset.count({ where: { AND: [{ code }, aScope] } }))) redirect("/no-access"); // not a machine of their customers or orders
+  if (!(await prisma.asset.count({ where: { AND: [{ code }, aScope] } }))) redirect("/no-access?scope=1"); // not a machine of their customers or orders
   asset.events = stripMoney(asset.events, me);
   const seePrice = can.price(me);
   const t = await getTranslations("common");

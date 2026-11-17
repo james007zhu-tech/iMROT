@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { can, hasRole } from "@/lib/caps";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
@@ -7,7 +8,6 @@ import { STAFF_ROLES, addQuickCredentials, createEmployee, setCareers } from "@/
 import { guarded } from "@/lib/action-result";
 import { entityLabel } from "@/lib/entity";
 import { Flash } from "@/components/Flash";
-import { Forbidden } from "@/components/Forbidden";
 import { FormMemory } from "@/components/FormMemory";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { EmployeeFormFields, readEmployeeForm } from "@/components/EmployeeFormFields";
@@ -20,7 +20,7 @@ const plain = (v: string | null | undefined) => v ?? "";
 export default async function NewEmployee({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   const me = await currentEmployee();
-  if (!can.staff(me)) return <Forbidden />;
+  if (!can.staff(me)) redirect("/no-access?roles=MD%20/%20HR");
   const [t, c, r] = await Promise.all([getTranslations("ui"), getTranslations("common"), getTranslations("role")]);
   const [entities, managers] = await Promise.all([prisma.legalEntity.findMany({ orderBy: { createdAt: "asc" } }), prisma.employee.findMany({ where: { active: true }, orderBy: { code: "asc" }, select: { code: true, name: true } })]);
   async function save(f: FormData) {

@@ -17,6 +17,31 @@ async function main() {
     }
     console.log(`backfill: ${n} 暂估应付 written for goods already received`); }
 
+  // 2026-11-17 所有 PO 都要 MD 审批: POs that had already gone out before the rule stand as approved (by the rule's date).
+  { const n = await prisma.purchaseOrder.updateMany({ where: { approvedAt: null, status: { in: ["SENT", "PARTIAL", "RECEIVED"] } }, data: { approvedAt: new Date(), approvedBy: "before-rule" } });
+    console.log(`backfill: ${n.count} purchase order(s) already sent before the approval rule marked approved`); }
+
+  // 2026-11-17 记账汇率标明「中国银行价 + 日期」: documents written before the rate's day was kept get it from the rate
+  // table — the newest Bank of China row with exactly that rate, on or before the document's day.
+  { let n = 0;
+    const dayOf = async (currency: string, rate: unknown, at: Date) => currency === "CNY" ? new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()))
+      : (await prisma.fxRate.findFirst({ where: { currency, source: "BOC", rateToCny: rate as never, rateDate: { lte: new Date(at.getTime() + 86400000) } }, orderBy: { rateDate: "desc" } }))?.rateDate;
+    for (const o of await prisma.serviceOrder.findMany({ where: { fxRateToCny: { not: null }, fxSource: null }, select: { id: true, currency: true, fxRateToCny: true, updatedAt: true } })) { const d = await dayOf(o.currency, o.fxRateToCny, o.updatedAt); if (d) { await prisma.$executeRaw`UPDATE "ServiceOrder" SET "fxRateDate" = ${d}::date, "fxSource" = 'BOC' WHERE id = ${o.id}`; n++; } } // raw: updatedAt stays what it was
+    for (const o of await prisma.purchaseOrder.findMany({ where: { fxRateToCny: { not: null }, fxSource: null }, select: { id: true, currency: true, fxRateToCny: true, createdAt: true } })) { const d = await dayOf(o.currency, o.fxRateToCny, o.createdAt); if (d) { await prisma.purchaseOrder.update({ where: { id: o.id }, data: { fxRateDate: d, fxSource: "BOC" } }); n++; } }
+    for (const o of await prisma.taxInvoice.findMany({ where: { fxSource: null }, select: { id: true, currency: true, fxRateToCny: true, issuedAt: true } })) { const d = await dayOf(o.currency, o.fxRateToCny, o.issuedAt); if (d) { await prisma.taxInvoice.update({ where: { id: o.id }, data: { fxRateDate: d, fxSource: "BOC" } }); n++; } }
+    console.log(`backfill: ${n} document(s) given the day of their Bank of China rate`); }
+
+  // 2026-11-17 付款三步: invoices paid before the rule get their payment row (PAID, "before-rule"), so that the amount
+  // paid is on file and a payment entered by mistake can be reversed (冲回) like any other.
+  { let n = 0;
+    for (const inv of await prisma.supplierInvoice.findMany({ where: { status: "PAID", payments: { none: {} } } })) {
+      const no = inv.paymentNo ?? `PV-${inv.invoiceNo}`;
+      if (await prisma.supplierPayment.findUnique({ where: { no } })) continue;
+      await prisma.supplierPayment.create({ data: { no, entityId: inv.entityId, supplierInvoiceId: inv.id, account: "before-rule", amount: inv.payable, whtAmount: inv.whtAmount, payDate: inv.paidAt ?? new Date(), status: "PAID", requestedBy: "before-rule", paidBy: "before-rule", paidAt: inv.paidAt, paymentRef: inv.paymentRef } });
+      await prisma.supplierInvoice.update({ where: { id: inv.id }, data: { paidAmount: inv.payable } }); n++;
+    }
+    console.log(`backfill: ${n} payment(s) made before the three-step rule put on file`); }
+
   // 2026-11-17 需求清单 v4 V4-P0-02: 负责销售. A customer whose orders all belong to one Sales person is theirs; the rest
   // stay with the MD until he says who (customer page).
   { let n = 0;

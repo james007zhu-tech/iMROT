@@ -2,6 +2,8 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { draftOvertimeFromWork } from "@/server/overtime";
+import { fxFields, rateForNew } from "@/server/fx";
 import { audit } from "@/server/audit";
 import { can, hasRole } from "@/lib/caps";
 import { mayOpenOrder, mayAccept } from "@/server/scope";
@@ -186,9 +188,15 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   // 国际贸易: an export is zero-rated (src/lib/export.ts — until the accountant says otherwise)
   const vatRate = d.vatRate ?? (order.mode === "INTERNATIONAL_TRADE" ? EXPORT_VAT_RATE : Number(order.entity.vatRate));
   const t = totals(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitPrice })), vatRate);
-  const fx = order.currency === "CNY" ? 1 : (await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } }))?.rateToCny;
+  const fxr = await rateForNew(order.currency), fx = fxr?.rateToCny; // 中国银行价 (or 财务手工价) of today, kept on the quote with its day
   const parts = await resolveParts(d.lines.map((l) => l.partSku).filter((s): s is string => !!s));
   const partnerCosts = order.mode === "PARTNER_REPAIR" ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
+  // 报价单成本必填 (MD 2026-11-17 18:29): a quote without cost has no margin. Whoever may see what we paid gets the last
+  // purchase price where they wrote nothing; Sales writes its own estimate on every line — a line without one is refused.
+  if (!itemsOnly && order.mode !== "PARTNER_REPAIR") {
+    const noCost = d.lines.map((l, i) => (l.qty > 0 && l.unitCost == null && !(can.cost(actor) && l.partSku && Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) > 0) ? i + 1 : 0)).filter(Boolean);
+    if (noCost.length) throw new Error(`QUOTE_COST_REQUIRED:${noCost.join("、")}`);
+  }
   const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
   const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 
@@ -214,7 +222,7 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
     const updated = await tx.serviceOrder.update({
       where: { id: order.id },
       data: {
-        subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx ? Number(fx) : undefined, totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined,
+        subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, ...fxFields(fxr), totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined,
         costTotal: cost, marginPct: pct, marginApproval: approval, marginApprovedById: null, marginApprovedAt: null, marginNote: null,
         ...(d.warrantyDays !== undefined ? { warrantyDays: d.warrantyDays } : {}),
       },
@@ -304,7 +312,7 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
   const open = openJob(await prisma.repairJob.findMany({ where: { serviceOrderId: order.id, assetId: asset.id } }), { maintenance: d.kind === "MAINTENANCE", orderStatus: order.status, assetId: asset.id }) ?? null;
   if (d.escortContactId && !(await prisma.contact.findFirst({ where: { id: d.escortContactId, customerId: order.customerId } }))) throw new Error("ESCORT_NOT_CUSTOMER");
 
-  return prisma.$transaction(async (tx) => {
+  const saved = await prisma.$transaction(async (tx) => {
     // Re-saving a draft replaces it: a field left blank this time is cleared, not kept from the last save.
     const v = <T,>(x: T | undefined) => (open ? (x ?? null) : x);
     const list = (x: unknown[] | undefined) => (open ? (x ?? []) : x) as Prisma.InputJsonValue | undefined;
@@ -356,6 +364,10 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
     }
     return job;
   });
+  // 现场超时自动生成加班草稿 (N-03): a finished report whose hours run outside the shift drafts the overtime for the
+  // approver. It never stands in the way of the report itself.
+  if (saved.finishedAt && saved.startedAt) await draftOvertimeFromWork({ employeeId: eng.id, start: saved.startedAt, end: saved.finishedAt, sourceNo: saved.no, serviceOrderNo: order.no }).catch((e) => console.error("[overtime] draft from", saved.no, (e as Error).message));
+  return saved;
 }
 
 // ───────────── Acceptance (templates 12 + 13) ─────────────

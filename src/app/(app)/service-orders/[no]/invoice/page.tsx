@@ -1,4 +1,6 @@
 import { can, hasRole } from "@/lib/caps";
+import { rateFor } from "@/server/fx";
+import { fxMark } from "@/lib/fx-label";
 import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
@@ -21,7 +23,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
   const order = await loadOrder(no);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const me = await currentEmployee(); await assertOrderAccess(me, no);
-  const fx = await prisma.fxRate.findFirst({ where: { currency: order.currency }, orderBy: { rateDate: "desc" } });
+  const fx = await rateFor(order.currency); // what the tax invoice will be booked at: 中国银行价, or 财务手工价 of the day
   const taxInvoices = await prisma.taxInvoice.findMany({ where: { serviceOrderId: order.id }, orderBy: { issuedAt: "asc" }, include: { invoices: { select: { no: true, cancelledAt: true, paidAmount: true } }, creditNotes: { orderBy: { issuedAt: "asc" } } } });
   const mayCredit = can.invoice(me);
   const active = taxInvoices.find((x) => !x.voidedAt);
@@ -128,7 +130,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
           <Table head={["#", u("descThRequired"), u("descEn"), t("qty"), t("price"), t("amount")]}>
             {shown.map((l, i) => <tr key={l.id}><td>{l.lineNo}</td><td><input name={`th${i}`} required defaultValue={l.descriptionLocal ?? ""} className={inputCls} /></td><td>{l.description}</td><td>{l.qty}</td><td className="text-right">{l.unitPrice.toFixed(2)}</td><td className="text-right">{l.amount.toFixed(2)}</td></tr>)}
           </Table>
-          <p className="text-right text-[13px]">{t("subtotal")} {sum.subtotal.toFixed(2)} · {t("vat")} {sum.vatAmount.toFixed(2)} · <b>{t("total")} {sum.total.toFixed(2)}</b>{fx ? ` · CNY ${(sum.total * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} (${u("bocOn")} ${localIso(fx.rateDate)!.slice(5, 10)})` : ""}</p>
+          <p className="text-right text-[13px]">{t("subtotal")} {sum.subtotal.toFixed(2)} · {t("vat")} {sum.vatAmount.toFixed(2)} · <b>{t("total")} {sum.total.toFixed(2)}</b>{fx ? ` · CNY ${(sum.total * Number(fx.rateToCny)).toFixed(2)} @${Number(fx.rateToCny).toFixed(4)} （${fxMark(u, fx.source, fx.rateDate)}）` : ""}</p>
         </Card>
         <Card title={u("invoiceIv")}>
           <Grid>

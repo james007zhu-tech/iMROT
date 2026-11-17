@@ -11,7 +11,8 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname + req.nextUrl.search;
   const headers = new Headers(req.headers);
   headers.set("x-dcit-path", path);
-  if (req.nextUrl.pathname !== "/no-access" && req.cookies.has("dcit_session")) {
+  if (req.nextUrl.pathname === "/no-access") return NextResponse.rewrite(req.nextUrl, { status: 403, request: { headers } }); // every refusal answers 403 (派修单 v2 第 9 条)
+  if (req.cookies.has("dcit_session")) {
     try {
       const r = await fetch(`http://127.0.0.1:${process.env.PORT || "3000"}/api/gate?path=${encodeURIComponent(path)}`, { headers: { cookie: req.headers.get("cookie") ?? "", "x-dcit-gate": gateKey() }, cache: "no-store" });
       const g = (await r.json()) as { ok?: boolean; roles?: string };

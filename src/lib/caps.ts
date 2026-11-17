@@ -47,7 +47,7 @@ export const can = {
   /** confirm or refuse the customer's PO, deliver, accept */
   confirmPo: is("MD", "SALES"),
   /** purchase price, unit cost, last cost, supplier prices */
-  cost: is("MD", "FINANCE", "PURCHASING", "SALES"),
+  cost: is("MD", "FINANCE", "PURCHASING"), // Sales never sees what we paid (MD 2026-11-17 18:29): they estimate the cost of their own quote
   /** margin, margin thresholds, and cost where it stands next to the customer's price (quotes, orders, plans) */
   margin: is("MD", "FINANCE", "SALES"),
   /** the company's bank accounts, /admin legal entities; maintain exchange rates */
@@ -143,7 +143,8 @@ export function pathOwners(path: string): Role[] {
 // ── What leaves the server (API answers, the assistant's look-ups) ──────────────────────────────────────────────
 
 const PRICE_KEYS = new Set(["unitPrice", "amount", "subtotal", "vatAmount", "total", "totalCny", "fxRateToCny", "amountDue", "paidAmount", "whtAmount", "cashAmount", "settledAmount", "payable", "creditLimit", "price", "fee", "fees", "payPct"]);
-const COST_KEYS = new Set(["unitCost", "costRef", "costTotal", "lastCost", "lastCostCurrency", "costPerHour", "travelCost"]);
+const COST_KEYS = new Set(["costRef", "lastCost", "lastCostCurrency", "costPerHour", "travelCost"]); // what we paid: MD, FIN, PUR
+const QUOTE_COST_KEYS = new Set(["unitCost", "costTotal"]); // the cost written on a quote: those who see its margin (MD, FIN, Sales)
 const MARGIN_KEYS = new Set(["marginPct", "marginApproval", "marginNote", "marginApprovedAt", "marginApprovedById"]);
 const BANK_KEYS = new Set(["bankAccount", "bankAccounts", "bankName", "bankBranch", "swift", "accountNo", "accountName"]);
 /** Asset events whose summary and payload speak of money. */
@@ -155,7 +156,8 @@ export const MONEY_EVENTS = ["QUOTED", "INVOICED", "PAID", "ORDER_CONFIRMED", "Q
  */
 export function stripMoney<T>(value: T, who: Who): T {
   const price = can.price(who), cost = can.cost(who), margin = can.margin(who), bank = can.bank(who);
-  if (price && cost && margin && bank) return value;
+  const names = can.customerNames(who);
+  if (price && cost && margin && bank && names) return value;
   const walk = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(walk);
     if (!v || typeof v !== "object" || v instanceof Date || typeof (v as { toFixed?: unknown }).toFixed === "function") return v;
@@ -163,8 +165,11 @@ export function stripMoney<T>(value: T, who: Who): T {
     const moneyEvent = !price && typeof o.type === "string" && MONEY_EVENTS.includes(o.type) && ("summary" in o || "payload" in o);
     const out: Record<string, unknown> = {};
     for (const [k, x] of Object.entries(o)) {
-      if ((!price && PRICE_KEYS.has(k)) || (!cost && COST_KEYS.has(k)) || (!margin && MARGIN_KEYS.has(k)) || (!bank && BANK_KEYS.has(k))) continue;
+      if ((!price && PRICE_KEYS.has(k)) || (!cost && COST_KEYS.has(k)) || (!margin && (MARGIN_KEYS.has(k) || QUOTE_COST_KEYS.has(k))) || (!bank && BANK_KEYS.has(k))) continue;
       if (moneyEvent && (k === "summary" || k === "payload")) continue;
+      // PUR and HR work by order number: of the customer only the code travels (派修单 v2 第 4 条)
+      if (!names && k === "customer" && x && typeof x === "object") { out[k] = { code: (x as { code?: unknown }).code }; continue; }
+      if (!names && (k === "customerName" || k === "customerId")) continue;
       out[k] = walk(x);
     }
     return out;

@@ -36,7 +36,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   const oScope = await orderScope(me0);
   const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: { include: { plant: true } }, assets: { include: { model: true, plant: true }, orderBy: { code: "asc" } }, serviceOrders: { where: oScope, orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
   if (!c) notFound();
-  if (!(await prisma.customer.count({ where: { AND: [{ id: c.id }, await customerScope(me0)] } }))) redirect("/no-access"); // 只看自己负责的 / 自己单上的客户
+  if (!(await prisma.customer.count({ where: { AND: [{ id: c.id }, await customerScope(me0)] } }))) redirect("/no-access?scope=1"); // 只看自己负责的 / 自己单上的客户
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const salesPeople = hasRole(me0, "MD") ? await prisma.employee.findMany({ where: { active: true, OR: [{ role: "SALES" }, { extraRoles: { has: "SALES" } }] }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }) : [];
   const open = await revealActive(code);

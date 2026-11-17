@@ -1,4 +1,5 @@
 import { assertOrderAccess } from "@/server/scope";
+import { fxMark } from "@/lib/fx-label";
 import { can, hasRole, isApprover } from "@/lib/caps";
 import { skuGaps } from "@/server/purchasing";
 import { localIso } from "@/lib/dates";
@@ -276,7 +277,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             <Table head={["#", t("asset"), u("descEnTh"), t("qty"), ...(seePrice ? [t("price"), t("amount")] : [])]}>
               {order.lines.map((l) => <tr key={l.id}><td>{l.lineNo}</td><td className="font-mono">{l.assetCode ?? ""}</td><td>{l.description}{l.descriptionLocal ? <span className="block text-xs text-navy/70">{l.descriptionLocal}</span> : null}</td><td>{Number(l.qty)} {l.unit}</td>{seePrice && <><td className="text-right">{Number(l.unitPrice).toFixed(2)}</td><td className="text-right">{Number(l.amount).toFixed(2)}</td></>}</tr>)}
             </Table>
-            {seePrice && <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}` : ""}</p>}
+            {seePrice && <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}（${fxMark(u, order.fxSource, order.fxRateDate)}）` : ""}</p>}
             {seeCost && order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: localIso(order.lockedAt)!.slice(0, 10) })}` : ""}</p>}
             {order.marginApproval === "PENDING" && hasRole(me, "MD") && (
               <form id="margin" action={decideMargin} className="mt-2 flex scroll-mt-24 flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">

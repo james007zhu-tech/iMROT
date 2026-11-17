@@ -23,11 +23,11 @@ export async function financeReport(entityId: string, year: number, opts: { with
     prisma.taxInvoice.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, serviceOrder: { entityId } }, select: { issuedAt: true, subtotal: true, vatAmount: true, serviceOrder: { select: { mode: true, customer: { select: { name: true } } } } } }),
     prisma.receipt.findMany({ where: { voidedAt: null, receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: { entityId } } }, select: { receivedAt: true, cashAmount: true, whtAmount: true } }),
     prisma.supplierInvoice.findMany({ where: { entityId, status: { not: "CANCELLED" }, currency: "THB", invoiceDate: { gte: from, lt: to } }, select: { invoiceDate: true, subtotal: true, vatAmount: true, accrued: true } }),
-    prisma.supplierInvoice.findMany({ where: { entityId, status: "PAID", currency: "THB", paidAt: { gte: from, lt: to } }, select: { paidAt: true, payable: true } }),
+    prisma.supplierPayment.findMany({ where: { entityId, status: "PAID", paidAt: { gte: from, lt: to }, supplierInvoice: { currency: "THB" } }, select: { paidAt: true, amount: true } }), // what left the bank, part payments included
     prisma.expenseClaim.findMany({ where: { entityId, status: { in: ["APPROVED", "PAID"] }, currency: "THB", spentOn: { gte: from, lt: to } }, select: { spentOn: true, amount: true, vatAmount: true, category: true } }),
     opts.withPayroll ? prisma.payrollRun.findMany({ where: { entityId, status: { not: "DRAFT" }, month: { gte: `${year}-01`, lte: `${year}-12` } }, select: { month: true, totals: true } }) : Promise.resolve([]),
     prisma.invoice.findMany({ where: { cancelledAt: null, paidAt: null, serviceOrder: { entityId } }, select: { no: true, dueAt: true, issuedAt: true, currency: true, amountDue: true, paidAmount: true, whtAmount: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } }),
-    prisma.supplierInvoice.findMany({ where: { entityId, status: "OPEN" }, select: { invoiceNo: true, dueDate: true, currency: true, payable: true, supplier: { select: { name: true } } } }),
+    prisma.supplierInvoice.findMany({ where: { entityId, status: "OPEN" }, select: { invoiceNo: true, dueDate: true, currency: true, payable: true, paidAmount: true, supplier: { select: { name: true } } } }),
     prisma.invoice.findMany({ where: { cancelledAt: null, currency: { not: "THB" }, issuedAt: { gte: from, lt: to }, serviceOrder: { entityId } }, select: { currency: true, amountDue: true } }),
   ]);
   const cns = await prisma.creditNote.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, currency: "THB", taxInvoice: { serviceOrder: { entityId } } }, select: { issuedAt: true, subtotal: true, vatAmount: true, taxInvoice: { select: { serviceOrder: { select: { mode: true, customer: { select: { name: true } } } } } } } });
@@ -38,7 +38,7 @@ export async function financeReport(entityId: string, year: number, opts: { with
   for (const x of rcs) { const m = at(x.receivedAt); if (m) { m.collected += Number(x.cashAmount); m.whtByCustomers += Number(x.whtAmount); } }
   // 暂估: a purchase, but no input VAT until the invoice is in
   for (const x of sis) { const m = at(x.invoiceDate); if (m) { m.purchases += Number(x.subtotal); if (!x.accrued) m.vatIn += Number(x.vatAmount); } }
-  for (const x of sPaid) { const m = x.paidAt && at(x.paidAt); if (m) m.paidSuppliers += Number(x.payable); }
+  for (const x of sPaid) { const m = x.paidAt && at(x.paidAt); if (m) m.paidSuppliers += Number(x.amount); }
   for (const x of exps) { const m = months.find((y) => y.month === localIso(x.spentOn)!.slice(0, 7)); if (m) { m.expenses += Number(x.amount) - Number(x.vatAmount ?? 0); m.vatIn += Number(x.vatAmount ?? 0); } }
   for (const x of runs) { const m = months.find((y) => y.month === x.month); if (m) m.payroll += Number((x.totals as { employerCost?: number }).employerCost ?? 0); }
   for (const m of months) { for (const k of Object.keys(m) as (keyof MonthRow)[]) if (k !== "month") (m[k] as number) = r2(m[k] as number); m.result = r2(m.revenue - m.purchases - m.expenses - m.payroll); m.vatNet = r2(m.vatOut - m.vatIn); }
@@ -48,7 +48,7 @@ export async function financeReport(entityId: string, year: number, opts: { with
   const ar: Ageing = { notDue: 0, d30: 0, d60: 0, d90: 0, over: 0 }, ap: Ageing = { notDue: 0, d30: 0, d60: 0, d90: 0, over: 0 };
   const arRows = openInv.filter((i) => i.currency === "THB").map((i) => ({ no: i.no, order: i.serviceOrder.no, customer: i.serviceOrder.customer.name, due: i.dueAt, open: r2(Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0)) })).filter((i) => i.open > 0.005);
   for (const i of arRows) ar[bucket(i.due, now)] += i.open;
-  const apRows = openAp.filter((i) => i.currency === "THB").map((i) => ({ no: i.invoiceNo, supplier: i.supplier.name, due: i.dueDate, open: Number(i.payable) }));
+  const apRows = openAp.filter((i) => i.currency === "THB").map((i) => ({ no: i.invoiceNo, supplier: i.supplier.name, due: i.dueDate, open: Math.round((Number(i.payable) - Number(i.paidAmount)) * 100) / 100 }));
   for (const i of apRows) ap[bucket(i.due, now)] += i.open;
   for (const k of AGE_KEYS) { ar[k] = r2(ar[k]); ap[k] = r2(ap[k]); }
   return {
