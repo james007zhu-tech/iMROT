@@ -21,7 +21,7 @@ export const NAV: NavGroup[] = [
   { key: "scm", items: [{ key: "suppliers", href: "/suppliers" }, { key: "inquiries", href: "/purchasing/inquiries" }, { key: "purchaseOrders", href: "/purchasing/orders" }, { key: "stock", href: "/parts" }, doc("stockIn", "IB"), doc("stockOut", "OB")] },
   { key: "fin", items: [{ key: "ledger", href: "/finance" }, doc("paymentVouchers", "PV"), doc("statements", "BL"), { key: "cashPlan", href: "/finance/cash-plan" }, { key: "finReports", href: "/finance/reports" }, { key: "expenses", href: "/finance/expenses" }] },
   { key: "to", items: [doc("proforma", "PF"), { key: "billing", href: "/tax?doc=iv" }, { key: "taxInvoices", href: "/tax?doc=ti" }, { key: "receipts", href: "/tax?doc=rc" }] },
-  { key: "opd", items: [{ key: "talent", href: "/people" }, { key: "overtime", href: "/people/overtime" }, { key: "payroll", href: "/people/payroll" }, { key: "training", href: "/people/training" }] },
+  { key: "opd", items: [{ key: "talent", href: "/people" }, { key: "overtime", href: "/people/overtime" }, { key: "leave", href: "/people/leave" }, { key: "payroll", href: "/people/payroll" }, { key: "training", href: "/people/training" }] },
   { key: "admin", items: [{ key: "permissions", href: "/admin/permissions", mdOnly: true }, { key: "dictionary", href: "/admin/dictionary" }, { key: "entities", href: "/admin" }] },
 ];
 

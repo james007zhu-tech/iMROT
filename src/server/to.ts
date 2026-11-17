@@ -161,6 +161,7 @@ export const PaymentInput = z.object({
   whtAmount: z.number().min(0).default(0),
   whtCertRef: z.string().optional(),
   bankRef: z.string().optional(),
+  account: z.string().optional(), /// which of our accounts received it
   attachments: z.array(z.object({ name: z.string(), url: z.string(), kind: z.string().optional() })).optional(),
 });
 
@@ -187,7 +188,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
     });
     // RCTH — one receipt per payment received (決定 2026-11-07): this payment's cash, WHT and settled amount against the TITH.
     const rcNo = await allocateNumber(tx, { prefix: "RC", createdByEmployeeCode: actor.code, entityId: iv.serviceOrder.entityId });
-    const receipt = await tx.receipt.create({ data: { no: rcNo, invoiceId: iv.id, taxInvoiceNo: taxInvoice?.no, receivedAt: d.paidAt, currency: iv.currency, cashAmount: round2(d.paidAmount), whtAmount: round2(d.whtAmount), settledAmount: round2(d.paidAmount + d.whtAmount), bankRef: d.bankRef, whtCertRef: d.whtCertRef, attachments: proofs as Prisma.InputJsonValue } });
+    const receipt = await tx.receipt.create({ data: { no: rcNo, invoiceId: iv.id, taxInvoiceNo: taxInvoice?.no, receivedAt: d.paidAt, currency: iv.currency, cashAmount: round2(d.paidAmount), whtAmount: round2(d.whtAmount), settledAmount: round2(d.paidAmount + d.whtAmount), bankRef: d.bankRef, account: d.account || null, whtCertRef: d.whtCertRef, attachments: proofs as Prisma.InputJsonValue } });
     await tx.document.create({ data: { no: rcNo, type: "RC", entityId: iv.serviceOrder.entityId, countryCode: countryOfNo(rcNo), customerId: iv.serviceOrder.customerId, serviceOrderId: iv.serviceOrderId, createdById: actor.id, issuedAt: d.paidAt } });
     for (const a of iv.serviceOrder.assets) {
       await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: rcNo, occurredAt: d.paidAt, summary: `${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? ` + WHT ${d.whtAmount.toFixed(2)}` : ""} · ${iv.no}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef, receiptNo: rcNo, settled } as Prisma.InputJsonValue, attachments: proofs as Prisma.InputJsonValue } });

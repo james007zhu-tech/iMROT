@@ -1,4 +1,5 @@
 import { can, hasRole } from "@/lib/caps";
+import { payAccounts } from "@/server/pay";
 import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
@@ -18,6 +19,7 @@ export default async function Payment({ params, searchParams }: { params: Promis
   const [{ no }, { ok, error }] = await Promise.all([params, searchParams]);
   const order = await loadOrder(no);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
+  const accounts = await payAccounts(order.entityId); // where the money arrived — the cash and bank journal reads it
   const today = localIso(new Date())!.slice(0, 10);
   const outstanding = (i: (typeof order.invoices)[number]) => Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0);
   const unpaid = order.invoices.filter((i) => !i.cancelledAt && outstanding(i) > 0.004);
@@ -26,7 +28,7 @@ export default async function Payment({ params, searchParams }: { params: Promis
     "use server";
     await guarded(async () => {
       const me = await currentEmployee(); await assertOrderAccess(me, no);
-      await recordPayment({ invoiceNo: String(f.get("invoiceNo")), actorCode: me.code, paidAt: dayNow(String(f.get("paidAt")))!, paidAmount: num(f, "paidAmount") ?? 0, whtAmount: num(f, "whtAmount") ?? 0, whtCertRef: str(f, "whtCertRef"), bankRef: str(f, "bankRef"), attachments: atts(f) });
+      await recordPayment({ invoiceNo: String(f.get("invoiceNo")), actorCode: me.code, paidAt: dayNow(String(f.get("paidAt")))!, paidAmount: num(f, "paidAmount") ?? 0, whtAmount: num(f, "whtAmount") ?? 0, whtCertRef: str(f, "whtCertRef"), bankRef: str(f, "bankRef"), account: str(f, "account"), attachments: atts(f) });
       return { ok: String(f.get("invoiceNo")), to: `/service-orders/${no}` };
     }, `/service-orders/${no}/payment`);
   }
@@ -76,6 +78,7 @@ export default async function Payment({ params, searchParams }: { params: Promis
             <Field label={t("whtWithheld")}><input name="whtAmount" type="number" step="0.01" className={inputCls} /></Field>
             <Field label={t("whtCert")}><input name="whtCertRef" className={inputCls} /></Field>
             <Field label={t("bankRef")}><input name="bankRef" className={inputCls} /></Field>
+            <Field label={u("rcAccount")}><select name="account" defaultValue="" className={inputCls}><option value="">—</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</select></Field>
           </Grid>
           <p className="text-xs text-navy/70">{u("whtNote")}</p>
         </Card>

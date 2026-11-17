@@ -181,6 +181,8 @@ model Employee {
   faultCodesReviewed FaultCode[]            @relation("FaultCodeReviewer")
   faultCodeImports   FaultCodeImport[]
   publishRuns        PublishRun[]
+  leaves             LeaveRequest[] @relation("LeaveOf")
+  leavesDecided      LeaveRequest[] @relation("LeaveApprover")
 }
 
 enum ContractType {
@@ -1567,6 +1569,7 @@ model Receipt {
   cashAmount    Decimal  @db.Decimal(18, 2)
   whtAmount     Decimal  @db.Decimal(18, 2)
   settledAmount Decimal  @db.Decimal(18, 2) /// cash + WHT
+  account       String? /// which of our accounts the money arrived in (pay.ts payAccounts ids) — for the cash and bank journal
   bankRef       String?
   whtCertRef    String?
   attachments   Json?
@@ -1741,6 +1744,32 @@ model OvertimeRequest {
 
   @@index([employeeId, workDate])
   @@index([status, payMonthId])
+}
+
+/// 请假 (需求清单 v4 V4-P0-12) — lib/leave.ts has the kinds and the paid days of a year.
+model LeaveRequest {
+  id           String    @id @default(cuid())
+  entityId     String
+  employeeId   String
+  employee     Employee  @relation("LeaveOf", fields: [employeeId], references: [id])
+  type         String /// SICK | PERSONAL | ANNUAL | MATERNITY | UNPAID
+  fromDate     DateTime  @db.Date
+  toDate       DateTime  @db.Date
+  half         String? /// "AM" | "PM" — a single day only
+  days         Decimal   @db.Decimal(5, 1) /// working days counted when it was asked
+  dayList      Json /// [{day, part}] — what `days` is made of
+  reason       String
+  attachments  Json? /// the medical certificate for sick leave of three days or more
+  status       String    @default("PENDING") /// PENDING | APPROVED | REJECTED | CANCELLED
+  approverId   String?
+  approver     Employee? @relation("LeaveApprover", fields: [approverId], references: [id])
+  decidedAt    DateTime?
+  decisionNote String?
+  createdById  String
+  createdAt    DateTime  @default(now())
+
+  @@index([employeeId, fromDate])
+  @@index([entityId, status])
 }
 
 /// 公司假日 — a public or company holiday. Work on it is HOLIDAY_WORK / HOLIDAY_OT without anyone choosing (H-R66).
@@ -1966,6 +1995,8 @@ model PayrollLine {
   reimbursement    Decimal    @default(0) @db.Decimal(14, 2) /// approved expense claims, not income
   net              Decimal    @db.Decimal(14, 2)
   employerCost     Decimal    @db.Decimal(14, 2)
+  unpaidLeaveDays  Decimal    @default(0) @db.Decimal(5, 1) /// 无薪假 and leave beyond the paid days of the year, in this month
+  leaveDeduction   Decimal    @default(0) @db.Decimal(14, 2) /// baseSalary ÷ 30 × unpaidLeaveDays — taken off the base before tax and SSO
   otLateFrom       String[]   @default([]) /// months whose overtime is paid late in this one: 补发 ×月加班
   missing          String[]   @default([]) /// what the line could not find: SALARY, PERFORMANCE, OVERTIME_OPEN, TAX_ID, SSO_NO, BANK
   note             String?

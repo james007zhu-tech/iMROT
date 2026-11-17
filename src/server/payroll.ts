@@ -3,6 +3,8 @@
  * month, the month's performance scores and approved expense claims — and keeps it editable until the MD approves.
  * MD only, except the performance scores (a manager scores the people who report to them) and one's own payslip.
  */
+import { unpaidLeaveOfMonth } from "@/server/leave";
+import { leaveDeduction } from "@/lib/leave";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
@@ -65,6 +67,7 @@ export async function computePayroll(input: { entityId: string; month: string; a
   // happens when the MD approves the payroll. What still stops the month is overtime nobody has decided yet.
   const otWaiting = new Set((await prisma.overtimeRequest.findMany({ where: { entityId: input.entityId, status: "PENDING", workDate: { lt: to } }, select: { employeeId: true } })).map((r) => r.employeeId));
   const otPreview = otMonth ? null : await previewOvertimeMonth(input.entityId, input.month);
+  const unpaidLeave = await unpaidLeaveOfMonth(ids, input.month); // 请假 (v4 V4-P0-12): 无薪假 and leave beyond the paid days of the year
 
   const lines: (Prisma.PayrollLineUncheckedCreateWithoutRunInput & { claimIds: string[] })[] = [];
   const skipped: string[] = [];
@@ -83,6 +86,7 @@ export async function computePayroll(input: { entityId: string; month: string; a
     const reimbursement = r2(mine.reduce((s, c) => s + Number(c.amount), 0));
     const overtime = otMonth ? Number(otMonth.lines.find((l) => l.employeeId === e.id)?.total ?? 0) : r2(otPreview?.find((l) => l.employeeId === e.id)?.pay.total ?? 0);
     const otLateFrom = (otMonth ? (otMonth.lines.find((l) => l.employeeId === e.id)?.lateFrom ?? []) : (otPreview?.find((l) => l.employeeId === e.id)?.lateFrom ?? [])) as string[]; // 补发 ×月加班
+    const unpaidLeaveDays = unpaidLeave.get(e.id) ?? 0, leaveCut = leaveDeduction(Number(salary.baseSalary), unpaidLeaveDays); // 月薪 ÷ 30 × days, off the base before tax and SSO
     const variablePay = Number(salary?.variablePay ?? 0);
     const missing: string[] = [];
     // sales are paid on targets (朱总 2026-11-11), everyone else on the manager's monthly score
@@ -99,7 +103,7 @@ export async function computePayroll(input: { entityId: string; month: string; a
     const allowances = ((salary?.allowances as Allowance[] | null) ?? []);
     const num = (d: unknown) => (d == null ? null : Number(d));
     const c = computeLine({
-      baseSalary: Number(salary?.baseSalary ?? 0), allowances, overtime, variablePay, perfScore: num(review?.score), bands, bonus,
+      baseSalary: Math.max(0, Number(salary?.baseSalary ?? 0) - leaveCut), allowances, overtime, variablePay, perfScore: num(review?.score), bands, bonus,
       ...(sales ? { achievement: mt?.achievement ?? null } : {}), quarterlyPay, quarterAchieved: qt?.achievement ?? null,
       ssoWageBase: num(salary?.ssoWageBase), ssoEmployeeRate: num(salary?.ssoEmployeeRate), ssoEmployerRate: num(salary?.ssoEmployerRate), pvdEmployeeRate: num(salary?.pvdEmployeeRate), pvdEmployerRate: num(salary?.pvdEmployerRate),
       profile: salary?.taxDeductions as TaxProfile | null, periods: periodsInYear(input.month, e.joinedAt),
@@ -108,7 +112,7 @@ export async function computePayroll(input: { entityId: string; month: string; a
     });
     lines.push({
       employeeId: e.id, salaryRecordId: salary?.id ?? null, baseSalary: Number(salary?.baseSalary ?? 0), allowances: allowances as unknown as Prisma.InputJsonValue, allowanceTotal: c.allowanceTotal,
-      otLateFrom, overtime, variablePay, perfScore: sales ? null : num(review?.score), perfFactor: c.perfFactor, incentive: c.incentive, bonus, gross: c.gross,
+      unpaidLeaveDays, leaveDeduction: leaveCut, otLateFrom, overtime, variablePay, perfScore: sales ? null : num(review?.score), perfFactor: c.perfFactor, incentive: c.incentive, bonus, gross: c.gross,
       perfBasis: sales ? "TARGET" : "SCORE", achievement: sales ? mt?.achievement ?? null : null, quarterlyPay, quarterAchieved: qt?.achievement ?? null, quarterFactor: c.quarterFactor, quarterIncentive: c.quarterIncentive,
       ssoBase: c.ssoBase, ssoEmployee: c.ssoEmployee, ssoEmployer: c.ssoEmployer, pvdEmployee: c.pvdEmployee, pvdEmployer: c.pvdEmployer,
       wht: c.wht, whtManual: whtManual != null, whtDetail: c.whtDetail as unknown as Prisma.InputJsonValue, otherDeduction, reimbursement, net: c.net, employerCost: c.employerCost, missing, note,

@@ -105,6 +105,7 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
                   <div className="space-y-0.5">
                     <Row k={t("payBase")} v={l.baseSalary} strong />
                     {allowances.map((a, i) => <Row key={i} k={a.name} v={a.amount} />)}
+                    {Number(l.leaveDeduction) > 0 && <Row k={t("payLeaveCut", { days: Number(l.unpaidLeaveDays) })} v={-Number(l.leaveDeduction)} />}
                     <Row k={l.otLateFrom.length ? `${t("payOvertime")}（${t("payOtLate", { months: l.otLateFrom.map((m) => Number(m.slice(5))).join("、") })}）` : t("payOvertime")} v={l.overtime} />
                     {Number(l.variablePay) > 0 && <Row k={`${t(l.perfBasis === "TARGET" ? "payIncentiveM" : "payIncentive")} ${money(l.variablePay)} × ${Number(l.perfFactor)}${l.perfBasis === "TARGET" ? (l.achievement != null ? `（${(Number(l.achievement) * 100).toFixed(1)}%）` : "") : l.perfScore != null ? `（${Number(l.perfScore)}）` : ""}`} v={l.incentive} strong />}
                     {Number(l.quarterlyPay) > 0 && <Row k={`${t("payIncentiveQ")} ${money(l.quarterlyPay)} × ${Number(l.quarterFactor)}${l.quarterAchieved != null ? `（${(Number(l.quarterAchieved) * 100).toFixed(1)}%）` : ""}`} v={l.quarterIncentive} strong />}

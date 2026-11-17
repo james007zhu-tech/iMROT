@@ -140,12 +140,14 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     const whose = md ? { OR: [{ managerId: me.id }, { managerId: null }] } : { managerId: me.id };
     for (const r of await prisma.overtimeRequest.findMany({ where: { status: "PENDING", employeeId: { not: me.id }, employee: whose }, select: { id: true, workDate: true, employee: { select: { name: true } } }, orderBy: { workDate: "asc" }, take: 50 }))
       push("otApprove", 0, `${r.employee.name} ${r.workDate.toISOString().slice(5, 10)}`, "/people/overtime", r.employee.name);
+    for (const r of await prisma.leaveRequest.findMany({ where: { status: "PENDING", employeeId: { not: me.id }, employee: whose }, select: { fromDate: true, days: true, type: true, employee: { select: { name: true } } }, orderBy: { fromDate: "asc" }, take: 50 }))
+      push("leaveApprove", 0, `${r.employee.name} ${r.fromDate.toISOString().slice(5, 10)}`, "/people/leave", `${Number(r.days)} d`);
     for (const c of await prisma.expenseClaim.findMany({ where: { status: "PENDING", employeeId: { not: me.id }, employee: whose }, select: { no: true, employee: { select: { name: true } } }, take: 50 }))
       push("expenseApprove", 0, c.no ?? "", "/finance/expenses", c.employee.name);
   }
   if (hasRole(me, "MD")) for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "leaveApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
 }

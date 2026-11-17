@@ -11,7 +11,7 @@ import { NAV, navMatch } from "@/lib/nav";
 import { menuAllows, menuOwners, pathOwners, rolesOf, hasRole, ROLE_SHORT, type Who } from "@/lib/caps";
 
 export const ROLES: EmployeeRole[] = ["MD", "HR", "FINANCE", "PURCHASING", "SALES", "ENGINEER"];
-export const ALWAYS_ON = new Set(["dash", "shortcuts", "documents", "talent", "overtime", "expenses", "training"]);
+export const ALWAYS_ON = new Set(["dash", "shortcuts", "documents", "talent", "overtime", "leave", "expenses", "training"]);
 export const MD_ONLY = new Set(NAV.flatMap((g) => g.items).filter((i) => i.mdOnly).map((i) => i.key).concat(["permissions"]));
 
 /** Entries only the people who handle the company's money may open, whatever the table says (the page refuses the rest). */

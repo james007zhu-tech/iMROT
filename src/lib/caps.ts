@@ -93,7 +93,7 @@ export const noOrders = (who: Who) => !can.allOrders(who) && !hasRole(who, "ENGI
  * The menu each role gets, by nav key (src/lib/nav.ts). Not in the list = not in the menu and the page behind it is
  * refused. Several roles: the union. The MD may hide more for a role on 权限管理, never show more.
  */
-const HOME = ["dash", "shortcuts"], DOCS = ["documents"], SELF = ["talent", "overtime", "payroll", "training", "expenses"];
+const HOME = ["dash", "shortcuts"], DOCS = ["documents"], SELF = ["talent", "overtime", "leave", "payroll", "training", "expenses"];
 const ALM = ["series", "assets", "knowledge"], REPORTS = ["inspectionReports", "repairReports", "maintenanceReports"];
 // 六角色的默认权限写在这里 (需求清单 v4 V4-P0-04): a new employee has them the moment a role is chosen — nobody ticks boxes.
 export const ROLE_MENU: Record<Exclude<Role, "MD">, string[]> = {
