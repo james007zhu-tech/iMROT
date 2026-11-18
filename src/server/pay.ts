@@ -10,6 +10,8 @@
  * Only finance asks and confirms; only the MD decides; nobody else has an entrance. A payment entered by mistake is
  * reversed (冲回) by finance or the MD with a reason: the invoice gets its amount back, the PVTH stays on file as VOID.
  */
+import { rateFor } from "@/server/fx";
+import { WHT_TYPES, isTaxId13, taxIdChecks } from "@/lib/wht";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -19,42 +21,96 @@ import { can, hasRole } from "@/lib/caps";
 const r2 = (n: number) => Math.round(n * 100) / 100;
 export const PAY_CASH = "CASH", PAY_PETTY = "PETTY_CASH";
 
-/** Where a payment may leave from: the company's bank accounts by currency, cash, petty cash. */
+/** Where a payment may leave from: the company's bank accounts (the invoicing bank by currency, and the other accounts on file), cash, petty cash. */
 export async function payAccounts(entityId: string): Promise<{ id: string; label: string }[]> {
-  const e = await prisma.legalEntity.findUniqueOrThrow({ where: { id: entityId }, select: { bankDetails: true } });
-  const b = (e.bankDetails ?? {}) as { bank?: string; accounts?: Record<string, string>; others?: { bank: string; currency: string; accountNo: string }[] };
+  const e = await prisma.legalEntity.findUniqueOrThrow({ where: { id: entityId }, select: { bankDetails: true, payAccounts: true } });
+  const b = (e.bankDetails ?? {}) as { bank?: string; accounts?: Record<string, string> };
+  const others = (Array.isArray(e.payAccounts) ? e.payAccounts : []) as { bank: string; branch?: string; currency: string; accountNo: string }[];
   const short = (bank: string) => (/china/i.test(bank) ? "BOC 中国银行" : /kasikorn|kbank/i.test(bank) ? "KBank 开泰" : bank);
   const out = Object.entries(b.accounts ?? {}).map(([cur, no]) => ({ id: `${short(b.bank ?? "BANK").split(" ")[0]}-${cur}-${no.slice(-4)}`, label: `${short(b.bank ?? "")} · ${cur} · …${no.slice(-4)}` }));
-  for (const o of b.others ?? []) out.push({ id: `${short(o.bank).split(" ")[0]}-${o.currency}-${o.accountNo.slice(-4)}`, label: `${short(o.bank)} · ${o.currency} · …${o.accountNo.slice(-4)}` });
+  for (const o of others) out.push({ id: `${short(o.bank).split(" ")[0]}-${o.currency}-${o.accountNo.replace(/\D/g, "").slice(-4)}`, label: `${short(o.bank)} · ${o.currency} · ${o.accountNo}` }); // short enough for a phone select; the branch is on the company record
   return [...out, { id: PAY_CASH, label: "现金 Cash เงินสด" }, { id: PAY_PETTY, label: "备用金 Petty cash เงินสดย่อย" }];
 }
 
+type Inv = { total: unknown; subtotal: unknown; payable: unknown; paidAmount: unknown; whtRate: unknown };
+type Pay = { status: string; amount: unknown; whtAmount: unknown };
 /** What is still to pay on an invoice (net of withholding tax), not counting payments that are asked but not paid. */
 export const outstandingOf = (inv: { payable: unknown; paidAmount: unknown }) => r2(Number(inv.payable) - Number(inv.paidAmount));
-const inFlight = (payments: { status: string; amount: unknown }[]) => r2(payments.filter((p) => p.status === "REQUESTED" || p.status === "APPROVED").reduce((a, p) => a + Number(p.amount), 0));
+const grossOf = (p: Pay) => Number(p.amount) + Number(p.whtAmount);
+/** The part of the invoice total (VAT included, before withholding) that no payment — paid or under way — covers yet. */
+export const grossOpenOf = (inv: Inv, payments: Pay[]) => r2(Number(inv.total) - payments.filter((p) => ["REQUESTED", "APPROVED", "PAID"].includes(p.status)).reduce((a, p) => a + grossOf(p), 0));
+/** 预扣税 of a part: the rate on that part's share of the amount before VAT. 实付 = 应付 − 预扣税. */
+export function whtOf(inv: { total: unknown; subtotal: unknown }, gross: number, rate: number) {
+  const base = Number(inv.total) > 0 ? gross * (Number(inv.subtotal) / Number(inv.total)) : gross;
+  const wht = r2(base * rate);
+  return { base: r2(base), wht, net: r2(gross - wht) };
+}
+/** After a payment is paid or reversed: the invoice's withholding, what is payable net and what was paid follow the payments. */
+async function resync(tx: Prisma.TransactionClient, invoiceId: string) {
+  const inv = await tx.supplierInvoice.findUniqueOrThrow({ where: { id: invoiceId }, include: { payments: { where: { status: "PAID" } } } });
+  const paidNet = r2(inv.payments.reduce((a, p) => a + Number(p.amount), 0)), paidWht = r2(inv.payments.reduce((a, p) => a + Number(p.whtAmount), 0));
+  const left = r2(Number(inv.total) - paidNet - paidWht), settled = inv.payments.length > 0 && left <= 0.005;
+  const whtAmount = r2(paidWht + (left > 0.005 ? whtOf(inv, left, Number(inv.whtRate)).wht : 0));
+  const last = [...inv.payments].sort((a, b) => (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0))[0];
+  await tx.supplierInvoice.update({ where: { id: inv.id }, data: { whtAmount, payable: r2(Number(inv.total) - whtAmount), paidAmount: paidNet, status: settled ? "PAID" : "OPEN", paidAt: settled ? (last?.paidAt ?? new Date()) : null, paymentNo: last?.no ?? null, paymentRef: last?.paymentRef ?? null } });
+  return settled;
+}
 
 async function person(code: string) { return prisma.employee.findUniqueOrThrow({ where: { code } }); }
 
-/** Step 1 — finance asks. */
-export async function requestPayment(input: { invoiceId: string; actorCode: string; account: string; amount?: number; payDate?: Date }) {
+/**
+ * Step 1 — finance asks: the account, the part of the invoice to settle (应付, VAT included; all that is open when not
+ * given) and the withholding rate (the invoice's own when not given). 预扣税 = rate × that part before VAT; 实付 = 应付 −
+ * 预扣税. With tax withheld a 50 ทวิ number is taken.
+ */
+/** The currency an account of ours is kept in — from its id (BOC-CNY-1234); cash and petty cash are local. */
+export const accountCcy = (id: string, local = "THB") => { const c = /^[A-Za-z]+-([A-Z]{3})-/.exec(id)?.[1] ?? local; return c === "RMB" ? "CNY" : c; };
+/** 1 unit of `ccy` in local currency at the Bank of China rate on or before the day (cross rate through CNY), or null. */
+export async function bocCross(ccy: string, on: Date, local = "THB"): Promise<{ rate: number; date: string } | null> {
+  if (ccy === local) return null;
+  const [a, b] = await Promise.all([rateFor(ccy, on), rateFor(local, on)]);
+  if (!a || !b || !(Number(b.rateToCny) > 0)) return null;
+  const d = a.rateDate < b.rateDate ? a.rateDate : b.rateDate;
+  return { rate: Math.round((Number(a.rateToCny) / Number(b.rateToCny)) * 1e6) / 1e6, date: d.toISOString().slice(0, 10) };
+}
+export type PayFx = { ccy: string; rate: number; boc: number | null; bocDate: string | null; manual: boolean; reason?: string; by?: string; at?: string; equiv: number; equivCcy: string };
+export async function requestPayment(input: { invoiceId: string; actorCode: string; account: string; amount?: number; whtRate?: number; whtType?: string; payDate?: Date; fxRate?: number; fxReason?: string }) {
   const actor = await person(input.actorCode);
   if (!hasRole(actor, "FINANCE")) throw new Error("FINANCE_PAYS");
-  const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.invoiceId }, include: { payments: true, supplier: { select: { name: true } } } });
+  const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.invoiceId }, include: { payments: true, supplier: { select: { name: true, taxId: true } } } });
   if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
   if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
   if (!input.account?.trim() || !(await payAccounts(inv.entityId)).some((a) => a.id === input.account)) throw new Error("PAY_ACCOUNT_REQUIRED");
-  const open = r2(outstandingOf(inv) - inFlight(inv.payments));
-  const amount = r2(input.amount ?? open);
-  if (!(amount > 0)) throw new Error("PAY_AMOUNT_REQUIRED");
-  if (amount > open + 0.005) throw new Error(`PAY_OVER:${open.toFixed(2)}`);
-  // the withholding tax of this part: in the same proportion as the invoice's (payable = total − WHT)
-  const wht = Number(inv.payable) > 0 ? r2(Number(inv.whtAmount) * (amount / Number(inv.payable))) : 0;
+  const open = grossOpenOf(inv, inv.payments);
+  const gross = r2(input.amount ?? open);
+  if (!(gross > 0)) throw new Error("PAY_AMOUNT_REQUIRED");
+  if (gross > open + 0.005) throw new Error(`PAY_OVER:${open.toFixed(2)}`);
+  const rate = input.whtRate ?? Number(inv.whtRate);
+  if (!(rate >= 0 && rate <= 0.15)) throw new Error("PAY_WHT_RATE");
+  const { wht, net } = whtOf(inv, gross, rate);
+  // 50 ทวิ needs the payee's 13-digit taxpayer number: tax cannot be withheld from a supplier without one on file
+  if (wht > 0 && !isTaxId13(inv.supplier.taxId)) throw new Error("PAY_WHT_TAXID");
+  const whtType = wht > 0 ? ((WHT_TYPES as readonly string[]).includes(input.whtType ?? "") ? input.whtType! : "SERVICE") : null;
+  // 外币 (v5 P1-3): money leaving a foreign-currency account, or settling a foreign-currency invoice, carries its rate to
+  // THB — the Bank of China rate of the pay day unless finance writes its own, and then with a reason. No threshold:
+  // every payment goes to the MD anyway, who sees both rates.
+  const local = "THB", ccy = accountCcy(input.account, local) !== local ? accountCcy(input.account, local) : inv.currency !== local ? inv.currency : null;
+  let fx: PayFx | null = null;
+  if (ccy) {
+    const boc = await bocCross(ccy, input.payDate ?? new Date(), local);
+    const rate = input.fxRate && input.fxRate > 0 ? Math.round(input.fxRate * 1e6) / 1e6 : boc?.rate;
+    if (!rate) throw new Error(`FX_RATE_MISSING:${ccy}`);
+    const manual = !boc || Math.abs(rate - boc.rate) > 1e-6;
+    if (manual && !input.fxReason?.trim()) throw new Error("FX_REASON_REQUIRED");
+    const same = inv.currency === ccy; // the invoice is in the account's currency → its THB value; a THB invoice paid from a foreign account → what leaves that account
+    fx = { ccy, rate, boc: boc?.rate ?? null, bocDate: boc?.date ?? null, manual, ...(manual ? { reason: input.fxReason!.trim(), by: actor.code, at: new Date().toISOString() } : {}), equiv: r2(same ? net * rate : net / rate), equivCcy: same ? local : ccy };
+  }
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "PV", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.payDate });
     await tx.document.create({ data: { no, type: "PV", entityId: inv.entityId, countryCode: no.slice(2, 4), createdById: actor.id, issuedAt: input.payDate } });
     const whtCertNo = wht > 0 ? await allocateNumber(tx, { prefix: "WT", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.payDate }) : null;
-    await audit(actor.id, "PAYMENT_REQUESTED", no, { invoice: inv.invoiceNo, supplier: inv.supplier.name, amount, wht, account: input.account, currency: inv.currency }, tx);
-    return tx.supplierPayment.create({ data: { no, entityId: inv.entityId, supplierInvoiceId: inv.id, account: input.account, amount, whtAmount: wht, whtCertNo, payDate: input.payDate ?? new Date(), requestedBy: actor.code } });
+    await audit(actor.id, "PAYMENT_REQUESTED", no, { invoice: inv.invoiceNo, supplier: inv.supplier.name, gross, whtRate: rate, wht, amount: net, account: input.account, currency: inv.currency, ...(fx ? { fx } : {}) }, tx);
+    return tx.supplierPayment.create({ data: { no, entityId: inv.entityId, supplierInvoiceId: inv.id, account: input.account, gross, whtRate: rate, whtType, amount: net, whtAmount: wht, whtCertNo, payDate: input.payDate ?? new Date(), requestedBy: actor.code, ...(fx ? { fx: fx as unknown as Prisma.InputJsonValue } : {}) } });
   });
 }
 
@@ -79,11 +135,11 @@ export async function confirmPayment(input: { id: string; actorCode: string; pay
   if (!input.slip?.length) throw new Error("PAY_SLIP_REQUIRED");
   if (!input.paymentRef?.trim()) throw new Error("PAY_REF_REQUIRED");
   const inv = p.supplierInvoice;
-  const paid = r2(Number(inv.paidAmount) + Number(p.amount)), settled = paid >= Number(inv.payable) - 0.005;
   return prisma.$transaction(async (tx) => {
-    await tx.supplierInvoice.update({ where: { id: inv.id }, data: { paidAmount: paid, paymentNo: p.no, paymentRef: input.paymentRef.trim(), ...(settled ? { status: "PAID", paidAt: input.paidAt ?? new Date() } : {}) } });
-    await audit(actor.id, "PAYABLE_PAID", inv.invoiceNo, { no: p.no, amount: Number(p.amount), account: p.account, settled }, tx);
-    return tx.supplierPayment.update({ where: { id: p.id }, data: { status: "PAID", paidBy: actor.code, paidAt: input.paidAt ?? new Date(), paymentRef: input.paymentRef.trim(), slip: input.slip as unknown as Prisma.InputJsonValue } });
+    const done = await tx.supplierPayment.update({ where: { id: p.id }, data: { status: "PAID", paidBy: actor.code, paidAt: input.paidAt ?? new Date(), paymentRef: input.paymentRef.trim(), slip: input.slip as unknown as Prisma.InputJsonValue } });
+    const settled = await resync(tx, inv.id);
+    await audit(actor.id, "PAYABLE_PAID", inv.invoiceNo, { no: p.no, amount: Number(p.amount), wht: Number(p.whtAmount), account: p.account, settled }, tx);
+    return done;
   });
 }
 
@@ -95,11 +151,26 @@ export async function voidPayment(input: { id: string; actorCode: string; reason
   const p = await prisma.supplierPayment.findUniqueOrThrow({ where: { id: input.id }, include: { supplierInvoice: true } });
   if (p.status === "VOID") throw new Error(`PAY_NOT_WAITING:${p.no}`);
   return prisma.$transaction(async (tx) => {
-    if (p.status === "PAID") {
-      const inv = p.supplierInvoice, paid = r2(Math.max(0, Number(inv.paidAmount) - Number(p.amount)));
-      await tx.supplierInvoice.update({ where: { id: inv.id }, data: { paidAmount: paid, status: "OPEN", paidAt: null, ...(inv.paymentNo === p.no ? { paymentNo: null, paymentRef: null } : {}) } });
-    }
     await audit(actor.id, "PAYMENT_VOIDED", p.no, { was: p.status, amount: Number(p.amount), reason: input.reason.trim() }, tx);
-    return tx.supplierPayment.update({ where: { id: p.id }, data: { status: "VOID", voidedBy: actor.code, voidedAt: new Date(), voidReason: input.reason.trim() } });
+    const gone = await tx.supplierPayment.update({ where: { id: p.id }, data: { status: "VOID", voidedBy: actor.code, voidedAt: new Date(), voidReason: input.reason.trim() } });
+    if (p.status === "PAID") await resync(tx, p.supplierInvoiceId);
+    return gone;
   });
+}
+
+/**
+ * 付款时补供应商税号 (派修单 v5 P0-3). Withholding needs the payee's 13-digit tax ID; when the supplier has none, finance
+ * fills in exactly two things — the tax ID and the branch — from the payment form. The supplier's other master data
+ * stays with purchasing. Checked: 13 digits with a valid check digit, not already another supplier's. Kept with who and when.
+ */
+export async function setSupplierTaxId(input: { supplierId: string; actorCode: string; taxId: string; branchCode?: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (!hasRole(actor, "FINANCE", "MD")) throw new Error("NO_PERMISSION");
+  const taxId = input.taxId.replace(/\D/g, ""), branch = (input.branchCode ?? "").replace(/\D/g, "").padStart(5, "0").slice(-5) || "00000";
+  if (!taxIdChecks(taxId)) throw new Error("TAXID_INVALID");
+  const s = await prisma.supplier.findUniqueOrThrow({ where: { id: input.supplierId }, select: { id: true, code: true, taxId: true, branchCode: true } });
+  if (isTaxId13(s.taxId)) throw new Error("TAXID_ALREADY");
+  if (await prisma.supplier.findFirst({ where: { taxId, NOT: { id: s.id } }, select: { id: true } })) throw new Error("TAXID_TAKEN");
+  await prisma.supplier.update({ where: { id: s.id }, data: { taxId, branchCode: branch } });
+  await audit(actor.id, "SUPPLIER_TAXID_SET", s.code ?? s.id, { was: s.taxId ?? null, branchWas: s.branchCode ?? null, branch });
 }

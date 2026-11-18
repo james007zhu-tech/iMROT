@@ -1,8 +1,12 @@
 import { can, hasRole } from "@/lib/caps";
+import { payAccounts } from "@/server/pay";
 import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
-import { decideReceiptVoid, recordPayment, requestReceiptVoid, withdrawVoidRequest } from "@/server/to";
+import { decideReceiptVoid, requestReceiptVoid, withdrawVoidRequest } from "@/server/to";
+import { confirmReceipt, decideReceipt, decideReceiptRate, receivableOpen, requestReceipt, withdrawReceipt, type RcFx } from "@/server/collect";
+import { bocFor, FX_MD_THRESHOLD } from "@/server/fx";
+import { FxInput } from "@/components/FxInput";
 import { liveNumbers } from "@/lib/numbering";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
@@ -18,19 +22,47 @@ export default async function Payment({ params, searchParams }: { params: Promis
   const [{ no }, { ok, error }] = await Promise.all([params, searchParams]);
   const order = await loadOrder(no);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
+  const accounts = await payAccounts(order.entityId); // where the money arrived — the cash and bank journal reads it
   const today = localIso(new Date())!.slice(0, 10);
   const outstanding = (i: (typeof order.invoices)[number]) => Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0);
+  const acct = new Map(accounts.map((a) => [a.id, a.label]));
   const unpaid = order.invoices.filter((i) => !i.cancelledAt && outstanding(i) > 0.004);
   const receipts = await prisma.receipt.findMany({ where: { invoiceId: { in: order.invoices.map((i) => i.id) } }, orderBy: { receivedAt: "asc" }, include: { invoice: { select: { no: true } } } });
-  async function save(f: FormData) {
+  // 收款三步、两人 (朱总 2026-11-18): ask → the MD approves → confirm with the bank slip
+  const requests = await prisma.receiptRequest.findMany({ where: { invoiceId: { in: order.invoices.map((i) => i.id) } }, orderBy: { requestedAt: "asc" }, include: { invoice: { select: { no: true, currency: true } } } });
+  const back = `/service-orders/${no}/payment`;
+  async function ask(f: FormData) {
     "use server";
     await guarded(async () => {
       const me = await currentEmployee(); await assertOrderAccess(me, no);
-      await recordPayment({ invoiceNo: String(f.get("invoiceNo")), actorCode: me.code, paidAt: dayNow(String(f.get("paidAt")))!, paidAmount: num(f, "paidAmount") ?? 0, whtAmount: num(f, "whtAmount") ?? 0, whtCertRef: str(f, "whtCertRef"), bankRef: str(f, "bankRef"), attachments: atts(f) });
-      return { ok: String(f.get("invoiceNo")), to: `/service-orders/${no}` };
-    }, `/service-orders/${no}/payment`);
+      await requestReceipt({ invoiceNo: String(f.get("invoiceNo")), actorCode: me.code, account: String(f.get("account") ?? ""), receivedOn: dayNow(String(f.get("paidAt")))!, cashAmount: num(f, "paidAmount") ?? 0, whtAmount: num(f, "whtAmount") ?? 0, whtCertRef: str(f, "whtCertRef"), fxRate: num(f, "fxRate"), fxReason: str(f, "fxReason") });
+      return "rcAsked";
+    }, back);
+  }
+  async function decide(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); const yes = f.get("decision") === "yes"; await decideReceipt({ id: String(f.get("id")), actorCode: me.code, approve: yes, note: str(f, "note") }); return yes ? "rcApproved" : "rcRefused"; }, back);
+  }
+  async function confirm(f: FormData) {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
+      const done = await confirmReceipt({ id: String(f.get("id")), actorCode: me.code, bankRef: String(f.get("bankRef") ?? ""), slip: atts(f) ?? [] });
+      return { ok: done.receiptNo, to: back };
+    }, back);
+  }
+  async function decideRate(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); const yes = f.get("decision") === "yes"; await decideReceiptRate({ id: String(f.get("id")), actorCode: me.code, approve: yes, note: str(f, "note") }); return yes ? "fxDocApproved" : "fxDocRefused"; }, back);
+  }
+  async function withdraw(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await withdrawReceipt({ id: String(f.get("id")), actorCode: me.code }); return "rcWithdrawn"; }, back);
   }
   const me = await currentEmployee(); await assertOrderAccess(me, no);
+  const fin = hasRole(me, "FINANCE"), md = hasRole(me, "MD");
+  const rcBoc = order.currency !== "CNY" ? await bocFor(order.currency) : null;
+  const live = requests.filter((q) => q.status === "REQUESTED" || q.status === "APPROVED"), toConfirm = requests.filter((q) => q.status === "APPROVED");
   async function askVoid(f: FormData) {
     "use server";
     await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await requestReceiptVoid({ receiptNo: String(f.get("rc")), actorCode: me.code, reason: String(f.get("reason") ?? "") }); return "voidRequested"; }, `/service-orders/${no}/payment`);
@@ -44,7 +76,7 @@ export default async function Payment({ params, searchParams }: { params: Promis
     await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await withdrawVoidRequest({ no: String(f.get("docNo")), actorCode: me.code }); return "voidWithdrawn"; }, `/service-orders/${no}/payment`);
   }
   return (
-    <StepPage order={order} title={u("step_payment")} ok={ok === "voidWithdrawn" ? u("voidWithdrawn") : ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} kind={businessClosureOn() ? "payment" : undefined} uploadTitle={u("upPaymentTitle")} uploadHint={u("upPaymentHint")} saveLabel={businessClosureOn() && unpaid.length && can.invoice(me) ? t("save") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
+    <StepPage order={order} title={u("step_payment")} ok={ok === "rcAsked" ? u("rcAsked") : ok === "rcApproved" ? u("rcApproved") : ok === "rcRefused" ? u("rcRefused") : ok === "rcWithdrawn" ? u("rcWithdrawn") : ok === "voidWithdrawn" ? u("voidWithdrawn") : ok === "voidRequested" ? u("tiVoidRequested") : ok === "voidApproved" ? u("tiVoided") : ok === "voidRejected" ? u("tiVoidRejected") : ok} error={error} kind={businessClosureOn() && fin && toConfirm.length ? "payment" : undefined} uploadTitle={u("upPaymentTitle")} uploadHint={u("upPaymentHint")} saveLabel={businessClosureOn() && fin && toConfirm.length ? u("rcConfirmBtn") : ""} notice={businessClosureOn() ? undefined : u("closureOffNotice")}>
       {businessClosureOn() && !liveNumbers() && <Alert>{u("testSeriesNotice")}</Alert>}
       <Card title={u("invoiceIv")}>
         <Table head={["IVTH", u("dueDate"), u("receivable"), t("paid"), t("wht"), u("outstanding"), "PDF"]}>
@@ -66,20 +98,48 @@ export default async function Payment({ params, searchParams }: { params: Promis
             </td></tr>)}
         </Table>
       </Card>}
-      {unpaid.length === 0 && <p className="rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm">{u("nothingToCollect")}</p>}
-      {unpaid.length > 0 && can.invoice(me) && <form id="f" action={save}>
-        <Card title={u("paymentRecord")}>
+      <p className="rounded-lg bg-tint px-3 py-2 text-sm text-navy">{u("rcRule3")}</p>
+      {requests.length > 0 && <Card title={u("rcRequests")} accent={live.length > 0}>
+        <Table head={["IVTH", u("paidOn"), u("payAccount"), t("cashReceived"), t("whtWithheld"), t("status"), ""]}>
+          {requests.map((q) => <tr key={q.id} className={q.status === "REJECTED" || q.status === "WITHDRAWN" ? "text-navy/50" : ""}>
+            <td className="font-mono">{q.invoice.no}</td><td className="whitespace-nowrap">{localIso(q.receivedOn)!.slice(0, 10)}</td><td>{acct.get(q.account) ?? q.account}</td>
+            <td className="whitespace-nowrap tabular-nums">{q.invoice.currency} {Number(q.cashAmount).toFixed(2)}</td><td className="tabular-nums">{Number(q.whtAmount) ? Number(q.whtAmount).toFixed(2) : ""}</td>
+            <td><Tag hot={q.status === "REQUESTED" || q.status === "APPROVED" || q.status === "REJECTED"}>{u(`rcState_${q.status}`)}</Tag><span className="block text-xs text-navy/60">{q.requestedBy}{q.decidedBy ? ` → ${q.decidedBy}` : ""}{q.decisionNote ? ` · ${q.decisionNote}` : ""}{q.receiptNo ? ` · ${q.receiptNo}` : ""}</span></td>
+            <td className="space-y-1 text-xs">
+              {(() => { const x = q.fx as RcFx | null; if (!x?.manual) return null; return <span className={`block rounded-md border px-2 py-1 ${x.pending ? "border-[#C0392B] bg-[#FDECEC] text-[#7A1F14]" : "border-[#E6A23C] bg-[#FFF4E5] text-[#7A4A00]"}`}>{u(x.pending ? "fxRcPending" : "fxRcManual", { rate: x.rate, boc: x.boc ?? "—", diff: x.diffPct.toFixed(2), by: x.by ?? "", reason: x.reason ?? "" })}
+                {x.pending && q.status === "REQUESTED" && md && <form action={decideRate} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="id" value={q.id} /><button name="decision" value="yes" className="min-h-9 whitespace-nowrap rounded-lg bg-navy px-3 text-sm font-semibold text-white">{u("fxApproveRate")}</button><input name="note" placeholder={u("poDecideNotePh")} className={`${inputCls} w-32`} /><button name="decision" value="no" className={`${btnGhost} whitespace-nowrap`}>{u("poRefuse")}</button></form>}</span>; })()}
+              {q.status === "REQUESTED" && (q.fx as RcFx | null)?.pending ? null : q.status === "REQUESTED" && (md ? <form action={decide} className="flex flex-wrap gap-1"><input type="hidden" name="id" value={q.id} /><button name="decision" value="yes" className="min-h-9 whitespace-nowrap rounded-lg bg-blue px-3 text-sm font-semibold text-white">{u("poApprove")}</button><input name="note" placeholder={u("poDecideNotePh")} className={`${inputCls} w-32`} /><button name="decision" value="no" className={`${btnGhost} whitespace-nowrap`}>{u("poRefuse")}</button></form> : <span className="text-navy/60">{u("awaitingMd")}</span>)}
+              {q.status === "APPROVED" && <span className="block font-semibold text-navy">{fin ? u("rcConfirmHint") : u("rcWaitsFinance")}</span>}
+              {(q.status === "REQUESTED" || q.status === "APPROVED") && (fin || md) && <form action={withdraw}><input type="hidden" name="id" value={q.id} /><button className="text-blue underline">{u("otWithdraw")}</button></form>}
+            </td></tr>)}
+        </Table>
+      </Card>}
+      {fin && toConfirm.length > 0 && <form id="f" action={confirm}>
+        <Card title={u("rcConfirmTitle")} accent>
+          <p className="mb-2 text-sm">{u("rcConfirmSay")}</p>
           <Grid>
-            <Field label="IVTH" required><select name="invoiceNo" className={inputCls}>{unpaid.map((i) => <option key={i.id} value={i.no}>{i.no} · {Number(i.amountDue).toFixed(2)}</option>)}</select></Field>
+            <Field label={u("rcWhich")} required><select name="id" className={inputCls}>{toConfirm.map((q) => <option key={q.id} value={q.id}>{q.invoice.no} · {q.invoice.currency} {Number(q.cashAmount).toFixed(2)} · {acct.get(q.account) ?? q.account}</option>)}</select></Field>
+            <Field label={t("bankRef")} required><input name="bankRef" required className={inputCls} /></Field>
+          </Grid>
+        </Card>
+      </form>}
+      {unpaid.length === 0 && live.length === 0 && <p className="rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm">{u("nothingToCollect")}</p>}
+      {unpaid.length > 0 && fin && <form id="start" action={ask}>
+        <Card title={u("rcStart")}>
+          <Grid>
+            <Field label="IVTH" required><select name="invoiceNo" className={inputCls}>{unpaid.map((i) => <option key={i.id} value={i.no}>{i.no} · {u("outstanding")} {receivableOpen(i, requests.filter((q) => q.invoiceId === i.id)).toFixed(2)}</option>)}</select></Field>
             <Field label={u("paidOn")} required><input name="paidAt" type="date" required defaultValue={today} className={inputCls} /></Field>
+            <Field label={u("rcAccount")} required><select name="account" required defaultValue="" className={inputCls}><option value="" disabled>—</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</select></Field>
             <Field label={t("cashReceived")} required><input name="paidAmount" type="number" step="0.01" required className={inputCls} /></Field>
             <Field label={t("whtWithheld")}><input name="whtAmount" type="number" step="0.01" className={inputCls} /></Field>
             <Field label={t("whtCert")}><input name="whtCertRef" className={inputCls} /></Field>
-            <Field label={t("bankRef")}><input name="bankRef" className={inputCls} /></Field>
           </Grid>
           <p className="text-xs text-navy/70">{u("whtNote")}</p>
+          {order.currency !== "CNY" && <div className="mt-2"><FxInput collapsed name="fxRate" reasonName="fxReason" boc={rcBoc} threshold={FX_MD_THRESHOLD} cls={inputCls} labels={{ rate: u("fxRateIn"), reason: u("fxWhy"), boc: u("fxBocName"), diff: u("fxDiff"), needsMd: u("fxNeedsMd"), edit: u("fxEditRate"), noBoc: u("fxNoBoc") }} reasons={(["bank", "contract", "other"] as const).map((k) => ({ value: u(`fxWhy_${k}`), label: u(`fxWhy_${k}`) }))} /></div>}
+          <button className="mt-2 min-h-11 rounded-lg bg-navy px-4 text-sm font-semibold text-white">{u("rcStartBtn")}</button>
         </Card>
       </form>}
+      {unpaid.length > 0 && !fin && <p className="rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm">{u("rcFinanceStarts")}</p>}
     </StepPage>
   );
 }

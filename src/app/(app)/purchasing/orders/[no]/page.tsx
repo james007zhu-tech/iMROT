@@ -1,4 +1,6 @@
 import { can, hasRole } from "@/lib/caps";
+import { FxDoc } from "@/components/FxDoc";
+import { docRateNote } from "@/server/fx";
 import { fxMark } from "@/lib/fx-label";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
@@ -75,7 +77,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
   for (const r of po.receipts) receiptsByNo.set(r.no, [...(receiptsByNo.get(r.no) ?? []), r]);
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: "/purchasing/orders", label: u("purchaseOrders") }} title={<span className="font-mono">{po.no}</span>} badge={<Tag hot={po.status === "SENT" || po.status === "PARTIAL"}>{ts(po.status)}</Tag>}
+      <PageHeader back={{ href: "/purchasing/orders", label: u("purchaseOrders") }} title={<span className="font-mono">{po.no}</span>} badge={<Tag hot={po.status === "SENT" || po.status === "PARTIAL" || (po.status === "DRAFT" && !!po.approvalAskedAt && !po.approvedAt)}>{po.status !== "DRAFT" ? ts(po.status) : po.approvedAt ? u("poStage_APPROVED") : po.approvalAskedAt ? u("poStage_WAIT_MD") : ts(po.status)}</Tag>}
         actions={po.status !== "DRAFT" || !can.purchase(me) ? null : po.approvedAt ? <form action={markSent}><button className={btnBlue}>{u("markSent")}</button></form>
           : po.approvalAskedAt ? <span className="rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-3 py-2 text-sm text-[#7A4A00]">{u("poWaitingMd")}</span>
           : <form action={askApproval}><button className={btnBlue}>{u("poAsk")}</button></form>} />
@@ -88,6 +90,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
           <button name="decision" value="yes" className={btnBlue}>{u("poApprove")}</button><button name="decision" value="no" className={btnGhost}>{u("poRefuse")}</button>
         </form></Card>}
       <Flash ok={ok} error={error?.startsWith("UNKNOWN_SKU") ? undefined : error} />
+      {seeCost && po.fxRateToCny != null && <FxDoc kind="po" no={po.no} back={`/purchasing/orders/${po.no}`} canEdit={can.finance(me)} currency={po.currency} current={Number(po.fxRateToCny)} note={await docRateNote(po.no, po)} />}
       {error?.startsWith("UNKNOWN_SKU") && <Alert>{u("unknownSku", { list: error.split(":").slice(1).join(":") })} {error.split(":").slice(1).join(":").split(",").map((s) => <Link key={s} href={`/parts/new?vendor=${encodeURIComponent(s.replace(/^[A-Z]{2,4}-/, ""))}&back=/purchasing/orders/${po.no}`} className="ml-2 underline">＋ {s}</Link>)}</Alert>}
       <Card title={u("poHeader")}>
         <div className="grid gap-2 text-sm md:grid-cols-4">
@@ -101,7 +104,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
         <Table head={["#", u("partSku"), u("vendorPartNo"), t("description"), t("qty"), ...(seeCost ? [u("unitPriceExVat"), t("amount")] : []), u("received")]}>
           {lines.map((l) => <tr key={l.lineNo}><td>{l.lineNo}</td><td className="font-mono">{l.partSku ? <Link href={`/parts/${l.partSku}`} className="text-blue hover:underline">{l.partSku}</Link> : <span className="text-alert-ink">{u("noSkuYet")}</span>}</td><td className="font-mono">{l.vendorPartNo ?? ""}</td><td>{l.description}</td><td>{l.qty} {l.unit}</td>{seeCost && <><td className="text-right">{l.unitPrice.toFixed(2)}</td><td className="text-right">{l.amount.toFixed(2)}</td></>}<td className={l.receivedQty < l.qty ? "font-semibold text-alert-ink" : ""}>{l.receivedQty} / {l.qty}</td></tr>)}
         </Table>
-        {seeCost && <p className="text-right text-[13px]">{t("subtotal")} {Number(po.subtotal).toFixed(2)} · {t("vat")} {(Number(po.vatRate) * 100).toFixed(0)}% {Number(po.vatAmount).toFixed(2)} · <b>{t("total")} {po.currency} {Number(po.total).toFixed(2)}</b>{po.totalCny != null ? ` · CNY ${Number(po.totalCny).toFixed(2)} @${Number(po.fxRateToCny).toFixed(4)}（${fxMark(u, po.fxSource, po.fxRateDate)}）` : ""}</p>}
+        {seeCost && <p className="text-right text-[13px]">{t("subtotal")} {Number(po.subtotal).toFixed(2)} · {t("vat")} {(Number(po.vatRate) * 100).toFixed(0)}% {Number(po.vatAmount).toFixed(2)} · <b>{t("total")} {po.currency} {Number(po.total).toFixed(2)}</b>{po.totalCny != null ? ` · CNY ${Number(po.totalCny).toFixed(2)} @${Number(po.fxRateToCny).toFixed(4)}（${fxMark(u, po.fxSource, po.fxRateDate, po.fxBy)}）` : ""}</p>}
       </Card>
       {receiptsByNo.size > 0 && <Card title={u("receiptsIb")}>
         <Table head={["IBTH", t("date"), u("partSku"), t("qty"), ...(seeCost ? [u("unitCost")] : []), u("supplierDocNo")]}>

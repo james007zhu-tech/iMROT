@@ -2,11 +2,13 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { assertNotSettled } from "./job-cost";
 import { draftOvertimeFromWork } from "@/server/overtime";
 import { fxFields, rateForNew } from "@/server/fx";
 import { audit } from "@/server/audit";
 import { can, hasRole } from "@/lib/caps";
 import { mayOpenOrder, mayAccept } from "@/server/scope";
+import { isTradeMode } from "@/lib/modes";
 import { localIso } from "@/lib/dates";
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
@@ -18,7 +20,7 @@ import { openJob } from "@/lib/drafts";
 import { allocateNumber } from "@/lib/numbering-db";
 import { totals } from "@/lib/money";
 import { assetStatusForWork, canTransitionAsset } from "@/lib/lifecycle";
-import { costTotal, marginApprovalFor, marginPct } from "@/lib/margin";
+import { belowMinLines, costTotal, marginApprovalFor, marginPct } from "@/lib/margin";
 import { marginFloor } from "@/server/modes";
 import { assertNotLocked, progressOrder } from "@/server/slm";
 import type { AssetStatus, Prisma } from "@prisma/client";
@@ -193,12 +195,34 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const partnerCosts = order.mode === "PARTNER_REPAIR" ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
   // 报价单成本必填 (MD 2026-11-17 18:29): a quote without cost has no margin. Whoever may see what we paid gets the last
   // purchase price where they wrote nothing; Sales writes its own estimate on every line — a line without one is refused.
-  if (!itemsOnly && order.mode !== "PARTNER_REPAIR") {
-    const noCost = d.lines.map((l, i) => (l.qty > 0 && l.unitCost == null && !(can.cost(actor) && l.partSku && Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) > 0) ? i + 1 : 0)).filter(Boolean);
-    if (noCost.length) throw new Error(`QUOTE_COST_REQUIRED:${noCost.join("、")}`);
+  // 派修单 v4 第 2 条 (supersedes "Sales estimates"): Sales neither sees nor writes a cost. For Sales the cost of a line is
+  // what the MD / finance wrote on that line before, else the part's last purchase cost — taken here, never shown. A
+  // line that has neither is 待补成本: the lines are saved, the quote does not go out until the MD or finance fills it.
+  // 朱总 2026-11-18 (supersedes 待补成本): Sales may estimate. Where the system has a cost — one the MD / finance wrote on
+  // the line, or the part's last purchase cost — that stands and Sales does not see it. Where it has none (labour,
+  // freight, a part never bought), Sales writes its own estimate; the line is marked 预估. The invoice does not rest on
+  // any of this: the real cost is read from the system and recognised by finance or the MD (src/server/job-cost.ts).
+  const seesCost = can.cost(actor) || can.margin(actor);
+  const lastCostOf = (l: { partSku?: string | null }) => (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined);
+  let est: boolean[] = d.lines.map(() => false);
+  if (!itemsOnly && !seesCost) {
+    const before = await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, include: { part: { select: { sku: true } } } }), left = [...before];
+    const next = d.lines.map((l) => {
+      const at = left.findIndex((b) => (l.partSku && b.part?.sku === l.partSku.trim()) || (!l.partSku && b.description === l.description));
+      const b = at >= 0 ? left.splice(at, 1)[0] : undefined;
+      const sys = b && !b.costEst && b.unitCost != null ? Number(b.unitCost) : lastCostOf(l);
+      if (sys != null) return { line: { ...l, unitCost: sys }, est: false };
+      return { line: { ...l, unitCost: l.unitCost ?? (b?.costEst && b.unitCost != null ? Number(b.unitCost) : undefined) }, est: true };
+    });
+    d.lines = next.map((n) => n.line); est = next.map((n) => n.est && n.line.unitCost != null);
   }
-  const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts);
-  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
+  const noCost = !itemsOnly && order.mode !== "PARTNER_REPAIR" ? d.lines.map((l, i) => (l.qty > 0 && l.unitCost == null && !lastCostOf(l) ? i + 1 : 0)).filter(Boolean) : [];
+  if (noCost.length) throw new Error(`${seesCost ? "QUOTE_COST_REQUIRED" : "QUOTE_EST_REQUIRED"}:${noCost.join("、")}`);
+  const costPending: number[] = [];
+  const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? lastCostOf(l) })), partnerCosts);
+  // 两道独立的检查 (v5 P0-2): the whole quote against the margin floor, and every line against its 最低售价
+  const floorNow = await marginFloor(order.mode);
+  const cost = costTotal(costed), pct = marginPct(costed), approval = belowMinLines(costed, floorNow).length ? "PENDING" : marginApprovalFor(pct, floorNow);
 
   // 需求清单 v3 P0-07: what is quoted changed after the customer's PO was confirmed → the PO on file no longer says
   // what will be delivered. Mark it; delivery waits until the PO is confirmed again (confirmCustomerPo clears the mark).
@@ -215,7 +239,7 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
         return {
           serviceOrderId: order.id, lineNo: i + 1, assetCode: l.assetCode, partId: part?.id, description: l.description,
           descriptionLocal: l.descriptionLocal, qty: l.qty, unit: l.unit, unitPrice: l.unitPrice,
-          amount: Math.round(l.qty * l.unitPrice * 100) / 100, costRef: part?.lastCost ?? undefined, unitCost: costed[i].unitCost,
+          amount: Math.round(l.qty * l.unitPrice * 100) / 100, costRef: part?.lastCost ?? undefined, unitCost: costed[i].unitCost, costEst: est[i],
         };
       }),
     });
@@ -227,13 +251,14 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
         ...(d.warrantyDays !== undefined ? { warrantyDays: d.warrantyDays } : {}),
       },
     });
-    for (const link of itemsOnly ? [] : order.assets) {
+    for (const link of itemsOnly || costPending.length ? [] : order.assets) {
       await tx.assetEvent.create({ data: { assetId: link.assetId, type: "QUOTED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `${order.currency} ${t.total.toFixed(2)} · ${d.lines.length} lines`, payload: { ...t, costTotal: cost, marginPct: pct, marginApproval: approval } as unknown as Prisma.InputJsonValue } });
     }
-    if (itemsOnly) { await audit(actor.id, "QUOTE_ITEMS", order.no, { lines: d.lines.length }, tx); return updated; }
+    if (itemsOnly) { await audit(actor.id, "QUOTE_ITEMS", order.no, { lines: d.lines.length }, tx); return Object.assign(updated, { costPending: [] as number[] }); }
+    if (costPending.length) { await audit(actor.id, "QUOTE_COST_PENDING", order.no, { lines: costPending }, tx); return Object.assign(updated, { costPending }); } // saved; it goes out once the cost is in
     await tx.serviceOrder.update({ where: { id: order.id }, data: { priceHint: null, priceHintById: null, priceHintAt: null } });
     await progressOrder(tx, order, "QUOTE_PENDING", actor.id);
-    return updated;
+    return Object.assign(updated, { costPending: [] as number[] });
   });
 }
 
@@ -281,6 +306,7 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
     prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }),
     prisma.employee.findUniqueOrThrow({ where: { code: d.engineerCode } }),
   ]);
+  await assertNotSettled(order); // 开票即结算 (朱总 2026-11-18): hours are not changed on an invoiced order
   // the same wall as the page: no report before the order has reached the work, none after it is over
   const maintenance = d.kind === "MAINTENANCE";
   const rework = !!(await prisma.acceptance.findFirst({ where: { serviceOrderId: order.id, status: "REJECTED" }, select: { id: true } }));
@@ -388,7 +414,12 @@ export const AcceptanceInput = z.object({
 });
 
 /** ACCEPTED / CONDITIONAL → assets back IN_SERVICE, order → ACCEPTED. REJECTED → assets to REPAIR, order back to DIAGNOSING. */
-export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
+/**
+ * `portal`: the customer's own confirmation in the customer portal (朱总 2026-11-18 14:20: 门户确认算客户签字). Only the
+ * portal page passes it — never a request body — after it has checked that the signed-in contact belongs to the order's
+ * customer. For a repair / maintenance / partner-repair / project order it then stands as the acceptance evidence.
+ */
+export async function recordAcceptance(input: z.input<typeof AcceptanceInput>, portal?: { contactId: string; name: string }) {
   { // V4-P0-03: who is signing is settled before anything else is looked at
     const [who, o] = await Promise.all([prisma.employee.findUnique({ where: { code: String(input.actorCode) } }), prisma.serviceOrder.findUnique({ where: { no: String(input.serviceOrderNo) }, select: { id: true } })]);
     if (!who || !o || !(await mayAccept(who, o.id))) throw new Error("NO_PERMISSION");
@@ -399,7 +430,19 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
   if (!(await mayAccept(actor, order.id))) throw new Error("NO_PERMISSION"); // V4-P0-03: not anyone who knows the number
   if (order.status !== "ACCEPTANCE_PENDING" && order.status !== "IN_PROGRESS") throw new Error(`${order.no} is ${order.status}; acceptance needs ACCEPTANCE_PENDING`);
   const ok = d.status !== "REJECTED";
+  let portalSheet: AcceptSheet | null = null;
   if (ok) {
+    // 验收依据按业务类型 (v5 P1-11): a trade order is accepted by the customer's signature on its delivery note; a repair
+    // order by the customer's signed acceptance sheet, uploaded — a signature on a phone does not stand in for it.
+    if (portal && !isTradeMode(order.mode) && !(order.acceptSheet as AcceptSheet | null)?.files?.length) {
+      const c = await prisma.contact.findFirst({ where: { id: portal.contactId, customerId: order.customerId }, select: { id: true, name: true } });
+      if (!c) throw new Error("NO_PERMISSION");
+      const sheet: AcceptSheet = { sheetId: `PORTAL${Date.now().toString(36)}`, files: [], by: `portal:${c.name}`, at: new Date().toISOString(), orders: [order.no], portal: { contactId: c.id, name: c.name } };
+      portalSheet = sheet; // kept only if the acceptance itself goes through (below, in the same transaction)
+      order.acceptSheet = sheet as unknown as Prisma.JsonValue;
+    }
+    const ev = await acceptEvidence(order);
+    if (!ev) throw new Error(isTradeMode(order.mode) ? `TRADE_NEEDS_SIGNED_DN:${order.no}` : `ACCEPT_NEEDS_SHEET:${order.no}`);
     const missing = await missingForAcceptance(order.no);
     if (missing.length) throw new Error(`ACCEPTANCE_INCOMPLETE:${missing.join(",")}`);
   }
@@ -411,7 +454,8 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
       create: { serviceOrderId: order.id, deliverables: d.deliverables as Prisma.InputJsonValue, punchList: d.punchList, status: d.status, acceptedAt: d.acceptedAt ?? new Date(), warrantyStart: d.warrantyStart, warrantyTerms: d.warrantyTerms, customerContactId: d.customerContactId, customerSignatory: d.customerSignatory, signatureUrl: d.signatureUrl, dcitSignatory: d.dcitSignatory },
     });
     // Acceptance is the financial freeze: price, cost, stock issues and purchasing are closed from here on.
-    await tx.serviceOrder.update({ where: { id: order.id }, data: { status: ok ? "ACCEPTED" : "DIAGNOSING", lockedAt: ok ? (d.acceptedAt ?? new Date()) : null, lockedById: ok ? actor.id : null } });
+    await tx.serviceOrder.update({ where: { id: order.id }, data: { status: ok ? "ACCEPTED" : "DIAGNOSING", lockedAt: ok ? (d.acceptedAt ?? new Date()) : null, lockedById: ok ? actor.id : null, ...(portalSheet ? { acceptSheet: portalSheet as unknown as Prisma.InputJsonValue } : {}) } });
+    if (portalSheet) await audit(actor.id, "ACCEPT_PORTAL", order.no, { contact: portalSheet.portal?.name }, tx);
     for (const link of order.assets) {
       const from = link.asset.status;
       const to: AssetStatus = ok ? "IN_SERVICE" : "REPAIR";
@@ -436,7 +480,8 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
 export async function recomputeMargin(tx: Prisma.TransactionClient, orderId: string, actorId: string, sourceDocNo?: string) {
   const o = await tx.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: { lines: true, assets: true } });
   const costed = o.lines.map((l) => ({ qty: Number(l.qty), unitPrice: Number(l.unitPrice), unitCost: l.unitCost != null ? Number(l.unitCost) : undefined }));
-  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(o.mode, tx));
+  const floorNow = await marginFloor(o.mode, tx);
+  const cost = costTotal(costed), pct = marginPct(costed), approval = belowMinLines(costed, floorNow).length ? "PENDING" : marginApprovalFor(pct, floorNow);
   const keep = approval === "NOT_NEEDED" ? "NOT_NEEDED" : o.marginApproval === "APPROVED" && o.marginPct != null && pct != null && pct >= Number(o.marginPct) ? "APPROVED" : "PENDING";
   await tx.serviceOrder.update({ where: { id: orderId }, data: { costTotal: cost, marginPct: pct, marginApproval: keep, ...(keep === "PENDING" ? { marginApprovedById: null, marginApprovedAt: null } : {}) } });
   for (const a of o.assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "QUOTED", actorId, serviceOrderId: orderId, sourceDocNo: sourceDocNo ?? o.no, summary: `cost ${cost.toFixed(2)} · margin ${pct == null ? "-" : (pct * 100).toFixed(1) + "%"}`, payload: { costTotal: cost, marginPct: pct, marginApproval: keep } as Prisma.InputJsonValue } });
@@ -560,4 +605,42 @@ export async function suggestPrice(input: { no: string; actorCode: string; note:
   if (!input.note.trim()) throw new Error("PRICE_HINT_EMPTY");
   await prisma.serviceOrder.update({ where: { id: order.id }, data: { priceHint: input.note.trim().slice(0, 500), priceHintById: actor.id, priceHintAt: new Date() } });
   await audit(actor.id, "PRICE_HINT", order.no, { note: input.note.trim().slice(0, 500) });
+}
+
+/**
+ * 验收依据 (派修单 v5 P1-11; MD 2026-11-18 11:55). What stands behind an acceptance, by kind of business:
+ *   贸易 — a delivery note of the order signed by the customer (签收即验收, v3 P2-03);
+ *   维修 / 维保 / 合作维修 / 项目 — the customer's signed acceptance sheet, uploaded to the order.
+ * null = there is none: the order cannot be accepted, and one already accepted is not a candidate for invoicing.
+ */
+export type AcceptSheet = { sheetId: string; files: { name: string; url: string }[]; by: string; at: string; orders: string[]; portal?: { contactId: string; name: string } };
+export async function acceptEvidence(order: { id: string; no: string; mode: string | null; acceptSheet?: unknown }): Promise<null | { kind: "DN"; no: string; href: string; by: string | null; at: Date | null } | { kind: "SHEET"; href: string; name: string; by: string; at: string; orders: string[] } | { kind: "PORTAL"; href: string; name: string; at: string }> {
+  if (isTradeMode(order.mode)) {
+    const dn = await prisma.deliveryNote.findFirst({ where: { serviceOrderId: order.id, status: "SIGNED" }, orderBy: { signedAt: "desc" }, select: { no: true, signedBy: true, signedAt: true } });
+    return dn ? { kind: "DN", no: dn.no, href: `/service-orders/${order.no}/deliver/${dn.no}`, by: dn.signedBy, at: dn.signedAt } : null;
+  }
+  const sh = (order.acceptSheet === undefined ? (await prisma.serviceOrder.findUnique({ where: { id: order.id }, select: { acceptSheet: true } }))?.acceptSheet : order.acceptSheet) as AcceptSheet | null;
+  if (sh?.portal && !sh.files?.length) return { kind: "PORTAL", href: `/service-orders/${order.no}/accept`, name: sh.portal.name, at: sh.at }; // the customer confirmed in the portal
+  return sh?.files?.length ? { kind: "SHEET", href: sh.files[0].url, name: sh.files[0].name, by: sh.by, at: sh.at, orders: sh.orders ?? [] } : null;
+}
+/**
+ * Upload the customer's signed acceptance sheet to one order, or to the several orders it covers (中策成批签回). Each
+ * order is checked on its own — the person must be allowed to accept it, it belongs to the same customer, it is not a
+ * trade order, and it is finished or accepted and not yet invoiced. Orders the sheet does not name are not touched.
+ */
+export async function attachAcceptSheet(input: { orderNos: string[]; actorCode: string; files: { name: string; url: string }[] }) {
+  if (!input.files.length) throw new Error("ACCEPT_SHEET_FILE");
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  const orders = await prisma.serviceOrder.findMany({ where: { no: { in: [...new Set(input.orderNos)] } }, select: { id: true, no: true, mode: true, status: true, customerId: true } });
+  if (!orders.length || orders.length !== new Set(input.orderNos).size) throw new Error("NO_ORDER");
+  if (new Set(orders.map((o) => o.customerId)).size > 1) throw new Error("ACCEPT_SHEET_ONE_CUSTOMER");
+  for (const o of orders) {
+    if (!(await mayAccept(actor, o.id))) throw new Error("NO_PERMISSION");
+    if (isTradeMode(o.mode)) throw new Error(`ACCEPT_SHEET_TRADE:${o.no}`);
+    if (!["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(o.status)) throw new Error(`ACCEPT_SHEET_STATUS:${o.no}`);
+  }
+  const sheet: AcceptSheet = { sheetId: `AS${Date.now().toString(36)}`, files: input.files, by: actor.code, at: new Date().toISOString(), orders: orders.map((o) => o.no).sort() };
+  await prisma.serviceOrder.updateMany({ where: { id: { in: orders.map((o) => o.id) } }, data: { acceptSheet: sheet as unknown as Prisma.InputJsonValue } });
+  for (const o of orders) await audit(actor.id, "ACCEPT_SHEET", o.no, { sheetId: sheet.sheetId, file: input.files[0].name, covers: sheet.orders });
+  return sheet;
 }

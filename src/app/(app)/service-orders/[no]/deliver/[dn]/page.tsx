@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { assertOrderAccess } from "@/server/scope";
 import { notFound, redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
@@ -45,7 +46,7 @@ export default async function DeliveryNote({ params, searchParams }: { params: P
         {note.overrideReason && <p className="text-xs text-alert-ink">MD: {note.overrideReason}</p>}
       </Card>
       {signed ? <Card title={u("customerSignature")}><p className="text-sm">{maskName(note.signedBy)} · {note.signedAt ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(note.signedAt) : ""}{note.remark ? ` · ${note.remark}` : ""}</p>
-        {Array.isArray(note.attachments) && (note.attachments as { name: string; url: string; kind?: string }[]).length > 0 && <div className="mt-2 flex flex-wrap gap-2 text-xs">{(note.attachments as { name: string; url: string; kind?: string }[]).map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.kind === "CUSTOMER_DN" ? `${u("kind_CUSTOMER_DN")} · ` : ""}{a.name}</a>)}</div>}
+        {Array.isArray(note.attachments) && (note.attachments as { name: string; url: string; kind?: string }[]).length > 0 && <div className="mt-2 flex flex-wrap gap-2 text-xs">{(note.attachments as { name: string; url: string; kind?: string }[]).map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold"><Icon name="doc" /> {a.kind === "CUSTOMER_DN" ? `${u("kind_CUSTOMER_DN")} · ` : ""}{a.name}</a>)}</div>}
       </Card> : (
         <form id="f" action={sign}>
           <Card title={u("customerSignature")}>

@@ -3,6 +3,7 @@
  * reimbursed with the month's payroll, or earlier by finance. People see their own claims; managers their reports';
  * the MD and finance see all.
  */
+import { assertNotSettled } from "./job-cost";
 import { localIso } from "@/lib/dates";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -35,6 +36,7 @@ export async function fileExpense(input: z.input<typeof ExpenseInput>) {
   if (d.vatAmount != null && d.vatAmount >= d.amount) throw new Error("EXPENSE_VAT_TOO_HIGH");
   if (d.spentOn.getTime() > Date.now() + 86_400_000) throw new Error("EXPENSE_FUTURE_DATE");
   if (d.serviceOrderNo && !(await prisma.serviceOrder.findUnique({ where: { no: d.serviceOrderNo }, select: { id: true } }))) throw new Error(`NO_ORDER:${d.serviceOrderNo}`);
+  if (d.serviceOrderNo) await assertNotSettled(await prisma.serviceOrder.findUnique({ where: { no: d.serviceOrderNo }, select: { id: true, no: true } })); // 开票即结算
   // the same receipt twice is the usual mistake
   if (d.receiptNo) {
     const dup = await prisma.expenseClaim.findFirst({ where: { receiptNo: d.receiptNo, vendor: d.vendor ?? undefined, status: { notIn: ["REJECTED", "CANCELLED"] } }, include: { employee: { select: { code: true } } } });

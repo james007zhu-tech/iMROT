@@ -8,9 +8,12 @@ import { createServiceOrder, advanceServiceOrder, confirmCustomerPo, poLinesFrom
 import { deliveryPlan, issueDelivery, signDelivery } from "../src/server/delivery";
 import { createCustomer } from "../src/server/crm";
 import { createEmployee } from "../src/server/opd";
-import { createInspection, createRepairJob, recordAcceptance, receiveEquipment } from "../src/server/slm-docs";
+import { createInspection, createRepairJob, receiveEquipment } from "../src/server/slm-docs";
+import { recordAcceptance } from "./dev/_probe";
 import { recordMovement, recordStockDoc } from "../src/server/scm";
-import { issueTaxInvoice, issueInvoice, recordPayment, issueMonthlyStatement } from "../src/server/to";
+import { issueInvoice, issueMonthlyStatement } from "../src/server/to";
+import { issueTaxInvoice } from "./dev/_probe";
+import { recordPayment } from "./dev/_probe";
 import { renderDocument, buildFields } from "../src/server/reports";
 import { allocateNumber } from "../src/lib/numbering-db";
 import { parseNumber } from "../src/lib/numbering";
@@ -81,7 +84,7 @@ async function main() {
   assert(parseNumber(insp.no)?.prefix === "IN", `inspection ${insp.no}`);
 
   console.log("5. quote lines → QUOTE_PENDING → customer confirms");
-  const quoted = await setQuoteLines({ serviceOrderNo: order.no, actorCode: admin.code, lines: [{ assetCode: vfd.code, partSku: part.sku, description: "Power module fan", descriptionLocal: "พัดลมโมดูลกำลัง", qty: 1, unitPrice: 6500 }, { assetCode: vfd.code, description: "Labour, site repair", descriptionLocal: "ค่าแรงซ่อมหน้างาน", qty: 4, unitPrice: 1500 }] });
+  const quoted = await setQuoteLines({ serviceOrderNo: order.no, actorCode: admin.code, lines: [{ assetCode: vfd.code, partSku: part.sku, description: "Power module fan", descriptionLocal: "พัดลมโมดูลกำลัง", qty: 1, unitPrice: 8400 }, { assetCode: vfd.code, description: "Labour, site repair", descriptionLocal: "ค่าแรงซ่อมหน้างาน", qty: 4, unitPrice: 1025 }] });
   assert(Number(quoted.subtotal) === 12500 && Number(quoted.vatAmount) === 875 && Number(quoted.total) === 13375, "totals 12500 + 7% = 13375");
   // Today's THB rate may be the live BoC one (fx:fetch ran first) or the 0.2051 fixture — check against whichever is stored.
   const thb = Number((await prisma.fxRate.findFirstOrThrow({ where: { currency: "THB", rateDate: { lte: new Date() } }, orderBy: { rateDate: "desc" } })).rateToCny);

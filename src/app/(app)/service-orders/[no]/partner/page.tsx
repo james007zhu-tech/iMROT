@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
@@ -148,7 +149,7 @@ export default async function PartnerRepair({ params, searchParams }: { params: 
               })}
 
               {po.milestones.length > 0 && <div className="mt-3"><Table head={[u("time"), t("asset"), u("milestone"), t("note"), u("executor")]}>
-                {po.milestones.map((m) => <tr key={m.id}><td className="whitespace-nowrap">{localIso(m.at)!.slice(0, 16).replace("T", " ")}</td><td className="font-mono">{order.assets.find((a) => a.assetId === m.assetId)?.asset.code ?? ""}</td><td>{stageLabel(m.stage)}{m.sourceDocNo ? <span className="ml-1 font-mono text-xs">{m.sourceDocNo}</span> : null}</td><td>{m.note ?? ""}{((m.attachments as { name: string; url: string }[] | null) ?? []).map((a) => <a key={a.url} href={a.url} target="_blank" className="ml-1 text-blue">📎</a>)}</td><td>{m.by.name}</td></tr>)}
+                {po.milestones.map((m) => <tr key={m.id}><td className="whitespace-nowrap">{localIso(m.at)!.slice(0, 16).replace("T", " ")}</td><td className="font-mono">{order.assets.find((a) => a.assetId === m.assetId)?.asset.code ?? ""}</td><td>{stageLabel(m.stage)}{m.sourceDocNo ? <span className="ml-1 font-mono text-xs">{m.sourceDocNo}</span> : null}</td><td>{m.note ?? ""}{((m.attachments as { name: string; url: string }[] | null) ?? []).map((a) => <a key={a.url} href={a.url} target="_blank" className="ml-1 text-blue"><Icon name="clip" /></a>)}</td><td>{m.by.name}</td></tr>)}
               </Table><p className="text-xs text-navy/60">{u("milestonesInternal")}</p></div>}
 
               {revs.length > 0 && <div className="mt-3"><Table head={[u("version"), u("time"), u("reason"), t("subtotal"), u("customerConsent")]}>

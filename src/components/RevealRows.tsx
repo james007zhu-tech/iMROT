@@ -22,17 +22,20 @@ export function RevealRows({ children, initial = 1, addLabel }: { children: Reac
   const [heads, setHeads] = useState<string[]>([]);
   useEffect(() => {
     const h = box.current?.previousElementSibling;
-    if (h && h.classList.contains("md:grid")) setHeads(Array.from(h.children).map((x) => x.textContent ?? ""));
+    if (h && (h.classList.contains("md:grid") || h.classList.contains("xl:grid"))) setHeads(Array.from(h.children).map((x) => x.textContent ?? ""));
   }, []);
   const card = (r: React.ReactNode, i: number) => {
     if (!isValidElement<{ className?: string; children?: React.ReactNode }>(r) || typeof r.type !== "string" || !/\bgrid\b/.test(r.props.className ?? "")) return r;
+    // a row too wide for a tablet (xl:grid-cols-…) stays a card with named fields up to 1280px (朱总 2026-11-18 截图)
+    const wide = /\bxl:grid-cols-/.test(r.props.className ?? "");
     const cells = Children.toArray(r.props.children).map((c, j) => {
-      const ph = isValidElement<{ placeholder?: string }>(c) ? c.props.placeholder : undefined;
-      const name = heads[j] || ph;
-      return <label key={j} className="flex min-w-0 flex-col gap-0.5"><span className="truncate text-[11px] text-navy/60 md:hidden">{name || "\u00a0"}</span>{c}</label>;
+      const p = isValidElement<{ placeholder?: string; className?: string }>(c) ? c.props : undefined;
+      if (p?.className?.includes("row-note")) return <div key={j} className="row-note">{c}</div>; // a note under the line: the full width
+      const name = heads[j] || p?.placeholder;
+      return <label key={j} className="flex min-w-0 flex-col gap-0.5"><span className={`truncate text-[11px] text-navy/60 ${wide ? "xl:hidden" : "md:hidden"}`}>{name || "\u00a0"}</span>{c}</label>;
     });
-    return cloneElement(r, { className: `${r.props.className} max-md:rounded-xl max-md:border max-md:border-hair max-md:p-3 ${i % 2 ? "max-md:bg-[#E9F0F9]" : "max-md:bg-white"}` },
-      <span key="no" className="col-span-full -mb-1 text-xs font-bold text-blue md:hidden">#{i + 1}</span>, ...cells);
+    return cloneElement(r, { className: `${r.props.className} ${wide ? `max-xl:rounded-xl max-xl:border max-xl:border-hair max-xl:p-3 ${i % 2 ? "max-xl:bg-[#E9F0F9]" : "max-xl:bg-white"}` : `max-md:rounded-xl max-md:border max-md:border-hair max-md:p-3 ${i % 2 ? "max-md:bg-[#E9F0F9]" : "max-md:bg-white"}`}` },
+      <span key="no" className={`col-span-full -mb-1 text-xs font-bold text-blue ${wide ? "xl:hidden" : "md:hidden"}`}>#{i + 1}</span>, ...cells);
   };
   return (
     <div ref={box} className="space-y-3 md:space-y-2">

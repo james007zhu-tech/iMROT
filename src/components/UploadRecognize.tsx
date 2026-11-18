@@ -4,6 +4,7 @@
  * it is stored, read, and the recognised values are written into the form (marked light blue until edited).
  * The stored files travel with the form in a hidden `attachments` input (JSON), so the original is kept with the record.
  */
+import { Icon } from "@/components/Icon";
 import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import type { RecognizeKind } from "@/lib/recognize";
@@ -100,7 +101,7 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
           <p className="text-[13px] text-navy/75">{hint}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {dictate && <button type="button" disabled={busy} onClick={toggleDictation} className={`min-h-10 rounded-lg px-3 text-sm font-bold ${listening ? "bg-alert text-white" : "bg-blue text-white"}`}>{listening ? `■ ${t("dictateStop")}` : `🎤 ${t("dictate")}`}</button>}
+          {dictate && <button type="button" disabled={busy} onClick={toggleDictation} className={`min-h-10 rounded-lg px-3 text-sm font-bold ${listening ? "bg-alert text-white" : "bg-blue text-white"}`}>{listening ? `■ ${t("dictateStop")}` : <><Icon name="mic" /> {t("dictate")}</>}</button>}
           <button type="button" disabled={busy} onClick={() => fileRef.current?.click()} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm font-semibold">{t("chooseFile")}</button>
           <button type="button" disabled={busy} onClick={() => camRef.current?.click()} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm font-semibold">{t("takePhoto")}</button>
           <button type="button" disabled={busy} onClick={async () => { try { const items = await navigator.clipboard.read(); const files: File[] = []; let text = ""; for (const it of items) { for (const type of it.types) { const b = await it.getType(type); if (type.startsWith("text/")) text += await b.text(); else files.push(new File([b], `paste.${type.split("/")[1]}`, { type })); } } void send(files, text); } catch { setMsg({ tone: "warn", text: t("pasteHint") }); } }} className="min-h-10 rounded-lg border border-navy/45 bg-white px-3 text-sm font-semibold">{t("paste")}</button>
@@ -119,7 +120,7 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
       {(busy || msg || atts.length > 0) && (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
           {busy && <span className="text-blue">{t("reading")}</span>}
-          {atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold">📄 {a.name}</a>)}
+          {atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold"><Icon name="doc" /> {a.name}</a>)}
           {msg && <span className={msg.tone === "ok" ? "text-blue" : "rounded border border-alert bg-alert/10 px-2 py-0.5 text-alert-ink"}>{msg.tone === "warn" ? "⚠ " : "✓ "}{msg.text}</span>}
         </div>
       )}

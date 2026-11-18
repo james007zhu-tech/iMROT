@@ -26,7 +26,10 @@ body { background: #F4F7FB; color: #0B2D53; }
   *, ::before, ::after { border-color: var(--color-line); }
   input, select, textarea { border-color: rgb(11 45 83 / 0.4); background: #fff; color: #0B2D53; }
   input:focus, select:focus, textarea:focus { outline: 2px solid rgb(35 116 213 / 0.35); outline-offset: 0; border-color: #2374D5; }
-  table th { color: rgb(11 45 83 / 0.75); font-weight: 600; }
+  /* 朱总 2026-11-17: a short word is never stacked one character per line (类型 / 变频器). Headers stay on one line;
+     in cells Chinese breaks only at spaces and punctuation, a word too long for the table still breaks rather than overflow. */
+  table th { color: rgb(11 45 83 / 0.75); font-weight: 600; white-space: nowrap; }
+  table td { word-break: keep-all; overflow-wrap: break-word; }
   table tr { border-color: var(--color-hair); }
 }
 /* Fields the AI filled from an uploaded file: light blue until a person touches them. */
@@ -36,20 +39,12 @@ body { background: #F4F7FB; color: #0B2D53; }
 /* Placeholders are examples, never values: lighter and italic so an empty required field does not look filled (trial 2026-11-05). */
 input::placeholder, textarea::placeholder { color: rgb(11 45 83 / 0.38); font-style: italic; }
 
-/* ── AI button (朱总 2026-11-10): the "i" of the DCiT mark. A light sweeps round the rim, a ring breathes outward,
-   the square dot glows — slow enough to sit in the corner of a form without nagging. Still when motion is reduced. ── */
-/* half-transparent glass: the page shows through, blurred (朱总: 半透明的科技感) */
-.ai-fab { border-radius: 9999px; display: block; background: linear-gradient(145deg, rgb(35 116 213 / 0.30), rgb(11 45 83 / 0.46)); -webkit-backdrop-filter: blur(9px) saturate(1.5); backdrop-filter: blur(9px) saturate(1.5); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.40), inset 0 6px 10px rgb(255 255 255 / 0.14), 0 6px 18px rgb(11 45 83 / 0.28); transition: transform 0.2s; }
-.ai-fab:hover { transform: scale(1.06); }
+/* ── AI button: the "i" of the DCiT mark, flat (MD 2026-11-17 20:46: 所有图标改成扁平风格) — one solid brand blue,
+   white mark, no gradient, glass, glow, ring or shadow. ── */
+.ai-fab { border-radius: 9999px; display: block; background: #2374D5; transition: transform 0.15s; }
+.ai-fab:hover { transform: scale(1.05); }
 .ai-fab:active { transform: scale(0.96); }
-.ai-fab-dot { fill: #2374D5; transform-box: fill-box; transform-origin: center; animation: ai-dot 2.4s ease-in-out infinite; filter: drop-shadow(0 0 2px #5AA6FF); }
-.ai-fab-ring, .ai-fab-pulse { position: absolute; inset: 0; border-radius: 9999px; pointer-events: none; }
-.ai-fab-ring { background: conic-gradient(from 0deg, transparent 0 62%, #2374D5 80%, #9CCBFF 92%, transparent 100%); -webkit-mask: radial-gradient(circle, transparent 60%, #000 62%); mask: radial-gradient(circle, transparent 60%, #000 62%); animation: ai-spin 3.2s linear infinite; }
-.ai-fab-pulse { border: 1.5px solid rgb(35 116 213 / 0.75); animation: ai-pulse 2.4s ease-out infinite; }
-@keyframes ai-spin { to { transform: rotate(360deg); } }
-@keyframes ai-pulse { 0% { transform: scale(0.9); opacity: 0.7; } 70%, 100% { transform: scale(1.55); opacity: 0; } }
-@keyframes ai-dot { 0%, 100% { fill: #2374D5; transform: scale(1); } 50% { fill: #7DBBFF; transform: scale(1.18); } }
-@media (prefers-reduced-motion: reduce) { .ai-fab-ring, .ai-fab-pulse, .ai-fab-dot { animation: none; } .ai-fab-pulse { display: none; } }
+.ai-fab-dot { fill: #fff; }
 /* a save is on its way (SubmitGuard): the save buttons, inside the form or tied to it from the page header, stop answering */
 body[data-saving] :is(button:not([type="button"]), input[type="submit"]) { pointer-events: none; opacity: 0.55; }
 
@@ -80,3 +75,6 @@ body[data-saving] :is(button:not([type="button"]), input[type="submit"]) { point
 /* 漏填的格子标红 (FormCheck) */
 .field-bad { border-color: #C0392B !important; box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.25) !important; background-color: #FFF5F4 !important; }
 .field-msg { display: block; margin-top: 2px; font-size: 12px; font-weight: 600; color: #C0392B; }
+
+/* a note under a line of a row-grid: always the full width of the row (朱总 2026-11-18 截图: it was squeezed into the first column) */
+.row-note { grid-column: 1 / -1 !important; display: block; }

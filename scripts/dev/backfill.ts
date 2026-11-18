@@ -21,6 +21,13 @@ async function main() {
   { const n = await prisma.purchaseOrder.updateMany({ where: { approvedAt: null, status: { in: ["SENT", "PARTIAL", "RECEIVED"] } }, data: { approvedAt: new Date(), approvedBy: "before-rule" } });
     console.log(`backfill: ${n.count} purchase order(s) already sent before the approval rule marked approved`); }
 
+  // 2026-11-17 派修单 v3 第 1 条: the Kasikorn current account is one of the accounts payments leave from (given by the MD
+  // in the dispatch list). Only set while the entity has no pay-out accounts on file.
+  { const th = await prisma.legalEntity.findUnique({ where: { countryCode: "TH" } });
+    if (th && !Array.isArray(th.payAccounts)) { await prisma.legalEntity.update({ where: { id: th.id }, data: { payAccounts: [{ bank: "Kasikornbank", branch: "Amata City Rayong 阿玛塔城罗勇分行", currency: "THB", accountNo: "224-1-43804-2" }] } }); console.log("backfill: KBank account added to the accounts payments leave from"); }
+    const n = await prisma.$executeRaw`UPDATE "SupplierPayment" SET "gross" = "amount" + "whtAmount" WHERE "gross" IS NULL`;
+    console.log(`backfill: ${n} payment(s) given their gross amount`); }
+
   // 2026-11-17 记账汇率标明「中国银行价 + 日期」: documents written before the rate's day was kept get it from the rate
   // table — the newest Bank of China row with exactly that rate, on or before the document's day.
   { let n = 0;

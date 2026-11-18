@@ -8,7 +8,7 @@ describe("六角色权限表 (朱总 2026-11-16 16:31)", () => {
     for (const c of [can.price, can.margin, can.bank, can.invoice, can.pay]) expect(c("PURCHASING")).toBe(false);
   });
   it("Sales quotes and follows the money, but never issues an invoice or pays; FIN does not change quotes", () => {
-    expect(can.editPrice("SALES") && can.margin("SALES") && can.invoiceStatus("SALES")).toBe(true);
+    expect(can.editPrice("SALES") && can.invoiceStatus("SALES")).toBe(true); expect(can.margin("SALES")).toBe(false); // 派修单 v4: Sales sees no cost and no margin
     expect(can.invoice("SALES") || can.finance("SALES") || can.bank("SALES") || can.purchase("SALES")).toBe(false);
     expect(can.invoice("FINANCE") && can.bank("FINANCE") && can.price("FINANCE")).toBe(true);
     expect(can.editPrice("FINANCE") || can.staff("FINANCE") || can.purchase("FINANCE")).toBe(false);
@@ -42,9 +42,9 @@ describe("六角色权限表 (朱总 2026-11-16 16:31)", () => {
     // PUR: what we paid for a part, never the customer's price, the quote's cost and margin, or who the customer is
     const pur = JSON.stringify(stripMoney(order, "PURCHASING"));
     expect(pur).toMatch(/lastCost/); expect(pur).not.toMatch(/unitPrice|unitCost|marginPct|total|accountNo|TEST Customer/); expect(pur).toMatch(/CTH1/);
-    // Sales: price, the cost written on the quote and its margin — never what we paid (MD 2026-11-17)
+    // Sales: price only — no cost, no margin, never what we paid (派修单 v4 第 2 条)
     const sal = JSON.stringify(stripMoney(order, "SALES"));
-    expect(sal).toMatch(/unitPrice/); expect(sal).toMatch(/unitCost/); expect(sal).toMatch(/marginPct/); expect(sal).not.toMatch(/lastCost|accountNo/);
+    expect(sal).toMatch(/unitPrice/); expect(sal).not.toMatch(/unitCost|marginPct|lastCost|accountNo/);
     expect(can.cost("SALES")).toBe(false); expect(JSON.stringify(stripMoney(order, "HR"))).not.toMatch(/TEST Customer/);
     expect(stripMoney(order, "MD")).toBe(order);
   });

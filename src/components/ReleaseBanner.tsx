@@ -4,6 +4,7 @@
  * system until it is back, so nobody presses save into a restart. Asks the server every 20 seconds; while the server
  * does not answer at all (the restart itself) the banner stays.
  */
+import { Icon } from "@/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -21,7 +22,7 @@ export function ReleaseBanner() {
     return () => clearInterval(t);
   }, []);
   if (!on) return null;
-  return <div role="alert" className="fixed inset-x-0 top-0 z-[80] bg-alert px-4 py-2 text-center text-sm font-semibold text-navy shadow">⏳ {text}</div>;
+  return <div role="alert" className="fixed inset-x-0 top-0 z-[80] bg-alert px-4 py-2 text-center text-sm font-semibold text-navy shadow"><Icon name="clock" /> {text}</div>;
 }
 
 /** 版本号和发版时间, small, wherever it is placed (menu foot, sign-in page, 我的). */

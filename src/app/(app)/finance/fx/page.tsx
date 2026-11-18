@@ -19,7 +19,7 @@ export default async function FxPage({ searchParams }: { searchParams: Promise<{
   await currentEmployee();
   const [rates, log] = await Promise.all([
     prisma.fxRate.findMany({ orderBy: [{ rateDate: "desc" }, { currency: "asc" }, { source: "desc" }], take: 80 }),
-    prisma.auditLog.findMany({ where: { action: { in: ["FX_OVERRIDE", "FX_OVERRIDE_REMOVED"] } }, orderBy: { at: "desc" }, take: 30, include: { actor: { select: { code: true, name: true } } } }),
+    prisma.auditLog.findMany({ where: { action: { in: ["FX_OVERRIDE", "FX_OVERRIDE_REMOVED", "FX_DOC_OVERRIDE"] } }, orderBy: { at: "desc" }, take: 30, include: { actor: { select: { code: true, name: true } } } }),
   ]);
   const manual = new Set(rates.filter((r) => r.source === "MANUAL").map((r) => `${r.currency}|${r.rateDate.getTime()}`));
   const today = new Date().toISOString().slice(0, 10);
@@ -54,7 +54,7 @@ export default async function FxPage({ searchParams }: { searchParams: Promise<{
         <h2 className="mb-2 font-semibold">{u("fxLog")}</h2>
         {log.length === 0 ? <p className="text-sm text-navy/60">{u("fxLogNone")}</p> : <ul className="space-y-1 text-sm">
           {log.map((a) => { const d = (a.detail ?? {}) as { rate?: number; boc?: number | null; bocDate?: string | null; before?: number | null; note?: string };
-            return <li key={a.id}>{localIso(a.at)!.slice(0, 16).replace("T", " ")} · {a.actor?.code} {a.actor?.name} · <b>{u(a.action === "FX_OVERRIDE" ? "fxLogSet" : "fxLogRemoved")}</b> {a.target} → {d.rate}{a.action === "FX_OVERRIDE" && d.boc != null ? ` · ${u("fxBoc")} ${d.bocDate} ${d.boc}` : ""}{d.before != null ? ` · ${u("fxLogBefore")} ${d.before}` : ""} · {d.note}</li>; })}
+            return <li key={a.id}>{localIso(a.at)!.slice(0, 16).replace("T", " ")} · {a.actor?.code} {a.actor?.name} · <b>{u(a.action === "FX_OVERRIDE" ? "fxLogSet" : a.action === "FX_DOC_OVERRIDE" ? "fxLogDoc" : "fxLogRemoved")}</b> {a.target} → {d.rate}{a.action !== "FX_OVERRIDE_REMOVED" && d.boc != null ? ` · ${u("fxBoc")} ${d.bocDate} ${d.boc}` : ""}{d.before != null ? ` · ${u("fxLogBefore")} ${d.before}` : ""} · {d.note}</li>; })}
         </ul>}
       </div>
     </div>

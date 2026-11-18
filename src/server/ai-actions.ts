@@ -19,7 +19,7 @@ import { setQuoteLines } from "@/server/slm-docs";
 import { autoInquiryForOrder } from "@/server/purchasing";
 import { deliveryPlan, issueDelivery, signDelivery } from "@/server/delivery";
 import { issueProforma } from "@/server/export";
-import { issueInvoice, issueTaxInvoice, recordPayment } from "@/server/to";
+import { issueInvoice, issueTaxInvoice } from "@/server/to";
 import { MODES } from "@/lib/modes";
 import { addCredential, updateEmployee, updateOwnContacts } from "@/server/opd";
 import { fileExpense } from "@/server/expense";
@@ -185,7 +185,8 @@ const TOOLS: ActionTool[] = [
     run: async (i, ctx) => { const ti = await issueTaxInvoice({ serviceOrderNo: str(i.no)!, actorCode: ctx.employeeCode }); const iv = await issueInvoice({ serviceOrderNo: str(i.no)!, actorCode: ctx.employeeCode, taxInvoiceNo: ti.no }); return { ok: true, summary: `${ti.no} + ${iv.no} · ${ti.currency} ${Number(ti.total).toFixed(2)}`, href: `/service-orders/${str(i.no)}/invoice` }; } },
   { name: "record_payment", tier: "confirm", description: "Record money received against an invoice (IVTH/PFTH). The person confirms the amount first.", input_schema: obj({ invoiceNo: S, paidAt: { type: "string", description: "YYYY-MM-DD" }, paidAmount: N, whtAmount: N, bankRef: S, whtCertRef: S }, ["invoiceNo", "paidAt", "paidAmount"]),
     summarize: (i) => `Record payment ${Number(i.paidAmount).toFixed(2)}${num(i.whtAmount) ? ` + WHT ${Number(i.whtAmount).toFixed(2)}` : ""} on ${str(i.invoiceNo)} (${str(i.paidAt)})`,
-    run: async (i, ctx) => { await recordPayment({ invoiceNo: str(i.invoiceNo)!, actorCode: ctx.employeeCode, paidAt: new Date(str(i.paidAt)!), paidAmount: Number(i.paidAmount), whtAmount: num(i.whtAmount) ?? 0, bankRef: str(i.bankRef), whtCertRef: str(i.whtCertRef) }); return { ok: true, summary: `${str(i.invoiceNo)}: payment recorded` }; } },
+    // 收款三步 (2026-11-18): money in is asked for on the order's payment page (the account must be chosen), approved by the MD, confirmed with the bank slip — the assistant opens that page
+    run: async (i) => { const iv = await prisma.invoice.findUnique({ where: { no: str(i.invoiceNo)! }, select: { serviceOrder: { select: { no: true } } } }); if (!iv) throw new Error(`INVOICE_NOT_FOUND:${str(i.invoiceNo)}`); return { ok: true, summary: `${str(i.invoiceNo)}: 收款要在回款页发起（选到账账户）→ MD 批准 → 上传银行回单后才记已收`, href: `/service-orders/${iv.serviceOrder.no}/payment` }; } },
 ];
 
 export const ACTION_TOOLS = TOOLS;

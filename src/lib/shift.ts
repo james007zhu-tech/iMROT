@@ -3,7 +3,7 @@
  * that day was — normal hours and overtime by the Labour Protection Act — so nobody picks a multiplier by hand.
  *
  *   working day   hours inside the shift are normal; before the shift starts and after it ends = WORKDAY_OT ×1.5
- *   rest day / public holiday (monthly-paid staff)   the first 8 worked hours = HOLIDAY_WORK ×1, beyond = HOLIDAY_OT ×3
+ *   rest day / public holiday (monthly-paid staff)   inside the shift = HOLIDAY_WORK ×1; before and after it = HOLIDAY_OT ×3
  *
  * The lunch break of the shift is taken off a day that runs across it. A rest during overtime is taken off only when the
  * employee recorded it (the law asks for 20 minutes before more than 2 hours of overtime; the system never deducts time
@@ -48,11 +48,13 @@ export function splitWork(i: { dayKind: DayKind; shift?: Shift; start: string; e
     if (e > se) add("WORKDAY_OT", Math.max(s, se), e, Math.min(rest, Math.max(0, e - Math.max(s, se))));
     return { dayKind: i.dayKind, worked: q(e - s - (inShift > 300 ? shift.breakMinutes : 0) - rest), normal, lunch: inShift > 300 ? shift.breakMinutes : 0, segments, overtime: segments.reduce((a, x) => a + x.hours, 0) };
   }
-  // rest day or holiday: the first 8 worked hours ×1, the rest ×3
-  const first = s + 480 + lunch; // the clock time at which 8 worked hours are reached
-  add("HOLIDAY_WORK", s, Math.min(e, first), Math.min(lunch, Math.max(0, Math.min(e, first) - s - 1)));
-  if (e > first) add("HOLIDAY_OT", first, e, Math.min(rest, e - first));
-  return { dayKind: i.dayKind, worked: q(e - s - lunch - rest), normal: 0, lunch, segments, overtime: segments.reduce((a, x) => a + x.hours, 0) };
+  // rest day or holiday (H-R69, 派修单 v3 第 3 条): inside the normal working hours = holiday work ×1; before the shift
+  // starts and after it ends = holiday overtime ×3 — also when the person only came in the evening.
+  const inShift = Math.max(0, Math.min(e, se) - Math.max(s, ss)), lunchIn = inShift > 300 ? shift.breakMinutes : 0;
+  if (s < ss) add("HOLIDAY_OT", s, Math.min(e, ss));
+  if (inShift > 0) add("HOLIDAY_WORK", Math.max(s, ss), Math.min(e, se), lunchIn);
+  if (e > se) add("HOLIDAY_OT", Math.max(s, se), e, Math.min(rest, Math.max(0, e - Math.max(s, se))));
+  return { dayKind: i.dayKind, worked: q(e - s - lunchIn - rest), normal: 0, lunch: lunchIn, segments, overtime: segments.reduce((a, x) => a + x.hours, 0) };
 }
 
 /** Do two stretches of the same day overlap? (for "already requested — not generated twice") */

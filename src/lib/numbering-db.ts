@@ -9,7 +9,10 @@ export async function allocateNumber(
   tx: PrismaClient | Prisma.TransactionClient,
   opts: { prefix: Prefix; createdByEmployeeCode: string; entityId: string; date?: Date; country?: CountryCode },
 ): Promise<string> {
-  const date = opts.date ?? new Date();
+  // probes on a developer's database can use up a day's two-digit serials; PROBE_DAYS_AHEAD lets them number from a later
+  // day. Never read in production.
+  const ahead = process.env.NODE_ENV !== "production" ? Number(process.env.PROBE_DAYS_AHEAD ?? 0) || 0 : 0;
+  const date = new Date((opts.date ?? new Date()).getTime() + ahead * 86400000);
   // `country` is only for the first employees of a new entity (EVN created by an ETH MD); everything else follows the creator.
   if (opts.country && opts.prefix !== "E") throw new Error("country override is only allowed for employee numbers");
   const country = opts.country ?? countryFromEmployeeCode(opts.createdByEmployeeCode);

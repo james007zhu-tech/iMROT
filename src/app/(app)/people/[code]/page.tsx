@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { can, hasRole } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
@@ -158,7 +159,7 @@ export default async function EmployeeFile({ params, searchParams }: { params: P
       {md && (
         <>
           <div id="salary" />
-          <Card title={<>{t("empSalary")} <Tag>{t("mdOnly")}</Tag> <Tag>{open ? t("revealed") : `🔒 ${t("masked")}`}</Tag></>} accent>
+          <Card title={<>{t("empSalary")} <Tag>{t("mdOnly")}</Tag> <Tag>{open ? t("revealed") : <><Icon name="lock" /> {t("masked")}</>}</Tag></>} accent>
             <Table head={[t("empEffectiveFrom"), t("empBaseSalary"), t("empAllowances"), t("empGross"), t("empSsoBase"), t("empSsoEmployee"), t("empSsoEmployer"), t("empPvd"), t("empWht"), t("empNetEstimate"), t("empTaxDeductions"), t("empReason"), t("empApprovedBy"), t("empLetter")]}>
               {salaries.map((s, i) => (
                 <tr key={s.id} className={i === 0 ? "font-semibold" : ""}>

@@ -37,7 +37,7 @@ export default async function Documents({ searchParams }: { searchParams: Promis
   const like = (v: string) => ({ contains: v, mode: "insensitive" as const });
 
   const step = type ? newStep(type) : undefined;
-  const newButton = place?.newHref ? !pathAllows(me, place.newHref.split("?")[0]) ? null : <Link href={place.newHref} className={btnBlue}>＋ {d("new", { name: title })}</Link> : step ? <Link href={href({ new: true })} className={btnBlue}>＋ {d("new", { name: title })}</Link> : null;
+  const newButton = place?.newHref ? !pathAllows(me, place.newHref) ? null : <Link href={place.newHref} className={btnBlue}>＋ {d("new", { name: title })}</Link> : step ? <Link href={href({ new: true })} className={btnBlue}>＋ {d("new", { name: title })}</Link> : null;
 
   let total = 0;
   let body: React.ReactNode;

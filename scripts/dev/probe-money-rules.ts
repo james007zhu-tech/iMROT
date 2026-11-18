@@ -26,6 +26,22 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     check("no account chosen: refused", /PAY_ACCOUNT_REQUIRED/.test(await msg(ask(small.id, fin.code, { account: "" }))));
     check("an account that is not ours: refused", /PAY_ACCOUNT_REQUIRED/.test(await msg(ask(small.id, fin.code, { account: "SOMEWHERE" }))));
     check("more than what is open: refused", /PAY_OVER/.test(await msg(ask(small.id, fin.code, { amount: 12000.5 }))));
+    { // 派修单 v5 P1-3: a foreign-currency account carries its rate to THB; a changed rate needs a reason and is marked manual
+      const { payAccounts, voidPayment } = await import("../../src/server/pay");
+      const fa = (await payAccounts(small.entityId)).find((a) => /-(CNY|USD)-/.test(a.id));
+      if (!fa) console.log("  · (no foreign-currency account on the probe entity: the rate checks are skipped)");
+      else {
+        const auto = await requestPayment({ invoiceId: small.id, actorCode: fin.code, account: fa.id, amount: 100 });
+        const fx0 = auto.fx as { rate: number; boc: number | null; manual: boolean; equiv: number; equivCcy: string } | null;
+        check("a foreign-currency account takes the Bank of China rate of the day and says what leaves it", !!fx0 && !fx0.manual && fx0.rate === fx0.boc && fx0.equiv > 0 && fx0.equivCcy !== "THB", JSON.stringify(fx0));
+        await voidPayment({ id: auto.id, actorCode: fin.code, reason: "probe" });
+        check("a changed rate without a reason is refused", /FX_REASON_REQUIRED/.test(await msg(requestPayment({ invoiceId: small.id, actorCode: fin.code, account: fa.id, amount: 100, fxRate: (fx0?.rate ?? 5) * 1.05 }))));
+        const man = await requestPayment({ invoiceId: small.id, actorCode: fin.code, account: fa.id, amount: 100, fxRate: (fx0?.rate ?? 5) * 1.05, fxReason: "bank" });
+        const fx1 = man.fx as { manual: boolean; reason?: string; by?: string; boc: number | null } | null;
+        check("with a reason it is kept as manual — who, why, and the BoC rate beside it; no threshold", !!fx1?.manual && fx1.reason === "bank" && fx1.by === fin.code && fx1.boc === fx0?.boc, JSON.stringify(fx1));
+        await voidPayment({ id: man.id, actorCode: fin.code, reason: "probe" });
+      }
+    }
     // one baht
     const one = await ask(own.id, fin.code, { amount: 1 });
     const st = async (id: string) => (await prisma.supplierInvoice.findUniqueOrThrow({ where: { id } }));
@@ -59,11 +75,37 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     await decidePayment({ id: r.id, actorCode: md.code, approve: false, note: "probe: wrong supplier account" });
     check("refused by the MD: cannot be confirmed, the invoice can be asked again", /PAY_NOT_WAITING/.test(await msg(confirmPayment({ id: r.id, actorCode: fin.code, paymentRef: "x", slip }))) && (await msg(ask(big.id, fin.code).then((p) => voidPayment({ id: p.id, actorCode: fin.code, reason: "probe" })))) === "ok");
     // withholding tax → 50 ทวิ
+    // 50 ทวิ needs the payee's 13-digit tax ID (派修单 v4 A)
+    const sup0 = await prisma.supplier.findUniqueOrThrow({ where: { id: po.supplierId } });
+    await prisma.supplier.update({ where: { id: sup0.id }, data: { taxId: null } });
+    const noId = await prisma.supplierInvoice.create({ data: { entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: `MP-${tag}-NOID`, invoiceDate: new Date(), subtotal: 100, vatAmount: 7, total: 107, whtRate: 0.03, whtAmount: 3, payable: 104, dueDate: new Date(), createdById: eng.id } });
+    ids.push(noId.id);
+    check("a supplier without a 13-digit tax ID: tax cannot be withheld", /PAY_WHT_TAXID/.test(await msg(ask(noId.id, fin.code))));
+    await prisma.supplier.update({ where: { id: sup0.id }, data: { taxId: `0${String(Date.now()).slice(-12)}` } });
     const w = await prisma.supplierInvoice.create({ data: { entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: `MP-${tag}-W`, invoiceDate: new Date(), subtotal: 10000, vatAmount: 700, total: 10700, whtRate: 0.03, whtAmount: 300, payable: 10400, dueDate: new Date(), createdById: eng.id } });
     ids.push(w.id);
     const wp = await ask(w.id, fin.code);
     check("with withholding tax the 50 ทวิ number comes by itself (WT…), 300 withheld", /^WTTH/.test(wp.whtCertNo ?? "") && Number(wp.whtAmount) === 300 && Number(wp.amount) === 10400, `${wp.whtCertNo} ${wp.whtAmount}`);
     check("without withholding tax there is none", one.whtCertNo === null);
+    // 派修单 v3 第 1 条: the rate is given on the payment; 实付 = 应付 − 预扣税; the 50 ทวิ comes by itself
+    const accts = await (await import("../../src/server/pay")).payAccounts(po.entityId);
+    check("the Kasikorn account is among the accounts to pay from", accts.some((a) => /^KBank-THB-/.test(a.id) && /224-1-43804-2/.test(a.label)), accts.map((a) => a.id).join(" "));
+    const n3 = await prisma.supplierInvoice.create({ data: { entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: `MP-${tag}-N3`, invoiceDate: new Date(), subtotal: 1000, vatAmount: 70, total: 1070, whtRate: 0, whtAmount: 0, payable: 1070, dueDate: new Date(), createdById: eng.id } });
+    ids.push(n3.id);
+    const kb = accts.find((a) => /^KBank/.test(a.id))!.id;
+    const p3 = await requestPayment({ invoiceId: n3.id, actorCode: fin.code, account: kb, whtRate: 0.05, whtType: "RENT" });
+    check("the income type is kept for the 50 ทวิ (租金 5 %: 50.00 on 1,000)", p3.whtType === "RENT" && Number(p3.whtAmount) === 50 && Number(p3.amount) === 1020);
+    await voidPayment({ id: p3.id, actorCode: fin.code, reason: "probe" });
+    const p3b = await requestPayment({ invoiceId: n3.id, actorCode: fin.code, account: kb, whtRate: 0.03 });
+    check("an invoice entered without WHT, paid from KBank with 3 %: withheld 30.00 on 1,000, paid out 1,040.00, 50 ทวิ taken", Number(p3b.whtAmount) === 30 && Number(p3b.amount) === 1040 && Number(p3b.gross) === 1070 && /^WTTH/.test(p3b.whtCertNo ?? ""), `${p3b.whtAmount} ${p3b.amount} ${p3b.whtCertNo}`);
+    check("a rate above 15 % is refused", /PAY_WHT_RATE|PAY_OVER|PAY_AMOUNT/.test(await msg(requestPayment({ invoiceId: w.id, actorCode: fin.code, account: "CASH", whtRate: 0.5, amount: 1 }))));
+    await decidePayment({ id: p3b.id, actorCode: md.code, approve: true });
+    await confirmPayment({ id: p3b.id, actorCode: fin.code, paymentRef: "KB-1", slip });
+    const s3 = await st(n3.id);
+    check("confirmed: the invoice is PAID — 1,040 paid out + 30 withheld = 1,070", s3.status === "PAID" && Number(s3.paidAmount) === 1040 && Number(s3.whtAmount) === 30 && Number(s3.payable) === 1040, `${s3.status} ${s3.paidAmount} ${s3.whtAmount} ${s3.payable}`);
+    await voidPayment({ id: p3b.id, actorCode: fin.code, reason: "probe" });
+    const v3 = await st(n3.id);
+    check("reversed: open again with the full 1,070 and no withholding left on it", v3.status === "OPEN" && Number(v3.paidAmount) === 0 && Number(v3.whtAmount) === 0 && Number(v3.payable) === 1070, `${v3.status} ${v3.paidAmount} ${v3.whtAmount} ${v3.payable}`);
     const half = await ask(small.id, fin.code, { amount: 6000 });
     check("an invoice without WHT, half asked: no certificate", half.whtCertNo === null && Number(half.amount) === 6000);
 

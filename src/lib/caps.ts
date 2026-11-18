@@ -24,7 +24,7 @@
 export type Role = "MD" | "HR" | "FINANCE" | "PURCHASING" | "SALES" | "ENGINEER";
 export const ROLES6: Role[] = ["MD", "HR", "FINANCE", "PURCHASING", "SALES", "ENGINEER"];
 /** How the six are written on screen, in every language (朱总's own names). */
-export const ROLE_SHORT: Record<Role, string> = { MD: "MD", HR: "HR", FINANCE: "FIN", PURCHASING: "PUR", SALES: "Sales", ENGINEER: "ENG" };
+export const ROLE_SHORT: Record<Role, string> = { MD: "MD", HR: "HR", FINANCE: "FIN", PURCHASING: "PUR", SALES: "SALES", ENGINEER: "ENG" };
 const OLD: Record<string, Role> = { ADMIN: "SALES", WAREHOUSE: "PURCHASING", MANAGER: "ENGINEER" };
 
 /** Who is asking: a role, a list of roles, or a person (their role, extra roles and whether they approve for a team). */
@@ -49,7 +49,7 @@ export const can = {
   /** purchase price, unit cost, last cost, supplier prices */
   cost: is("MD", "FINANCE", "PURCHASING"), // Sales never sees what we paid (MD 2026-11-17 18:29): they estimate the cost of their own quote
   /** margin, margin thresholds, and cost where it stands next to the customer's price (quotes, orders, plans) */
-  margin: is("MD", "FINANCE", "SALES"),
+  margin: is("MD", "FINANCE"), // Sales sees neither cost nor margin (派修单 v4 第 2 条: 看不到任何进价数字 — a margin beside a price is a cost); the quote page gives Sales 建议售价 and 最低价
   /** the company's bank accounts, /admin legal entities; maintain exchange rates */
   bank: is("MD", "FINANCE"),
   /** issue tax invoices and invoices, record receipts, credit notes, close an order */
@@ -93,13 +93,13 @@ export const noOrders = (who: Who) => !can.allOrders(who) && !hasRole(who, "ENGI
  * The menu each role gets, by nav key (src/lib/nav.ts). Not in the list = not in the menu and the page behind it is
  * refused. Several roles: the union. The MD may hide more for a role on 权限管理, never show more.
  */
-const HOME = ["dash", "shortcuts"], DOCS = ["documents"], SELF = ["talent", "overtime", "payroll", "training", "expenses"];
+const HOME = ["dash", "shortcuts"], DOCS = ["documents"], SELF = ["talent", "overtime", "leave", "payroll", "training", "expenses"];
 const ALM = ["series", "assets", "knowledge"], REPORTS = ["inspectionReports", "repairReports", "maintenanceReports"];
 // 六角色的默认权限写在这里 (需求清单 v4 V4-P0-04): a new employee has them the moment a role is chosen — nobody ticks boxes.
 export const ROLE_MENU: Record<Exclude<Role, "MD">, string[]> = {
   HR: [...HOME, ...SELF],
   FINANCE: [...HOME, ...DOCS, ...SELF, "customers", "opportunities", "deliveryNotes", "acceptance", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut",
-    "ledger", "paymentVouchers", "statements", "cashPlan", "finReports", "proforma", "billing", "taxInvoices", "receipts", "entities"],
+    "ledger", "paymentVouchers", "statements", "cashPlan", "finReports", "fxRates", "proforma", "billing", "taxInvoices", "receipts", "wht", "entities"],
   PURCHASING: [...HOME, ...DOCS, ...SELF, "knowledge", "opportunities", "deliveryNotes", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut", "dictionary"],
   SALES: [...HOME, ...DOCS, ...SELF, ...ALM, ...REPORTS, "receiving", "deliveryNotes", "acceptance", "projects", "customers", "opportunities", "inquiries", "purchaseOrders", "stock",
     "statements", "proforma", "billing", "taxInvoices", "receipts"],
@@ -111,40 +111,55 @@ export const menuOwners = (key: string): Role[] => ROLES6.filter((r) => r !== "M
 
 /** Pages that are not menu entries of their own but belong to a capability. First match decides. */
 const PATH_RULES: [RegExp, (who: Who) => boolean][] = [
+  [/^\/fault-codes\/import/, (w) => hasRole(w, "MD")], // 导入只开放给 MD (N-18)
   [/^\/customers\/new/, can.customers],
   [/^\/suppliers\/new/, can.purchase],
   [/^\/purchasing\/orders\/new/, can.purchase],
   [/^\/purchasing\/inquiries\/new/, is("MD", "PURCHASING", "SALES", "ENGINEER")],
   [/^\/parts\/new/, can.purchase],
+  [/^\/parts\/movement\/[A-Z-]+\d/, is("MD", "PURCHASING", "ENGINEER", "FINANCE")], // one IBTH / OBTH, to read (N-28)
   [/^\/parts\/movement/, is("MD", "PURCHASING", "ENGINEER")],
   [/^\/service-orders\/new/, is("MD", "SALES", "ENGINEER")],
   [/^\/service-orders\/[^/]+\/(invoice|payment)/, can.invoiceStatus],
   [/^\/service-reports/, can.reports],
   [/^\/finance\/expenses/, () => true],
   [/^\/finance/, can.finance],
+  [/^\/tax\/wht/, can.finance], // 50 ทวิ: finance and the MD
   [/^\/tax/, can.invoiceStatus],
   [/^\/admin\/permissions/, is("MD")],
   [/^\/admin\/dictionary/, can.purchase],
   [/^\/admin/, can.bank],
   [/^\/people\/new/, can.staff],
+  [/^\/statements\/?$/, can.finance], // the list: finance and the MD (派修单 v3 第 7 条)
   [/^\/statements/, can.invoiceStatus],
 ];
-export function pathAllows(who: Who, path: string): boolean {
-  if (hasRole(who, "MD")) return true;
-  for (const [re, ok] of PATH_RULES) if (re.test(path)) return ok(who);
-  return true;
+/**
+ * 入库归 PUR (权限表 2026-11-16; 派修单 v5 P1-12): the stock form opened for a receipt belongs to the MD and purchasing.
+ * An engineer uses the same form to draw parts (direction=OUT) and to hand parts of an order back (direction=IN with
+ * that order) — nothing else. The query decides, so the rule reads the whole address.
+ */
+function ruleFor(pathWithQuery: string): ((who: Who) => boolean) | null {
+  const [path, q = ""] = pathWithQuery.split("?");
+  if (/^\/parts\/movement\/?$/.test(path)) { const sp = new URLSearchParams(q); if (sp.get("direction") !== "OUT" && !sp.get("order")) return is("MD", "PURCHASING"); }
+  for (const [re, ok] of PATH_RULES) if (re.test(path)) return ok;
+  return null;
 }
-/** The roles a path belongs to, when a rule above decides it. */
-export function pathOwners(path: string): Role[] {
-  for (const [re, ok] of PATH_RULES) if (re.test(path)) return ROLES6.filter((r) => r !== "MD" && ok(r));
-  return [];
+export function pathAllows(who: Who, pathWithQuery: string): boolean {
+  if (hasRole(who, "MD")) return true;
+  const ok = ruleFor(pathWithQuery);
+  return ok ? ok(who) : true;
+}
+/** The roles a path belongs to when a rule decides it — [] when it is the MD's alone, null when no rule speaks. */
+export function pathOwners(pathWithQuery: string): Role[] | null {
+  const ok = ruleFor(pathWithQuery);
+  return ok ? ROLES6.filter((r) => r !== "MD" && ok(r)) : null;
 }
 
 // ── What leaves the server (API answers, the assistant's look-ups) ──────────────────────────────────────────────
 
 const PRICE_KEYS = new Set(["unitPrice", "amount", "subtotal", "vatAmount", "total", "totalCny", "fxRateToCny", "amountDue", "paidAmount", "whtAmount", "cashAmount", "settledAmount", "payable", "creditLimit", "price", "fee", "fees", "payPct"]);
 const COST_KEYS = new Set(["costRef", "lastCost", "lastCostCurrency", "costPerHour", "travelCost"]); // what we paid: MD, FIN, PUR
-const QUOTE_COST_KEYS = new Set(["unitCost", "costTotal"]); // the cost written on a quote: those who see its margin (MD, FIN, Sales)
+const QUOTE_COST_KEYS = new Set(["unitCost", "costTotal", "costActual", "costDetail", "costEst", "costConfirmedAt", "costConfirmedBy"]); // the cost written on a quote: those who see its margin (MD, FIN, Sales)
 const MARGIN_KEYS = new Set(["marginPct", "marginApproval", "marginNote", "marginApprovedAt", "marginApprovedById"]);
 const BANK_KEYS = new Set(["bankAccount", "bankAccounts", "bankName", "bankBranch", "swift", "accountNo", "accountName"]);
 /** Asset events whose summary and payload speak of money. */

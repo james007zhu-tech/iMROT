@@ -27,10 +27,25 @@ async function main() {
   console.log("第 11 条 报价成本必填");
   const o = await createServiceOrder({ createdByEmployeeCode: sales.code, customerId: customer.id, mode: "DOMESTIC_TRADE", requestLines: [{ sku: part.sku, qty: 2, unit: "pcs" }] } as never);
   const two = [{ partSku: part.sku, description: "TEST d2 bolt", qty: 2, unit: "pcs", unitPrice: 100 }, { description: "TEST freight", qty: 1, unit: "lot", unitPrice: 50 }];
-  check("Sales: both lines without cost are named, nothing saved", /QUOTE_COST_REQUIRED:1、2/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: sales.code, lines: two }))) && (await prisma.quoteLine.count({ where: { serviceOrder: { no: o.no } } })) === 0);
-  check("MD: the part line takes the last purchase price; the line without any is named", /QUOTE_COST_REQUIRED:2$/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: md.code, lines: two }))));
-  const saved = await setQuoteLines({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ ...two[0], unitCost: 60 }, { ...two[1], unitCost: 30 }] });
-  check("with a cost on every line the quote is saved and the margin is worked out", saved.marginPct != null && Math.abs(Number(saved.marginPct) - 0.4) < 0.001, String(saved.marginPct));
+  // 朱总 2026-11-18: Sales may estimate. The part's last purchase cost stands (Sales does not see it); a line the system
+  // has no cost for takes Sales' estimate and is marked 预估; without one it is named and refused.
+  const { setQuoteLines: rawSet } = await import("../../src/server/slm-docs");
+  check("Sales: a line without any cost is named and asked for an estimate", /QUOTE_EST_REQUIRED:2$/.test(await msg(rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: two }))));
+  const s1 = await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ ...two[0], unitCost: 999 }, { ...two[1], unitCost: 20 }] });
+  const st1 = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no }, include: { lines: { orderBy: { lineNo: "asc" } } } });
+  check("Sales estimates: the part keeps the last purchase cost 40 (999 ignored), freight takes the estimate 20 and is marked 预估, margin (250 − 100) ÷ 250 = 60 %, the quote goes out", Number(st1.lines[0].unitCost) === 40 && !st1.lines[0].costEst && Number(st1.lines[1].unitCost) === 20 && st1.lines[1].costEst && Math.abs(Number(s1.marginPct) - 0.6) < 0.001 && st1.status === "QUOTE_PENDING", `${st1.lines.map((l) => `${l.unitCost}/${l.costEst}`)} ${s1.marginPct} ${st1.status}`);
+  const { confirmOrderCost } = await import("../../src/server/job-cost");
+  check("开票前: the estimated line must be replaced by a real cost before the cost is recognised", /COST_EST_LEFT:2$/.test(await msg(confirmOrderCost({ no: o.no, actorCode: md.code, note: "x" }))));
+  check("…and with 'nothing spent' chosen for it, it is recognised", (await msg(confirmOrderCost({ no: o.no, actorCode: md.code, map: { "2": "none" }, note: "x" }))) === "ok");
+  await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ ...two[0], unitPrice: 45 }, { ...two[1], unitPrice: 500, unitCost: 20 }] });
+  const low = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } });
+  check("a line under its 最低售价 sends the quote to the MD even when the whole margin is fine", low.marginApproval === "PENDING" && Number(low.marginPct) > 0.8, `${low.marginApproval} ${low.marginPct}`);
+  await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [two[0], { ...two[1], unitCost: 20 }] });
+  check("MD: a line without cost is named and refused", /QUOTE_COST_REQUIRED:2$/.test(await msg(rawSet({ serviceOrderNo: o.no, actorCode: md.code, lines: two }))));
+  await rawSet({ serviceOrderNo: o.no, actorCode: md.code, lines: [two[0], { ...two[1], unitCost: 30 }] });
+  const saved = await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ ...two[0], unitCost: 999 }, { ...two[1], unitCost: 999 }] });
+  const st2 = await prisma.quoteLine.findMany({ where: { serviceOrderId: st1.id }, orderBy: { lineNo: "asc" } });
+  check("once the MD wrote the cost, Sales cannot change it: margin (250 − 110) ÷ 250 = 56 %, no longer 预估", Math.abs(Number(saved.marginPct) - 0.56) < 0.001 && Number(st2[1].unitCost) === 30 && !st2[1].costEst, String(saved.marginPct));
 
   console.log("第 12 条 所有 PO 都要审批");
   const sup = await createSupplier({ actorCode: pur.code, name: `TEST d2 Supplier ${tag}` });
@@ -59,7 +74,7 @@ async function main() {
     const sup2 = await createSupplier({ actorCode: md.code, name: `TEST d2 fx supplier ${tag}` });
     const fxPo = await createPurchaseOrder({ actorCode: pur.code, supplierId: sup2.id, currency: "XTS", vatRate: 0, lines: [{ vendorPartNo: part.vendorPartNo!, description: "TEST d2 bolt", qty: 1, unitPrice: 100 }], allowRepeat: true } as never);
     const kept = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: fxPo.no } });
-    check("a new document keeps rate, day and source (财务手工价 + today)", Number(kept.fxRateToCny) === 0.21 && kept.fxSource === "MANUAL" && kept.fxRateDate?.getTime() === day(0).getTime() && Number(kept.totalCny) === 21, `${kept.fxRateToCny} ${kept.fxSource} ${kept.totalCny}`);
+    check("a new document keeps rate, day and source (财务手工价 + today)", Number(kept.fxRateToCny) === 0.21 && kept.fxSource === "MANUAL" && kept.fxRateDate?.getTime() === day(0).getTime() && (kept.fxBy ?? "").startsWith(fin.code) && Number(kept.totalCny) === 21, `${kept.fxRateToCny} ${kept.fxSource} ${kept.totalCny}`);
     const a1 = await prisma.auditLog.findFirst({ where: { action: "FX_OVERRIDE", actorId: fin.id } });
     check("the override is on record: who, the rate, the Bank of China rate it replaced, why", (a1?.detail as { boc?: number; note?: string })?.boc === 0.2 && (a1?.detail as { note?: string })?.note === "TEST bank slip rate");
     check("removing needs a reason; a Bank of China rate cannot be removed", /REASON_REQUIRED/.test(await msg(removeOverride({ actorCode: fin.code, id: row.id, note: "" }))) && /FX_NOT_MANUAL/.test(await msg(removeOverride({ actorCode: fin.code, id: (await prisma.fxRate.findFirstOrThrow({ where: { currency: "XTS", source: "BOC" } })).id, note: "x" }))));

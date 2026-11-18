@@ -34,6 +34,7 @@ model LegalEntity {
   bookCurrency       String    @default("CNY") /// accounting currency for the whole group
   vatRate            Decimal   @default(0.07) @db.Decimal(5, 4)
   bankDetails        Json? /// bank, branch, swift, accounts by currency
+  payAccounts        Json? /// accounts payments leave from, besides the one above: [{bank, branch?, currency, accountNo}]
   vatRegisteredFrom  DateTime? /// printed in the tax-invoice footer (ภ.พ.20 effective date)
   taxInvoiceBookSize Int       @default(50) /// tax invoices per เล่ม (book); books are numbered consecutively per entity (朱总 2026-11-08)
   createdAt          DateTime  @default(now())
@@ -180,6 +181,8 @@ model Employee {
   faultCodesReviewed FaultCode[]            @relation("FaultCodeReviewer")
   faultCodeImports   FaultCodeImport[]
   publishRuns        PublishRun[]
+  leaves             LeaveRequest[]         @relation("LeaveOf")
+  leavesDecided      LeaveRequest[]         @relation("LeaveApprover")
 }
 
 enum ContractType {
@@ -320,8 +323,8 @@ model AuditLog {
 // ───────────────────────── CRM ─────────────────────────
 
 model Customer {
-  salesId            String? /// 负责销售 (需求清单 v4 V4-P0-02, P1-21): the Sales person who sees this customer and to whom orders opened by engineers go; empty = the MD only
-  sales              Employee?          @relation("CustomerSales", fields: [salesId], references: [id])
+  salesId           String? /// 负责销售 (需求清单 v4 V4-P0-02, P1-21): the Sales person who sees this customer and to whom orders opened by engineers go; empty = the MD only
+  sales             Employee?   @relation("CustomerSales", fields: [salesId], references: [id])
   id                String      @id @default(cuid())
   code              String      @unique /// CTH2610001
   entityId          String
@@ -887,9 +890,25 @@ model ServiceOrder {
   sales              Employee?          @relation("OrderSales", fields: [salesId], references: [id])
   customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
   invoiceNudgedAt    DateTime? /// Sales pressed 催财务开票: the customer is waiting for the invoice (需求清单 v4 V4-P0-05)
+  noInvoiceAt        DateTime? /// 不开票 (派修单 v4 C): finance or the MD took the order out of the invoice candidates — with a reason; can be undone
+  noInvoiceBy        String?
+  noInvoiceReason    String?
   poStaleAt          DateTime? /// the quote changed after the customer's PO was confirmed: the PO is confirmed again before anything is delivered (需求清单 v3 P0-07)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
   requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH
+  /// 汇率待 MD 批准 (派修单 v5 P1-2, MD Q3): a hand-set rate more than 2 % off the Bank of China rate is not applied until
+  /// the MD approves; meanwhile no tax invoice is issued. {rate, boc, bocDate, diffPct, reason, by, at}
+  fxPending          Json?
+  /// 客户签字验收单 (派修单 v5 P1-11, MD 2026-11-18 11:55): the customer's signed acceptance sheet, uploaded (PDF / photo).
+  /// A repair order is not accepted — and not invoiced — without it; one sheet may cover several orders of a customer.
+  /// {sheetId, files: [{name, url}], by, at, orders: [QTTH…]}
+  acceptSheet        Json?
+  /// 开票前成本认可 (朱总 2026-11-18): the real cost — purchases, parts issued, hours on the reports, expenses — is read from the
+  /// system and recognised by finance or the MD before the invoice is written. {parts, purchases, labour, expenses, total}
+  costActual         Decimal?           @db.Decimal(18, 2)
+  costDetail         Json?
+  costConfirmedAt    DateTime?
+  costConfirmedBy    String?
   project            Json? /// 自动化项目 (2026-11-09): {name, dueDate?, scope?, solution?, deliverables?: [{name, qty}], labour?: [{description, hours, costPerHour?}]} — BOM in requestLines, milestones in ProjectMilestone
   tradeTerms         Json? /// 国际贸易 (2026-11-09): {currency, incoterm, place, destCountry, destPort?, shipMode, paymentTerms, paymentDays} — src/lib/export.ts
   attachments        Json? /// [{name, url, kind: PO | REPORT_MSG | PHOTO}] — originals kept for later comparison
@@ -897,6 +916,7 @@ model ServiceOrder {
   fxRateToCny        Decimal?           @db.Decimal(18, 8)
   fxRateDate         DateTime?          @db.Date /// the day of the rate used
   fxSource           String? /// "BOC" | "MANUAL"
+  fxBy               String? /// MANUAL: who set the rate and when — "ETH2611009 2026-11-17 20:10"
   subtotal           Decimal?           @db.Decimal(18, 2)
   vatAmount          Decimal?           @db.Decimal(18, 2)
   total              Decimal?           @db.Decimal(18, 2)
@@ -984,6 +1004,7 @@ model QuoteLine {
   amount           Decimal      @db.Decimal(18, 2)
   costRef          Decimal?     @db.Decimal(18, 2) /// last purchase cost shown to sales, not to customer
   unitCost         Decimal?     @db.Decimal(18, 2) /// cost used for the margin: entered, or the part's last cost / purchase comparison
+  costEst          Boolean      @default(false) /// the cost is Sales' own estimate (朱总 2026-11-18): good for the quote; the invoice takes the real cost from the system
 
   @@unique([serviceOrderId, lineNo])
 }
@@ -1284,45 +1305,46 @@ enum PurchaseOrderStatus {
 
 /// POTH — what we order from a supplier; receipts (IBTH) post against its lines until it is RECEIVED.
 model PurchaseOrder {
-  id             String              @id @default(cuid())
-  no             String              @unique /// POTH26110701
-  entityId       String
-  supplierId     String
-  supplier       Supplier            @relation(fields: [supplierId], references: [id])
-  inquiryId      String?
-  inquiry        PurchaseInquiry?    @relation(fields: [inquiryId], references: [id])
-  serviceOrderId String?
-  serviceOrder   ServiceOrder?       @relation(fields: [serviceOrderId], references: [id])
-  status         PurchaseOrderStatus @default(DRAFT)
+  id              String              @id @default(cuid())
+  no              String              @unique /// POTH26110701
+  entityId        String
+  supplierId      String
+  supplier        Supplier            @relation(fields: [supplierId], references: [id])
+  inquiryId       String?
+  inquiry         PurchaseInquiry?    @relation(fields: [inquiryId], references: [id])
+  serviceOrderId  String?
+  serviceOrder    ServiceOrder?       @relation(fields: [serviceOrderId], references: [id])
+  status          PurchaseOrderStatus @default(DRAFT)
   /// 所有 PO 都要 MD 审批, 不论金额 (MD 2026-11-17 18:29): asked by purchasing, decided by the MD; only an approved PO is sent or received
   approvalAskedAt DateTime?
   approvalAskedBy String?
   approvedAt      DateTime?
   approvedBy      String?
   approvalNote    String?
-  kind           PurchaseKind        @default(PARTS)
-  warrantyDays   Int? /// SUBCONTRACT: = the customer's warranty (back-to-back)
-  scope          String? /// SUBCONTRACT: repair scope / acceptance criteria the partner signed up to
-  version        Int                 @default(1) /// a change (extra cost, new date) bumps the version — same number
-  revisions      Json? /// [{version, at, by, reason, subtotalFrom, subtotalTo, expectedFrom, expectedTo, customerConsent}]
-  orderedAt      DateTime            @default(now())
-  expectedAt     DateTime?
-  currency       String              @default("THB")
-  fxRateToCny    Decimal?            @db.Decimal(18, 8)
-  fxRateDate         DateTime?          @db.Date /// the day of the rate used
-  fxSource           String? /// "BOC" | "MANUAL"
-  subtotal       Decimal             @db.Decimal(18, 2)
-  vatRate        Decimal             @db.Decimal(5, 4)
-  vatAmount      Decimal             @db.Decimal(18, 2)
-  total          Decimal             @db.Decimal(18, 2)
-  totalCny       Decimal?            @db.Decimal(18, 2)
-  supplierRef    String? /// supplier's order confirmation / invoice number, verbatim
-  paymentTerms   String?
-  lines          Json /// [{lineNo, partSku?, vendorPartNo?, description, qty, unit, unitPrice, amount, receivedQty}]
-  attachments    Json?
-  createdById    String
-  createdBy      Employee            @relation("PoCreator", fields: [createdById], references: [id])
-  createdAt      DateTime            @default(now())
+  kind            PurchaseKind        @default(PARTS)
+  warrantyDays    Int? /// SUBCONTRACT: = the customer's warranty (back-to-back)
+  scope           String? /// SUBCONTRACT: repair scope / acceptance criteria the partner signed up to
+  version         Int                 @default(1) /// a change (extra cost, new date) bumps the version — same number
+  revisions       Json? /// [{version, at, by, reason, subtotalFrom, subtotalTo, expectedFrom, expectedTo, customerConsent}]
+  orderedAt       DateTime            @default(now())
+  expectedAt      DateTime?
+  currency        String              @default("THB")
+  fxRateToCny     Decimal?            @db.Decimal(18, 8)
+  fxRateDate      DateTime?           @db.Date /// the day of the rate used
+  fxSource        String? /// "BOC" | "MANUAL"
+  fxBy            String? /// MANUAL: who set the rate and when — "ETH2611009 2026-11-17 20:10"
+  subtotal        Decimal             @db.Decimal(18, 2)
+  vatRate         Decimal             @db.Decimal(5, 4)
+  vatAmount       Decimal             @db.Decimal(18, 2)
+  total           Decimal             @db.Decimal(18, 2)
+  totalCny        Decimal?            @db.Decimal(18, 2)
+  supplierRef     String? /// supplier's order confirmation / invoice number, verbatim
+  paymentTerms    String?
+  lines           Json /// [{lineNo, partSku?, vendorPartNo?, description, qty, unit, unitPrice, amount, receivedQty}]
+  attachments     Json?
+  createdById     String
+  createdBy       Employee            @relation("PoCreator", fields: [createdById], references: [id])
+  createdAt       DateTime            @default(now())
 
   receipts   StockMovement[]
   milestones SubcontractMilestone[]
@@ -1389,35 +1411,35 @@ enum PayableStatus {
 
 /// 应付 — a supplier's invoice against a POTH. Due date from the supplier's payment mode; paying issues a PVTH.
 model SupplierInvoice {
-  id              String        @id @default(cuid())
+  id              String            @id @default(cuid())
   entityId        String
   supplierId      String
-  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+  supplier        Supplier          @relation(fields: [supplierId], references: [id])
   purchaseOrderId String
-  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrder   PurchaseOrder     @relation(fields: [purchaseOrderId], references: [id])
   invoiceNo       String /// supplier's number, verbatim
   invoiceDate     DateTime
-  currency        String        @default("THB")
-  subtotal        Decimal       @db.Decimal(18, 2)
-  vatAmount       Decimal       @db.Decimal(18, 2)
-  total           Decimal       @db.Decimal(18, 2)
-  whtRate         Decimal       @db.Decimal(5, 4) /// 3 % hire-of-work for TH juristic partners, 0 otherwise
-  whtAmount       Decimal       @db.Decimal(18, 2) /// on the subtotal
-  payable         Decimal       @db.Decimal(18, 2) /// total − WHT
+  currency        String            @default("THB")
+  subtotal        Decimal           @db.Decimal(18, 2)
+  vatAmount       Decimal           @db.Decimal(18, 2)
+  total           Decimal           @db.Decimal(18, 2)
+  whtRate         Decimal           @db.Decimal(5, 4) /// 3 % hire-of-work for TH juristic partners, 0 otherwise
+  whtAmount       Decimal           @db.Decimal(18, 2) /// on the subtotal
+  payable         Decimal           @db.Decimal(18, 2) /// total − WHT
   dueDate         DateTime
-  status          PayableStatus @default(OPEN)
+  status          PayableStatus     @default(OPEN)
   paidAt          DateTime?
   paymentNo       String? /// PVTH… of the last payment
-  paidAmount      Decimal       @default(0) @db.Decimal(18, 2) /// paid so far (net): the invoice is PAID when it reaches `payable`
+  paidAmount      Decimal           @default(0) @db.Decimal(18, 2) /// paid so far (net): the invoice is PAID when it reaches `payable`
   payments        SupplierPayment[]
   paymentRef      String? /// bank transfer reference, verbatim
-  accrued         Boolean       @default(false) /// 暂估: goods received, the supplier's invoice not yet in — one row per POTH, replaced when the invoice is registered
-  matchDiff       Decimal?      @db.Decimal(18, 2) /// invoice subtotal − value received when it was registered (三单匹配); beyond tolerance the MD releases
+  accrued         Boolean           @default(false) /// 暂估: goods received, the supplier's invoice not yet in — one row per POTH, replaced when the invoice is registered
+  matchDiff       Decimal?          @db.Decimal(18, 2) /// invoice subtotal − value received when it was registered (三单匹配); beyond tolerance the MD releases
   mdApprovedBy    String? /// the MD's release: needed above 50,000 THB, or when the payer registered the invoice himself
   mdApprovedAt    DateTime?
   attachments     Json?
   createdById     String
-  createdAt       DateTime      @default(now())
+  createdAt       DateTime          @default(now())
 
   @@unique([supplierId, invoiceNo])
   @@index([status, dueDate])
@@ -1435,6 +1457,9 @@ model SupplierPayment {
   account           String /// where the money leaves: a company bank account (bank + last digits), CASH or PETTY_CASH
   amount            Decimal         @db.Decimal(18, 2) /// what leaves the account (net of withholding tax)
   whtAmount         Decimal         @default(0) @db.Decimal(18, 2) /// the withholding tax of this part, remitted to the Revenue Department
+  whtRate           Decimal?        @db.Decimal(5, 4) /// the rate withheld on this payment (on its share of the amount before VAT)
+  gross             Decimal?        @db.Decimal(18, 2) /// the part of the invoice this payment settles: amount + whtAmount
+  whtType           String? /// SERVICE 3% | RENT 5% | TRANSPORT 1% | ADVERTISING 2% | OTHER — what the 50 ทวิ says was paid for
   whtCertNo         String? /// 50 ทวิ number, when tax is withheld
   payDate           DateTime
   status            String          @default("REQUESTED") /// REQUESTED → APPROVED → PAID; REJECTED; VOID (reversed)
@@ -1447,6 +1472,9 @@ model SupplierPayment {
   paidAt            DateTime?
   paymentRef        String? /// bank transfer reference, verbatim
   slip              Json? /// the bank slip: [{ name, url }]
+  /// 外币付款的汇率 (派修单 v5 P1-3): {ccy, rate (1 ccy = rate THB), boc, bocDate, manual, reason?, by?, at?, equiv}
+  /// — BoC rate of the pay day by default; finance may set its own with a reason, the MD sees both when approving
+  fx                Json?
   voidedBy          String?
   voidedAt          DateTime?
   voidReason        String?
@@ -1474,8 +1502,9 @@ model TaxInvoice {
   vatAmount         Decimal      @db.Decimal(18, 2)
   total             Decimal      @db.Decimal(18, 2)
   fxRateToCny       Decimal      @db.Decimal(18, 8)
-  fxRateDate         DateTime?          @db.Date /// the day of the rate used
-  fxSource           String? /// "BOC" | "MANUAL"
+  fxRateDate        DateTime?    @db.Date /// the day of the rate used
+  fxSource          String? /// "BOC" | "MANUAL"
+  fxBy              String? /// MANUAL: who set the rate and when — "ETH2611009 2026-11-17 20:10"
   totalCny          Decimal      @db.Decimal(18, 2)
   buyerTaxId        String?
   buyerBranch       String?
@@ -1545,26 +1574,28 @@ model Invoice {
   statement      MonthlyStatement? @relation(fields: [statementId], references: [id])
   attachments    Json? /// customer's payment proofs: [{name, url, kind: PAYMENT_PROOF | WHT_CERT}]
 
-  receipts Receipt[]
+  receipts        Receipt[]
+  receiptRequests ReceiptRequest[]
 }
 
 /// RCTH — ใบเสร็จรับเงิน, one per payment received against an IVTH (decided 2026-11-07). Records this
 /// payment's cash, withholding and settled amount, the bank reference and the original tax invoice; never recomputes VAT.
 model Receipt {
-  id            String   @id @default(cuid())
-  no            String   @unique /// RCTH26110701
-  invoiceId     String
-  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
-  taxInvoiceNo  String? /// original TITH, printed on the receipt
-  receivedAt    DateTime /// actual date the money arrived
-  currency      String
-  cashAmount    Decimal  @db.Decimal(18, 2)
-  whtAmount     Decimal  @db.Decimal(18, 2)
-  settledAmount Decimal  @db.Decimal(18, 2) /// cash + WHT
-  bankRef       String?
-  whtCertRef    String?
-  attachments   Json?
-  createdAt     DateTime @default(now())
+  id                String     @id @default(cuid())
+  no                String     @unique /// RCTH26110701
+  invoiceId         String
+  invoice           Invoice    @relation(fields: [invoiceId], references: [id])
+  taxInvoiceNo      String? /// original TITH, printed on the receipt
+  receivedAt        DateTime /// actual date the money arrived
+  currency          String
+  cashAmount        Decimal    @db.Decimal(18, 2)
+  whtAmount         Decimal    @db.Decimal(18, 2)
+  settledAmount     Decimal    @db.Decimal(18, 2) /// cash + WHT
+  account           String? /// which of our accounts the money arrived in (pay.ts payAccounts ids) — for the cash and bank journal
+  bankRef           String?
+  whtCertRef        String?
+  attachments       Json?
+  createdAt         DateTime   @default(now())
   // 作废 (朱总 2026-11-15): anyone may ask, only the MD decides; a voided receipt gives the money back to the receivable
   voidedAt          DateTime?
   voidStatus        VoidStatus @default(NONE)
@@ -1573,6 +1604,36 @@ model Receipt {
   voidDecidedById   String?
   voidDecidedAt     DateTime?
   voidDecisionNote  String?
+}
+
+/// 收款三步、两人 (朱总 2026-11-18 "收款也是一样"): finance says what arrived and where → the MD approves → finance uploads
+/// the bank slip and the reference → only then is the receipt (RCTH) written and the invoice counted as paid.
+model ReceiptRequest {
+  id           String    @id @default(cuid())
+  entityId     String
+  invoiceId    String
+  invoice      Invoice   @relation(fields: [invoiceId], references: [id])
+  account      String /// which of our accounts the money arrived in (pay.ts payAccounts ids)
+  cashAmount   Decimal   @db.Decimal(18, 2)
+  whtAmount    Decimal   @default(0) @db.Decimal(18, 2) /// withheld by the customer
+  whtCertRef   String?
+  receivedOn   DateTime
+  status       String    @default("REQUESTED") /// REQUESTED | APPROVED | RECEIVED | REJECTED | WITHDRAWN
+  requestedBy  String
+  requestedAt  DateTime  @default(now())
+  decidedBy    String?
+  decidedAt    DateTime?
+  decisionNote String?
+  confirmedBy  String?
+  confirmedAt  DateTime?
+  bankRef      String?
+  slip         Json?
+  /// 收款汇率 (v5 P1-2): {ccy, rate (→ CNY), boc, bocDate, diffPct, manual, reason?, by?, at?, pending?, decidedBy?, decidedAt?}
+  fx           Json?
+  receiptNo    String? /// the RCTH written at confirmation
+
+  @@index([invoiceId])
+  @@index([status])
 }
 
 /// BLTH — monthly statement for credit customers: the list of IVTH due this month.
@@ -1735,6 +1796,32 @@ model OvertimeRequest {
 
   @@index([employeeId, workDate])
   @@index([status, payMonthId])
+}
+
+/// 请假 (需求清单 v4 V4-P0-12) — lib/leave.ts has the kinds and the paid days of a year.
+model LeaveRequest {
+  id           String    @id @default(cuid())
+  entityId     String
+  employeeId   String
+  employee     Employee  @relation("LeaveOf", fields: [employeeId], references: [id])
+  type         String /// SICK | PERSONAL | ANNUAL | MATERNITY | UNPAID
+  fromDate     DateTime  @db.Date
+  toDate       DateTime  @db.Date
+  half         String? /// "AM" | "PM" — a single day only
+  days         Decimal   @db.Decimal(5, 1) /// working days counted when it was asked
+  dayList      Json /// [{day, part}] — what `days` is made of
+  reason       String
+  attachments  Json? /// the medical certificate for sick leave of three days or more
+  status       String    @default("PENDING") /// PENDING | APPROVED | REJECTED | CANCELLED
+  approverId   String?
+  approver     Employee? @relation("LeaveApprover", fields: [approverId], references: [id])
+  decidedAt    DateTime?
+  decisionNote String?
+  createdById  String
+  createdAt    DateTime  @default(now())
+
+  @@index([employeeId, fromDate])
+  @@index([entityId, status])
 }
 
 /// 公司假日 — a public or company holiday. Work on it is HOLIDAY_WORK / HOLIDAY_OT without anyone choosing (H-R66).
@@ -1960,6 +2047,8 @@ model PayrollLine {
   reimbursement    Decimal    @default(0) @db.Decimal(14, 2) /// approved expense claims, not income
   net              Decimal    @db.Decimal(14, 2)
   employerCost     Decimal    @db.Decimal(14, 2)
+  unpaidLeaveDays  Decimal    @default(0) @db.Decimal(5, 1) /// 无薪假 and leave beyond the paid days of the year, in this month
+  leaveDeduction   Decimal    @default(0) @db.Decimal(14, 2) /// baseSalary ÷ 30 × unpaidLeaveDays — taken off the base before tax and SSO
   otLateFrom       String[]   @default([]) /// months whose overtime is paid late in this one: 补发 ×月加班
   missing          String[]   @default([]) /// what the line could not find: SALARY, PERFORMANCE, OVERTIME_OPEN, TAX_ID, SSO_NO, BANK
   note             String?

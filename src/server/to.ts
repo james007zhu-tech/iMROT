@@ -1,5 +1,7 @@
+import { acceptEvidence } from "./slm-docs";
+import { assertCostConfirmed } from "./job-cost";
 import { actorWith } from "@/server/guard";
-import { rateFor } from "@/server/fx";
+import { fxFields, rateFor } from "@/server/fx";
 import { can, hasRole } from "@/lib/caps";
 import { countryOfNo, isTestNo } from "@/lib/numbering";
 /**
@@ -52,6 +54,10 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   const first = order.decline ? order.status === "DECLINED" : order.status === "ACCEPTED";
   if (!first && !reissue) throw new Error(order.status === "INVOICED" ? `TI_EXISTS:${order.taxInvoices.find((t) => !t.voidedAt)?.no ?? ""}` : `${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
   if (!order.decline && Number(order.total ?? 0) <= 0) throw new Error(`INVOICE_ZERO:${order.no}`); // 0 元不开票 (V4-P0-06)
+  if (order.noInvoiceAt) throw new Error(`NO_INVOICE_MARKED:${order.no}`); // 已标「不开票」
+  if (order.fxPending) throw new Error(`FX_WAITS_MD:${order.no}`); // v5 P1-2: a rate more than 2 % off the BoC rate waits for the MD — no tax invoice meanwhile
+  if (!order.decline && !(await acceptEvidence(order))) throw new Error(`ACCEPT_EVIDENCE_MISSING:${order.no}`); // v5 P1-11: no invoice on an acceptance with nothing behind it
+  await assertCostConfirmed(order); // 开票前成本认可 (朱总 2026-11-18): the real cost, read from the system, recognised by finance or the MD
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const issuedAt = d.issuedAt ?? new Date();
   const currency = order.entity.localCurrency;
@@ -103,7 +109,7 @@ export async function writeTaxInvoice(tx: Prisma.TransactionClient, a: {
   const fxr = await rateFor(currency, issuedAt);
   const ti = await tx.taxInvoice.create({
     data: {
-      ...(fxr && fxr.rateToCny === fx ? { fxRateDate: fxr.rateDate, fxSource: fxr.source === "CNY" ? "BOC" : fxr.source } : {}),
+      ...(fxr && fxr.rateToCny === fx ? { fxRateDate: fxr.rateDate, fxSource: fxr.source === "CNY" ? "BOC" : fxr.source, fxBy: fxFields(fxr).fxBy } : {}),
       no, serviceOrderId: order.id, issuedAt, currency, seq, bookNo, bookSeq,
       lines: lines.map((l) => ({ ...l, amount: round2(l.qty * l.unitPrice) })) as Prisma.InputJsonValue,
       subtotal: t.subtotal, vatRate, vatAmount: t.vatAmount, total: t.total, fxRateToCny: fx, totalCny: round2(t.total * fx),
@@ -161,12 +167,19 @@ export const PaymentInput = z.object({
   whtAmount: z.number().min(0).default(0),
   whtCertRef: z.string().optional(),
   bankRef: z.string().optional(),
+  account: z.string().optional(), /// which of our accounts received it
   attachments: z.array(z.object({ name: z.string(), url: z.string(), kind: z.string().optional() })).optional(),
 });
 
-/** Record payment on the IVTH. Full settlement (cash + WHT ≥ due) closes the order and writes PAID on each asset. */
-export async function recordPayment(input: z.input<typeof PaymentInput>) {
+/**
+ * Record payment on the IVTH: writes the RCTH and counts the invoice as paid. Since 2026-11-18 (朱总: 收款也是一样) this
+ * is the last of three steps and is reached only through server/collect.ts — finance asks, the MD approves, finance
+ * confirms with the bank slip. `approved` is the request that was approved; without it nothing is recorded.
+ */
+export async function recordPayment(input: z.input<typeof PaymentInput>, approved?: { requestId: string }) {
   await actorWith(input.actorCode, can.invoice); // 统一角色权限表
+  if (!approved) throw new Error("RC_THREE_STEPS");
+  { const rq = await prisma.receiptRequest.findUnique({ where: { id: approved.requestId } }); if (!rq || rq.status !== "APPROVED") throw new Error("RC_NEEDS_MD"); }
   assertBusinessClosure("PAYMENT");
   const d = PaymentInput.parse(input);
   const iv = await prisma.invoice.findUniqueOrThrow({ where: { no: d.invoiceNo }, include: { serviceOrder: { include: { assets: true } } } });
@@ -187,7 +200,7 @@ export async function recordPayment(input: z.input<typeof PaymentInput>) {
     });
     // RCTH — one receipt per payment received (決定 2026-11-07): this payment's cash, WHT and settled amount against the TITH.
     const rcNo = await allocateNumber(tx, { prefix: "RC", createdByEmployeeCode: actor.code, entityId: iv.serviceOrder.entityId });
-    const receipt = await tx.receipt.create({ data: { no: rcNo, invoiceId: iv.id, taxInvoiceNo: taxInvoice?.no, receivedAt: d.paidAt, currency: iv.currency, cashAmount: round2(d.paidAmount), whtAmount: round2(d.whtAmount), settledAmount: round2(d.paidAmount + d.whtAmount), bankRef: d.bankRef, whtCertRef: d.whtCertRef, attachments: proofs as Prisma.InputJsonValue } });
+    const receipt = await tx.receipt.create({ data: { no: rcNo, invoiceId: iv.id, taxInvoiceNo: taxInvoice?.no, receivedAt: d.paidAt, currency: iv.currency, cashAmount: round2(d.paidAmount), whtAmount: round2(d.whtAmount), settledAmount: round2(d.paidAmount + d.whtAmount), bankRef: d.bankRef, account: d.account || null, whtCertRef: d.whtCertRef, attachments: proofs as Prisma.InputJsonValue } });
     await tx.document.create({ data: { no: rcNo, type: "RC", entityId: iv.serviceOrder.entityId, countryCode: countryOfNo(rcNo), customerId: iv.serviceOrder.customerId, serviceOrderId: iv.serviceOrderId, createdById: actor.id, issuedAt: d.paidAt } });
     for (const a of iv.serviceOrder.assets) {
       await tx.assetEvent.create({ data: { assetId: a.assetId, type: "PAID", actorId: actor.id, serviceOrderId: iv.serviceOrderId, sourceDocNo: rcNo, occurredAt: d.paidAt, summary: `${iv.currency} ${d.paidAmount.toFixed(2)}${d.whtAmount ? ` + WHT ${d.whtAmount.toFixed(2)}` : ""} · ${iv.no}`, payload: { paidAmount: d.paidAmount, whtAmount: d.whtAmount, whtCertRef: d.whtCertRef, bankRef: d.bankRef, receiptNo: rcNo, settled } as Prisma.InputJsonValue, attachments: proofs as Prisma.InputJsonValue } });
@@ -365,4 +378,21 @@ export async function withdrawVoidRequest(input: { no: string; actorCode: string
   const data = { voidStatus: "NONE" as const, voidRequestedById: null, voidRequestReason: null };
   if (ti) await prisma.taxInvoice.update({ where: { id: ti.id }, data }); else await prisma.receipt.update({ where: { id: rc!.id }, data });
   await audit(actor.id, "VOID_REQUEST_WITHDRAWN", input.no, { reason: row.voidRequestReason });
+}
+
+/**
+ * 不开票 (派修单 v4 C): finance or the MD takes an accepted order out of the invoice candidates — a test order, a job
+ * billed another way — with a reason. It moves to the 已排除 list with who, when and why; undoing it is logged too.
+ */
+export async function markNoInvoice(input: { no: string; actorCode: string; reason?: string; undo?: boolean }) {
+  const actor = await actorWith(input.actorCode, can.invoice);
+  const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no } });
+  if (input.undo) {
+    if (!o.noInvoiceAt) return o;
+    await audit(actor.id, "NO_INVOICE_UNDONE", o.no, { was: o.noInvoiceReason, by: o.noInvoiceBy });
+    return prisma.serviceOrder.update({ where: { id: o.id }, data: { noInvoiceAt: null, noInvoiceBy: null, noInvoiceReason: null } });
+  }
+  if (!input.reason?.trim()) throw new Error("REASON_REQUIRED");
+  await audit(actor.id, "NO_INVOICE_MARKED", o.no, { reason: input.reason.trim() });
+  return prisma.serviceOrder.update({ where: { id: o.id }, data: { noInvoiceAt: new Date(), noInvoiceBy: actor.code, noInvoiceReason: input.reason.trim() } });
 }

@@ -15,9 +15,9 @@ export async function middleware(req: NextRequest) {
   if (req.cookies.has("dcit_session")) {
     try {
       const r = await fetch(`http://127.0.0.1:${process.env.PORT || "3000"}/api/gate?path=${encodeURIComponent(path)}`, { headers: { cookie: req.headers.get("cookie") ?? "", "x-dcit-gate": gateKey() }, cache: "no-store" });
-      const g = (await r.json()) as { ok?: boolean; roles?: string };
+      const g = (await r.json()) as { ok?: boolean; roles?: string; scope?: boolean };
       if (r.ok && g.ok === false) {
-        const to = req.nextUrl.clone(); to.pathname = "/no-access"; to.search = `?roles=${encodeURIComponent(g.roles ?? "MD")}`;
+        const to = req.nextUrl.clone(); to.pathname = "/no-access"; to.search = g.scope ? "?scope=1" : `?roles=${encodeURIComponent(g.roles ?? "MD")}`;
         headers.set("x-dcit-path", "/no-access");
         return NextResponse.rewrite(to, { status: 403, request: { headers } });
       }

@@ -1,9 +1,10 @@
+import { overtimeAwaitingHr } from "@/server/payroll";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { currentEmployee } from "@/server/auth";
-import { autoCloseOvertime, myOvertime, overtimeMonths, overtimeToApprove, previewOvertimeMonth, holidaysOf } from "@/server/overtime";
+import { autoCloseOvertime, myOvertime, overtimeMonths, overtimeToApprove, previewOvertimeMonth, holidaysOf, allOvertime } from "@/server/overtime";
 import { DEFAULT_SHIFT } from "@/lib/shift";
 import { localToday, OT_KINDS, OT_MULTIPLIER, WEEKLY_OT_CAP_HOURS } from "@/lib/overtime";
 import { Flash } from "@/components/Flash";
@@ -17,8 +18,8 @@ export const dynamic = "force-dynamic";
  * 加班 (OPD, 2026-11-09). Everyone: apply before the work, confirm the actual hours after it, withdraw. Managers and the MD:
  * approve. The MD: the month-end results (closed automatically on the 1st, Bangkok time) — amounts are salary data, MD only.
  */
-export default async function Overtime({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
-  const { ok, error } = await searchParams;
+export default async function Overtime({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; om?: string; os?: string; oe?: string }> }) {
+  const sp = await searchParams, { ok, error } = sp;
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
   const md = hasRole(me, "MD");
   await autoCloseOvertime().catch(() => []); // the hourly job may have missed a restart around midnight — closing is idempotent
@@ -31,6 +32,24 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
   const holidays = await holidaysOf(me.entityId, new Date(`${today.slice(0, 4)}-01-01T00:00:00Z`)), keepsHolidays = hasRole(me, "MD", "HR");
   const kind = (k: string) => `${u(`ot_${k}`)} ×${OT_MULTIPLIER[k as keyof typeof OT_MULTIPLIER]}`;
   const hrs = (r: { hours: unknown; actualHours: unknown }) => Number(r.actualHours ?? r.hours);
+  // 计入月份 (H-R70): never a bare "—" — the month it was paid in, the month it is expected in, or why it is in none
+  const closedMonths = new Set((await overtimeMonths(me.entityId)).map((m) => m.month));
+  const nextOf = (m: string) => { const [y, mo] = m.split("-").map(Number); return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`; };
+  const paidIn = (r: { id: string; status: string; workDate: Date; payNotBefore: string | null; payMonth: { month: string } | null }) => {
+    if (r.payMonth) return r.payMonth.month;
+    if (awaitingHr.has(r.id)) return u("otPayHrChoose", { m: awaitingHr.get(r.id)!, next: nextOf(awaitingHr.get(r.id)!) });
+    if (r.status === "PENDING") return u("otPayPending");
+    if (r.status !== "APPROVED") return u("otPayNone");
+    let m = r.workDate.toISOString().slice(0, 7);
+    if (r.payNotBefore && r.payNotBefore > m) m = r.payNotBefore;
+    while (closedMonths.has(m)) { const [y, mo] = m.split("-").map(Number); m = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`; }
+    if (m < month) m = month; // approved late: paid with the running month
+    return u("otPayExpected", { month: m });
+  };
+  const flt = { month: sp.om || undefined, status: sp.os || undefined, code: sp.oe || undefined };
+  const everyone = hasRole(me, "MD", "HR", "FINANCE") ? await allOvertime(me.entityId, flt) : [];
+  const awaitingHr = await overtimeAwaitingHr(me.entityId, [...mine, ...everyone].filter((r) => r.status === "APPROVED" && !r.payMonth).map((r) => r.workDate.toISOString().slice(0, 7)));
+  const staffAll = hasRole(me, "MD", "HR", "FINANCE") ? await prisma.employee.findMany({ where: { entityId: me.entityId, active: true }, orderBy: { code: "asc" }, select: { code: true, name: true } }) : [];
   const prevClosed = months.some((m) => m.month === previousMonth);
   return (
     <div className="space-y-4">
@@ -76,7 +95,7 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
               <td className="whitespace-nowrap">{r.startTime}–{r.endTime}{r.actualStart ? <span className="block text-xs text-navy/60">{u("otActual")} {r.actualStart}–{r.actualEnd}</span> : null}</td>
               <td className="font-semibold">{hrs(r)}</td><td className="text-xs">{kind(r.kind)}</td><td>{r.origin === "SITE" ? <Tag>{u("otAuto")}</Tag> : null} {r.reason}</td>
               <td><Tag hot={r.status === "PENDING" || r.status === "REJECTED"}>{u(`otStatus_${r.status}`)}</Tag>{r.approver ? <span className="block text-xs text-navy/60">{r.approver.name}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span> : null}</td>
-              <td>{r.payMonth?.month ?? (r.payNotBefore && r.status === "APPROVED" ? <span className="text-xs">{u("otCarried", { month: r.payNotBefore })}</span> : "—")}</td>
+              <td className="text-xs">{paidIn(r)}</td>
               <td>{open && <div className="flex flex-wrap gap-1">
                 {r.status === "APPROVED" && <form action={actualAction.bind(null, r.id)} className="flex gap-1"><input name="actualStart" type="time" defaultValue={r.actualStart ?? r.startTime} className={`${inputCls} w-24`} /><input name="actualEnd" type="time" defaultValue={r.actualEnd ?? r.endTime} className={`${inputCls} w-24`} /><button className={btnGhost}>{u("otConfirmActual")}</button></form>}
                 <form action={cancelAction.bind(null, r.id)}><button className="text-xs text-navy/60 hover:underline">{u("otWithdraw")}</button></form>
@@ -86,6 +105,27 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
           {!mine.length && <tr><td colSpan={8} className="py-4 text-center text-navy/60">{u("otNone")}</td></tr>}
         </Table>
       </Card>
+
+      {hasRole(me, "MD", "HR", "FINANCE") && <Card title={`${u("otEveryone")} (${everyone.length})`}>
+        <form className="mb-2 flex flex-wrap items-end gap-2 text-sm">
+          <label className="text-xs text-navy/70">{u("leaveMonth")}<input name="om" type="month" defaultValue={flt.month ?? ""} className={`${inputCls} mt-1 block`} /></label>
+          <label className="text-xs text-navy/70">{t("status")}<select name="os" defaultValue={flt.status ?? ""} className={`${inputCls} mt-1 block`}><option value="">—</option>{(["PENDING", "APPROVED", "REJECTED", "CANCELLED"] as const).map((k) => <option key={k} value={k}>{u(`otStatus_${k}`)}</option>)}</select></label>
+          <label className="text-xs text-navy/70">{t("employees")}<select name="oe" defaultValue={flt.code ?? ""} className={`${inputCls} mt-1 block`}><option value="">—</option>{staffAll.map((e) => <option key={e.code} value={e.code}>{e.code} {e.name}</option>)}</select></label>
+          <button className={btnGhost}>{u("auditShow")}</button>
+          <a href={`/people/overtime/export?${new URLSearchParams(Object.fromEntries(Object.entries({ om: flt.month, os: flt.status, oe: flt.code }).filter(([, v]) => v)) as Record<string, string>).toString()}`} className={btnGhost}>{u("otExport")}</a>
+        </form>
+        <Table head={[t("employees"), u("otDate"), u("otTime"), u("otHours"), u("otKind"), u("otReason"), t("status"), u("otPaidIn")]}>
+          {everyone.map((r) => <tr key={r.id}>
+            <td className="whitespace-nowrap"><span className="font-mono text-xs">{r.employee.code}</span> {r.employee.name}</td>
+            <td className="whitespace-nowrap">{localIso(r.workDate)!.slice(0, 10)}</td>
+            <td className="whitespace-nowrap">{r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime}</td>
+            <td className="font-semibold">{hrs(r)}</td><td className="whitespace-nowrap text-xs">{kind(r.kind)}</td><td>{r.origin === "SITE" ? <Tag>{u("otAuto")}</Tag> : null} {r.reason}</td>
+            <td><Tag hot={r.status === "PENDING" || r.status === "REJECTED"}>{u(`otStatus_${r.status}`)}</Tag>{r.approver ? <span className="block text-xs text-navy/60">{r.approver.name}</span> : null}</td>
+            <td className="text-xs">{paidIn(r)}</td>
+          </tr>)}
+          {!everyone.length && <tr><td colSpan={8} className="py-4 text-center text-navy/60">{u("otNone")}</td></tr>}
+        </Table>
+      </Card>}
 
       <Card title={u("holidays")}>
         <p className="mb-2 text-xs text-navy/70">{u("holidaysHint")}</p>

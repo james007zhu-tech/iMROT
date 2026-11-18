@@ -1,5 +1,6 @@
 "use server";
 /** 应付 — the three steps of a payment (server/pay.ts): finance asks, the MD decides, finance confirms with the bank slip. */
+import { setSupplierTaxId } from "@/server/pay";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
 import { withdrawSupplierInvoice } from "@/server/srm";
@@ -11,7 +12,7 @@ export async function requestAction(f: FormData) {
   await guarded(async () => {
     const me = await currentEmployee();
     const amount = String(f.get("amount") ?? "").trim(), payDate = String(f.get("payDate") ?? "").trim();
-    const p = await requestPayment({ invoiceId: String(f.get("id")), actorCode: me.code, account: String(f.get("account") ?? ""), amount: amount ? Number(amount) : undefined, payDate: payDate ? new Date(payDate) : undefined });
+    const p = await requestPayment({ invoiceId: String(f.get("id")), actorCode: me.code, account: String(f.get("account") ?? ""), amount: amount ? Number(amount) : undefined, fxRate: Number(String(f.get("fxRate") ?? "")) || undefined, fxReason: String(f.get("fxReason") ?? "").trim() || undefined, whtType: String(f.get("whtType") ?? "") || undefined, whtRate: String(f.get("whtPct") ?? "").trim() === "" ? undefined : Number(f.get("whtPct")) / 100, payDate: payDate ? new Date(payDate) : undefined });
     return { ok: p.no, to: BACK };
   }, BACK);
 }
@@ -37,4 +38,8 @@ export async function voidAction(f: FormData) {
 }
 export async function withdrawAction(f: FormData) {
   await guarded(async () => { const me = await currentEmployee(); await withdrawSupplierInvoice({ id: String(f.get("id")), actorCode: me.code, reason: String(f.get("reason") ?? "") }); return "withdrawn"; }, BACK);
+}
+
+export async function taxIdAction(f: FormData) {
+  await guarded(async () => { const me = await currentEmployee(); await setSupplierTaxId({ supplierId: String(f.get("supplierId")), actorCode: me.code, taxId: String(f.get("taxId") ?? ""), branchCode: String(f.get("branchCode") ?? "") }); return "taxIdSaved"; }, BACK);
 }

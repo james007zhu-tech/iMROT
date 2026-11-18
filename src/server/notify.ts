@@ -1,3 +1,6 @@
+import { Prisma } from "@prisma/client";
+import { marginFloor } from "./modes";
+import { belowMinLines } from "@/lib/margin";
 /**
  * 消息中心 — the reminders one person sees (rules: src/lib/notify.ts). Computed from the records on every page load,
  * so a message disappears when the work is done; nothing to mark as read.
@@ -30,12 +33,12 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   const push = (kind: string, days: number, ref: string, href: string, who?: string) => out.push({ id: `${kind}:${ref}`, kind, level: days < 0 ? "late" : "soon", days, ref, who, href });
 
   const [orders, milestones, pm, contacts, invoices, payables, staff, creds] = await Promise.all([
-    prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, ...mine }, select: { no: true, status: true, project: true, requestLines: true, quoteSentAt: true, reportedAt: true, assigneeId: true, marginApproval: true, priceHint: true, total: true, _count: { select: { lines: true } }, customer: { select: { name: true } } }, take: 400 }),
+    prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, ...mine }, select: { no: true, status: true, mode: true, project: true, requestLines: true, quoteSentAt: true, reportedAt: true, assigneeId: true, marginApproval: true, priceHint: true, total: true, _count: { select: { lines: true } }, customer: { select: { name: true } } }, take: 400 }),
     prisma.projectMilestone.findMany({ where: { doneAt: null, plannedOn: { lt: soon(3) }, serviceOrder: { status: { in: [...OPEN] }, ...mine } }, select: { phase: true, plannedOn: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } }, take: 100 }),
     hasRole(me, "HR") || hasRole(me, "FINANCE") ? [] : prisma.repairJob.findMany({ where: { nextDueAt: { gte: soon(-60), lte: soon(14) }, ...(team ? { engineerId: { in: team } } : {}) }, orderBy: { nextDueAt: "desc" }, select: { no: true, assetId: true, nextDueAt: true, finishedAt: true, asset: { select: { code: true, customer: { select: { name: true } } } } }, take: 200 }),
     !can.customers(me) || hasRole(me, "FINANCE") ? [] : prisma.contact.findMany({ where: { birthday: { not: null }, customer: await customerScope(me) }, select: { id: true, name: true, birthday: true, customer: { select: { code: true, name: true } } } }),
     money ? prisma.invoice.findMany({ where: { paidAt: null, cancelledAt: null, dueAt: { lte: soon(3) } }, select: { no: true, dueAt: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } }, take: 200 }) : [],
-    money ? prisma.supplierInvoice.findMany({ where: { status: "OPEN" }, select: { invoiceNo: true, invoiceDate: true, dueDate: true, accrued: true, mdApprovedAt: true, currency: true, payable: true, subtotal: true, matchDiff: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } }, take: 300 }) : [],
+    money ? prisma.supplierInvoice.findMany({ where: { status: "OPEN" }, select: { id: true, invoiceNo: true, invoiceDate: true, dueDate: true, accrued: true, mdApprovedAt: true, currency: true, payable: true, subtotal: true, matchDiff: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } }, take: 300 }) : [],
     can.staff(me) ? prisma.employee.findMany({ where: { active: true, birthDate: { not: null } }, select: { code: true, name: true, birthDate: true } }) : [],
     can.staff(me) ? prisma.employeeCredential.findMany({ where: { expiresAt: { not: null, lte: soon(180) }, employee: { active: true } }, select: { kind: true, expiresAt: true, remindDays: true, employee: { select: { code: true, name: true } } } }) : [],
   ]);
@@ -49,7 +52,12 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     // 定价是销售和 MD 的事: items saved by the shop floor wait for a price; a word about the price waits to be read
     if (can.editPrice(me) && ["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(o.status) && o._count.lines > 0 && Number(o.total ?? 0) === 0) push("needsPrice", 0, o.no, `/service-orders/${o.no}/quote`, who);
     if (can.editPrice(me) && o.priceHint) push("priceHint", 0, o.no, `/service-orders/${o.no}/quote`, who);
-    if (lead && hasRole(me, "MD") && o.marginApproval === "PENDING") push("marginApproval", 0, o.no, `/service-orders/${o.no}/quote`, who);
+    if (lead && hasRole(me, "MD") && o.marginApproval === "PENDING") {
+      // v5 P0-2: the MD is told which line is under its 最低售价 and by how much
+      const ls = await prisma.quoteLine.findMany({ where: { serviceOrder: { no: o.no } }, orderBy: { lineNo: "asc" }, select: { qty: true, unitPrice: true, unitCost: true } });
+      const low = belowMinLines(ls.map((l) => ({ qty: Number(l.qty), unitPrice: Number(l.unitPrice), unitCost: l.unitCost != null ? Number(l.unitCost) : null })), await marginFloor(o.mode));
+      push("marginApproval", 0, o.no, `/service-orders/${o.no}/quote`, low.length ? `${who} · ${low.map((x) => `#${x.n} ${x.price.toFixed(2)} < ${x.min.toFixed(2)}`).join("、")}` : who);
+    }
   }
   for (const m of milestones) push(`milestone`, daysUntil(m.plannedOn!, today), `${m.serviceOrder.no} ${m.phase}`, `/service-orders/${m.serviceOrder.no}/project`, m.serviceOrder.customer.name);
   // maintenance: only the latest visit of a machine counts
@@ -61,7 +69,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // 该付款了 — only what may be paid and falls due within 3 days.
   for (const p of payables) {
     if (p.accrued) { const waited = -daysUntil(p.invoiceDate, today); if (hasRole(me, "FINANCE") && waited >= 7) push("payableNoInvoice", -waited, p.purchaseOrder.no, `/purchasing/orders/${p.purchaseOrder.no}`, p.supplier.name); continue; }
-    if (hasRole(me, "FINANCE") && daysUntil(p.dueDate, today) <= 3) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
+    if (hasRole(me, "FINANCE") && daysUntil(p.dueDate, today) <= 3) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, `/finance/payables#inv-${p.id}`, p.supplier.name); // straight to that invoice
   }
   for (const e of staff) { const d = daysToBirthday(e.birthDate, today); if (d != null && d <= 7) push("staffBirthday", d, e.name, `/people/${e.code}`); }
   for (const c of creds) { const d = daysUntil(c.expiresAt!, today); if (d <= c.remindDays) push("credential", d, `${c.employee.name} ${c.kind}`, `/people/${c.employee.code}`); }
@@ -70,11 +78,29 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   if (hasRole(me, ...PAYROLL_ROLES)) {
     const { previousMonth, date } = localToday();
     const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
-    const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month: previousMonth } }, select: { status: true, preparedBy: true, taxConfirmedAt: true } });
-    const started = await prisma.salaryRecord.count({ where: { employee: { entityId, active: true } } });
+    const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month: previousMonth } }, select: { status: true, preparedBy: true, taxConfirmedAt: true, _count: { select: { lines: true } } } });
+    // 派修单 v5 P1-7 (H-R62): a month before the system held anyone's pay is not overdue — nobody had a salary on file
+    // in it — and an empty sheet (0 people) is nothing to chase. The first real month is reminded as before.
+    const monthEnd = new Date(`${date.slice(0, 7)}-01T00:00:00+07:00`);
+    const started = run && run._count.lines === 0 ? 0 : await prisma.salaryRecord.count({ where: { effectiveFrom: { lt: monthEnd }, createdAt: { lt: monthEnd }, employee: { entityId, active: true } } });
     const turn = !run || !run.preparedBy ? "HR" : run.status === "DRAFT" ? (run.taxConfirmedAt ? "MD" : "FINANCE") : run.status === "APPROVED" ? "FINANCE" : null;
     if (started && turn && hasRole(me, turn)) push(`payrollDue_${!run || !run.preparedBy ? "prep" : run.status === "APPROVED" ? "pay" : turn === "MD" ? "approve" : "review"}`, 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
   }
+  // 收款三步 (2026-11-18): the MD is told what waits for approval, finance what waits for its slip
+  if (hasRole(me, "MD", "FINANCE"))
+    for (const q of await prisma.receiptRequest.findMany({ where: { status: { in: ["REQUESTED", "APPROVED"] } }, select: { status: true, invoice: { select: { no: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } } }, take: 50 })) {
+      if (q.status === "REQUESTED" && hasRole(me, "MD")) push("rcApprove", 0, q.invoice.no, `/service-orders/${q.invoice.serviceOrder.no}/payment`, q.invoice.serviceOrder.customer.name);
+      if (q.status === "APPROVED" && hasRole(me, "FINANCE")) push("rcConfirm", 0, q.invoice.no, `/service-orders/${q.invoice.serviceOrder.no}/payment`, q.invoice.serviceOrder.customer.name);
+    }
+  // 手动汇率超过 2 % (派修单 v5 P1-2): the MD is told, with the way to the order or the receipt
+  if (hasRole(me, "MD")) {
+    for (const o of await prisma.serviceOrder.findMany({ where: { NOT: { fxPending: { equals: Prisma.DbNull } } }, select: { no: true, customer: { select: { name: true } } }, take: 30 })) push("fxApprove", 0, o.no, `/service-orders/${o.no}`, o.customer.name);
+    for (const q of await prisma.receiptRequest.findMany({ where: { status: "REQUESTED", fx: { path: ["pending"], equals: true } }, select: { invoice: { select: { no: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } } }, take: 30 })) push("fxApprove", 0, q.invoice.no, `/service-orders/${q.invoice.serviceOrder.no}/payment`, q.invoice.serviceOrder.customer.name);
+  }
+  // 报价行待补成本 (派修单 v4 第 2 条): the MD and finance are told which quote waits for a cost
+  if (hasRole(me, "MD", "FINANCE"))
+    for (const o of await prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, mode: { not: "PARTNER_REPAIR" }, lines: { some: { unitCost: null, qty: { gt: 0 }, unitPrice: { gt: 0 } } } }, select: { no: true }, take: 30 }))
+      push("quoteCost", 0, o.no, `/service-orders/${o.no}/quote`);
   // 锁定后新批准的加班不能漏 (H-R67): HR is told when overtime was approved after a month's payroll had left them
   if (hasRole(me, "HR")) {
     const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
@@ -111,7 +137,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // 付款两人 (MD 2026-11-17): what finance has asked waits for the MD; what the MD approved waits for finance's bank slip
   if (hasRole(me, "MD", "FINANCE")) for (const p of await prisma.supplierPayment.findMany({ where: { status: { in: ["REQUESTED", "APPROVED"] } }, select: { id: true, no: true, status: true, amount: true, requestedBy: true, supplierInvoice: { select: { currency: true, supplier: { select: { name: true } } } } }, take: 80 })) {
     const who = `${p.supplierInvoice.supplier.name} · ${p.supplierInvoice.currency} ${Number(p.amount).toFixed(2)}`;
-    if (p.status === "REQUESTED" && hasRole(me, "MD")) push("payApprove", 0, p.no, "/finance/payables", who);
+    if (p.status === "REQUESTED" && hasRole(me, "MD")) push("payApprove", 0, p.no, `/finance/payables#${p.no}`, who); // straight to this payment, lit up
     if (p.status === "APPROVED" && hasRole(me, "FINANCE")) push("payConfirm", 0, p.no, `/finance/payables/pay/${p.id}`, who);
   }
   // PO 审批 (MD 2026-11-17): every draft POTH purchasing has handed over waits in the MD's list
@@ -120,7 +146,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // 验收后通知财务开票 (需求清单 v4 V4-P0-05): the moment an order is accepted it stands in finance's list — number,
   // customer, amount — and opens on its invoice. Sales can press 催财务开票; after 48 hours both are reminded.
   if (hasRole(me, "FINANCE", "MD", "SALES")) {
-    const waiting = await prisma.serviceOrder.findMany({ where: { AND: [hasRole(me, "FINANCE", "MD") ? {} : await orderScope(me), { status: "ACCEPTED", total: { gt: 0 }, NOT: { kind: "CONTRACT" } }] }, select: { no: true, total: true, currency: true, invoiceNudgedAt: true, customer: { select: { name: true } }, acceptance: { select: { acceptedAt: true } } }, take: 100 });
+    const waiting = await prisma.serviceOrder.findMany({ where: { AND: [hasRole(me, "FINANCE", "MD") ? {} : await orderScope(me), { status: "ACCEPTED", total: { gt: 0 }, noInvoiceAt: null, NOT: { kind: "CONTRACT" } }] }, select: { no: true, total: true, currency: true, invoiceNudgedAt: true, customer: { select: { name: true } }, acceptance: { select: { acceptedAt: true } } }, take: 100 });
     for (const o of waiting) {
       const hours = o.acceptance?.acceptedAt ? (Date.now() - o.acceptance.acceptedAt.getTime()) / 3600000 : 0;
       if (hasRole(me, "FINANCE")) push(o.invoiceNudgedAt ? "toInvoiceUrgent" : hours > 48 ? "toInvoiceLate" : "toInvoice", -Math.floor(hours / 24), o.no, `/service-orders/${o.no}/invoice`, `${o.customer.name} · ${o.currency} ${Number(o.total).toFixed(2)}`);
@@ -140,12 +166,30 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     const whose = md ? { OR: [{ managerId: me.id }, { managerId: null }] } : { managerId: me.id };
     for (const r of await prisma.overtimeRequest.findMany({ where: { status: "PENDING", employeeId: { not: me.id }, employee: whose }, select: { id: true, workDate: true, employee: { select: { name: true } } }, orderBy: { workDate: "asc" }, take: 50 }))
       push("otApprove", 0, `${r.employee.name} ${r.workDate.toISOString().slice(5, 10)}`, "/people/overtime", r.employee.name);
+    for (const r of await prisma.leaveRequest.findMany({ where: { status: "PENDING", employeeId: { not: me.id }, employee: whose }, select: { fromDate: true, days: true, type: true, employee: { select: { name: true } } }, orderBy: { fromDate: "asc" }, take: 50 }))
+      push("leaveApprove", 0, `${r.employee.name} ${r.fromDate.toISOString().slice(5, 10)}`, "/people/leave", `${Number(r.days)} d`);
     for (const c of await prisma.expenseClaim.findMany({ where: { status: "PENDING", employeeId: { not: me.id }, employee: whose }, select: { no: true, employee: { select: { name: true } } }, take: 50 }))
       push("expenseApprove", 0, c.no ?? "", "/finance/expenses", c.employee.name);
   }
   if (hasRole(me, "MD")) for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "rcApprove" || n.kind === "fxApprove" || n.kind === "rcConfirm" || n.kind === "quoteCost" || n.kind === "leaveApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
+}
+
+/**
+ * The bell is part of every page, and its list is some thirty queries. Each page view, and every link the browser
+ * warms up beforehand, used to run them all again — on a busy screen that is what kept a first page spinning for half a
+ * minute (派修单 v4, 07:00). One person's list is now kept for 20 seconds; whoever has just done something sees the
+ * result on the next page at the latest 20 seconds later.
+ */
+const kept = new Map<string, { at: number; list: Promise<Notice[]> }>();
+export function cachedNotices(me: Parameters<typeof noticesFor>[0]): Promise<Notice[]> {
+  const key = (me as { id: string }).id, hit = kept.get(key);
+  if (hit && Date.now() - hit.at < 20_000) return hit.list;
+  const list = noticesFor(me); kept.set(key, { at: Date.now(), list });
+  list.catch(() => kept.delete(key));
+  if (kept.size > 500) for (const [k, v] of kept) if (Date.now() - v.at > 60_000) kept.delete(k);
+  return list;
 }

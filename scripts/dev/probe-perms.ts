@@ -5,8 +5,10 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { advanceServiceOrder, confirmCustomerPo, createServiceOrder, getServiceOrder, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, recordAcceptance, suggestPrice } from "../../src/server/slm-docs";
-import { issueTaxInvoice, recordPayment } from "../../src/server/to";
+import { createInspection, suggestPrice } from "../../src/server/slm-docs";
+import { recordAcceptance } from "./_probe";
+import { issueTaxInvoice } from "./_probe";
+import { recordPayment } from "./_probe";
 import { createCustomer } from "../../src/server/crm";
 import { createPurchaseOrder, createSupplier } from "../../src/server/purchasing";
 import { recordStockDoc } from "../../src/server/scm";
@@ -67,7 +69,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     check("建议改价 reaches sales", (await noticesFor(sales)).some((x) => x.kind === "priceHint" && x.ref === o.no));
     check("the other engineer cannot touch the quote", /NO_PERMISSION/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: e2.code, lines: [{ description: "x", qty: 1, unitPrice: 1 }] }))));
     check("finance and HR do not write quotes", /NO_PERMISSION/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: fin.code, lines: [{ description: "x", qty: 1, unitPrice: 1 }] }))) && /NO_PERMISSION/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: hr.code, lines: [{ description: "x", qty: 1, unitPrice: 1 }] }))));
-    await setQuoteLines({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ assetCode: vfd.code, partSku: part.sku, description: "Fan", qty: 1, unitPrice: 12345.67 }, { description: "Labour", qty: 2, unit: "h", unitPrice: 1500 }] });
+    await setQuoteLines({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ assetCode: vfd.code, partSku: part.sku, description: "Fan", qty: 1, unitPrice: 13345.67 }, { description: "Labour", qty: 2, unit: "h", unitPrice: 1000 }] });
     const priced = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } });
     check("sales prices it and it goes to the customer; the hint is cleared", priced.status === "QUOTE_PENDING" && priced.priceHint === null && Number(priced.subtotal) === 15345.67, `${priced.status} ${priced.subtotal}`);
     check("once the customer has the quote the engineer cannot change it", /QUOTE_PRICED_SALES_ONLY/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: e1.code, lines: [{ description: "Fan", qty: 3, unitPrice: 0 }] }))));
@@ -77,20 +79,20 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     console.log("3. 开票、收款、关闭、建客户、采购");
     for (const [who, e] of [["engineer", e1], ["supervisor", mgr], ["sales", sales], ["Sales+PUR", adm], ["HR", hr], ["PUR", wh]] as const)
       check(`${who} cannot issue a tax invoice`, /NO_PERMISSION/.test(await msg(issueTaxInvoice({ serviceOrderNo: o.no, actorCode: e.code }))));
-    check("the engineer cannot record a payment", /NO_PERMISSION/.test(await msg(recordPayment({ invoiceNo: "TEST-IVTH00000000", actorCode: e1.code, paidAt: new Date(), paidAmount: 1 } as never))));
+    check("the engineer cannot record a payment", /FINANCE_COLLECTS/.test(await msg((await import("../../src/server/collect")).requestReceipt({ invoiceNo: "TEST-IVTH00000000", actorCode: e1.code, account: "CASH", cashAmount: 1, receivedOn: new Date() }))));
     check("the engineer and the supervisor cannot close the order", /NO_PERMISSION/.test(await msg(advanceServiceOrder(o.no, "CLOSED", e1.code))) && /NO_PERMISSION/.test(await msg(advanceServiceOrder(o.no, "CLOSED", mgr.code))));
     const cc = await msg(createCustomer({ actorCode: e1.code, entityCode: entity.code, name: "TEST x" } as never));
     check("the engineer cannot create a customer", /NO_PERMISSION/.test(cc), cc.slice(0, 160));
     check("the engineer, Sales and FIN cannot raise a POTH or a supplier; a person who is Sales + PUR can", /NO_PERMISSION/.test(await msg(createPurchaseOrder({ actorCode: e1.code, supplierId: "x", lines: [] } as never))) && /NO_PERMISSION/.test(await msg(createPurchaseOrder({ actorCode: sales.code, supplierId: "x", lines: [] } as never))) && /NO_PERMISSION/.test(await msg(createSupplier({ actorCode: fin.code, name: "TEST x" }))) && !/NO_PERMISSION/.test(await msg(createPurchaseOrder({ actorCode: adm.code, supplierId: "x", lines: [] } as never))) && /NO_PERMISSION/.test(await msg(recordStockDoc({ actorCode: sales.code, direction: "IN", lines: [{ partSku: part.sku, qty: 1 }] }))) && /NO_PERMISSION/.test(await msg(createSupplier({ actorCode: e1.code, name: "TEST x" }))));
-    await recordStockDoc({ actorCode: e1.code, direction: "IN", lines: [{ partSku: part.sku, qty: 1, unitCost: 1 }] });
+    check("入库归 PUR: an engineer cannot book a receipt that is not a return from an order (v5 P1-12)", /STOCK_IN_PUR/.test(await msg(recordStockDoc({ actorCode: e1.code, direction: "IN", lines: [{ partSku: part.sku, qty: 1, unitCost: 1 }] }))));
     check("a unit cost typed by an engineer on a receipt is not taken", Number((await prisma.part.findUniqueOrThrow({ where: { sku: part.sku } })).lastCost) === 6543.21);
 
     console.log("4. 接口里没有这些数字");
     const full = JSON.parse(JSON.stringify(await getServiceOrder(o.no)));
     const forEng = JSON.stringify(stripMoney(full, "ENGINEER")), forPur = JSON.stringify(stripMoney(full, "PURCHASING")), forSales = JSON.stringify(stripMoney(full, "SALES"));
-    check("engineer and supervisor: no price, no cost, no margin in the order", !/12345\.67|15345\.67|6543\.21|marginPct|costTotal|unitPrice/.test(forEng) && JSON.stringify(stripMoney(full, mgr)) === forEng);
-    check("PUR: no price, no margin", !/12345\.67|15345\.67|marginPct|unitPrice/.test(forPur));
-    check("Sales: price, the quote's own cost and margin — never what we paid (MD 2026-11-17)", /12345\.67/.test(forSales) && /unitCost/.test(forSales) && !/lastCost|costRef/.test(forSales));
+    check("engineer and supervisor: no price, no cost, no margin in the order", !/13345\.67|15345\.67|6543\.21|marginPct|costTotal|unitPrice/.test(forEng) && JSON.stringify(stripMoney(full, mgr)) === forEng);
+    check("PUR: no price, no margin", !/13345\.67|15345\.67|marginPct|unitPrice/.test(forPur));
+    check("Sales: price — no cost, no margin, never what we paid (派修单 v4 第 2 条)", /13345\.67/.test(forSales) && !/unitCost|costTotal|marginPct|lastCost|costRef|6543\.21/.test(forSales));
 
     console.log("5. 菜单和单据");
     const hid = async (r: string) => hiddenFor(r as never);

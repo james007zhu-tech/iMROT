@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "@/components/Icon";
 import { ASSIST_BUSY } from "@/components/SubmitGuard";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -45,7 +46,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   async function send(text: string) {
     if ((!text.trim() && !files.length) || busy) return;
     const sent = files;
-    const shown = [text.trim(), ...sent.map((f) => `📎 ${f.name}`)].filter(Boolean).join("\n");
+    const shown = [text.trim(), ...sent.map((f) => `${f.name}`)].filter(Boolean).join("\n");
     const next = [...msgs, { role: "user" as const, content: shown }];
     voice.cancel(); // what was said is on its way: the box is empty from here, whatever the microphone still hears
     setMsgs(next); setInput(""); setFiles([]); setBusy(true);
@@ -130,7 +131,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
       const fields: Record<string, string> = {};
       if (j.serialNumber) fields.serialNumber = j.serialNumber;
       if (j.matchedModelId) fields.modelId = j.matchedModelId;
-      setMsgs((m) => [...m, { role: "user", content: `📷 ${file.name}` }, { role: "assistant", content: `${j.brand ?? "?"} ${j.series ?? ""} ${j.model ?? "?"} · S/N ${j.serialNumber ?? "?"} · ${Math.round((j.confidence ?? 0) * 100)}%${j.notes ? `\n${j.notes}` : ""}`, actions: Object.keys(fields).length ? [{ type: "fill_form", fields }] : [] }]);
+      setMsgs((m) => [...m, { role: "user", content: `${file.name}` }, { role: "assistant", content: `${j.brand ?? "?"} ${j.series ?? ""} ${j.model ?? "?"} · S/N ${j.serialNumber ?? "?"} · ${Math.round((j.confidence ?? 0) * 100)}%${j.notes ? `\n${j.notes}` : ""}`, actions: Object.keys(fields).length ? [{ type: "fill_form", fields }] : [] }]);
     } catch (e) { setMsgs((m) => [...m, { role: "assistant", content: `⚠ ${(e as Error).message}` }]); } finally { setBusy(false); }
   }
 
@@ -154,12 +155,12 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   );
   const tools = (
     <>
-      <button type="button" onClick={toggleVoice} title={t("voice")} className={`h-10 w-10 shrink-0 rounded-full ${listening ? "bg-alert/100 text-white" : "bg-blue/8"}`}>🎤</button>
-      {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("attach")}>📎<input type="file" multiple accept="application/pdf,image/*,.txt,.csv,.eml" className="hidden" onChange={(e) => { setFiles((f) => [...f, ...Array.from(e.target.files ?? [])].slice(0, 5)); e.target.value = ""; }} /></label>}
-      {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("photo")}>📷<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && void attachPhoto(e.target.files[0])} /></label>}
+      <button type="button" onClick={toggleVoice} title={t("voice")} className={`h-10 w-10 shrink-0 rounded-full ${listening ? "bg-alert/100 text-white" : "bg-blue/8"}`}><Icon name="mic" /></button>
+      {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("attach")}><Icon name="clip" /><input type="file" multiple accept="application/pdf,image/*,.txt,.csv,.eml" className="hidden" onChange={(e) => { setFiles((f) => [...f, ...Array.from(e.target.files ?? [])].slice(0, 5)); e.target.value = ""; }} /></label>}
+      {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("photo")}><Icon name="camera" /><input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && void attachPhoto(e.target.files[0])} /></label>}
     </>
   );
-  const chips = files.length > 0 && <div className="flex w-full flex-wrap gap-1.5 pb-1">{files.map((f, k) => <span key={k} className="flex items-center gap-1 rounded-full bg-blue/10 px-2.5 py-1 text-xs text-navy">📎 {f.name}<button type="button" onClick={() => setFiles((x) => x.filter((_, n) => n !== k))} className="text-navy/60">✕</button></span>)}</div>;
+  const chips = files.length > 0 && <div className="flex w-full flex-wrap gap-1.5 pb-1">{files.map((f, k) => <span key={k} className="flex items-center gap-1 rounded-full bg-blue/10 px-2.5 py-1 text-xs text-navy"><Icon name="clip" /> {f.name}<button type="button" onClick={() => setFiles((x) => x.filter((_, n) => n !== k))} className="text-navy/60">✕</button></span>)}</div>;
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(input); } };
   const drop = { onDragOver: (e: React.DragEvent) => e.preventDefault(), onDrop: (e: React.DragEvent) => { if (scope !== "staff" || !e.dataTransfer.files.length) return; e.preventDefault(); setFiles((f) => [...f, ...Array.from(e.dataTransfer.files)].slice(0, 5)); } };
   /** big = the home page: the text on top across the full width, the tools in one row under it (as in the Claude app) */
@@ -204,9 +205,8 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   if (path === "/home") return null; // the home page is the conversation itself
   return (
     <>
-      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="ai-fab fixed bottom-3 right-3 z-40 h-12 w-12 md:bottom-4 md:right-4 md:h-14 md:w-14">
+      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="ai-fab fixed bottom-3 right-3 z-40 h-10 w-10 opacity-90 md:bottom-4 md:right-4 md:h-14 md:w-14 md:opacity-100">
         {/* the "i" of DCiT: white stem, blue square dot — the dot is the live part */}
-        <span className="ai-fab-pulse" aria-hidden /><span className="ai-fab-ring" aria-hidden />
         <svg viewBox="0 0 48 48" aria-hidden className="relative h-full w-full"><rect x="20.5" y="20" width="7" height="16" fill="#fff" /><rect x="20.5" y="10.5" width="7" height="7" className="ai-fab-dot" /></svg>
       </button>
       {open && (
@@ -216,7 +216,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
             {msgs.length === 0 && !formInfo && <p className="text-navy/70">{scope === "portal" ? t("hintPortal") : t("hintStaff")}</p>}
             {msgs.length === 0 && formInfo && <>
               <p className="text-navy/80">{t("formHint")}</p>
-              <div className="flex flex-wrap gap-2">{(["formAskFill", "formAskCheck", "formAskThai"] as const).map((k) => <button key={k} type="button" onClick={() => (k === "formAskFill" ? toggleVoice() : void send(t(k)))} className="rounded-full border border-blue/40 bg-white px-3 py-1.5 text-[13px] font-semibold text-blue hover:bg-blue hover:text-white">{k === "formAskFill" ? `🎤 ${t(k)}` : t(k)}</button>)}</div>
+              <div className="flex flex-wrap gap-2">{(["formAskFill", "formAskCheck", "formAskThai"] as const).map((k) => <button key={k} type="button" onClick={() => (k === "formAskFill" ? toggleVoice() : void send(t(k)))} className="rounded-full border border-blue/40 bg-white px-3 py-1.5 text-[13px] font-semibold text-blue hover:bg-blue hover:text-white">{k === "formAskFill" ? <><Icon name="mic" /> {t(k)}</> : t(k)}</button>)}</div>
             </>}
             {msgs.map(bubble)}
             {busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">…</div>}

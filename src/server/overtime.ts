@@ -89,7 +89,7 @@ export async function requestOvertime(input: z.input<typeof OvertimeInput>) {
  */
 export async function draftOvertimeFromWork(input: { employeeId: string; start: Date; end: Date; sourceNo: string; serviceOrderNo?: string | null }) {
   const span = input.end.getTime() - input.start.getTime();
-  if (!(span > 0) || span > 16 * 3600000) return [];
+  if (span < 15 * 60000 || span > 16 * 3600000) return []; // a report finished the minute it was opened says nothing about hours (and "02:44–02:44" must never read as a full day)
   const emp = await prisma.employee.findUniqueOrThrow({ where: { id: input.employeeId } });
   const iso = localIso(input.start)!, st = iso.slice(11, 16), en = localIso(input.end)!.slice(11, 16);
   const workDate = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
@@ -256,6 +256,12 @@ export async function autoCloseOvertime(now = new Date()) {
 
 export async function myOvertime(employeeId: string) {
   return prisma.overtimeRequest.findMany({ where: { employeeId }, orderBy: [{ workDate: "desc" }, { startTime: "desc" }], take: 60, include: { approver: { select: { name: true } }, payMonth: { select: { month: true } } } });
+}
+
+/** 全员加班 (H-R68): HR and the MD see every request of the company — newest first. */
+export async function allOvertime(entityId: string, f: { month?: string; status?: string; code?: string } = {}) {
+  const m = f.month && /^\d{4}-\d{2}$/.test(f.month) ? monthRange(f.month) : null;
+  return prisma.overtimeRequest.findMany({ where: { entityId, ...(m ? { workDate: { gte: m.from, lt: m.to } } : {}), ...(f.status ? { status: f.status as never } : {}), ...(f.code ? { employee: { code: f.code } } : {}) }, orderBy: [{ workDate: "desc" }, { startTime: "desc" }], take: 500, include: { employee: { select: { code: true, name: true } }, approver: { select: { name: true } }, payMonth: { select: { month: true } } } });
 }
 
 /** Requests waiting for this person: their direct reports' (managers) or everyone's (MD). */

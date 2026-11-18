@@ -14,7 +14,7 @@
  */
 export type RecognizeKind =
   | "asset" | "customer" | "service" | "inspection" | "receive" | "repair" | "maintenance"
-  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline" | "shipment" | "project" | "faultcode" | "series" | "expense" | "training";
+  | "delivery" | "acceptance" | "payment" | "stock" | "employee" | "quote" | "purchase" | "entity" | "decline" | "shipment" | "project" | "faultcode" | "series" | "expense" | "training" | "leave";
 
 /** `strict`: a document outside `accept` is refused (customer onboarding, HR papers). Without it `accept` only names the attachment; whatever the person uploads is read. */
 export interface RecognizeSpec { fields: Record<string, string>; lines?: Record<string, string>; accept?: string[]; strict?: boolean; attachKind: string }
@@ -72,6 +72,7 @@ export const RECOGNIZE: Record<RecognizeKind, RecognizeSpec> = {
   series: { attachKind: "KNOWLEDGE", fields: { name: "product series name as the manufacturer writes it", code: "short series code", codeRule: "how the series' fault codes look, if the document says" } },
   expense: { attachKind: "RECEIPT", fields: { spentOn: "date on the receipt YYYY-MM-DD", vendor: "seller's name as printed", vendorTaxId: "seller's 13-digit tax ID, only if printed", receiptNo: "receipt or tax invoice number exactly as printed", amount: "total paid including VAT, number only", vatAmount: "VAT amount, only when the paper is a full tax invoice showing it", category: "what kind of cost this is — choose from the form's options", description: "what was bought and why, one short line", serviceOrderNo: "the QTTH order number the cost belongs to, only if the person says it" } },
   training: { attachKind: "CERTIFICATE", fields: { title: "course or training title", provider: "who gave the training", startedOn: "first day YYYY-MM-DD", endedOn: "last day YYYY-MM-DD", hours: "training hours, number only", certificateNo: "certificate number exactly as printed", expiresAt: "certificate expiry YYYY-MM-DD", score: "score out of 100 if stated", note: "what was covered, one or two lines" } },
+  leave: { attachKind: "MEDICAL_CERT", fields: { reason: "what the certificate says the person needs (e.g. rest for 3 days), in a few words" } },
   decline: { attachKind: "DECLINE", fields: { declineNote: "why the customer does not go ahead, in their words", toldAt: "date of the reply YYYY-MM-DD" } },
   delivery: { attachKind: "DELIVERY", fields: { signedBy: "name of person who signed for the goods", signedAt: "date signed, YYYY-MM-DD", remark: "remarks written on the signed copy" } },
   acceptance: { attachKind: "ACCEPTANCE", fields: { customerSignatory: "who signed", punchList: "open items written on the form", status: "ACCEPTED, CONDITIONAL or REJECTED" } },

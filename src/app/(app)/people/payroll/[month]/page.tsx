@@ -3,14 +3,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
-import { BLOCKING, REVIEW_BLOCKING, REVIEW_NOTED, payrollDetail, payrollStage, lateOvertime } from "@/server/payroll";
+import { BLOCKING, REVIEW_BLOCKING, REVIEW_NOTED, liveMissing, lateOvertimePreview, payrollDetail, payrollStage, lateOvertime, carriedOvertime, payrollTrail } from "@/server/payroll";
+import { OT_MULTIPLIER } from "@/lib/overtime";
 import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { payslipNo } from "@/lib/numbering";
 import { DEFAULT_BANDS, type PerfBand, type Withholding } from "@/lib/payroll-run";
 import { localToday } from "@/lib/overtime";
 import { Flash } from "@/components/Flash";
 import { Alert, Card, PageHeader, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
-import { taxAction, approveAction, bandsAction, computeAction, paidAction, reopenAction, saveLinesAction, submitAction, carryAction, recountAction } from "../actions";
+import { taxAction, approveAction, bandsAction, computeAction, paidAction, reopenAction, saveLinesAction, submitAction, carryAction, recountAction, dropEmptyAction } from "../actions";
 import { hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +21,9 @@ export const dynamic = "force-dynamic";
  * The MD types only what the system cannot know — a one-off bonus, a deduction, or the accountant's withholding
  * figure — then approves. Each person is a card, so it reads the same on a phone.
  */
-export default async function PayrollMonth({ params, searchParams }: { params: Promise<{ month: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
+export default async function PayrollMonth({ params, searchParams }: { params: Promise<{ month: string }>; searchParams: Promise<{ ok?: string; error?: string; ask?: string }> }) {
   const { month } = await params;
-  const { ok, error } = await searchParams;
+  const { ok, error, ask } = await searchParams;
   const [t, me] = await Promise.all([getTranslations("ops"), currentEmployee()]);
   if (!hasRole(me, ...PAYROLL_ROLES)) notFound();
   const md = hasRole(me, "MD"), prep = hasRole(me, "HR"), fin = hasRole(me, "FINANCE");
@@ -33,8 +34,11 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
   const bands = ((run.policy as { bands?: PerfBand[] } | null)?.bands) ?? DEFAULT_BANDS;
   const draft = run.status === "DRAFT";
   const late = await lateOvertime(me.entityId, month); // H-R67: overtime approved after the month was last computed
+  const [carried, trail] = await Promise.all([carriedOvertime(me.entityId, month), payrollTrail(me.entityId, month)]);
   const nextMonth = month.endsWith("-12") ? `${Number(month.slice(0, 4)) + 1}-01` : `${month.slice(0, 5)}${String(Number(month.slice(5)) + 1).padStart(2, "0")}`;
   const money = (n: unknown) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (run.status === "DRAFT") run.lines = await liveMissing(me.entityId, month, run.lines); // judged now (v5 P1-6)
+  const preview = (ask === "carry" || ask === "recount") && late.rows.length && !late.locked ? await lateOvertimePreview(me.entityId, month, ask) : null; // 先弹窗说明后果 (v5 P1-8)
   const blocking = run.lines.filter((l) => l.missing.some((m) => BLOCKING.includes(m)));
   const reviewStop = run.lines.filter((l) => l.missing.some((m) => REVIEW_BLOCKING.includes(m))), reviewNoted = run.lines.filter((l) => l.missing.some((m) => REVIEW_NOTED.includes(m)));
   const bankGap = run.lines.some((l) => l.missing.includes("BANK"));
@@ -55,14 +59,30 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
       <Flash ok={ok} error={error} />
       {late.rows.length > 0 && (late.locked || run.submittedAt) && <div className="rounded-xl border border-alert bg-white p-3 text-sm" role="alert">
         <div className="font-semibold text-alert-ink">{t("payLateOt", { n: late.rows.length, hours: late.hours })}</div>
-        <ul className="mt-1 list-disc pl-5 text-[13px] text-navy">{late.rows.map((r) => <li key={r.id}><span className="font-mono">{r.employee.code}</span> {r.employee.name} · {r.workDate.toISOString().slice(0, 10)} {r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime} · {Number(r.actualHours ?? r.hours)} h</li>)}</ul>
+        <ul className="mt-1 list-disc pl-5 text-[13px] text-navy">{late.rows.map((r) => { const base = Number(run.lines.find((l) => l.employeeId === r.employeeId)?.baseSalary ?? 0), h = Number(r.actualHours ?? r.hours), x = OT_MULTIPLIER[r.kind]; return <li key={r.id}><span className="font-mono">{r.employee.code}</span> {r.employee.name} · {r.workDate.toISOString().slice(0, 10)} {r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime} · {h} h × {x}{base > 0 ? ` = ${(Math.round(h * (base / 30 / 8) * x * 100) / 100).toFixed(2)}` : ""}</li>; })}</ul>
         {late.locked ? <p className="mt-2 text-[13px] text-navy">{t("payLateOtNext", { next: nextMonth, m: Number(month.slice(5)) })}</p>
           : <div className="mt-2 flex flex-wrap items-center gap-2">
-              {prep && <form action={recountAction.bind(null, month)}><button className={btnBlue}>{t("payLateOtRecount")}</button></form>}
-              {(prep || md) && <form action={carryAction.bind(null, month)}><button className={btnGhost}>{t("payLateOtCarry", { next: nextMonth, m: Number(month.slice(5)) })}</button></form>}
+              {prep && <Link href={`/people/payroll/${month}?ask=recount#ask`} className={btnBlue}>{t("payLateOtRecount")}</Link>}
+              {(prep || md) && <Link href={`/people/payroll/${month}?ask=carry#ask`} className={btnGhost}>{t("payLateOtCarry", { next: nextMonth, m: Number(month.slice(5)) })}</Link>}
               {!prep && !md && <span className="text-[13px] text-navy/70">{t("payLateOtAskHr")}</span>}
             </div>}
       </div>}
+      {preview && <div id="ask" role="dialog" aria-modal="true" className="fixed inset-0 z-40 flex items-center justify-center bg-navy/40 p-4">
+        <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-white p-5 text-sm shadow-xl">
+          <h2 className="text-base font-bold text-navy">{ask === "carry" ? t("askCarryTitle", { next: preview.next }) : t("askRecountTitle", { m: Number(month.slice(5)) })}</h2>
+          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-[13px]">{preview.rows.map((r, i) => <li key={i}><span className="font-mono">{r.code}</span> {r.name} · {r.date} {r.time} · {r.hours} h × {r.x} = {money(r.amount)}</li>)}</ul>
+          <p className={`mt-3 rounded-lg px-3 py-2 ${preview.changed ? "bg-[#FFF4E5] text-[#7A4A00]" : "bg-tint text-navy"}`}>{preview.changed ? t("askChanged", { a: money(preview.before), b: money(preview.after) }) : t("askSame", { a: money(preview.before), state: t(`payStage_${preview.stage}`) })}</p>
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
+            <Link href={`/people/payroll/${month}`} className={btnGhost}>{t("askCancel")}</Link>
+            <form action={(ask === "carry" ? carryAction : recountAction).bind(null, month)}><button className={btnBlue}>{t("askConfirm")}</button></form>
+          </div>
+        </div>
+      </div>}
+      {carried.rows.length > 0 && <div className="rounded-xl border border-[#E6A23C] bg-[#FFF4E5] p-3 text-[13px] text-[#7A4A00]" role="status">
+        <b>{t("payCarried", { n: carried.rows.length, next: carried.rows[0].payNotBefore ?? "" })}</b>{carried.by ? ` · ${carried.by.code} ${carried.by.name} · ${localIso(carried.at)!.slice(0, 16).replace("T", " ")}` : ""}
+        <ul className="mt-1 list-disc pl-5">{carried.rows.map((r) => <li key={r.id}><span className="font-mono">{r.employee.code}</span> {r.employee.name} · {r.workDate.toISOString().slice(0, 10)} {r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime} · {Number(r.actualHours ?? r.hours)} h × {OT_MULTIPLIER[r.kind]}{(() => { const base = Number(run.lines.find((l) => l.employeeId === r.employeeId)?.baseSalary ?? 0); return base > 0 ? ` = ${money(Math.round(Number(r.actualHours ?? r.hours) * (base / 30 / 8) * OT_MULTIPLIER[r.kind] * 100) / 100)}` : ""; })()}</li>)}</ul>
+      </div>}
+      {draft && prep && run.lines.length === 0 && <form action={dropEmptyAction.bind(null, month)} className="rounded-xl border bg-white p-3 text-[13px]">{t("payEmptySay")} <button className={`${btnGhost} ml-2`}>{t("payEmptyDrop")}</button></form>}
       <ol className="flex flex-wrap gap-2 text-[13px]">
         {([["payStepPrep", run.preparedBy, true], ["payStepReview", run.taxConfirmedBy, !!run.taxConfirmedAt], ["payStepApprove", run.approvedBy, !!run.approvedAt], ["payStepPaid", run.paidAt ? localIso(run.paidAt)!.slice(0, 10) : null, !!run.paidAt]] as const).map(([k, who, done], i) =>
           <li key={k} className={`rounded-full border px-3 py-1 ${done && who ? "border-navy bg-navy text-white" : "border-navy/30 bg-white text-navy/70"}`}>{i + 1}. {t(k)}{done && who ? ` · ${who}` : ""}</li>)}
@@ -105,6 +125,7 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
                   <div className="space-y-0.5">
                     <Row k={t("payBase")} v={l.baseSalary} strong />
                     {allowances.map((a, i) => <Row key={i} k={a.name} v={a.amount} />)}
+                    {Number(l.leaveDeduction) > 0 && <Row k={t("payLeaveCut", { days: Number(l.unpaidLeaveDays) })} v={-Number(l.leaveDeduction)} />}
                     <Row k={l.otLateFrom.length ? `${t("payOvertime")}（${t("payOtLate", { months: l.otLateFrom.map((m) => Number(m.slice(5))).join("、") })}）` : t("payOvertime")} v={l.overtime} />
                     {Number(l.variablePay) > 0 && <Row k={`${t(l.perfBasis === "TARGET" ? "payIncentiveM" : "payIncentive")} ${money(l.variablePay)} × ${Number(l.perfFactor)}${l.perfBasis === "TARGET" ? (l.achievement != null ? `（${(Number(l.achievement) * 100).toFixed(1)}%）` : "") : l.perfScore != null ? `（${Number(l.perfScore)}）` : ""}`} v={l.incentive} strong />}
                     {Number(l.quarterlyPay) > 0 && <Row k={`${t("payIncentiveQ")} ${money(l.quarterlyPay)} × ${Number(l.quarterFactor)}${l.quarterAchieved != null ? `（${(Number(l.quarterAchieved) * 100).toFixed(1)}%）` : ""}`} v={l.quarterIncentive} strong />}
@@ -142,6 +163,10 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
         </form>
       </Card>}
       <p className="text-xs text-navy/60">{t("payMethodNote")}</p>
+      <details className="rounded-xl border bg-white p-3" open={trail.length > 0 && trail.length <= 8}>
+        <summary className="cursor-pointer text-sm font-semibold text-navy">{t("payTrail")} ({trail.length})</summary>
+        <ul className="mt-2 space-y-1 text-[13px]">{trail.map((a) => { const d = (a.detail ?? {}) as Record<string, unknown>; return <li key={a.id}><span className="font-mono text-xs text-navy/70">{localIso(a.at)!.slice(0, 16).replace("T", " ")}</span> · <span className="font-mono text-xs">{a.actor?.code}</span> {a.actor?.name} · <b>{t.has(`trail_${a.action}`) ? t(`trail_${a.action}`) : a.action}</b>{a.action === "PAYROLL_REVIEW_RESET" || a.action === "PAYROLL_RECOMPUTED" ? ` · ${t("trailNet")} ${d.netBefore} → ${d.netAfter} · ${t("trailOt")} ${d.overtimeBefore} → ${d.overtimeAfter}${d.via === "approve" ? ` · ${t("trailViaApprove")}` : ""}` : a.action === "OT_CARRIED" ? ` · → ${d.to} · ${d.requests} · ${d.hours} h${Array.isArray(d.list) ? ` · ${(d.list as string[]).join("; ")}` : ""}${d.grossBefore != null ? ` · ${d.changed ? `${t("trailGross")} ${d.grossBefore} → ${d.grossAfter}` : t("trailSame")}` : ""}` : a.action === "PAYROLL_RECOUNT" ? ` · ${d.overtime} · ${d.hours} h${Array.isArray(d.list) ? ` · ${(d.list as string[]).join("; ")}` : ""}${d.grossBefore != null ? ` · ${t("trailGross")} ${d.grossBefore} → ${d.grossAfter}` : ""}` : a.action === "PAYROLL_STATE" ? ` · ${t(`payStage_${d.from}`)} → ${t(`payStage_${d.to}`)} · ${t(`trailWhy_${d.reason}`)} · ${t("trailSystem", { trigger: String(d.trigger ?? "") })}` : ""}</li>; })}{!trail.length && <li className="text-navy/60">—</li>}</ul>
+      </details>
     </div>
   );
 }

@@ -52,14 +52,14 @@ async function main() {
   await refused(() => setHoliday({ actorCode: w.code, date: new Date(`${day(2)}T00:00:00Z`), name: "TEST holiday" }), /NO_PERMISSION/, "an engineer cannot set a holiday");
   await setHoliday({ actorCode: md.code, date: new Date(`${day(2)}T00:00:00Z`), name: "TEST holiday" });
   const hol = await requestOvertime({ actorCode: w.code, workDate: day(2), startTime: "18:00", endTime: "20:00", reason: "holiday call-out" });
-  assert(hol.kind === "HOLIDAY_WORK" && Number(hol.hours) === 2, "a company holiday: 2 h holiday work, chosen by the calendar");
+  assert(hol.kind === "HOLIDAY_OT" && Number(hol.hours) === 2, "a company holiday, 18:00–20:00 only: 2 h holiday overtime ×3 (H-R69)");
   await approve(hol);
   await approve(await requestOvertime({ actorCode: w.code, workDate: day(3), startTime: "18:00", endTime: "02:00", reason: "night commissioning" }));
   await approve(await requestOvertime({ actorCode: w.code, workDate: day(4), startTime: "17:30", endTime: "03:30", reason: "night commissioning" }));
   const sun = await requestOvertime({ actorCode: w.code, workDate: day(6), startTime: "08:30", endTime: "20:00", kind: "WORKDAY_OT", reason: "Sunday site" });
   assert(sun.all.length === 2 && sun.all[0].kind === "HOLIDAY_WORK" && Number(sun.all[0].hours) === 8 && sun.all[1].kind === "HOLIDAY_OT" && Number(sun.all[1].hours) === 2.5 && sun.all[1].startTime === "17:30", "Sunday 08:30–20:00: 8 h holiday work ×1 + 2.5 h holiday OT ×3, by itself");
   await approve(sun);
-  await approve(await requestOvertime({ actorCode: w.code, workDate: day(5), startTime: "17:30", endTime: "03:00", reason: "Saturday night" }));
+  await approve(await requestOvertime({ actorCode: w.code, workDate: day(5), startTime: "17:30", endTime: "01:00", reason: "Saturday night" }));
   await refused(() => requestOvertime({ actorCode: w.code, workDate: day(5), startTime: "06:00", endTime: "08:00", reason: "x" }), /OT_WEEKLY_CAP:36\+2>36/, "36 h used this week: 2 more refused (holiday work in normal hours does not count)");
 
   console.log("3. site hours draft the overtime (N-03)");
@@ -70,6 +70,7 @@ async function main() {
   assert(d2.length === 1 && Number(d2[0].hours) === 3.5 && (await prisma.overtimeRequest.count({ where: { sourceNo: `RPTH-TEST-${stamp}` } })) === 1, "the report corrected to 21:00: the draft follows (3.5 h), not a second one");
   assert((await draftOvertimeFromWork({ employeeId: w.id, start: at(day(9), "09:00"), end: at(day(9), "17:00"), sourceNo: `RPTH-TEST2-${stamp}` })).length === 0, "a report inside the shift drafts nothing");
   assert((await draftOvertimeFromWork({ employeeId: w.id, start: at(day(0), "08:30"), end: at(day(0), "21:00"), sourceNo: `RPTH-TEST3-${stamp}` })).length === 0, "hours the person already asked for are not drafted twice");
+  assert((await draftOvertimeFromWork({ employeeId: w.id, start: at(day(9), "19:00"), end: new Date(at(day(9), "19:00").getTime() + 20000), sourceNo: `RPTH-TEST5-${stamp}` })).length === 0, "a report opened and finished within the same minute drafts nothing");
   assert((await draftOvertimeFromWork({ employeeId: w.id, start: at(day(9), "08:30"), end: at(day(11), "20:00"), sourceNo: `RPTH-TEST4-${stamp}` })).length === 0, "a report running over several days is left alone");
   assert(!(await previewOvertimeMonth(entity.id, M)).find((l) => l.employeeId === w.id)?.requests.some((q) => q.origin === "SITE"), "a draft nobody approved is not in the pay");
   await decideOvertime({ id: d2[0].id, actorCode: mgr.code, decision: "REJECTED", note: "probe: not agreed" });
@@ -77,6 +78,9 @@ async function main() {
   const late = await requestOvertime({ actorCode: w.code, workDate: day(7), startTime: "18:00", endTime: "20:00", reason: "late paperwork" });
   const xr = await requestOvertime({ actorCode: x.code, workDate: day(4), startTime: "18:00", endTime: "19:00", reason: "customer visit" });
   await decideOvertime({ id: xr.id, actorCode: md.code, decision: "APPROVED", note: "ok" });
+  const sunEve = await requestOvertime({ actorCode: x.code, workDate: day(6), startTime: "18:00", endTime: "20:00", reason: "Sunday evening only" });
+  assert(sunEve.all.length === 1 && sunEve.kind === "HOLIDAY_OT" && Number(sunEve.hours) === 2, "Sunday 18:00–20:00 only: 2 h ×3, not ×1 (H-R69)");
+  await cancelOvertime({ id: sunEve.id, actorCode: x.code });
   const mdOwn = await requestOvertime({ actorCode: md.code, workDate: day(6), startTime: "13:00", endTime: "14:00", reason: "MD own" });
   assert(mdOwn.status === "APPROVED" && mdOwn.kind === "HOLIDAY_WORK", "the MD's own request is approved at once");
 
@@ -88,8 +92,8 @@ async function main() {
   const det = await overtimeMonthDetail(entity.id, M);
   const lw = det!.lines.find((l) => l.employeeId === w.id)!;
   const h = lw.hours as Record<string, number>, a = lw.amounts as Record<string, number>;
-  assert(Number(lw.hourlyRate) === 50 && h.WORKDAY_OT === 33.5 && h.HOLIDAY_OT === 2.5 && h.HOLIDAY_WORK === 10, `12 000 ÷ 30 ÷ 8 = 50/h; 33.5 h OT, 2.5 h holiday OT, 10 h holiday work (${JSON.stringify(h)})`);
-  assert(a.WORKDAY_OT === 2512.5 && a.HOLIDAY_OT === 375 && a.HOLIDAY_WORK === 500 && Number(lw.total) === 3387.5, "1.5× 2 512.50 + 3× 375 + 1× 500 = 3 387.50");
+  assert(Number(lw.hourlyRate) === 50 && h.WORKDAY_OT === 31.5 && h.HOLIDAY_OT === 4.5 && h.HOLIDAY_WORK === 8, `12 000 ÷ 30 ÷ 8 = 50/h; 31.5 h OT, 4.5 h holiday OT, 8 h holiday work (${JSON.stringify(h)})`);
+  assert(a.WORKDAY_OT === 2362.5 && a.HOLIDAY_OT === 675 && a.HOLIDAY_WORK === 400 && Number(lw.total) === 3437.5, "1.5× 2 362.50 + 3× 675 + 1× 400 = 3 437.50");
   const lx = det!.lines.find((l) => l.employeeId === x.id)!;
   assert(lx.missingSalary && Number(lx.total) === 0 && Number(lx.totalHours) === 1, "no salary on file: hours counted, amount 0, flagged");
   assert((await prisma.overtimeRequest.findUniqueOrThrow({ where: { id: late.id } })).payMonthId === null, "a request still pending at close is not paid");

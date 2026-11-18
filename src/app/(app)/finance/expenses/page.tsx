@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getLocale, getTranslations } from "next-intl/server";
@@ -48,11 +49,11 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
                 {r.vatAmount != null && <span>VAT {Number(r.vatAmount).toFixed(2)}</span>}
                 <span>{t(`paidBy_${r.paidBy}`)}</span>
                 {r.serviceOrderNo && <Link href={`/service-orders/${r.serviceOrderNo}`} className="font-mono text-blue hover:underline">{r.serviceOrderNo}</Link>}
-                {files.map((a) => <a key={a.url} href={a.url} target="_blank" className="text-blue hover:underline">📄 {a.name}</a>)}
+                {files.map((a) => <a key={a.url} href={a.url} target="_blank" className="text-blue hover:underline"><Icon name="doc" /> {a.name}</a>)}
                 {files.length === 0 && <span className="text-[#9A5B00]">{t("expNoReceipt")}</span>}
                 {r.approver && <span>{t(r.status === "REJECTED" ? "expRejectedBy" : "expApprovedBy", { name: r.approver.name })}{r.decisionNote ? ` · ${r.decisionNote}` : ""}</span>}
                 {r.paidRef && <span>{r.paidRef}</span>}
-                {r.status === "APPROVED" && r.paidBy === "SELF" && <span>{t("expWithPayroll")}</span>}
+                {r.status === "APPROVED" && r.paidBy === "SELF" && <span>{t("expWithPayroll", { month: r.payrollMonth ?? new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 7) })}</span>}
               </div>
               {r.status === "APPROVED" && r.payrollMonth && <p className="mt-2 text-[13px] text-navy">{t("expWithPayroll", { month: r.payrollMonth })}</p>}
               {(r.canDecide || (r.status === "PENDING" && r.employeeId === me.id) || r.canPay) && <div className="mt-2 flex flex-wrap items-center gap-2">

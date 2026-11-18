@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "@/components/Icon";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -42,7 +43,7 @@ export function ScanButton({ label, hrefTemplate = "/portal/report?asset={code}"
 
   return (
     <>
-      <button type="button" onClick={() => { setErr(null); setOpen(true); }} className={compact ? "inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy" : "w-full rounded-lg border-2 border-blue py-3 text-base font-bold text-blue"}>📷 {label}</button>
+      <button type="button" onClick={() => { setErr(null); setOpen(true); }} className={compact ? "inline-flex min-h-10 items-center rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy" : "w-full rounded-lg border-2 border-blue py-3 text-base font-bold text-blue"}><Icon name="camera" /> {label}</button>
       {open && (
         <div className="fixed inset-0 z-50 flex flex-col bg-black">
           <video ref={video} className="flex-1 object-cover" muted playsInline />

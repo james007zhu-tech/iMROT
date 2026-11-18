@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { assertOrderAccess } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
@@ -75,7 +76,7 @@ export default async function Project({ params, searchParams }: { params: Promis
                 <td>{m.seq}</td>
                 <td className="font-semibold">{phase(m.phase)}</td>
                 <td className="whitespace-nowrap">{localIso(m.plannedOn)?.slice(0, 10) ?? "—"}</td>
-                <td>{m.doneAt ? <>✓ {localIso(m.doneAt)!.slice(0, 10)}{m.doneById ? ` · ${people.get(m.doneById) ?? ""}` : ""}{m.note ? <span className="block text-xs text-navy/70">{m.note}</span> : null}{files.map((a) => <a key={a.url} href={a.url} target="_blank" className="mr-2 block text-xs text-blue hover:underline">📄 {a.name}</a>)}</> : "—"}</td>
+                <td>{m.doneAt ? <>✓ {localIso(m.doneAt)!.slice(0, 10)}{m.doneById ? ` · ${people.get(m.doneById) ?? ""}` : ""}{m.note ? <span className="block text-xs text-navy/70">{m.note}</span> : null}{files.map((a) => <a key={a.url} href={a.url} target="_blank" className="mr-2 block text-xs text-blue hover:underline"><Icon name="doc" /> {a.name}</a>)}</> : "—"}</td>
                 <td className="text-right">{m.payPct ? `${Math.round(Number(m.payPct) * 1000) / 10}%` : ""}</td>
                 <td className="whitespace-nowrap text-right">{m.payPct ? amount.toFixed(2) : ""}</td>
                 <td>{m.taxInvoiceNo ? <span className="space-x-2 text-xs"><a className="font-mono text-blue hover:underline" href={`/api/documents/${m.taxInvoiceNo}/render?format=pdf`}>{m.taxInvoiceNo}</a>{m.invoiceNo && <a className="font-mono text-blue hover:underline" href={`/api/documents/${m.invoiceNo}/render?format=pdf`}>{m.invoiceNo}</a>}</span>

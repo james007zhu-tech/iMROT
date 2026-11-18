@@ -50,7 +50,7 @@ export function NavLinks({ groups }: { groups: { key: string; label: string; hre
               );
               // a module with a page of its own (首页 = the conversation) opens it; the others just unfold
               return g.href
-                ? <Link href={g.href} onClick={() => setOpen(g.key)} aria-current={on && !best.i ? "page" : undefined} className={cls}>{inside}</Link>
+                ? <Link prefetch={false} href={g.href} onClick={() => setOpen(g.key)} aria-current={on && !best.i ? "page" : undefined} className={cls}>{inside}</Link>
                 : <button type="button" onClick={() => setOpen(open === g.key ? "" : g.key)} aria-expanded={open === g.key} className={cls}>{inside}</button>;
             })()}
             {open === g.key && (
@@ -58,7 +58,7 @@ export function NavLinks({ groups }: { groups: { key: string; label: string; hre
                 {g.items.map((it) => {
                   const cur = on && it.key === best.i;
                   return (
-                    <Link key={it.key} href={it.href} aria-current={cur ? "page" : undefined}
+                    <Link key={it.key} prefetch={false} href={it.href} aria-current={cur ? "page" : undefined}
                       className={`relative rounded-md px-3 py-2 text-[14px] md:py-1.5 md:text-[13.5px] ${cur ? "bg-[#EEF3F9] font-bold text-navy before:absolute before:inset-y-1.5 before:-left-[9px] before:w-[3px] before:rounded before:bg-blue" : it.soon ? "text-[#4A5A6E]/60 hover:bg-[#F4F7FB]" : "text-[#4A5A6E] hover:bg-[#F4F7FB] hover:text-navy"}`}>
                       {it.label}
                     </Link>

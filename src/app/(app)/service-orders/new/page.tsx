@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { PartDropdown } from "@/components/PartDropdown";
 import Link from "next/link";
 import { ScopedSelect } from "@/components/ScopedSelect";
@@ -92,7 +93,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         currency: "THB", attachments: [...boxed, ...po],
       });
       if (form.get("assign") && s("assigneeCode")) {
-        await advanceServiceOrder(order.no, "ASSIGNED", me.code, [s("plannedAt") ? `📅 ${s("plannedAt")!.replace("T", " ")}` : "", s("internalNote") ?? ""].filter(Boolean).join(" · ") || undefined, s("assigneeCode"));
+        await advanceServiceOrder(order.no, "ASSIGNED", me.code, [s("plannedAt") ? `${s("plannedAt")!.replace("T", " ")}` : "", s("internalNote") ?? ""].filter(Boolean).join(" · ") || undefined, s("assigneeCode"));
       }
       return { ok: order.no, to: `/service-orders/${order.no}` };
     }, `/service-orders/new?mode=${encodeURIComponent(String(form.get("mode") ?? "REPAIR"))}`); // an error comes back to the same form, with what was typed

@@ -12,12 +12,16 @@ describe("班次拆分 (v3 P1-35, shift 08:30–17:30, lunch 1 h)", () => {
   });
   it("Sunday 08:00–19:00 → 8 h × 1 (666.67) + 2 h × 3 (500.00)", () => {
     const d = splitWork({ dayKind: "REST", start: "08:00", end: "19:00" });
-    expect(d.segments.map((s) => [s.kind, s.hours])).toEqual([["HOLIDAY_WORK", 8], ["HOLIDAY_OT", 2]]);
+    expect(d.segments.map((s) => [s.kind, s.hours])).toEqual([["HOLIDAY_OT", 0.5], ["HOLIDAY_WORK", 8], ["HOLIDAY_OT", 1.5]]); // inside the shift ×1, before and after ×3
     const p = pay(d.segments); expect(p.amounts.HOLIDAY_WORK).toBe(666.67); expect(p.amounts.HOLIDAY_OT).toBe(500);
   });
   it("Sunday 08:00–20:30 (RPTH26111601) → 8 h × 1 + 3.5 h × 3, never 工作日 ×1.5", () => {
     const d = splitWork({ dayKind: "REST", start: "08:00", end: "20:30" });
-    expect(d.segments.map((s) => [s.kind, s.hours])).toEqual([["HOLIDAY_WORK", 8], ["HOLIDAY_OT", 3.5]]);
+    expect(d.segments.map((s) => [s.kind, s.hours])).toEqual([["HOLIDAY_OT", 0.5], ["HOLIDAY_WORK", 8], ["HOLIDAY_OT", 3]]);
+  });
+  it("H-R69: a Sunday or holiday worked only outside the shift is ×3; inside the shift it is holiday work", () => {
+    expect(splitWork({ dayKind: "REST", start: "18:00", end: "20:00" }).segments.map((s) => [s.kind, s.hours])).toEqual([["HOLIDAY_OT", 2]]);
+    expect(splitWork({ dayKind: "HOLIDAY", start: "08:30", end: "17:30" }).segments.map((s) => [s.kind, s.hours])).toEqual([["HOLIDAY_WORK", 8]]);
   });
   it("a normal day inside the shift makes no overtime; a recorded rest comes off the overtime only", () => {
     expect(splitWork({ dayKind: "WORKDAY", start: "08:30", end: "17:30" }).segments).toEqual([]);

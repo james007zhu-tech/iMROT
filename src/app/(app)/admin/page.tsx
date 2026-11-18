@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { can, hasRole } from "@/lib/caps";
 import { localIso } from "@/lib/dates";
 import { getTranslations } from "next-intl/server";
@@ -114,6 +115,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
   return (
     <div className="space-y-4">
       <PageHeader title={t("nav_admin")} newHref={md ? "#new-entity" : undefined} newLabel={u("newEntity")} />
+      <Link href="/admin/audit" className="inline-block rounded-lg border border-navy/30 bg-white px-3 py-1.5 text-sm font-semibold text-navy hover:bg-tint">{u("auditTitle")} →</Link>
       <Flash ok={ok} error={error} />
       <Card title={t("legalEntities")}>
         <div className="space-y-2">
