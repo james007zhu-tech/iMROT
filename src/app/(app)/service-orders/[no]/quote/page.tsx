@@ -1,3 +1,4 @@
+import { fifoOf, systemCost } from "@/server/fifo";
 import { belowMinLines } from "@/lib/margin";
 import { assertOrderAccess } from "@/server/scope";
 import { fxMark } from "@/lib/fx-label";
@@ -32,6 +33,11 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   const badCost = error?.startsWith("QUOTE_COST_REQUIRED:") || error?.startsWith("QUOTE_EST_REQUIRED:") || error?.startsWith("QUOTE_COST_PENDING:") ? error.split(":")[1].split("、").map(Number) : [];
   const items = !edit && hasRole(me, "ENGINEER") && ["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(order.status);
   const [parts, rate] = await Promise.all([prisma.part.findMany({ orderBy: { sku: "asc" }, take: 500 }), latestRate(order.currency)]);
+  // N-41 (MD 2026-11-18 17:02): the cost the system hands a quote is the next batch to go out, first in first out — not
+  // the last purchase price. `lastCost` below is that system cost; `batchOf` says which batch it is (for finance and the MD).
+  const fifo = await fifoOf(parts.map((p) => p.id));
+  const batchOf = new Map<string, { no: string; date: Date } | null>();
+  for (const p of parts) { const sc = systemCost(fifo.get(p.id)); if (sc) { (p as { lastCost: unknown }).lastCost = sc.cost; batchOf.set(p.id, sc.batch); } }
   refreshIfStale(rate?.ageDays); // a missing or day-old BoC rate is fetched again in the background
   // No quote yet → start from what the inspections said the repair needs (parts with their last cost, labour in hours).
   type Row = { assetCode?: string | null; partId?: string | null; partSku?: string; description: string; descriptionLocal?: string | null; qty: number | { toString(): string }; unit: string; unitPrice?: number | { toString(): string }; unitCost?: number | { toString(): string } | null; costRef?: number | { toString(): string } | null; costEst?: boolean; fromInth?: boolean };
@@ -93,8 +99,8 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   if (seeCost) for (const [i, l] of lines.entries()) {
     const part = partOf(l); if (!part || !(Number(part.lastCost ?? 0) > 0) || l.costEst) continue;
     if (l.unitCost != null && Math.abs(Number(l.unitCost) - Number(part.lastCost)) > 0.005) continue; // a figure the MD / finance wrote
-    const rec = await prisma.stockMovement.findFirst({ where: { partId: part.id, direction: "IN", unitCost: { not: null } }, orderBy: { movedAt: "desc" }, select: { no: true, movedAt: true, purchaseOrder: { select: { no: true } } } });
-    srcOf.set(i, rec ? `${rec.purchaseOrder?.no ?? rec.no} · ${localIso(rec.movedAt)!.slice(0, 10)}` : u("costSrcMaster"));
+    const bt = batchOf.get(part.id);
+    srcOf.set(i, bt ? u("costSrcBatch", { no: bt.no, date: localIso(bt.date)!.slice(0, 10) }) : u("costSrcLast"));
   }
   const below = seeCost ? belowMinLines(lines.map((l) => ({ qty: Number(l.qty), unitPrice: Number(l.unitPrice ?? 0), unitCost: l.unitCost != null ? Number(l.unitCost) : l.costRef != null ? Number(l.costRef) : null })), floor) : [];
   const estCol = edit && !seeCost && !partnerMode; // Sales: its own estimate, only where the system has no cost (朱总 2026-11-18)

@@ -15,9 +15,20 @@ export const dynamic = "force-dynamic";
  * totals, the tax in words, who bears the tax, the signature. It can be looked at as soon as finance asks for the
  * payment (ฉบับร่าง — before the MD approves) and printed or saved as PDF once the payment is confirmed (派修单 v4 A).
  */
-export default async function WhtCertificate({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const [u, p] = await Promise.all([getTranslations("ui"), prisma.supplierPayment.findUnique({ where: { id }, include: { supplierInvoice: { include: { supplier: true } } } })]);
+export default async function WhtCertificate({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ inv?: string; gross?: string; rate?: string; type?: string }> }) {
+  const { id } = await params, q = await searchParams;
+  const u = await getTranslations("ui");
+  // 财神爷 2026-11-18: the certificate can be looked at before the payment is even asked for — as soon as the income kind
+  // and the rate are chosen. /wht/preview?inv=…&gross=…&rate=…&type=… builds the same page from the form's figures:
+  // no number is taken, nothing is stored, the watermark says ฉบับร่าง.
+  let p = id === "preview" ? null : await prisma.supplierPayment.findUnique({ where: { id }, include: { supplierInvoice: { include: { supplier: true } } } });
+  if (id === "preview") {
+    const inv = q.inv ? await prisma.supplierInvoice.findUnique({ where: { id: q.inv }, include: { supplier: true } }) : null;
+    if (!inv) notFound();
+    const gross = Math.min(Number(q.gross) || 0, Number(inv.total)), rate = Math.max(0, Math.min(0.15, Number(q.rate) || 0));
+    const wht = Math.round(gross * (Number(inv.total) > 0 ? Number(inv.subtotal) / Number(inv.total) : 1) * rate * 100) / 100;
+    p = { id: "preview", no: inv.invoiceNo, entityId: inv.entityId, status: "REQUESTED", whtCertNo: "—", whtRate: rate, whtAmount: wht, gross, whtType: q.type || "SERVICE", paidAt: null, payDate: new Date(), supplierInvoice: inv } as unknown as typeof p;
+  }
   if (!p || !p.whtCertNo) notFound();
   const inv = p.supplierInvoice, s = inv.supplier;
   const e = await prisma.legalEntity.findUniqueOrThrow({ where: { id: p.entityId } });
@@ -33,7 +44,7 @@ export default async function WhtCertificate({ params }: { params: Promise<{ id:
   return (
     <div className="mx-auto max-w-[210mm] space-y-3">
       <div className="flex flex-wrap items-center gap-3 print:hidden">
-        <Link href={`/finance/payables?all=1#${p.no}`} className="text-sm text-blue hover:underline">← {p.no}</Link>
+        <Link href={id === "preview" ? "/finance/payables" : `/finance/payables?all=1#${p.no}`} className="text-sm text-blue hover:underline">← {p.no}</Link>
         <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${state === "issued" ? "border-navy text-navy" : state === "void" ? "border-alert text-alert-ink" : "border-[#E6A23C] bg-[#FFF4E5] text-[#7A4A00]"}`}>{u(`whtState_${state}`)}</span>
         {state === "draft" && <span className="text-xs text-navy/70">{u("whtDraftHelp")}</span>}
         <span className="ml-auto" />{state !== "void" && <PrintButton label={u(state === "issued" ? "whtPdf" : "whtPdfDraft")} />}

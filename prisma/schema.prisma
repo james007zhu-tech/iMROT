@@ -1183,7 +1183,13 @@ model StockMovement {
   accessories        Json? /// custody: [{item, qty}] that travel with the machine — checked back on the return
   attachments        Json? /// custody: nameplate / appearance photos
   counterpartySigned String? /// custody: who signed at the partner, verbatim
-  refNo              String? /// SUBCONTRACT_RETURN: the 外送 OBTH it closes
+  refNo              String? /// SUBCONTRACT_RETURN: the 外送 OBTH it closes · a return of parts (IN with an order): the OBTH it hands back (N-42)
+  /// 作废 / 红冲 (N-42): a stock document is never deleted. Voiding it writes the opposite movements under a new number;
+  /// the original carries `reversedBy` (that number), the reversal `reversalOf` (the original's). Both stay in the
+  /// ledger; neither counts in the first-in-first-out batches.
+  reversalOf         String?
+  reversedBy         String?
+  voidReason         String?
 
   @@unique([no, lineNo])
 }

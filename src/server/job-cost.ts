@@ -4,6 +4,7 @@ import { can } from "@/lib/caps";
 import { actorWith } from "./guard";
 import { audit } from "./audit";
 import { rateFor } from "./fx";
+import { fifoOf } from "./fifo";
 
 /**
  * 开票前成本认可 (朱总 2026-11-18). Sales may estimate a cost on the quote; what the invoice stands on is the real cost,
@@ -29,14 +30,19 @@ export async function orderCost(orderId: string): Promise<OrderCost> {
     return r2((amount * a.rateToCny) / b.rateToCny);
   };
 
-  const out = await prisma.stockMovement.findMany({ where: { serviceOrderId: orderId, direction: "OUT", kind: "PART", partId: { not: null } }, include: { part: { select: { id: true, sku: true, name: true, lastCost: true } } }, orderBy: [{ movedAt: "asc" }, { lineNo: "asc" }] });
+  const out = await prisma.stockMovement.findMany({ where: { serviceOrderId: orderId, direction: "OUT", kind: "PART", partId: { not: null }, reversalOf: null, reversedBy: null }, include: { part: { select: { id: true, sku: true, name: true, lastCost: true } } }, orderBy: [{ movedAt: "asc" }, { lineNo: "asc" }] });
+  // 领料成本按先进先出 (N-41): what each issue actually cost — the batches it was taken from, split when it crossed two.
+  // Parts handed back to stock (退料) come off, at the cost they went out at.
+  const fifo = await fifoOf([...new Set(out.map((m) => m.partId!))]);
   const parts: CostRow[] = [];
   for (const m of out) {
-    const rec = await prisma.stockMovement.findFirst({ where: { partId: m.partId, direction: "IN", unitCost: { not: null }, movedAt: { lte: m.movedAt } }, orderBy: { movedAt: "desc" }, select: { unitCost: true, no: true } });
-    const c = rec?.unitCost != null ? Number(rec.unitCost) : m.part?.lastCost != null ? Number(m.part.lastCost) : null;
-    if (c == null) missing.push(`${m.no} ${m.part?.sku ?? ""}`);
-    parts.push({ ref: m.no, what: `${m.part?.sku ?? ""} ${m.part?.name ?? ""}`.trim(), qty: Number(m.qty), unit: "pcs", unitCost: c, amount: r2(Number(m.qty) * (c ?? 0)), note: rec?.no });
+    const f = fifo.get(m.partId!), o = f?.out.get(m.id);
+    if (!o || o.alloc.some((a) => a.inNo == null && !(a.cost > 0))) missing.push(`${m.no} ${m.part?.sku ?? ""}`);
+    parts.push({ ref: m.no, what: `${m.part?.sku ?? ""} ${m.part?.name ?? ""}`.trim(), qty: Number(m.qty), unit: "pcs", unitCost: o ? o.unit : null, amount: o?.amount ?? 0, note: o?.alloc.map((a) => `${a.inNo ?? "—"} ${a.qty} × ${a.cost.toFixed(2)}`).join(" + ") });
   }
+  const backs = await prisma.stockMovement.findMany({ where: { serviceOrderId: orderId, direction: "IN", kind: "PART", partId: { not: null }, purchaseOrderId: null, reversalOf: null, reversedBy: null }, include: { part: { select: { sku: true, name: true } } }, orderBy: { movedAt: "asc" } });
+  const fifoBack = backs.length ? await fifoOf([...new Set(backs.map((m) => m.partId!))]) : new Map();
+  for (const m of backs) { const o = fifoBack.get(m.partId!)?.back.get(m.id); parts.push({ ref: m.no, what: `↩ ${m.part?.sku ?? ""} ${m.part?.name ?? ""}`.trim(), qty: -Number(m.qty), unit: "pcs", unitCost: o ? o.unit : null, amount: -(o?.amount ?? 0), note: o?.alloc.map((a: { inNo: string | null; qty: number; cost: number }) => `${a.inNo ?? "—"} ${a.qty} × ${a.cost.toFixed(2)}`).join(" + ") }); }
 
   const pos = await prisma.purchaseOrder.findMany({ where: { serviceOrderId: orderId, status: { in: ["SENT", "PARTIAL", "RECEIVED"] } }, include: { supplier: { select: { name: true } } }, orderBy: { orderedAt: "asc" } });
   const purchases: CostRow[] = [];

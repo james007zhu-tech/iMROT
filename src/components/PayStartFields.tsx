@@ -3,7 +3,7 @@
 import { useState } from "react";
 const TYPE_PCT: Record<string, number> = { SERVICE: 3, RENT: 5, TRANSPORT: 1, ADVERTISING: 2 };
 
-export function PayStartFields({ open, baseShare, rate, currency, cls, labels, taxIdOk, accounts, fx }: { accounts: { id: string; label: string; ccy: string }[]; fx: Record<string, { rate: number; date: string }>; open: number; baseShare: number; rate: number; currency: string; cls: string; labels: { gross: string; rate: string; wht: string; net: string; date: string; type: string; types: Record<string, string>; draft: string; noTaxId: string; account: string; fxAt: string; fxBoc: string; fxEdit: string; fxReason: string; fxReasons: Record<string, string>; fxEquiv: string; fxNone: string; fxDiff: string }; taxIdOk: boolean; }) {
+export function PayStartFields({ open, baseShare, rate, currency, cls, labels, taxIdOk, accounts, fx, invoiceId }: { invoiceId: string; accounts: { id: string; label: string; ccy: string }[]; fx: Record<string, { rate: number; date: string }>; open: number; baseShare: number; rate: number; currency: string; cls: string; labels: { gross: string; rate: string; wht: string; net: string; date: string; type: string; types: Record<string, string>; draft: string; noTaxId: string; preview: string; account: string; fxAt: string; fxBoc: string; fxEdit: string; fxReason: string; fxReasons: Record<string, string>; fxEquiv: string; fxNone: string; fxDiff: string }; taxIdOk: boolean; }) {
   const [gross, setGross] = useState(open.toFixed(2)), [pct, setPct] = useState(String(Math.round(rate * 10000) / 100));
   const [type, setType] = useState(rate > 0 ? "SERVICE" : "");
   const pick = (v: string) => { setType(v); if (v && v !== "OTHER") setPct(String(TYPE_PCT[v])); if (!v) setPct("0"); };
@@ -29,7 +29,7 @@ export function PayStartFields({ open, baseShare, rate, currency, cls, labels, t
           {boc && changed && <span className="text-[#9A5B00]">{labels.fxDiff} {(((used - boc.rate) / boc.rate) * 100).toFixed(2)}%</span>}</span>}
         {used > 0 && <span className="block font-semibold">{labels.fxEquiv} {currency === ccy ? `THB ${(net * used).toFixed(2)}` : `${ccy} ${(net / used).toFixed(2)}`}</span>}
       </div>}
-      {wht > 0 && <p className={`col-span-2 rounded-md px-2 py-1 text-[11px] ${taxIdOk ? "bg-tint text-navy" : "bg-[#FDECEC] font-semibold text-alert-ink"}`}>{taxIdOk ? labels.draft : labels.noTaxId}</p>}
+      {wht > 0 && <p className={`col-span-2 rounded-md px-2 py-1 text-[11px] ${taxIdOk ? "bg-tint text-navy" : "bg-[#FDECEC] font-semibold text-alert-ink"}`}>{taxIdOk ? <>{labels.draft} <a href={`/finance/payables/wht/preview?inv=${invoiceId}&gross=${g}&rate=${r}&type=${type || "SERVICE"}`} target="_blank" rel="noreferrer" className="ml-1 font-semibold text-blue underline">{labels.preview}</a></> : labels.noTaxId}</p>}
     </div>
   );
 }

@@ -1,12 +1,16 @@
+import { fifoOf } from "@/server/fifo";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { localIso } from "@/lib/dates";
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 import { currentEmployee } from "@/server/auth";
 import { mayOpenOrder } from "@/server/scope";
-import { Card, PageHeader, Table, Tag } from "@/components/ui";
+import { Alert, btnGhost, Card, inputCls, PageHeader, Table, Tag } from "@/components/ui";
+import { Flash } from "@/components/Flash";
+import { guarded } from "@/lib/action-result";
+import { voidStockDoc } from "@/server/scm";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +19,9 @@ export const dynamic = "force-dynamic";
  * issued for and the machine (ATH) the parts went into. Opened from the part's movements, the order's document chain
  * and the search. Cost is shown only to those who may see it.
  */
-export default async function Movement({ params }: { params: Promise<{ no: string }> }) {
+export default async function Movement({ params, searchParams }: { params: Promise<{ no: string }>; searchParams: Promise<{ ok?: string; error?: string }> }) {
   const no = decodeURIComponent((await params).no);
+  const { ok, error } = await searchParams;
   const [t, u, n, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("nav"), currentEmployee()]);
   const rows = await prisma.stockMovement.findMany({ where: { no }, orderBy: { lineNo: "asc" }, include: { part: { select: { sku: true, name: true, nameLocal: true, unit: true } }, asset: { select: { code: true, serialNumber: true, model: { select: { code: true } } } }, serviceOrder: { select: { id: true, no: true, status: true, customer: { select: { code: true, name: true } } } } } });
   if (!rows.length) notFound();
@@ -27,14 +32,31 @@ export default async function Movement({ params }: { params: Promise<{ no: strin
   const cost = can.cost(me);
   // 派修单 v5 P2-3 (MD Q5): an issue carries no cost of its own — purchasing, finance and the MD see what the part came in
   // at: the latest receipt (IBTH) before the issue, else the part's last purchase cost. Engineers see no cost column.
-  const inCost = new Map<string, { c: number; from: string }>();
+  // N-41: the cost of an issue is what its batches cost, first in first out; a return shows what it gave back
+  const fifo = cost ? await fifoOf([...new Set(rows.filter((r) => r.partId).map((r) => r.partId!))]) : new Map();
+  const inCost = new Map<string, { c: number; from: string; split: string }>();
   if (cost) for (const r of rows) if (r.unitCost == null && r.partId) {
-    const rec = await prisma.stockMovement.findFirst({ where: { partId: r.partId, direction: "IN", unitCost: { not: null }, movedAt: { lte: r.movedAt } }, orderBy: { movedAt: "desc" }, select: { unitCost: true, no: true } });
-    const last = rec ? null : await prisma.part.findUnique({ where: { id: r.partId }, select: { lastCost: true } });
-    if (rec) inCost.set(r.id, { c: Number(rec.unitCost), from: rec.no }); else if (last?.lastCost != null) inCost.set(r.id, { c: Number(last.lastCost), from: "" });
+    const f = fifo.get(r.partId), o = f?.out.get(r.id) ?? f?.back.get(r.id);
+    if (o) inCost.set(r.id, { c: o.unit, from: o.alloc.length === 1 ? o.alloc[0].inNo ?? "" : "", split: o.alloc.length > 1 ? o.alloc.map((a: { inNo: string | null; qty: number; cost: number }) => `${a.inNo ?? "—"} ${a.qty} × ${a.cost.toFixed(2)}`).join(" + ") : "" });
+  }
+  // N-42 作废: the opposite movements under a new number; both stay in the ledger. 采购 and the MD only.
+  const dead = head.reversedBy ?? null, undoOf = head.reversalOf ?? null, parts = rows.every((r) => r.kind === "PART");
+  const mayVoid = parts && !dead && !undoOf && hasRole(me, "MD", "PURCHASING");
+  const mayReturn = out && parts && !dead && !undoOf && !!order && hasRole(me, "MD", "PURCHASING", "ENGINEER");
+  async function voidIt(f: FormData) {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      const r = await voidStockDoc({ no, actorCode: me.code, reason: String(f.get("reason") ?? "") });
+      return { ok: `stockVoided:${r.no}`, to: `/parts/movement/${no}` };
+    }, `/parts/movement/${no}`);
   }
   return (
     <div className="space-y-4">
+      <Flash ok={ok?.startsWith("stockVoided") ? u("stockVoided", { no: ok.split(":")[1] ?? "" }) : ok} error={error} />
+      {dead && <Alert>{u("stockVoidedBy")} <Link href={`/parts/movement/${dead}`} className="font-mono font-semibold underline">{dead}</Link>{head.voidReason ? ` · ${head.voidReason}` : ""}</Alert>}
+      {undoOf && <Alert>{u("stockVoidOf")} <Link href={`/parts/movement/${undoOf}`} className="font-mono font-semibold underline">{undoOf}</Link>{head.voidReason ? ` · ${head.voidReason}` : ""}</Alert>}
+      {head.refNo && parts && <p className="text-sm text-navy">{u("returnOf")} <Link href={`/parts/movement/${head.refNo}`} className="font-mono text-blue hover:underline">{head.refNo}</Link></p>}
       <PageHeader back={{ href: `/documents?type=${out ? "OB" : "IB"}`, label: n(out ? "stockOut" : "stockIn") }} title={no} badge={<Tag>{n(out ? "stockOut" : "stockIn")}</Tag>} />
       <Card>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
@@ -53,11 +75,17 @@ export default async function Movement({ params }: { params: Promise<{ no: strin
             <td>{r.part ? `${r.part.name}${r.part.nameLocal ? ` · ${r.part.nameLocal}` : ""}` : ""}</td>
             <td className="font-semibold tabular-nums">{out ? "−" : "+"}{Number(r.qty)}</td><td>{r.part?.unit ?? ""}</td>
             <td className="whitespace-nowrap">{r.asset ? <Link href={`/assets/${r.asset.code}`} className="font-mono text-blue hover:underline">{r.asset.code}</Link> : ""}</td>
-            {cost && <td className="whitespace-nowrap tabular-nums">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : inCost.get(r.id) ? <>{inCost.get(r.id)!.c.toFixed(2)}{inCost.get(r.id)!.from ? <Link href={`/parts/movement/${inCost.get(r.id)!.from}`} className="ml-1 font-mono text-xs text-blue hover:underline">{inCost.get(r.id)!.from}</Link> : null}</> : "—"}</td>}
+            {cost && <td className="whitespace-nowrap tabular-nums">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : inCost.get(r.id) ? <>{inCost.get(r.id)!.c.toFixed(2)}{inCost.get(r.id)!.from ? <Link href={`/parts/movement/${inCost.get(r.id)!.from}`} className="ml-1 font-mono text-xs text-blue hover:underline">{inCost.get(r.id)!.from}</Link> : null}{inCost.get(r.id)!.split ? <span className="block text-xs text-navy/60">{inCost.get(r.id)!.split}</span> : null}</> : "—"}</td>}
             <td className="text-xs text-navy/70">{[r.batch, r.oldPartDisposition].filter(Boolean).join(" · ")}</td>
           </tr>)}
         </Table>
       </div>
+      {(mayVoid || mayReturn) && <div className="flex flex-wrap items-start gap-4 rounded-xl border bg-white p-4">
+        {mayReturn && <Link href={`/parts/movement?direction=IN&order=${order!.no}&ref=${no}`} className={btnGhost}>{u("returnFromThis")}</Link>}
+        {mayVoid && <details className="min-w-0 flex-1"><summary className="cursor-pointer text-sm font-semibold text-alert-ink">{u("stockVoid")}</summary>
+          <form action={voidIt} className="mt-2 space-y-2"><p className="text-[13px] text-navy/80">{u(out ? "stockVoidHintOut" : "stockVoidHintIn")}</p>
+            <input name="reason" required minLength={2} placeholder={u("stockVoidReason")} className={inputCls} /><button className={btnGhost}>{u("stockVoidDo")}</button></form></details>}
+      </div>}
     </div>
   );
 }

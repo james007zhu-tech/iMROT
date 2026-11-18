@@ -61,7 +61,7 @@ async function tradeParts(orderId: string, plan: DeliveryLine[]) {
   const map = new Map<string, OrderPart>();
   const pos = await prisma.purchaseOrder.findMany({ where: { serviceOrderId: orderId, kind: "PARTS", status: { not: "CANCELLED" } }, select: { lines: true } });
   const bought = pos.flatMap((p) => p.lines as { partSku?: string; vendorPartNo?: string; description?: string }[]);
-  const inbound = await prisma.stockMovement.findMany({ where: { serviceOrderId: orderId, direction: "IN", partId: { not: null } }, select: { part: { select: { id: true, sku: true, vendorPartNo: true } } } });
+  const inbound = await prisma.stockMovement.findMany({ where: { serviceOrderId: orderId, direction: "IN", partId: { not: null }, reversedBy: null, reversalOf: null }, select: { part: { select: { id: true, sku: true, vendorPartNo: true } } } });
   const received = [...new Map(inbound.map((m) => [m.part!.id, m.part!])).values()];
   for (const l of goods) {
     let part: OrderPart | null = await findPart(l.partSku);
@@ -97,7 +97,7 @@ export async function tradeAvailable(orderId: string, plan: DeliveryLine[]): Pro
     const part = parts.get(l.key);
     if (!part) continue;
     if (!left.has(part.sku)) {
-      const taken = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: orderId } });
+      const taken = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: orderId, reversedBy: null, reversalOf: null } });
       const before = plan.filter((x) => parts.get(x.key)?.sku === part.sku).reduce((n, x) => n + x.deliveredBefore, 0);
       left.set(part.sku, Math.max(0, Number(taken._sum.qty ?? 0) - before)); // 先出库、再送货 (V4-P0-09): only what the store has issued for this order can be delivered
     }
@@ -126,7 +126,7 @@ async function tradeStock(orderId: string, plan: DeliveryLine[], delivered: Reco
   for (const [sku, qty] of now) {
     if (qty <= 0) continue;
     const part = await prisma.part.findUniqueOrThrow({ where: { sku } });
-    const out = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: orderId } });
+    const out = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: orderId, reversedBy: null, reversalOf: null } });
     const taken = Math.max(0, Number(out._sum.qty ?? 0) - (before.get(sku) ?? 0)); // already out of the store for this order and not yet delivered
     const onHand = await stockOnHand(sku);
     // 没出库不能开送货单 (V4-P0-09): the note delivers only what an OBTH of this order already took out of the store

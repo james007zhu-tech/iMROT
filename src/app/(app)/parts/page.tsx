@@ -1,3 +1,4 @@
+import { fifoOf } from "@/server/fifo";
 import { can } from "@/lib/caps";
 import { currentEmployee } from "@/server/auth";
 import Link from "next/link";
@@ -16,6 +17,7 @@ export default async function Parts({ searchParams }: { searchParams: Promise<{ 
   const total = await prisma.part.count({ where });
   const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(movement ? { movement } : {}), ...(order ? { order } : {}), page: String(n) })}`;
   const parts = await prisma.part.findMany({ where, skip: (pg - 1) * PAGE_SIZE, take: PAGE_SIZE, orderBy: { sku: "asc" }, include: { brand: true, movements: { select: { direction: true, qty: true, warehouse: true } }, _count: { select: { bomLines: true } } } });
+  const fifo = seeCost ? await fifoOf(parts.map((p) => p.id)) : new Map(); // N-41: 库存金额 = what is left in the batches at their own costs — the same figure as the report and the part page
   const onHand = (p: (typeof parts)[number]) => p.movements.reduce((s, m) => s + (m.direction === "IN" ? 1 : -1) * Number(m.qty), 0);
   // more than one warehouse holding the part: say where it lies (the figure itself is the sum — the same one every page shows)
   const where2 = (p: (typeof parts)[number]) => { const by = new Map<string, number>(); for (const m of p.movements) by.set(m.warehouse, (by.get(m.warehouse) ?? 0) + (m.direction === "IN" ? 1 : -1) * Number(m.qty)); const live = [...by].filter(([, n]) => Math.abs(n) > 1e-9); return live.length > 1 ? live.map(([w, n]) => `${w} ${n}`).join(" · ") : ""; };
@@ -25,9 +27,9 @@ export default async function Parts({ searchParams }: { searchParams: Promise<{ 
       <PageHeader title={t("parts")} badge={<Tag>{total}</Tag>} actions={<><Link href="/purchasing/inquiries" className="text-sm text-blue hover:underline">PRTH →</Link>{can.purchasing(me) && <><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link></>}<Link href={mvHref} className={btnGhost}>{u("newMovement")}</Link></>} newHref="/parts/new" newLabel={u("newPart")} />
       <form className="flex gap-2"><input name="q" defaultValue={q} placeholder={u("searchParts")} className={`${inputCls} max-w-sm`} /><button className={btnGhost}>{t("search")}</button></form>
       <div className="rounded-xl border bg-white p-2">
-        <Table head={[t("sku"), t("name"), t("brand"), t("onHand"), t("inBoms"), ...(seeCost ? [t("lastCost")] : [])]}>
-          {parts.map((p) => { const n = onHand(p); return <tr key={p.id}><td><Link href={`/parts/${p.sku}`} className="font-mono text-blue hover:underline">{p.sku}</Link></td><td>{p.name}{p.nameLocal ? <span className="block text-xs text-navy/70">{p.nameLocal}</span> : null}</td><td>{p.brand?.name ?? ""}</td><td>{p.safetyStock != null && n < p.safetyStock ? <Tag hot>{n}</Tag> : n}{where2(p) ? <span className="block text-xs text-navy/60">{where2(p)}</span> : null}</td><td>{p._count.bomLines}</td>{seeCost && <td>{p.lastCost != null ? `${p.lastCostCurrency} ${Number(p.lastCost).toFixed(2)}` : ""}</td>}</tr>; })}
-          {parts.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-navy/60">{t("noParts")}</td></tr>}
+        <Table head={[t("sku"), t("name"), t("brand"), t("onHand"), t("inBoms"), ...(seeCost ? [t("lastCost"), u("stockValue")] : [])]}>
+          {parts.map((p) => { const n = onHand(p); return <tr key={p.id}><td><Link href={`/parts/${p.sku}`} className="font-mono text-blue hover:underline">{p.sku}</Link></td><td>{p.name}{p.nameLocal ? <span className="block text-xs text-navy/70">{p.nameLocal}</span> : null}</td><td>{p.brand?.name ?? ""}</td><td>{p.safetyStock != null && n < p.safetyStock ? <Tag hot>{n}</Tag> : n}{where2(p) ? <span className="block text-xs text-navy/60">{where2(p)}</span> : null}</td><td>{p._count.bomLines}</td>{seeCost && <td>{p.lastCost != null ? `${p.lastCostCurrency} ${Number(p.lastCost).toFixed(2)}` : ""}</td>}{seeCost && <td className="whitespace-nowrap text-right tabular-nums">{fifo.get(p.id)?.value ? fifo.get(p.id)!.value.toFixed(2) : ""}</td>}</tr>; })}
+          {parts.length === 0 && <tr><td colSpan={7} className="py-6 text-center text-navy/60">{t("noParts")}</td></tr>}
         </Table>
         <Pager page={pg} total={total} href={qs} prev={u("prevPage")} next={u("nextPage")} />
       </div>

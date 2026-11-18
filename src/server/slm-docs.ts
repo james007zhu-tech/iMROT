@@ -2,6 +2,7 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { fifoOf, systemCost } from "./fifo";
 import { assertNotSettled } from "./job-cost";
 import { draftOvertimeFromWork } from "@/server/overtime";
 import { fxFields, rateForNew } from "@/server/fx";
@@ -203,7 +204,9 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   // freight, a part never bought), Sales writes its own estimate; the line is marked 预估. The invoice does not rest on
   // any of this: the real cost is read from the system and recognised by finance or the MD (src/server/job-cost.ts).
   const seesCost = can.cost(actor) || can.margin(actor);
-  const lastCostOf = (l: { partSku?: string | null }) => (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined);
+  // N-41: the cost the system hands over is the next batch to go out (first in, first out); with no batch in stock, the last purchase price
+  const fifo = await fifoOf([...parts.found.values()].map((x) => x.id));
+  const lastCostOf = (l: { partSku?: string | null }) => { const part = l.partSku ? parts.found.get(l.partSku.trim()) : undefined; return part ? systemCost(fifo.get(part.id))?.cost || undefined : undefined; };
   let est: boolean[] = d.lines.map(() => false);
   if (!itemsOnly && !seesCost) {
     const before = await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, include: { part: { select: { sku: true } } } }), left = [...before];
@@ -239,7 +242,7 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
         return {
           serviceOrderId: order.id, lineNo: i + 1, assetCode: l.assetCode, partId: part?.id, description: l.description,
           descriptionLocal: l.descriptionLocal, qty: l.qty, unit: l.unit, unitPrice: l.unitPrice,
-          amount: Math.round(l.qty * l.unitPrice * 100) / 100, costRef: part?.lastCost ?? undefined, unitCost: costed[i].unitCost, costEst: est[i],
+          amount: Math.round(l.qty * l.unitPrice * 100) / 100, costRef: (part ? systemCost(fifo.get(part.id))?.cost : undefined) ?? undefined, unitCost: costed[i].unitCost, costEst: est[i],
         };
       }),
     });

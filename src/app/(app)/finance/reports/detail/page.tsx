@@ -8,7 +8,7 @@ import { presetRange, reportDetail, type DetailKind } from "@/server/fin-report"
 import { PageHeader, Table, Tag } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-const KINDS: DetailKind[] = ["result", "vatNet", "revenue", "vatOut", "collected", "whtByCustomers", "purchases", "vatIn", "paidSuppliers", "expenses", "payroll", "stock", "vatDue", "whtDue", "payrollDue", "bsCash", "bsAr", "bsAp"];
+const KINDS: DetailKind[] = ["result", "vatNet", "revenue", "vatOut", "collected", "whtByCustomers", "purchases", "vatIn", "paidSuppliers", "expenses", "payroll", "stock", "vatDue", "whtDue", "payrollDue", "bsCash", "bsCashHand", "bsCashBank", "bsAr", "bsAp"];
 
 /** 报表下钻: the documents behind one number of the report page; every row opens its document (派修单 v4 P0-1). */
 export default async function Detail({ searchParams }: { searchParams: Promise<{ k?: string; from?: string; to?: string; p?: string; test?: string; mode?: string; customer?: string; category?: string }> }) {

@@ -95,7 +95,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
       <Card title={<span className="flex items-center justify-between gap-2">{t("repBsTitle", { date: bs.asOf })}{xl("bs")}</span>}>
         <div className="grid gap-4 text-[13px] md:grid-cols-2">
           <table className="w-full"><tbody>
-            {([["repBsCash", bs.assets.cashMoved, det("bsCash")], ["repBsAr", bs.assets.receivable, det("bsAr")], ["repBsStock", bs.assets.stock, det("stock")]] as const).map(([k, v, h]) => <tr key={k} className="border-b border-navy/10"><td className="py-1">{t(k)}</td><td className="text-right tabular-nums"><Link href={h} className={num}>{m2(v)}</Link></td></tr>)}
+            {([["repBsCashHand", bs.assets.cashHand, det("bsCashHand")], ["repBsCashBank", bs.assets.cashBank, det("bsCashBank")], ["repBsAr", bs.assets.receivable, det("bsAr")], ["repBsStock", bs.assets.stock, det("stock")]] as const).map(([k, v, h]) => <tr key={k} className="border-b border-navy/10"><td className="py-1">{t(k)}</td><td className="text-right tabular-nums"><Link href={h} className={num}>{m2(v)}</Link></td></tr>)}
             <tr className="font-semibold"><td className="py-1.5">{t("repBsAssets")}</td><td className="text-right tabular-nums">{m2(bs.totalAssets)}</td></tr>
           </tbody></table>
           <table className="w-full"><tbody>

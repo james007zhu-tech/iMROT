@@ -25,6 +25,7 @@ export const StockDocInput = z.object({
   assetCode: z.string().optional(),
   serviceOrderNo: z.string().optional(),
   supplierRef: z.string().optional(),
+  refNo: z.string().optional(), // 退料: the OBTH these parts are handed back from (N-42)
   costCurrency: z.string().optional(),
   movedAt: z.coerce.date().optional(),
   lines: z.array(Line).min(1, "a stock document needs at least one line"),
@@ -82,6 +83,21 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
   if (order) assertNotLocked(order);
   await assertNotSettled(order); // 开票即结算: nothing more is issued to (or returned from) an invoiced order
   if (d.direction === "OUT" && !asset && !order) throw new Error("an OUT movement must name the asset or the service order it serves");
+  // N-42 退料选原出库单: what comes back is at most what that issue took out, less what already came back
+  if (d.refNo) {
+    if (d.direction !== "IN" || !order) throw new Error("RETURN_NEEDS_ORDER");
+    const src = await prisma.stockMovement.findMany({ where: { no: d.refNo, direction: "OUT", kind: "PART", reversedBy: null, reversalOf: null }, select: { partId: true, qty: true, serviceOrderId: true } });
+    if (!src.length || src.some((m) => m.serviceOrderId !== order.id)) throw new Error(`RETURN_OB_NOT_FOUND:${d.refNo}`);
+    const backs = await prisma.stockMovement.findMany({ where: { refNo: d.refNo, direction: "IN", kind: "PART", reversedBy: null, reversalOf: null }, select: { partId: true, qty: true } });
+    const room = new Map<string, number>();
+    for (const m of src) room.set(m.partId!, (room.get(m.partId!) ?? 0) + Number(m.qty));
+    for (const m of backs) room.set(m.partId!, (room.get(m.partId!) ?? 0) - Number(m.qty));
+    const want = new Map<string, { sku: string; qty: number }>();
+    for (const l of d.lines) { const p = found.get(l.partSku.trim())!; want.set(p.id, { sku: p.sku, qty: (want.get(p.id)?.qty ?? 0) + l.qty }); }
+    const over = [...want].filter(([id, w]) => w.qty > (room.get(id) ?? 0) + 1e-9).map(([id, w]) => `${w.sku} ${w.qty}/${Math.max(0, room.get(id) ?? 0)}`);
+    if (over.length) throw new Error(`RETURN_OVER:${over.join("; ")}`);
+    for (const l of d.lines) l.unitCost = undefined; // a return carries no price of its own: it goes back at what the issue cost
+  }
   // nothing leaves the store that is not in it (trial finding 2026-11-14)
   // 一个库存数 (需求清单 v3 P0-07): stock is what came in minus what went out, counted over every warehouse — the
   // same figure on the list, the part page, the stock form and the delivery note. An issue is taken from the warehouse
@@ -108,7 +124,7 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
     for (const [i, l] of d.lines.entries()) {
       const part = found.get(l.partSku.trim())!;
       rows.push(await tx.stockMovement.create({
-        data: { no, lineNo: i + 1, direction: d.direction, partId: part.id, qty: l.qty, warehouse: takeFrom.get(part.sku) ?? d.warehouse, batch: l.batch, assetId: asset?.id, serviceOrderId: order?.id, oldPartDisposition: l.oldPartDisposition, movedAt: d.movedAt, byName: actor.name, unitCost: d.direction === "IN" ? l.unitCost : undefined, supplierRef: d.supplierRef },
+        data: { no, lineNo: i + 1, direction: d.direction, partId: part.id, qty: l.qty, warehouse: takeFrom.get(part.sku) ?? d.warehouse, batch: l.batch, assetId: asset?.id, serviceOrderId: order?.id, oldPartDisposition: l.oldPartDisposition, movedAt: d.movedAt, byName: actor.name, unitCost: d.direction === "IN" ? l.unitCost : undefined, supplierRef: d.supplierRef, refNo: d.refNo },
         include: { part: true },
       }));
       if (d.direction === "IN" && l.unitCost != null) await tx.part.update({ where: { id: part.id }, data: { lastCost: l.unitCost, lastCostCurrency: d.costCurrency ?? "THB" } });
@@ -123,6 +139,68 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
     await tx.document.create({ data: { no, type: d.direction === "IN" ? "IB" : "OB", entityId: actor.entityId, countryCode: no.slice(2, 4), customerId: order?.customerId, serviceOrderId: order?.id, createdById: actor.id, issuedAt: d.movedAt } });
     return { no, lines: rows };
   });
+}
+
+/**
+ * 作废 / 红冲 (N-42): a stock document is never deleted. Voiding writes the opposite movements under a new number (an
+ * IBTH is taken back out by an OBTH, an OBTH is put back by an IBTH), so the stock on hand is right again and both
+ * documents stay in the ledger. Neither counts in the first-in-first-out batches any more.
+ * Refused when undoing it would change something already settled: an invoiced order (开票即结算), a receipt whose
+ * goods have already gone out, a receipt the supplier's invoice is already booked against, an issue with returns.
+ */
+export async function voidStockDoc(input: { no: string; actorCode: string; reason: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (!hasRole(actor, "MD", "PURCHASING")) throw new Error("NO_PERMISSION"); // 出入库归 PUR
+  const reason = input.reason.trim();
+  if (reason.length < 2) throw new Error("VOID_REASON_REQUIRED");
+  const rows = await prisma.stockMovement.findMany({ where: { no: input.no }, orderBy: { lineNo: "asc" }, include: { part: true, serviceOrder: true } });
+  if (!rows.length) throw new Error("NOT_FOUND");
+  if (rows.some((r) => r.kind !== "PART")) throw new Error("STOCK_VOID_CUSTODY"); // 外送 / 外协返回 are undone on the subcontract itself
+  if (rows.some((r) => r.reversedBy || r.reversalOf)) throw new Error("STOCK_VOID_DONE");
+  const head = rows[0], isIn = head.direction === "IN", order = rows.find((r) => r.serviceOrder)?.serviceOrder ?? null;
+  if (order) assertNotLocked(order);
+  await assertNotSettled(order);
+  const po = head.purchaseOrderId ? await prisma.purchaseOrder.findUnique({ where: { id: head.purchaseOrderId }, include: { invoices: { where: { status: { not: "CANCELLED" }, accrued: false } } } }) : null;
+  if (isIn) {
+    if (po?.invoices.length) throw new Error(`STOCK_VOID_PO_INVOICED:${po.no}`);
+    const { fifoOf } = await import("./fifo");
+    const fifo = await fifoOf([...new Set(rows.map((r) => r.partId!))]);
+    const used = rows.filter((r) => { const b = fifo.get(r.partId!)?.all.find((x) => x.inId === r.id); return b ? b.left < b.qty - 1e-9 : false; }).map((r) => r.part!.sku);
+    if (used.length) throw new Error(`STOCK_VOID_USED:${[...new Set(used)].join(", ")}`);
+    const short: string[] = [];
+    for (const r of rows) { const by = await stockByWarehouse(r.part!.sku); if ((by.get(r.warehouse) ?? 0) < Number(r.qty) - 1e-9) short.push(r.part!.sku); }
+    if (short.length) throw new Error(`STOCK_VOID_USED:${[...new Set(short)].join(", ")}`);
+  } else {
+    const back = await prisma.stockMovement.findFirst({ where: { refNo: input.no, direction: "IN", kind: "PART", reversedBy: null, reversalOf: null }, select: { no: true } });
+    if (back) throw new Error(`STOCK_VOID_HAS_RETURN:${back.no}`);
+    const dn = order ? await prisma.document.findFirst({ where: { serviceOrderId: order.id, type: "DN", voidedAt: null, issuedAt: { gte: head.movedAt } }, select: { no: true } }) : null;
+    if (dn) throw new Error(`STOCK_VOID_DELIVERED:${dn.no}`); // the goods have gone to the customer on a delivery note
+  }
+  const now = new Date();
+  const res = await prisma.$transaction(async (tx) => {
+    const no = await allocateNumber(tx, { prefix: isIn ? "OB" : "IB", createdByEmployeeCode: actor.code, entityId: actor.entityId, date: now });
+    for (const r of rows) {
+      await tx.stockMovement.create({ data: { no, lineNo: r.lineNo, direction: isIn ? "OUT" : "IN", kind: "PART", partId: r.partId, qty: r.qty, warehouse: r.warehouse, batch: r.batch, assetId: r.assetId, serviceOrderId: r.serviceOrderId, purchaseOrderId: r.purchaseOrderId, movedAt: now, byName: actor.name, unitCost: r.unitCost, reversalOf: r.no, voidReason: reason } });
+      await tx.stockMovement.update({ where: { id: r.id }, data: { reversedBy: no, voidReason: reason } });
+      if (!isIn && r.assetId) await tx.assetEvent.create({ data: { assetId: r.assetId, type: "PART_REPLACED", actorId: actor.id, serviceOrderId: r.serviceOrderId, sourceDocNo: no, occurredAt: now, summary: `VOID ${r.no}: ${r.part!.name} (${r.part!.sku}) ×${Number(r.qty)} — ${reason}`, payload: { voidOf: r.no, partSku: r.part!.sku, qty: -Number(r.qty), reason } as Prisma.InputJsonValue } });
+    }
+    await tx.document.create({ data: { no, type: isIn ? "OB" : "IB", entityId: actor.entityId, countryCode: no.slice(2, 4), customerId: order?.customerId, serviceOrderId: order?.id, createdById: actor.id, issuedAt: now } });
+    await tx.document.updateMany({ where: { no: input.no }, data: { voidedAt: now, voidReason: reason } });
+    // a receipt taken back no longer sets the part's last purchase price: the latest receipt still standing does
+    if (isIn) for (const pid of new Set(rows.map((r) => r.partId!))) {
+      const last = await tx.stockMovement.findFirst({ where: { partId: pid, direction: "IN", kind: "PART", unitCost: { not: null }, reversedBy: null, reversalOf: null }, orderBy: { movedAt: "desc" }, select: { unitCost: true } });
+      if (last) await tx.part.update({ where: { id: pid }, data: { lastCost: last.unitCost } });
+    }
+    if (po) { // the purchase order gets its received quantities back
+      const lines = po.lines as { lineNo: number; partSku?: string; qty: number; receivedQty: number }[];
+      for (const r of rows) { let left = Number(r.qty); for (const l of [...lines].reverse()) { if (left <= 1e-9) break; if (l.partSku !== r.part!.sku) continue; const q = Math.min(left, Number(l.receivedQty ?? 0)); l.receivedQty = Math.round((Number(l.receivedQty ?? 0) - q) * 1000) / 1000; left -= q; } }
+      await tx.purchaseOrder.update({ where: { id: po.id }, data: { lines: lines as unknown as Prisma.InputJsonValue, status: lines.some((l) => Number(l.receivedQty ?? 0) > 1e-9) ? "PARTIAL" : "SENT" } });
+    }
+    await tx.auditLog.create({ data: { actorId: actor.id, action: "STOCK_DOC_VOIDED", target: input.no, detail: { by: no, reason, order: order?.no ?? null, po: po?.no ?? null } } });
+    return { no };
+  });
+  if (po) await (await import("./srm")).syncAccrual(po.id);
+  return res;
 }
 
 export const MovementInput = z.object({
@@ -197,7 +275,7 @@ export async function issueNeeds(orderNo: string) {
   for (const [key, qty] of want) {
     const part = await findPart(key).catch(() => null);
     if (!part) continue;
-    const out = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: o.id } });
+    const out = await prisma.stockMovement.aggregate({ _sum: { qty: true }, where: { partId: part.id, direction: "OUT", serviceOrderId: o.id, reversedBy: null, reversalOf: null } });
     const left = qty - Number(out._sum.qty ?? 0);
     if (left > 1e-9) lines.push({ sku: part.sku, qty: left, onHand: await stockOnHand(part.sku) });
   }

@@ -3,6 +3,7 @@
  * invoices, expense claims, payroll. THB only (foreign-currency invoices are listed beside it, unconverted).
  * It is not the statutory ledger: the accountant's books remain the record for filing.
  */
+import { fifoOf } from "@/server/fifo";
 import { localIso } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 
@@ -169,13 +170,22 @@ export async function simpleBalance(entityId: string, asOf: string, opts: { incl
   const receivable = r2(invs.filter((i) => T(i.no)).reduce((a, i) => a + Math.max(0, Number(i.amountDue) + (back.get(i.id) ?? 0) - (got.get(i.id) ?? 0)), 0));
   const paid = new Map<string, number>(); for (const p of pays) paid.set(p.supplierInvoiceId, (paid.get(p.supplierInvoiceId) ?? 0) + Number(p.amount) + Number(p.whtAmount));
   const payable = r2(sis.filter((i) => T(i.invoiceNo, i.supplier.name)).reduce((a, i) => a + Math.max(0, Number(i.total) - (paid.get(i.id) ?? 0)), 0));
-  const stock = r2(moves.filter((m) => !m.part?.lastCostCurrency || m.part.lastCostCurrency === "THB").reduce((a, m) => a + (m.direction === "IN" ? 1 : -1) * Number(m.qty) * Number(m.part?.lastCost ?? 0), 0));
+  void moves;
+  const stock = r2([...(await fifoOf(undefined, end)).values()].reduce((a, f) => a + f.value, 0)); // N-41: what is left in the batches, at their own costs (先进先出)
   const cashIn = r2(rcs.filter((r) => T(r.no)).reduce((a, r) => a + Number(r.cashAmount), 0));
   const cashOut = r2(pays.filter((p) => T(p.supplierInvoice.invoiceNo, p.supplierInvoice.supplier.name)).reduce((a, p) => a + Number(p.amount), 0) + exps.reduce((a, e) => a + Number(e.amount), 0));
   const vat = r2(tisM.filter((x) => T(x.no)).reduce((a, x) => a + Number(x.vatAmount), 0) - sisM.filter((x) => T(x.invoiceNo, x.supplier.name)).reduce((a, x) => a + Number(x.vatAmount), 0) - expM.reduce((a, x) => a + Number(x.vatAmount ?? 0), 0));
   const wht = r2(whtM.reduce((a, x) => a + Number(x.whtAmount), 0));
   const payroll = r2(runs.reduce((a, x) => a + Number((x.totals as { net?: number }).net ?? 0), 0));
-  const assets = { cashMoved: r2(cashIn - cashOut), receivable, stock }, liabilities = { payable, vat: Math.max(0, vat), wht, payroll };
+  // 财神爷 2026-11-18: 现金 is two lines — 现金 / 备用金 (cash on hand, petty cash) and 银行存款 (every bank account, and what
+  // has no account of ours yet). Same movements as the detail lists, so each line adds up to its list.
+  const { payAccounts } = await import("@/server/pay");
+  const accs = await payAccounts(entityId);
+  const thb = (await cashMoves(entityId, new Date(0), end, { withPayroll: false, includeTest: opts.includeTest }, new Set(accs.map((x) => x.id)))).filter((x) => x.currency === "THB");
+  const onHand = (x: { account: string }) => x.account === "CASH" || x.account === "PETTY_CASH";
+  const cashHand = r2(thb.filter(onHand).reduce((a, x) => a + x.inAmt - x.outAmt, 0)), cashBank = r2(thb.filter((x) => !onHand(x)).reduce((a, x) => a + x.inAmt - x.outAmt, 0));
+  void cashIn; void cashOut;
+  const assets = { cashMoved: r2(cashHand + cashBank), cashHand, cashBank, receivable, stock }, liabilities = { payable, vat: Math.max(0, vat), wht, payroll };
   const totalAssets = r2(assets.cashMoved + receivable + stock), totalLiabilities = r2(payable + liabilities.vat + wht + payroll);
   return { asOf, assets, liabilities, totalAssets, totalLiabilities, net: r2(totalAssets - totalLiabilities), vatCredit: vat < 0 ? -vat : 0 };
 }
@@ -184,7 +194,7 @@ export async function simpleBalance(entityId: string, asOf: string, opts: { incl
  * 报表下钻 (派修单 v4 P0-1): the documents behind one number of the reports — the same filters as the number itself,
  * so the list adds up to it. Each row opens its document.
  */
-export type DetailKind = "result" | "vatNet" | "revenue" | "vatOut" | "collected" | "whtByCustomers" | "purchases" | "vatIn" | "paidSuppliers" | "expenses" | "payroll" | "stock" | "vatDue" | "whtDue" | "payrollDue" | "bsCash" | "bsAr" | "bsAp";
+export type DetailKind = "result" | "vatNet" | "revenue" | "vatOut" | "collected" | "whtByCustomers" | "purchases" | "vatIn" | "paidSuppliers" | "expenses" | "payroll" | "stock" | "vatDue" | "whtDue" | "payrollDue" | "bsCash" | "bsCashHand" | "bsCashBank" | "bsAr" | "bsAp";
 export interface DetailRow { date: Date | null; no: string; who: string; note?: string; amount: number; href: string }
 export async function reportDetail(entityId: string, range: Range, kind: DetailKind, opts: { withPayroll: boolean; includeTest?: boolean; mode?: string; customer?: string; category?: string }): Promise<{ rows: DetailRow[]; total: number }> {
   const { from, to } = bounds(range), T = (...x: (string | null | undefined)[]) => opts.includeTest || !isTest(...x);
@@ -212,18 +222,16 @@ export async function reportDetail(entityId: string, range: Range, kind: DetailK
   } else if (kind === "payroll" || kind === "payrollDue") {
     if (opts.withPayroll) rows = (await prisma.payrollRun.findMany({ where: { entityId, ...(kind === "payroll" ? { status: { not: "DRAFT" }, month: { gte: range.from.slice(0, 7), lte: range.to.slice(0, 7) } } : { status: "APPROVED" }) }, select: { month: true, totals: true, approvedAt: true } }))
       .map((x) => ({ date: x.approvedAt, no: x.month, who: "", amount: Number((x.totals as { employerCost?: number; net?: number })[kind === "payroll" ? "employerCost" : "net"] ?? 0), href: `/people/payroll/${x.month}` }));
-  } else if (kind === "stock") {
-    const moves = await prisma.stockMovement.findMany({ where: { kind: "PART", partId: { not: null }, movedAt: { lt: to } }, select: { direction: true, qty: true, part: { select: { sku: true, name: true, lastCost: true, lastCostCurrency: true } } } });
-    const by = new Map<string, { name: string; qty: number; cost: number }>();
-    for (const m of moves) { if (!m.part || (m.part.lastCostCurrency && m.part.lastCostCurrency !== "THB")) continue; const e = by.get(m.part.sku) ?? { name: m.part.name, qty: 0, cost: Number(m.part.lastCost ?? 0) }; e.qty += (m.direction === "IN" ? 1 : -1) * Number(m.qty); by.set(m.part.sku, e); }
-    rows = [...by].filter(([, e]) => Math.abs(e.qty * e.cost) > 0.005).map(([sku, e]) => ({ date: null, no: sku, who: e.name, note: `${e.qty} × ${e.cost.toFixed(2)}`, amount: r2(e.qty * e.cost), href: `/parts/${sku}` }));
+  } else if (kind === "stock") { // N-41: one row per batch still in stock — it opens the receipt (IBTH) it came in on
+    for (const f of (await fifoOf(undefined, to)).values()) for (const bt of f.batches) rows.push({ date: bt.date, no: bt.inNo, who: `${f.sku} ${f.name}`.trim(), note: `${bt.left} × ${bt.cost.toFixed(2)}`, amount: r2(bt.left * bt.cost), href: `/parts/movement/${bt.inNo}` });
   } else if (kind === "result" || kind === "vatNet") { // a figure made of others: its parts, signed, so the list adds up to it
     const parts: [DetailKind, number][] = kind === "result" ? [["revenue", 1], ["purchases", -1], ["expenses", -1], ["payroll", -1]] : [["vatOut", 1], ["vatIn", -1]];
     for (const [k, sign] of parts) rows.push(...(await reportDetail(entityId, range, k, opts)).rows.map((x) => ({ ...x, amount: sign * x.amount })));
-  } else if (kind === "bsCash") { // 资产负债表 → 现金银行: every receipt and payment the system holds up to the day (派修单 v5 P0-1)
+  } else if (kind === "bsCash" || kind === "bsCashHand" || kind === "bsCashBank") { // 资产负债表 → 现金银行: every receipt and payment the system holds up to the day (派修单 v5 P0-1)
     const { payAccounts } = await import("@/server/pay");
     const list = await payAccounts(entityId), labels = new Map(list.map((x) => [x.id, x.label]));
     rows = (await cashMoves(entityId, new Date(0), to, { withPayroll: false, includeTest: opts.includeTest }, new Set(list.map((x) => x.id)))).filter((x) => x.currency === "THB" && !x.no.startsWith("PAYROLL"))
+      .filter((x) => kind === "bsCash" || (kind === "bsCashHand") === (x.account === "CASH" || x.account === "PETTY_CASH"))
       .map((x) => ({ date: x.date, no: x.no, who: x.who, note: labels.get(x.account) ?? x.ref, amount: x.inAmt - x.outAmt, href: x.href }));
   } else if (kind === "bsAr") {
     const [invs, rcs, cns] = await Promise.all([
@@ -240,7 +248,7 @@ export async function reportDetail(entityId: string, range: Range, kind: DetailK
       prisma.supplierPayment.findMany({ where: { entityId, status: "PAID", paidAt: { lt: to }, supplierInvoice: { currency: "THB" } }, select: { supplierInvoiceId: true, amount: true, whtAmount: true } }),
     ]);
     const paid = new Map<string, number>(); for (const p of pays) paid.set(p.supplierInvoiceId, (paid.get(p.supplierInvoiceId) ?? 0) + Number(p.amount) + Number(p.whtAmount));
-    rows = sis.filter((i) => T(i.invoiceNo, i.supplier.name)).map((i) => ({ date: i.invoiceDate, no: i.invoiceNo, who: i.supplier.name, note: i.purchaseOrder.no, amount: r2(Math.max(0, Number(i.total) - (paid.get(i.id) ?? 0))), href: `/finance/payables?all=1#inv-${i.id}` })).filter((x) => x.amount > 0.005);
+    rows = sis.filter((i) => T(i.invoiceNo, i.supplier.name)).map((i) => ({ date: i.invoiceDate, no: i.invoiceNo, who: i.supplier.name, note: i.purchaseOrder.no, amount: r2(Math.max(0, Number(i.total) - (paid.get(i.id) ?? 0))), href: `/purchasing/orders/${i.purchaseOrder.no}` })).filter((x) => x.amount > 0.005);
   } else if (kind === "vatDue") {
     const mr = { from: `${range.to.slice(0, 7)}-01`, to: range.to };
     const [o, i] = await Promise.all([reportDetail(entityId, mr, "vatOut", opts), reportDetail(entityId, mr, "vatIn", opts)]);
