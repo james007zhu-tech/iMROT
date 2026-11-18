@@ -75,3 +75,6 @@ body[data-saving] :is(button:not([type="button"]), input[type="submit"]) { point
 /* 漏填的格子标红 (FormCheck) */
 .field-bad { border-color: #C0392B !important; box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.25) !important; background-color: #FFF5F4 !important; }
 .field-msg { display: block; margin-top: 2px; font-size: 12px; font-weight: 600; color: #C0392B; }
+
+/* a note under a line of a row-grid: always the full width of the row (朱总 2026-11-18 截图: it was squeezed into the first column) */
+.row-note { grid-column: 1 / -1 !important; display: block; }

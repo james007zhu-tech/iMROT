@@ -196,19 +196,27 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   // 派修单 v4 第 2 条 (supersedes "Sales estimates"): Sales neither sees nor writes a cost. For Sales the cost of a line is
   // what the MD / finance wrote on that line before, else the part's last purchase cost — taken here, never shown. A
   // line that has neither is 待补成本: the lines are saved, the quote does not go out until the MD or finance fills it.
+  // 朱总 2026-11-18 (supersedes 待补成本): Sales may estimate. Where the system has a cost — one the MD / finance wrote on
+  // the line, or the part's last purchase cost — that stands and Sales does not see it. Where it has none (labour,
+  // freight, a part never bought), Sales writes its own estimate; the line is marked 预估. The invoice does not rest on
+  // any of this: the real cost is read from the system and recognised by finance or the MD (src/server/job-cost.ts).
   const seesCost = can.cost(actor) || can.margin(actor);
+  const lastCostOf = (l: { partSku?: string | null }) => (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined);
+  let est: boolean[] = d.lines.map(() => false);
   if (!itemsOnly && !seesCost) {
     const before = await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, include: { part: { select: { sku: true } } } }), left = [...before];
-    d.lines = d.lines.map((l) => {
+    const next = d.lines.map((l) => {
       const at = left.findIndex((b) => (l.partSku && b.part?.sku === l.partSku.trim()) || (!l.partSku && b.description === l.description));
       const b = at >= 0 ? left.splice(at, 1)[0] : undefined;
-      return { ...l, unitCost: b?.unitCost != null ? Number(b.unitCost) : undefined };
+      const sys = b && !b.costEst && b.unitCost != null ? Number(b.unitCost) : lastCostOf(l);
+      if (sys != null) return { line: { ...l, unitCost: sys }, est: false };
+      return { line: { ...l, unitCost: l.unitCost ?? (b?.costEst && b.unitCost != null ? Number(b.unitCost) : undefined) }, est: true };
     });
+    d.lines = next.map((n) => n.line); est = next.map((n) => n.est && n.line.unitCost != null);
   }
-  const lastCostOf = (l: { partSku?: string | null }) => (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined);
   const noCost = !itemsOnly && order.mode !== "PARTNER_REPAIR" ? d.lines.map((l, i) => (l.qty > 0 && l.unitCost == null && !lastCostOf(l) ? i + 1 : 0)).filter(Boolean) : [];
-  if (noCost.length && seesCost) throw new Error(`QUOTE_COST_REQUIRED:${noCost.join("、")}`);
-  const costPending = noCost; // Sales: saved, not sent
+  if (noCost.length) throw new Error(`${seesCost ? "QUOTE_COST_REQUIRED" : "QUOTE_EST_REQUIRED"}:${noCost.join("、")}`);
+  const costPending: number[] = [];
   const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? lastCostOf(l) })), partnerCosts);
   const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 
@@ -227,7 +235,7 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
         return {
           serviceOrderId: order.id, lineNo: i + 1, assetCode: l.assetCode, partId: part?.id, description: l.description,
           descriptionLocal: l.descriptionLocal, qty: l.qty, unit: l.unit, unitPrice: l.unitPrice,
-          amount: Math.round(l.qty * l.unitPrice * 100) / 100, costRef: part?.lastCost ?? undefined, unitCost: costed[i].unitCost,
+          amount: Math.round(l.qty * l.unitPrice * 100) / 100, costRef: part?.lastCost ?? undefined, unitCost: costed[i].unitCost, costEst: est[i],
         };
       }),
     });

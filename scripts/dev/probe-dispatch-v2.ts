@@ -27,15 +27,18 @@ async function main() {
   console.log("第 11 条 报价成本必填");
   const o = await createServiceOrder({ createdByEmployeeCode: sales.code, customerId: customer.id, mode: "DOMESTIC_TRADE", requestLines: [{ sku: part.sku, qty: 2, unit: "pcs" }] } as never);
   const two = [{ partSku: part.sku, description: "TEST d2 bolt", qty: 2, unit: "pcs", unitPrice: 100 }, { description: "TEST freight", qty: 1, unit: "lot", unitPrice: 50 }];
-  // 派修单 v4 第 2 条: Sales neither sees nor writes a cost — the part's last purchase cost is taken silently; a line without any is 待补成本
+  // 朱总 2026-11-18: Sales may estimate. The part's last purchase cost stands (Sales does not see it); a line the system
+  // has no cost for takes Sales' estimate and is marked 预估; without one it is named and refused.
   const { setQuoteLines: rawSet } = await import("../../src/server/slm-docs");
-  const s1 = await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: two });
+  check("Sales: a line without any cost is named and asked for an estimate", /QUOTE_EST_REQUIRED:2$/.test(await msg(rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: two }))));
+  const s1 = await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ ...two[0], unitCost: 999 }, { ...two[1], unitCost: 20 }] });
   const st1 = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no }, include: { lines: { orderBy: { lineNo: "asc" } } } });
-  check("Sales: the lines are saved, line 2 waits for a cost, the quote does not go out", JSON.stringify(s1.costPending) === "[2]" && st1.lines.length === 2 && Number(st1.lines[0].unitCost) === 40 && st1.lines[1].unitCost === null && st1.status !== "QUOTE_PENDING", `${JSON.stringify(s1.costPending)} ${st1.status}`);
+  check("Sales estimates: the part keeps the last purchase cost 40 (999 ignored), freight takes the estimate 20 and is marked 预估, margin (250 − 100) ÷ 250 = 60 %, the quote goes out", Number(st1.lines[0].unitCost) === 40 && !st1.lines[0].costEst && Number(st1.lines[1].unitCost) === 20 && st1.lines[1].costEst && Math.abs(Number(s1.marginPct) - 0.6) < 0.001 && st1.status === "QUOTE_PENDING", `${st1.lines.map((l) => `${l.unitCost}/${l.costEst}`)} ${s1.marginPct} ${st1.status}`);
   check("MD: a line without cost is named and refused", /QUOTE_COST_REQUIRED:2$/.test(await msg(rawSet({ serviceOrderNo: o.no, actorCode: md.code, lines: two }))));
   await rawSet({ serviceOrderNo: o.no, actorCode: md.code, lines: [two[0], { ...two[1], unitCost: 30 }] });
   const saved = await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ ...two[0], unitCost: 999 }, { ...two[1], unitCost: 999 }] });
-  check("after the MD filled the cost, Sales saves again: a cost typed by Sales is ignored, margin (250 − 110) ÷ 250 = 56 %, the quote goes out", saved.costPending.length === 0 && Math.abs(Number(saved.marginPct) - 0.56) < 0.001 && (await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } })).status === "QUOTE_PENDING", String(saved.marginPct));
+  const st2 = await prisma.quoteLine.findMany({ where: { serviceOrderId: st1.id }, orderBy: { lineNo: "asc" } });
+  check("once the MD wrote the cost, Sales cannot change it: margin (250 − 110) ÷ 250 = 56 %, no longer 预估", Math.abs(Number(saved.marginPct) - 0.56) < 0.001 && Number(st2[1].unitCost) === 30 && !st2[1].costEst, String(saved.marginPct));
 
   console.log("第 12 条 所有 PO 都要审批");
   const sup = await createSupplier({ actorCode: pur.code, name: `TEST d2 Supplier ${tag}` });

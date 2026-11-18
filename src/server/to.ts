@@ -1,3 +1,4 @@
+import { assertCostConfirmed } from "./job-cost";
 import { actorWith } from "@/server/guard";
 import { fxFields, rateFor } from "@/server/fx";
 import { can, hasRole } from "@/lib/caps";
@@ -53,6 +54,7 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   if (!first && !reissue) throw new Error(order.status === "INVOICED" ? `TI_EXISTS:${order.taxInvoices.find((t) => !t.voidedAt)?.no ?? ""}` : `${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
   if (!order.decline && Number(order.total ?? 0) <= 0) throw new Error(`INVOICE_ZERO:${order.no}`); // 0 元不开票 (V4-P0-06)
   if (order.noInvoiceAt) throw new Error(`NO_INVOICE_MARKED:${order.no}`); // 已标「不开票」
+  await assertCostConfirmed(order); // 开票前成本认可 (朱总 2026-11-18): the real cost, read from the system, recognised by finance or the MD
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const issuedAt = d.issuedAt ?? new Date();
   const currency = order.entity.localCurrency;
@@ -166,9 +168,15 @@ export const PaymentInput = z.object({
   attachments: z.array(z.object({ name: z.string(), url: z.string(), kind: z.string().optional() })).optional(),
 });
 
-/** Record payment on the IVTH. Full settlement (cash + WHT ≥ due) closes the order and writes PAID on each asset. */
-export async function recordPayment(input: z.input<typeof PaymentInput>) {
+/**
+ * Record payment on the IVTH: writes the RCTH and counts the invoice as paid. Since 2026-11-18 (朱总: 收款也是一样) this
+ * is the last of three steps and is reached only through server/collect.ts — finance asks, the MD approves, finance
+ * confirms with the bank slip. `approved` is the request that was approved; without it nothing is recorded.
+ */
+export async function recordPayment(input: z.input<typeof PaymentInput>, approved?: { requestId: string }) {
   await actorWith(input.actorCode, can.invoice); // 统一角色权限表
+  if (!approved) throw new Error("RC_THREE_STEPS");
+  { const rq = await prisma.receiptRequest.findUnique({ where: { id: approved.requestId } }); if (!rq || rq.status !== "APPROVED") throw new Error("RC_NEEDS_MD"); }
   assertBusinessClosure("PAYMENT");
   const d = PaymentInput.parse(input);
   const iv = await prisma.invoice.findUniqueOrThrow({ where: { no: d.invoiceNo }, include: { serviceOrder: { include: { assets: true } } } });

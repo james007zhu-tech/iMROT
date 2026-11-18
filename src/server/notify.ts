@@ -75,6 +75,12 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     const turn = !run || !run.preparedBy ? "HR" : run.status === "DRAFT" ? (run.taxConfirmedAt ? "MD" : "FINANCE") : run.status === "APPROVED" ? "FINANCE" : null;
     if (started && turn && hasRole(me, turn)) push(`payrollDue_${!run || !run.preparedBy ? "prep" : run.status === "APPROVED" ? "pay" : turn === "MD" ? "approve" : "review"}`, 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
   }
+  // 收款三步 (2026-11-18): the MD is told what waits for approval, finance what waits for its slip
+  if (hasRole(me, "MD", "FINANCE"))
+    for (const q of await prisma.receiptRequest.findMany({ where: { status: { in: ["REQUESTED", "APPROVED"] } }, select: { status: true, invoice: { select: { no: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } } }, take: 50 })) {
+      if (q.status === "REQUESTED" && hasRole(me, "MD")) push("rcApprove", 0, q.invoice.no, `/service-orders/${q.invoice.serviceOrder.no}/payment`, q.invoice.serviceOrder.customer.name);
+      if (q.status === "APPROVED" && hasRole(me, "FINANCE")) push("rcConfirm", 0, q.invoice.no, `/service-orders/${q.invoice.serviceOrder.no}/payment`, q.invoice.serviceOrder.customer.name);
+    }
   // 报价行待补成本 (派修单 v4 第 2 条): the MD and finance are told which quote waits for a cost
   if (hasRole(me, "MD", "FINANCE"))
     for (const o of await prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, mode: { not: "PARTNER_REPAIR" }, lines: { some: { unitCost: null, qty: { gt: 0 }, unitPrice: { gt: 0 } } } }, select: { no: true }, take: 30 }))
@@ -151,7 +157,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   }
   if (hasRole(me, "MD")) for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "quoteCost" || n.kind === "leaveApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "rcApprove" || n.kind === "rcConfirm" || n.kind === "quoteCost" || n.kind === "leaveApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
 }

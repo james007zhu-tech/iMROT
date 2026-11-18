@@ -27,7 +27,7 @@ export function QuoteSum({ rows, vatRate, floor, currency, labels, plain }: { pl
   const margin = s.sub > 0 && s.costed ? (s.sub - s.cost) / s.sub : null;
   const low = margin != null && margin < floor;
   return (
-    <div ref={ref} className={`sticky bottom-2 z-10 rounded-xl border bg-white/95 p-3 text-sm shadow-md backdrop-blur ${low && !plain ? "border-alert" : ""}`}>
+    <div ref={ref} className={`z-10 rounded-xl xl:sticky xl:bottom-2 xl:mr-16 border bg-white/95 p-3 text-sm shadow-md backdrop-blur ${low && !plain ? "border-alert" : ""}`}>
       {!s.any ? <span className="text-navy/60">{labels.total}: —</span> : (
         <div className={`grid grid-cols-2 gap-x-4 gap-y-1 ${plain ? "md:grid-cols-3" : "md:grid-cols-5"}`}>
           <span>{labels.subtotal}<b className="block font-mono">{f(s.sub)}</b></span>

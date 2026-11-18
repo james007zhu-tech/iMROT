@@ -10,7 +10,8 @@ import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../s
 
 import { completeMilestone, invoiceMilestone, savePlan } from "../../src/server/project";
 import { issueDelivery, signDelivery, deliveryPlan } from "../../src/server/delivery";
-import { issueTaxInvoice, recordPayment } from "../../src/server/to";
+import { issueTaxInvoice } from "./_probe";
+import { recordPayment } from "./_probe";
 import { buildFields } from "../../src/server/reports";
 import { allocateNumber } from "../../src/lib/numbering-db";
 import { PHASES } from "../../src/lib/project";

@@ -8,11 +8,13 @@
 import { buildCashPlan } from "../../src/server/cash-plan";
 import { localIso } from "../../src/lib/dates";
 import { invoiceState, outstandingOf } from "../../src/server/to";
+import { issueTaxInvoice } from "./_probe";
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder } from "../../src/server/slm";
 
-import { decideReceiptVoid, decideTaxInvoiceVoid, issueCreditNote, issueInvoice, issueTaxInvoice, recordPayment, requestReceiptVoid, requestTaxInvoiceVoid, voidCreditNote } from "../../src/server/to";
+import { decideReceiptVoid, decideTaxInvoiceVoid, issueCreditNote, issueInvoice, requestReceiptVoid, requestTaxInvoiceVoid, voidCreditNote } from "../../src/server/to";
+import { recordPayment } from "./_probe";
 import { createEmployee } from "../../src/server/opd";
 import { allocateNumber } from "../../src/lib/numbering-db";
 import { setQuoteLines } from "./_probe";
@@ -36,6 +38,20 @@ async function main() {
   await prisma.serviceOrder.update({ where: { no: o.no }, data: { status: "ACCEPTED" } }); // shortcut: the acceptance chain is covered by smoke
   const lines = [{ descriptionLocal: "ซ่อม", descriptionEn: "Repair", qty: 1, unitPrice: 10000 }];
 
+  console.log("0. 开票前成本认可 (2026-11-18)");
+  const { issueTaxInvoice: rawIssue, recordPayment: rawPay } = await import("../../src/server/to");
+  const { confirmOrderCost, orderCost } = await import("../../src/server/job-cost");
+  await refused(() => rawIssue({ serviceOrderNo: o.no, actorCode: md.code, lines }), /COST_NOT_CONFIRMED/, "no tax invoice before finance or the MD recognised the real cost");
+  const sp = await prisma.employee.create({ data: { code: `ETH97${String(Date.now()).slice(-5)}`, name: "TEST probe sales", role: "SALES", entityId: entity.id, joinedAt: new Date("2030-01-01") } });
+  await refused(() => confirmOrderCost({ no: o.no, actorCode: sp.code }), /COST_FINANCE_MD/, "Sales cannot recognise the cost");
+  const job = await prisma.repairJob.create({ data: { no: `TEST-RPTH${Date.now()}`, serviceOrderId: o.id, assetId: vfd.id, engineerId: md.id, kind: "REPAIR", laborHours: 3 } });
+  const c0 = await orderCost(o.id);
+  assert(c0.hours === 3 && c0.labour.length === 1 && c0.labour[0].ref === job.no, `the hours come from the report: ${c0.hours} h on ${c0.labour[0]?.ref}`);
+  await confirmOrderCost({ no: o.no, actorCode: md.code });
+  await prisma.repairJob.update({ where: { id: job.id }, data: { laborHours: 5 } });
+  const sal = await prisma.salaryRecord.findFirst({ where: { employeeId: md.id } });
+  if (sal) await refused(() => rawIssue({ serviceOrderNo: o.no, actorCode: md.code, lines }), /COST_CHANGED/, "hours changed after the recognition → recognise again");
+  else console.log("  · (no salary record for the probe engineer: the changed-cost check is skipped)");
   console.log("1. first TITH + IVTH");
   const ti1 = await issueTaxInvoice({ serviceOrderNo: o.no, actorCode: md.code, lines });
   const iv1 = await issueInvoice({ serviceOrderNo: o.no, actorCode: md.code, taxInvoiceNo: ti1.no });
@@ -73,6 +89,21 @@ async function main() {
   assert(stillInvoiced.status === "INVOICED", "order is INVOICED again");
   assert((await prisma.invoice.count({ where: { taxInvoice: { no: ti2.no }, cancelledAt: null } })) === 1, "the tax invoice brought exactly one IVTH with it (issueInvoice afterwards answers with the same one)");
 
+  console.log("4b. 收款三步、两人 (2026-11-18)");
+  const { requestReceipt, decideReceipt, confirmReceipt, withdrawReceipt } = await import("../../src/server/collect");
+  const fin = await prisma.employee.create({ data: { code: `ETH96${String(Date.now()).slice(-5)}`, name: "TEST probe fin", role: "FINANCE", entityId: entity.id, joinedAt: new Date("2030-01-01") } });
+  await refused(() => rawPay({ invoiceNo: iv2.no, actorCode: fin.code, paidAt: new Date(), paidAmount: 1, whtAmount: 0 } as never), /RC_THREE_STEPS/, "a receipt cannot be written in one step");
+  await refused(() => requestReceipt({ invoiceNo: iv2.no, actorCode: md.code, account: "CASH", cashAmount: 1, receivedOn: new Date() }), /FINANCE_COLLECTS/, "finance starts a receipt, not the MD");
+  await refused(() => requestReceipt({ invoiceNo: iv2.no, actorCode: fin.code, account: "", cashAmount: 1, receivedOn: new Date() }), /PAY_ACCOUNT_REQUIRED/, "no account, no request");
+  await refused(() => requestReceipt({ invoiceNo: iv2.no, actorCode: fin.code, account: "CASH", cashAmount: 99999999, receivedOn: new Date() }), /RC_OVER/, "more than what is open is refused");
+  const one = await requestReceipt({ invoiceNo: iv2.no, actorCode: fin.code, account: "CASH", cashAmount: 1, receivedOn: new Date() });
+  await refused(() => confirmReceipt({ id: one.id, actorCode: fin.code, bankRef: "x", slip: [{ name: "s", url: "/uploads/s.jpg" }] }), /RC_NEEDS_MD/, "1 baht also waits for the MD");
+  await refused(() => decideReceipt({ id: one.id, actorCode: fin.code, approve: true }), /MD_ONLY/, "finance cannot approve its own request");
+  await decideReceipt({ id: one.id, actorCode: md.code, approve: true });
+  await refused(() => confirmReceipt({ id: one.id, actorCode: fin.code, bankRef: "x", slip: [] }), /PAY_SLIP_REQUIRED/, "no bank slip, not received");
+  await refused(() => confirmReceipt({ id: one.id, actorCode: fin.code, bankRef: " ", slip: [{ name: "s", url: "/uploads/s.jpg" }] }), /PAY_REF_REQUIRED/, "no transfer reference, not received");
+  assert((await prisma.receipt.count({ where: { invoice: { no: iv2.no } } })) === 0 && Number((await prisma.invoice.findUniqueOrThrow({ where: { no: iv2.no } })).paidAmount ?? 0) === 0, "nothing is counted as received before the confirmation");
+  await withdrawReceipt({ id: one.id, actorCode: fin.code });
   console.log("5. receipt: void asked, MD approves → the money is owed again");
   const p1 = await recordPayment({ invoiceNo: iv2.no, actorCode: md.code, paidAt: new Date(), paidAmount: 4000, whtAmount: 0 } as never);
   // 部分收款 (需求清单 v3 P0-16): 4,000 of 10,700 received — the invoice is not "paid", 6,700 is still owed, everywhere

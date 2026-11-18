@@ -6,7 +6,8 @@ import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { advanceServiceOrder, confirmCustomerPo, createServiceOrder, getServiceOrder, poLinesFromQuote } from "../../src/server/slm";
 import { createInspection, recordAcceptance, suggestPrice } from "../../src/server/slm-docs";
-import { issueTaxInvoice, recordPayment } from "../../src/server/to";
+import { issueTaxInvoice } from "./_probe";
+import { recordPayment } from "./_probe";
 import { createCustomer } from "../../src/server/crm";
 import { createPurchaseOrder, createSupplier } from "../../src/server/purchasing";
 import { recordStockDoc } from "../../src/server/scm";
@@ -77,7 +78,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     console.log("3. 开票、收款、关闭、建客户、采购");
     for (const [who, e] of [["engineer", e1], ["supervisor", mgr], ["sales", sales], ["Sales+PUR", adm], ["HR", hr], ["PUR", wh]] as const)
       check(`${who} cannot issue a tax invoice`, /NO_PERMISSION/.test(await msg(issueTaxInvoice({ serviceOrderNo: o.no, actorCode: e.code }))));
-    check("the engineer cannot record a payment", /NO_PERMISSION/.test(await msg(recordPayment({ invoiceNo: "TEST-IVTH00000000", actorCode: e1.code, paidAt: new Date(), paidAmount: 1 } as never))));
+    check("the engineer cannot record a payment", /FINANCE_COLLECTS/.test(await msg((await import("../../src/server/collect")).requestReceipt({ invoiceNo: "TEST-IVTH00000000", actorCode: e1.code, account: "CASH", cashAmount: 1, receivedOn: new Date() }))));
     check("the engineer and the supervisor cannot close the order", /NO_PERMISSION/.test(await msg(advanceServiceOrder(o.no, "CLOSED", e1.code))) && /NO_PERMISSION/.test(await msg(advanceServiceOrder(o.no, "CLOSED", mgr.code))));
     const cc = await msg(createCustomer({ actorCode: e1.code, entityCode: entity.code, name: "TEST x" } as never));
     check("the engineer cannot create a customer", /NO_PERMISSION/.test(cc), cc.slice(0, 160));

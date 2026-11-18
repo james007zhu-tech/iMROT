@@ -8,7 +8,9 @@ import { createServiceOrder, advanceServiceOrder, confirmCustomerPo, poLinesFrom
 import { createInspection, createRepairJob, recordAcceptance, receiveEquipment } from "../../src/server/slm-docs";
 import { recordStockDoc } from "../../src/server/scm";
 import { deliveryPlan, issueDelivery, signDelivery } from "../../src/server/delivery";
-import { issueTaxInvoice, issueInvoice, recordPayment } from "../../src/server/to";
+import { issueInvoice } from "../../src/server/to";
+import { issueTaxInvoice } from "./_probe";
+import { recordPayment } from "./_probe";
 import { allocateNumber } from "../../src/lib/numbering-db";
 import { setQuoteLines } from "./_probe";
 
