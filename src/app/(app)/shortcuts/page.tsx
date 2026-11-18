@@ -16,7 +16,7 @@ export default async function Shortcuts() {
   const t = await getTranslations("home");
   const s = await getTranslations("shortcut");
   const n = await getTranslations("nav");
-  const pins = shortcutsOf(me.shortcuts, me.role).filter((s) => pathAllows(me, s.href.split("?")[0]));
+  const pins = shortcutsOf(me.shortcuts, me.role).filter((s) => pathAllows(me, s.href));
   const on = new Set(pins.map((p) => p.key));
   async function save(f: FormData) {
     "use server";

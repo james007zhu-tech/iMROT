@@ -8,7 +8,7 @@ import { presetRange, reportDetail, type DetailKind } from "@/server/fin-report"
 import { PageHeader, Table, Tag } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-const KINDS: DetailKind[] = ["result", "vatNet", "revenue", "vatOut", "collected", "whtByCustomers", "purchases", "vatIn", "paidSuppliers", "expenses", "payroll", "stock", "vatDue", "whtDue", "payrollDue"];
+const KINDS: DetailKind[] = ["result", "vatNet", "revenue", "vatOut", "collected", "whtByCustomers", "purchases", "vatIn", "paidSuppliers", "expenses", "payroll", "stock", "vatDue", "whtDue", "payrollDue", "bsCash", "bsAr", "bsAp"];
 
 /** 报表下钻: the documents behind one number of the report page; every row opens its document (派修单 v4 P0-1). */
 export default async function Detail({ searchParams }: { searchParams: Promise<{ k?: string; from?: string; to?: string; p?: string; test?: string; mode?: string; customer?: string; category?: string }> }) {
@@ -23,7 +23,7 @@ export default async function Detail({ searchParams }: { searchParams: Promise<{
   const sub = sp.mode ? u(`mode_${sp.mode}`) : sp.customer ?? sp.category ?? "";
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: `/finance/reports?${back}`, label: "←" }} title={`${t(`det_${kind}`)}${sub ? ` · ${sub}` : ""}`} badge={<Tag>{kind === "stock" ? range.to : `${range.from} → ${range.to}`}</Tag>} />
+      <PageHeader back={{ href: `/finance/reports?${back}`, label: "←" }} title={`${t(`det_${kind}`)}${sub ? ` · ${sub}` : ""}`} badge={<Tag>{kind === "stock" || kind.startsWith("bs") ? range.to : `${range.from} → ${range.to}`}</Tag>} />
       <div className="rounded-xl border bg-white p-2">
         <Table head={[t("repDate"), t("repDocNo"), t("repParty"), t("repRef"), "THB"]}>
           {r.rows.map((x, i) => <tr key={x.no + i}><td className="whitespace-nowrap font-mono text-xs">{localIso(x.date)?.slice(0, 10) ?? ""}</td><td className="whitespace-nowrap"><Link href={x.href} className="font-mono text-blue hover:underline">{x.no || "—"}</Link></td><td>{x.who}</td><td className="text-xs text-navy/70">{x.note}</td><td className="text-right tabular-nums">{m(x.amount)}</td></tr>)}

@@ -1,3 +1,4 @@
+import { overtimeAwaitingHr } from "@/server/payroll";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
@@ -33,8 +34,10 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
   const hrs = (r: { hours: unknown; actualHours: unknown }) => Number(r.actualHours ?? r.hours);
   // 计入月份 (H-R70): never a bare "—" — the month it was paid in, the month it is expected in, or why it is in none
   const closedMonths = new Set((await overtimeMonths(me.entityId)).map((m) => m.month));
-  const paidIn = (r: { status: string; workDate: Date; payNotBefore: string | null; payMonth: { month: string } | null }) => {
+  const nextOf = (m: string) => { const [y, mo] = m.split("-").map(Number); return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`; };
+  const paidIn = (r: { id: string; status: string; workDate: Date; payNotBefore: string | null; payMonth: { month: string } | null }) => {
     if (r.payMonth) return r.payMonth.month;
+    if (awaitingHr.has(r.id)) return u("otPayHrChoose", { m: awaitingHr.get(r.id)!, next: nextOf(awaitingHr.get(r.id)!) });
     if (r.status === "PENDING") return u("otPayPending");
     if (r.status !== "APPROVED") return u("otPayNone");
     let m = r.workDate.toISOString().slice(0, 7);
@@ -44,8 +47,9 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
     return u("otPayExpected", { month: m });
   };
   const flt = { month: sp.om || undefined, status: sp.os || undefined, code: sp.oe || undefined };
-  const everyone = hasRole(me, "MD", "HR") ? await allOvertime(me.entityId, flt) : [];
-  const staffAll = hasRole(me, "MD", "HR") ? await prisma.employee.findMany({ where: { entityId: me.entityId, active: true }, orderBy: { code: "asc" }, select: { code: true, name: true } }) : [];
+  const everyone = hasRole(me, "MD", "HR", "FINANCE") ? await allOvertime(me.entityId, flt) : [];
+  const awaitingHr = await overtimeAwaitingHr(me.entityId, [...mine, ...everyone].filter((r) => r.status === "APPROVED" && !r.payMonth).map((r) => r.workDate.toISOString().slice(0, 7)));
+  const staffAll = hasRole(me, "MD", "HR", "FINANCE") ? await prisma.employee.findMany({ where: { entityId: me.entityId, active: true }, orderBy: { code: "asc" }, select: { code: true, name: true } }) : [];
   const prevClosed = months.some((m) => m.month === previousMonth);
   return (
     <div className="space-y-4">
@@ -102,7 +106,7 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
         </Table>
       </Card>
 
-      {hasRole(me, "MD", "HR") && <Card title={`${u("otEveryone")} (${everyone.length})`}>
+      {hasRole(me, "MD", "HR", "FINANCE") && <Card title={`${u("otEveryone")} (${everyone.length})`}>
         <form className="mb-2 flex flex-wrap items-end gap-2 text-sm">
           <label className="text-xs text-navy/70">{u("leaveMonth")}<input name="om" type="month" defaultValue={flt.month ?? ""} className={`${inputCls} mt-1 block`} /></label>
           <label className="text-xs text-navy/70">{t("status")}<select name="os" defaultValue={flt.status ?? ""} className={`${inputCls} mt-1 block`}><option value="">—</option>{(["PENDING", "APPROVED", "REJECTED", "CANCELLED"] as const).map((k) => <option key={k} value={k}>{u(`otStatus_${k}`)}</option>)}</select></label>

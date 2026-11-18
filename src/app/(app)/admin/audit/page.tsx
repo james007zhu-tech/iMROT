@@ -1,3 +1,4 @@
+import { OT_MULTIPLIER } from "@/lib/overtime";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -25,6 +26,10 @@ export default async function Audit({ searchParams }: { searchParams: Promise<{ 
     from ? { at: { gte: from, lt: new Date(from.getTime() + 86_400_000) } } : {},
   ] };
   const rows = await prisma.auditLog.findMany({ where, orderBy: { at: "desc" }, skip: (page - 1) * size, take: size + 1, include: { actor: { select: { code: true, name: true } } } });
+  // 派修单 v5 P1-10: an overtime row says whose overtime, which day and which hours — not an internal id
+  const otIds = rows.filter((r) => r.action.startsWith("OT_") && /^c[a-z0-9]{20,}$/.test(r.target ?? "")).map((r) => r.target!);
+  const ots = new Map((otIds.length ? await prisma.overtimeRequest.findMany({ where: { id: { in: otIds } }, select: { id: true, workDate: true, startTime: true, endTime: true, actualStart: true, actualEnd: true, hours: true, actualHours: true, kind: true, employee: { select: { code: true, name: true } } } }) : []).map((o) => [o.id, o]));
+  const otLabel = (id: string) => { const o = ots.get(id); return o ? { text: `${o.employee.code} ${o.employee.name} · ${o.workDate.toISOString().slice(0, 10)} ${o.actualStart ?? o.startTime}–${o.actualEnd ?? o.endTime} · ${Number(o.actualHours ?? o.hours)} h ×${OT_MULTIPLIER[o.kind]}`, href: `/people/overtime?code=${o.employee.code}&month=${o.workDate.toISOString().slice(0, 7)}` } : null; };
   const qs = (p: number) => new URLSearchParams({ ...(q ? { q } : {}), ...(who ? { who } : {}), ...(day ? { day } : {}), page: String(p) }).toString();
   return (
     <div className="space-y-4">
@@ -40,7 +45,7 @@ export default async function Audit({ searchParams }: { searchParams: Promise<{ 
           {rows.slice(0, size).map((r) => <tr key={r.id}>
             <td className="whitespace-nowrap font-mono text-xs">{localIso(r.at)!.slice(0, 19).replace("T", " ")}</td>
             <td className="whitespace-nowrap text-xs"><span className="font-mono">{r.actor?.code}</span> {r.actor?.name}</td>
-            <td className="whitespace-nowrap font-mono text-xs">{r.action}</td><td className="font-mono text-xs">{r.target}</td>
+            <td className="whitespace-nowrap font-mono text-xs">{r.action}</td><td className="text-xs">{otLabel(r.target ?? "") ? <Link href={otLabel(r.target!)!.href} className="text-blue hover:underline">{otLabel(r.target!)!.text}</Link> : <span className="font-mono">{r.target}</span>}</td>
             <td className="max-w-[36rem] break-all text-xs text-navy/80">{r.detail ? JSON.stringify(r.detail) : ""}</td>
           </tr>)}
           {!rows.length && <tr><td colSpan={5} className="py-4 text-center text-navy/60">{u("auditNone")}</td></tr>}

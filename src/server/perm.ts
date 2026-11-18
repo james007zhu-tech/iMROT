@@ -30,9 +30,11 @@ export async function hiddenFor(who: Who): Promise<Set<string>> {
 /** 「无权限，此功能属于 XX 角色」: the roles a page belongs to, as written on screen. */
 export function ownersOf(pathWithQuery: string): string {
   const key = menuKeyOf(pathWithQuery);
-  const byPath = pathOwners(pathWithQuery.split("?")[0]);
+  // 派修单 v5 P1-12: one list, the same whoever is refused — the roles the rules actually let in. A path rule and the
+  // menu both have to agree for a person to get in, so the list is the roles that pass both.
+  const byPath = pathOwners(pathWithQuery);
   const byMenu = key ? (MD_ONLY.has(key) ? [] : menuOwners(key)) : null;
-  const owners = byPath.length && byMenu ? byPath.filter((r) => byMenu.includes(r)) : byPath.length ? byPath : byMenu ?? [];
+  const owners = byPath && byMenu ? byPath.filter((r) => byMenu.includes(r)) : byPath ?? byMenu ?? [];
   return ["MD", ...owners.map((r) => ROLE_SHORT[r])].join(" / ");
 }
 

@@ -83,7 +83,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     const cc = await msg(createCustomer({ actorCode: e1.code, entityCode: entity.code, name: "TEST x" } as never));
     check("the engineer cannot create a customer", /NO_PERMISSION/.test(cc), cc.slice(0, 160));
     check("the engineer, Sales and FIN cannot raise a POTH or a supplier; a person who is Sales + PUR can", /NO_PERMISSION/.test(await msg(createPurchaseOrder({ actorCode: e1.code, supplierId: "x", lines: [] } as never))) && /NO_PERMISSION/.test(await msg(createPurchaseOrder({ actorCode: sales.code, supplierId: "x", lines: [] } as never))) && /NO_PERMISSION/.test(await msg(createSupplier({ actorCode: fin.code, name: "TEST x" }))) && !/NO_PERMISSION/.test(await msg(createPurchaseOrder({ actorCode: adm.code, supplierId: "x", lines: [] } as never))) && /NO_PERMISSION/.test(await msg(recordStockDoc({ actorCode: sales.code, direction: "IN", lines: [{ partSku: part.sku, qty: 1 }] }))) && /NO_PERMISSION/.test(await msg(createSupplier({ actorCode: e1.code, name: "TEST x" }))));
-    await recordStockDoc({ actorCode: e1.code, direction: "IN", lines: [{ partSku: part.sku, qty: 1, unitCost: 1 }] });
+    check("入库归 PUR: an engineer cannot book a receipt that is not a return from an order (v5 P1-12)", /STOCK_IN_PUR/.test(await msg(recordStockDoc({ actorCode: e1.code, direction: "IN", lines: [{ partSku: part.sku, qty: 1, unitCost: 1 }] }))));
     check("a unit cost typed by an engineer on a receipt is not taken", Number((await prisma.part.findUniqueOrThrow({ where: { sku: part.sku } })).lastCost) === 6543.21);
 
     console.log("4. 接口里没有这些数字");

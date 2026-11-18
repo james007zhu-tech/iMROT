@@ -26,7 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // 权限管理: entries this role may not open leave the menu, and the page behind them is refused (server on arrival, client on moves inside the app)
   const hidden = await hiddenFor(me).catch(() => new Set<string>());
   const here = (await headers()).get("x-dcit-path");
-  const refused = !!here && (hidden.has(menuKeyOf(here) ?? "") || !pathAllows(me, here.split("?")[0]));
+  const refused = !!here && (hidden.has(menuKeyOf(here) ?? "") || !pathAllows(me, here));
   const guardItems = NAV.flatMap((g) => g.items.map((i) => ({ href: i.href, blocked: hidden.has(i.key), owners: hidden.has(i.key) ? ownersOf(i.href) : "" })));
   async function out() { "use server"; await signOut(); redirect("/login"); }
   return (

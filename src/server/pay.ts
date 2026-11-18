@@ -10,7 +10,7 @@
  * Only finance asks and confirms; only the MD decides; nobody else has an entrance. A payment entered by mistake is
  * reversed (冲回) by finance or the MD with a reason: the invoice gets its amount back, the PVTH stays on file as VOID.
  */
-import { WHT_TYPES, isTaxId13 } from "@/lib/wht";
+import { WHT_TYPES, isTaxId13, taxIdChecks } from "@/lib/wht";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -130,4 +130,21 @@ export async function voidPayment(input: { id: string; actorCode: string; reason
     if (p.status === "PAID") await resync(tx, p.supplierInvoiceId);
     return gone;
   });
+}
+
+/**
+ * 付款时补供应商税号 (派修单 v5 P0-3). Withholding needs the payee's 13-digit tax ID; when the supplier has none, finance
+ * fills in exactly two things — the tax ID and the branch — from the payment form. The supplier's other master data
+ * stays with purchasing. Checked: 13 digits with a valid check digit, not already another supplier's. Kept with who and when.
+ */
+export async function setSupplierTaxId(input: { supplierId: string; actorCode: string; taxId: string; branchCode?: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (!hasRole(actor, "FINANCE", "MD")) throw new Error("NO_PERMISSION");
+  const taxId = input.taxId.replace(/\D/g, ""), branch = (input.branchCode ?? "").replace(/\D/g, "").padStart(5, "0").slice(-5) || "00000";
+  if (!taxIdChecks(taxId)) throw new Error("TAXID_INVALID");
+  const s = await prisma.supplier.findUniqueOrThrow({ where: { id: input.supplierId }, select: { id: true, code: true, taxId: true, branchCode: true } });
+  if (isTaxId13(s.taxId)) throw new Error("TAXID_ALREADY");
+  if (await prisma.supplier.findFirst({ where: { taxId, NOT: { id: s.id } }, select: { id: true } })) throw new Error("TAXID_TAKEN");
+  await prisma.supplier.update({ where: { id: s.id }, data: { taxId, branchCode: branch } });
+  await audit(actor.id, "SUPPLIER_TAXID_SET", s.code ?? s.id, { was: s.taxId ?? null, branchWas: s.branchCode ?? null, branch });
 }

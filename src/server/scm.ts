@@ -73,6 +73,7 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
   const d = StockDocInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   if (!hasRole(actor, "MD", "PURCHASING", "ENGINEER")) throw new Error("NO_PERMISSION"); // 六角色: 出入库归 PUR; ENG 领料、退料
+  if (d.direction === "IN" && !d.serviceOrderNo && !hasRole(actor, "MD", "PURCHASING")) throw new Error("STOCK_IN_PUR"); // 入库归 PUR: an engineer only hands back what an order drew (v5 P1-12)
   const { found, unknown, ambiguous } = await resolveParts(d.lines.map((l) => l.partSku));
   if (ambiguous.length) throw new Error(`AMBIGUOUS_SKU:${ambiguous.join("; ")}`);
   if (unknown.length) throw new Error(`UNKNOWN_SKU:${unknown.join(",")}`);

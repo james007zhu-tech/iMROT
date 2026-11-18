@@ -1,9 +1,11 @@
+import { guarded } from "@/lib/action-result";
+import { setReceiptAccount } from "@/server/collect";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
-import { AGE_KEYS, financeReport, type MonthRow, cashJournal, presetRange, simpleBalance } from "@/server/fin-report";
+import { AGE_KEYS, financeReport, type MonthRow, cashJournal, guessAccount, presetRange, simpleBalance } from "@/server/fin-report";
 import { dictMap } from "@/server/dict";
 import { Card, PageHeader, Tag } from "@/components/ui";
 import { hasRole } from "@/lib/caps";
@@ -29,6 +31,10 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
   const span = `${range.from} → ${range.to}`;
   const xl = (kind: string) => <a href={`/finance/reports/export?${qs({ kind })}`} className="rounded-lg border border-navy/30 px-2.5 py-1 text-xs font-semibold text-navy hover:bg-tint">{t("repExport")}</a>;
   // 下钻 (派修单 v4 P0-1): every number opens the documents behind it
+  async function setAccount(f: FormData) {
+    "use server";
+    await guarded(async () => { const me = await currentEmployee(); await setReceiptAccount({ receiptNo: String(f.get("no")), actorCode: me.code, account: String(f.get("account") ?? "") }); return "rcAccountSet"; }, "/finance/reports#cash");
+  }
   const det = (k: string, o: Record<string, string> = {}) => `/finance/reports/detail?${new URLSearchParams({ k, from: range.from, to: range.to, ...(includeTest ? { test: "1" } : {}), ...o }).toString()}`;
   const monthSpan = (mo: string) => { const end = new Date(Date.UTC(Number(mo.slice(0, 4)), Number(mo.slice(5)), 0)).toISOString().slice(0, 10); return { from: `${mo}-01` < range.from ? range.from : `${mo}-01`, to: end > range.to ? range.to : end }; };
   const num = "underline decoration-navy/25 decoration-dotted underline-offset-2 hover:text-blue hover:decoration-blue";
@@ -76,9 +82,11 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
 
       <div id="cash" className="scroll-mt-20" /><Card title={<span className="flex items-center justify-between gap-2">{t("repCash", { span })}{xl("cash")}</span>}>
         {cash.accounts.length === 0 ? <p className="text-[13px] text-navy/60">{t("repCashNone")}</p> : <div className="space-y-2">
-          {cash.accounts.map((a) => <details key={`${a.account}|${a.currency}`} className="rounded-lg border">
-            <summary className="flex cursor-pointer flex-wrap items-baseline justify-between gap-2 px-3 py-2 text-[13px]"><b className={a.label ? "" : "text-alert-ink"}>{a.label || t("repNoAccount")} · {a.currency}</b><span className="tabular-nums">{t("repIn")} {m2(a.inAmt)} · {t("repOut")} {m2(a.outAmt)} · <b>{t("repNetMove")} {m2(a.inAmt - a.outAmt)}</b></span></summary>
-            <div className="overflow-x-auto border-t px-2"><table className="w-full min-w-[560px] text-[13px]"><tbody>{a.rows.map((x) => <tr key={x.no + x.date.getTime()} className="border-b border-navy/10"><td className="whitespace-nowrap py-1 font-mono text-xs">{localIso(x.date)!.slice(0, 10)}</td><td className="whitespace-nowrap font-mono text-xs"><Link href={x.href} className="text-blue hover:underline">{x.no}</Link></td><td>{x.who}</td><td className="text-xs text-navy/60">{x.ref}</td><td className="text-right tabular-nums">{x.inAmt ? m2(x.inAmt) : ""}</td><td className="text-right tabular-nums">{x.outAmt ? `−${m2(x.outAmt)}` : ""}</td></tr>)}</tbody></table></div>
+          {cash.accounts.map((a) => <details key={`${a.account}|${a.currency}`} open={!a.account} className="rounded-lg border">
+            <summary className="flex cursor-pointer flex-wrap items-baseline justify-between gap-2 px-3 py-2 text-[13px]"><b className={a.label ? "" : "text-alert-ink"}>{a.label || t("repNoAccount")}{a.label.includes(a.currency) ? "" : ` · ${a.currency}`}</b><span className="tabular-nums">{t("repOpening")} {m2(a.opening)} · {t("repIn")} {m2(a.inAmt)} · {t("repOut")} {m2(a.outAmt)} · <b>{t("repClosing")} {m2(a.closing)}</b></span></summary>
+            {(a.rows.length > 0 || a.earlier.length > 0) && <div className="overflow-x-auto border-t px-2"><table className="w-full min-w-[560px] text-[13px]"><tbody>{[...a.earlier, ...a.rows].map((x) => <tr key={x.no + x.date.getTime()} className="border-b border-navy/10"><td className="whitespace-nowrap py-1 font-mono text-xs">{localIso(x.date)!.slice(0, 10)}</td><td className="whitespace-nowrap font-mono text-xs"><Link href={x.href} className="text-blue hover:underline">{x.no}</Link></td><td>{x.who}</td><td className="text-xs text-navy/60">{x.ref}</td><td className="text-right tabular-nums">{x.inAmt ? m2(x.inAmt) : ""}</td><td className="text-right tabular-nums">{x.outAmt ? `−${m2(x.outAmt)}` : ""}</td>
+              {!a.account && <td className="py-1 pl-2">{x.rcNo ? <form action={setAccount} data-nodraft className="flex flex-wrap items-center gap-1"><input type="hidden" name="no" value={x.rcNo} />{x.hint ? <span className="whitespace-nowrap text-xs text-navy/60">{t("repWas")}「{x.hint}」</span> : null}<select name="account" required defaultValue={guessAccount(x.hint ?? "", x.currency, cash.options)} className="min-h-9 rounded-lg border border-navy/40 bg-white px-2 text-xs"><option value="" disabled>—</option>{cash.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select><button className="min-h-9 whitespace-nowrap rounded-lg bg-navy px-3 text-xs font-semibold text-white">{t("repSetAccount")}</button></form> : null}</td>}
+            </tr>)}</tbody></table></div>}
           </details>)}
         </div>}
         <p className="mt-2 text-xs text-navy/60">{t("repCashNote")}</p>
@@ -87,11 +95,11 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
       <Card title={<span className="flex items-center justify-between gap-2">{t("repBsTitle", { date: bs.asOf })}{xl("bs")}</span>}>
         <div className="grid gap-4 text-[13px] md:grid-cols-2">
           <table className="w-full"><tbody>
-            {([["repBsCash", bs.assets.cashMoved, "#cash"], ["repBsAr", bs.assets.receivable, "#ar"], ["repBsStock", bs.assets.stock, det("stock")]] as const).map(([k, v, h]) => <tr key={k} className="border-b border-navy/10"><td className="py-1">{t(k)}</td><td className="text-right tabular-nums"><Link href={h} className={num}>{m2(v)}</Link></td></tr>)}
+            {([["repBsCash", bs.assets.cashMoved, det("bsCash")], ["repBsAr", bs.assets.receivable, det("bsAr")], ["repBsStock", bs.assets.stock, det("stock")]] as const).map(([k, v, h]) => <tr key={k} className="border-b border-navy/10"><td className="py-1">{t(k)}</td><td className="text-right tabular-nums"><Link href={h} className={num}>{m2(v)}</Link></td></tr>)}
             <tr className="font-semibold"><td className="py-1.5">{t("repBsAssets")}</td><td className="text-right tabular-nums">{m2(bs.totalAssets)}</td></tr>
           </tbody></table>
           <table className="w-full"><tbody>
-            {([["repBsAp", bs.liabilities.payable, "#ap"], ["repBsVat", bs.liabilities.vat, det("vatDue")], ["repBsWht", bs.liabilities.wht, det("whtDue")], ["repBsPayroll", bs.liabilities.payroll, det("payrollDue")]] as const).map(([k, v, h]) => <tr key={k} className="border-b border-navy/10"><td className="py-1">{t(k)}</td><td className="text-right tabular-nums"><Link href={h} className={num}>{m2(v)}</Link></td></tr>)}
+            {([["repBsAp", bs.liabilities.payable, det("bsAp")], ["repBsVat", bs.liabilities.vat, det("vatDue")], ["repBsWht", bs.liabilities.wht, det("whtDue")], ["repBsPayroll", bs.liabilities.payroll, det("payrollDue")]] as const).map(([k, v, h]) => <tr key={k} className="border-b border-navy/10"><td className="py-1">{t(k)}</td><td className="text-right tabular-nums"><Link href={h} className={num}>{m2(v)}</Link></td></tr>)}
             <tr className="font-semibold"><td className="py-1.5">{t("repBsLiab")}</td><td className="text-right tabular-nums">{m2(bs.totalLiabilities)}</td></tr>
             <tr className="font-bold text-navy"><td className="py-1.5">{t("repBsNet")}</td><td className={`text-right tabular-nums ${bs.net < 0 ? "text-alert-ink" : ""}`}>{m2(bs.net)}</td></tr>
           </tbody></table>

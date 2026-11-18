@@ -1,7 +1,7 @@
 "use server";
 import { currentEmployee } from "@/server/auth";
 import { guarded } from "@/lib/action-result";
-import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, reopenPayroll, saveScores, setBands, setSalesTarget, type LineEdit, submitPayroll, carryOvertime, recountPayroll } from "@/server/payroll";
+import { approvePayroll, computePayroll, confirmTax, markPayrollPaid, reopenPayroll, saveScores, setBands, setSalesTarget, type LineEdit, submitPayroll, carryOvertime, recountPayroll, dropEmptyPayroll } from "@/server/payroll";
 
 const BACK = "/people/payroll";
 const num = (v: FormDataEntryValue | null) => { const s = String(v ?? "").trim(); return s === "" ? undefined : Number(s); };
@@ -62,4 +62,8 @@ export async function recountAction(month: string) {
 }
 export async function carryAction(month: string) {
   await guarded(async () => { const me = await currentEmployee(); await carryOvertime({ entityId: me.entityId, month, actorCode: me.code }); return "payCarried"; }, `${BACK}/${month}`);
+}
+
+export async function dropEmptyAction(month: string) {
+  await guarded(async () => { const me = await currentEmployee(); await dropEmptyPayroll({ entityId: me.entityId, month, actorCode: me.code }); return { ok: "payEmptyDropped", to: BACK }; }, `${BACK}/${month}`);
 }

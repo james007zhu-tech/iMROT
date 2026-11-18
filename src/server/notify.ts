@@ -77,8 +77,11 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   if (hasRole(me, ...PAYROLL_ROLES)) {
     const { previousMonth, date } = localToday();
     const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
-    const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month: previousMonth } }, select: { status: true, preparedBy: true, taxConfirmedAt: true } });
-    const started = await prisma.salaryRecord.count({ where: { employee: { entityId, active: true } } });
+    const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month: previousMonth } }, select: { status: true, preparedBy: true, taxConfirmedAt: true, _count: { select: { lines: true } } } });
+    // 派修单 v5 P1-7 (H-R62): a month before the system held anyone's pay is not overdue — nobody had a salary on file
+    // in it — and an empty sheet (0 people) is nothing to chase. The first real month is reminded as before.
+    const monthEnd = new Date(`${date.slice(0, 7)}-01T00:00:00+07:00`);
+    const started = run && run._count.lines === 0 ? 0 : await prisma.salaryRecord.count({ where: { effectiveFrom: { lt: monthEnd }, createdAt: { lt: monthEnd }, employee: { entityId, active: true } } });
     const turn = !run || !run.preparedBy ? "HR" : run.status === "DRAFT" ? (run.taxConfirmedAt ? "MD" : "FINANCE") : run.status === "APPROVED" ? "FINANCE" : null;
     if (started && turn && hasRole(me, turn)) push(`payrollDue_${!run || !run.preparedBy ? "prep" : run.status === "APPROVED" ? "pay" : turn === "MD" ? "approve" : "review"}`, 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
   }

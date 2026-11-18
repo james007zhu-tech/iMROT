@@ -13,7 +13,7 @@ export default async function AppTemplate({ children }: { children: React.ReactN
   const here = (await headers()).get("x-dcit-path");
   if (!hasRole(me, "MD") && here) {
     const hidden = await hiddenFor(me).catch(() => new Set<string>());
-    if (hidden.has(menuKeyOf(here) ?? "") || !pathAllows(me, here.split("?")[0])) {
+    if (hidden.has(menuKeyOf(here) ?? "") || !pathAllows(me, here)) {
       const c = await getTranslations("common");
       return <div className="rounded-xl border bg-white p-8 text-center text-sm text-navy" data-no-access>{c("noAccess", { roles: ownersOf(here) })}</div>;
     }

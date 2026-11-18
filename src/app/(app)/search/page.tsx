@@ -35,6 +35,10 @@ export default async function Search({ searchParams }: { searchParams: Promise<{
   // 出入库单 are found from the stock ledger too — a stock document issued by a repair report has no row of its own in the document table (N-28)
   const moved = q.length >= 2 ? await prisma.stockMovement.findMany({ where: { no: like, ...(can.allOrders(me) ? {} : { OR: [{ serviceOrderId: null }, { serviceOrder: oScope }] }) }, distinct: ["no"], orderBy: { movedAt: "desc" }, take: 30, select: { no: true, direction: true, movedAt: true, serviceOrder: { select: { no: true } } } }) : [];
   for (const m of moved) { const type = m.direction === "IN" ? "IB" : "OB"; if (types.includes(type) && !docs.some((d) => d.no === m.no)) docs.push({ no: m.no, type, issuedAt: m.movedAt, voidedAt: null, serviceOrder: m.serviceOrder }); }
+  // 派修单 v5 P1-1: tax invoices and receipts are found in their own tables too — one written without a row in the
+  // document table (an early one, a re-issue) was not found by its number. Same scope and the same role rule as above.
+  if (q.length >= 2 && types.includes("TI")) for (const x of await prisma.taxInvoice.findMany({ where: { no: like, serviceOrder: oScope }, orderBy: { issuedAt: "desc" }, take: 30, select: { no: true, issuedAt: true, voidedAt: true, serviceOrder: { select: { no: true } } } })) if (!docs.some((d) => d.no === x.no)) docs.push({ ...x, type: "TI" });
+  if (q.length >= 2 && types.includes("RC")) for (const x of await prisma.receipt.findMany({ where: { no: like, invoice: { serviceOrder: oScope } }, orderBy: { receivedAt: "desc" }, take: 30, select: { no: true, receivedAt: true, voidedAt: true, invoice: { select: { serviceOrder: { select: { no: true } } } } } })) if (!docs.some((d) => d.no === x.no)) docs.push({ no: x.no, type: "RC", issuedAt: x.receivedAt, voidedAt: x.voidedAt, serviceOrder: x.invoice.serviceOrder });
   const byType = new Map<string, typeof docs>();
   for (const d of docs) { if (d.type === "QT") continue; byType.set(d.type, [...(byType.get(d.type) ?? []), d]); } // QTTH is the order itself: listed under 业务单
   const box = "rounded-xl border bg-white p-4";

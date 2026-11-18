@@ -73,3 +73,20 @@ export async function withdrawReceipt(input: { id: string; actorCode: string }) 
   await audit(actor.id, "RECEIPT_WITHDRAWN", rq.invoice.no, { was: rq.status });
   return prisma.receiptRequest.update({ where: { id: rq.id }, data: { status: "WITHDRAWN" } });
 }
+
+/**
+ * 历史收据补「入账账户」 (派修单 v5 P0-1). Receipts written before the account was a list carry a hand-written text. Finance
+ * (or the MD) says, receipt by receipt, which of our accounts it was. Only the internal account field changes — not the
+ * number, the amount or the PDF already issued — and only once: a receipt that has one of our accounts is not touched
+ * here (that would be a correction, which goes through void and re-issue).
+ */
+export async function setReceiptAccount(input: { receiptNo: string; actorCode: string; account: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (!hasRole(actor, "FINANCE", "MD")) throw new Error("FINANCE_COLLECTS");
+  const rc = await prisma.receipt.findUniqueOrThrow({ where: { no: input.receiptNo }, select: { id: true, no: true, account: true, invoice: { select: { serviceOrder: { select: { entityId: true } } } } } });
+  const known = new Set((await payAccounts(rc.invoice.serviceOrder.entityId)).map((a) => a.id));
+  if (!known.has(input.account)) throw new Error("PAY_ACCOUNT_REQUIRED");
+  if (rc.account && known.has(rc.account)) throw new Error("RC_ACCOUNT_KNOWN");
+  await prisma.receipt.update({ where: { id: rc.id }, data: { account: input.account } });
+  await audit(actor.id, "RECEIPT_ACCOUNT_SET", rc.no, { was: rc.account ?? null, account: input.account });
+}

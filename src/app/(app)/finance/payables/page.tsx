@@ -7,7 +7,7 @@ import { currentEmployee } from "@/server/auth";
 import { Flash } from "@/components/Flash";
 import { PageHeader, Table, Tag, btnBlue, btnGhost, inputCls } from "@/components/ui";
 import { mismatch } from "@/lib/pay-rules";
-import { decideAction, requestAction, voidAction, withdrawAction } from "./actions";
+import { decideAction, requestAction, taxIdAction, voidAction, withdrawAction } from "./actions";
 import { outstandingOf, payAccounts, grossOpenOf } from "@/server/pay";
 import { PayStartFields } from "@/components/PayStartFields";
 import { can, hasRole } from "@/lib/caps";
@@ -62,7 +62,13 @@ export default async function Payables({ searchParams }: { searchParams: Promise
                     <PayStartFields open={openOf(r)} baseShare={Number(r.total) > 0 ? Number(r.subtotal) / Number(r.total) : 1} rate={Number(r.whtRate)} currency={r.currency} cls={inputCls} taxIdOk={isTaxId13(r.supplier.taxId)} labels={{ gross: u("payGross"), rate: u("payWhtRate"), wht: u("payWhtAmount"), net: u("payNet"), date: t("date"), type: u("whtType"), types: Object.fromEntries(WHT_TYPES.map((k) => [k, u(`whtType_${k}`)])), draft: u("whtDraftNote"), noTaxId: u("whtNoTaxId") }} />
                     <input name="payDate" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={`${inputCls} w-36`} />
                     <button className={`${btnBlue} whitespace-nowrap`}>{u("payStartBtn")}</button>
-                  </form></details>}
+                  </form>
+                  {!isTaxId13(r.supplier.taxId) && <details className="mt-1 rounded-md bg-[#FDECEC] px-2 py-1"><summary className="cursor-pointer font-semibold text-[#C0392B]">{u("whtNoTaxId")} · <span className="underline">{u("taxIdGo")}</span></summary>
+                    <form action={taxIdAction} data-nodraft className="mt-1 grid grid-cols-1 gap-1"><input type="hidden" name="supplierId" value={r.supplierId} />
+                      <input name="taxId" required inputMode="numeric" pattern="[0-9 -]{13,17}" placeholder={u("taxId13Ph")} className={inputCls} />
+                      <input name="branchCode" inputMode="numeric" defaultValue="00000" placeholder={u("branchPh")} className={inputCls} /><span className="text-[11px] text-navy/70">{u("branchHint")}</span>
+                      <button className={`${btnGhost} whitespace-nowrap`}>{u("taxIdSave")}</button></form></details>}
+                  </details>}
                 {r.status === "OPEN" && !r.accrued && can.finance(me) && Number(r.paidAmount) === 0 && r.payments.every((p) => p.status === "VOID" || p.status === "REJECTED") && <details><summary className="cursor-pointer text-blue">{u("withdrawBtn")}</summary><form action={withdrawAction} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="id" value={r.id} /><input name="reason" required placeholder={u("withdrawReason")} className={`${inputCls} w-44`} /><button className={btnGhost}>{u("withdrawBtn")}</button></form></details>}
               </td>
             </tr>;

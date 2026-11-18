@@ -24,7 +24,7 @@
 export type Role = "MD" | "HR" | "FINANCE" | "PURCHASING" | "SALES" | "ENGINEER";
 export const ROLES6: Role[] = ["MD", "HR", "FINANCE", "PURCHASING", "SALES", "ENGINEER"];
 /** How the six are written on screen, in every language (朱总's own names). */
-export const ROLE_SHORT: Record<Role, string> = { MD: "MD", HR: "HR", FINANCE: "FIN", PURCHASING: "PUR", SALES: "Sales", ENGINEER: "ENG" };
+export const ROLE_SHORT: Record<Role, string> = { MD: "MD", HR: "HR", FINANCE: "FIN", PURCHASING: "PUR", SALES: "SALES", ENGINEER: "ENG" };
 const OLD: Record<string, Role> = { ADMIN: "SALES", WAREHOUSE: "PURCHASING", MANAGER: "ENGINEER" };
 
 /** Who is asking: a role, a list of roles, or a person (their role, extra roles and whether they approve for a team). */
@@ -133,15 +133,26 @@ const PATH_RULES: [RegExp, (who: Who) => boolean][] = [
   [/^\/statements\/?$/, can.finance], // the list: finance and the MD (派修单 v3 第 7 条)
   [/^\/statements/, can.invoiceStatus],
 ];
-export function pathAllows(who: Who, path: string): boolean {
-  if (hasRole(who, "MD")) return true;
-  for (const [re, ok] of PATH_RULES) if (re.test(path)) return ok(who);
-  return true;
+/**
+ * 入库归 PUR (权限表 2026-11-16; 派修单 v5 P1-12): the stock form opened for a receipt belongs to the MD and purchasing.
+ * An engineer uses the same form to draw parts (direction=OUT) and to hand parts of an order back (direction=IN with
+ * that order) — nothing else. The query decides, so the rule reads the whole address.
+ */
+function ruleFor(pathWithQuery: string): ((who: Who) => boolean) | null {
+  const [path, q = ""] = pathWithQuery.split("?");
+  if (/^\/parts\/movement\/?$/.test(path)) { const sp = new URLSearchParams(q); if (sp.get("direction") !== "OUT" && !sp.get("order")) return is("MD", "PURCHASING"); }
+  for (const [re, ok] of PATH_RULES) if (re.test(path)) return ok;
+  return null;
 }
-/** The roles a path belongs to, when a rule above decides it. */
-export function pathOwners(path: string): Role[] {
-  for (const [re, ok] of PATH_RULES) if (re.test(path)) return ROLES6.filter((r) => r !== "MD" && ok(r));
-  return [];
+export function pathAllows(who: Who, pathWithQuery: string): boolean {
+  if (hasRole(who, "MD")) return true;
+  const ok = ruleFor(pathWithQuery);
+  return ok ? ok(who) : true;
+}
+/** The roles a path belongs to when a rule decides it — [] when it is the MD's alone, null when no rule speaks. */
+export function pathOwners(pathWithQuery: string): Role[] | null {
+  const ok = ruleFor(pathWithQuery);
+  return ok ? ROLES6.filter((r) => r !== "MD" && ok(r)) : null;
 }
 
 // ── What leaves the server (API answers, the assistant's look-ups) ──────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { getTranslations } from "next-intl/server";
 import { errorCode, errorStatus } from "@/lib/errors";
 import { NextResponse } from "next/server";
-import { canReadDocument, sessionScope } from "@/server/api-auth";
+import { documentRefusalResponse, sessionScope } from "@/server/api-auth";
 import { renderDocument } from "@/server/reports";
 import { reportFileName } from "@/lib/report-name";
 
@@ -17,7 +17,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ no: string }> }
   const { no } = await ctx.params;
   const u = new URL(req.url);
   // Portal contacts may only download their own customer's documents.
-  if (!(await canReadDocument(scope, no))) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const refused = await documentRefusalResponse(scope, no);
+  if (refused) return refused;
   let r: Awaited<ReturnType<typeof renderDocument>> | undefined;
   try {
     r = await renderDocument(no, u.searchParams.get("template") ?? undefined);
