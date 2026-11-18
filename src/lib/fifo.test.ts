@@ -24,4 +24,12 @@ describe("存货先进先出 (N-41)", () => {
     const r = fifoRun([mv("a", "IN", 2, 1), mv("c", "OUT", 3, 2)], 50);
     expect(r.out.get("c")!.amount).toBe(150); expect(r.qty).toBe(0); expect(r.value).toBe(0);
   });
+  it("an issue booked before its receipt is covered by that receipt, so batches match the store", () => {
+    const d = (n: number) => new Date(2026, 10, n);
+    const r = fifoRun([
+      { id: "o", no: "OB1", lineNo: 1, direction: "OUT", qty: 2, unitCost: null, movedAt: d(1), orderId: "x", isReturn: false, refNo: null },
+      { id: "i", no: "IB1", lineNo: 1, direction: "IN", qty: 5, unitCost: 50, movedAt: d(2), orderId: null, isReturn: false, refNo: null },
+    ], 40);
+    expect(r.qty).toBe(3); expect(r.value).toBe(150); expect(r.out.get("o")!.amount).toBe(100); expect(r.out.get("o")!.alloc).toEqual([{ inNo: "IB1", qty: 2, cost: 50 }]);
+  });
 });

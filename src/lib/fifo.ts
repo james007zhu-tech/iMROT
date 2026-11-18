@@ -22,7 +22,16 @@ export function fifoRun(moves: FifoMove[], fallbackCost = 0) {
   const out = new Map<string, FifoOut>(), back = new Map<string, FifoOut>(); // by movement id: what an issue cost; what a return gave back
   const taken = new Map<string, { m: FifoMove; alloc: (FifoAlloc & { inId: string | null; returned: number })[] }>();
   for (const m of sorted) {
-    if (m.direction === "IN" && !m.isReturn) { batches.push({ inId: m.id, inNo: m.no, date: m.movedAt, qty: m.qty, left: m.qty, cost: m.unitCost ?? fallbackCost }); continue; }
+    if (m.direction === "IN" && !m.isReturn) {
+      const b: FifoBatch = { inId: m.id, inNo: m.no, date: m.movedAt, qty: m.qty, left: m.qty, cost: m.unitCost ?? fallbackCost }; batches.push(b);
+      // an issue recorded before the goods it took were booked in (more out than the batches held): this receipt covers
+      // it first, at this receipt's cost — so the batches never hold more than the store does
+      for (const t of taken.values()) { if (b.left <= 1e-9) break; let hit = false;
+        for (const a of [...t.alloc]) { if (b.left <= 1e-9) break; if (a.inId !== null || a.inNo !== null) continue; const q = Math.min(b.left, r6(a.qty - a.returned)); if (q <= 1e-9) continue;
+          b.left = r6(b.left - q); a.qty = r6(a.qty - q); t.alloc.push({ inId: b.inId, inNo: b.inNo, qty: q, cost: b.cost, returned: 0 }); hit = true; }
+        if (hit) { t.alloc = t.alloc.filter((a) => a.qty > 1e-9); const amount = r2(t.alloc.reduce((x, a) => x + a.qty * a.cost, 0)); out.set(t.m.id, { no: t.m.no, qty: t.m.qty, amount, unit: t.m.qty ? r2(amount / t.m.qty) : 0, alloc: t.alloc.map(({ inNo, qty, cost }) => ({ inNo, qty, cost })) }); } }
+      continue;
+    }
     if (m.direction === "OUT") {
       let need = m.qty; const alloc: (FifoAlloc & { inId: string | null; returned: number })[] = [];
       for (const b of batches) { if (need <= 1e-9) break; if (b.left <= 1e-9) continue; const q = Math.min(b.left, need); b.left = r6(b.left - q); need = r6(need - q); alloc.push({ inId: b.inId, inNo: b.inNo, qty: q, cost: b.cost, returned: 0 }); }
