@@ -1,0 +1,31 @@
+/**
+ * The page gate's decision as a function (需求清单 v4 V4-P0-01; N-37 2026-11-18). The middleware asks it before a page is
+ * rendered — and `guarded()` asks it again before any server action runs, for the page that action belongs to. A
+ * server action can be posted to any address of the app, so the page being refused (403) is not enough: the action
+ * itself is refused when the person may not open the page it lives on.
+ */
+import { prisma } from "@/lib/db";
+import { hiddenFor, menuKeyOf, ownersOf } from "@/server/perm";
+import { can, hasRole, pathAllows } from "@/lib/caps";
+import { assetScope, customerScope, mayOpenOrder } from "@/server/scope";
+import { DOC_PLACES } from "@/lib/doc-center";
+
+type Me = { id: string; code: string; role: string; extraRoles: string[]; approver: boolean; active: boolean };
+export async function gateFor(me: Me, path: string): Promise<{ ok: boolean; roles?: string; scope?: boolean }> {
+  if (hasRole(me, "MD")) return { ok: true };
+  const hidden = await hiddenFor(me);
+  // /documents/new?type=IB only forwards to the form of that document: it is judged as that form
+  const fwd = path.startsWith("/documents/new") ? DOC_PLACES[path.match(/[?&]type=([A-Z]+)/)?.[1] ?? ""]?.newHref : undefined;
+  const refused = hidden.has(menuKeyOf(path) ?? "") || !pathAllows(me, path) || (!!fwd && (hidden.has(menuKeyOf(fwd) ?? "") || !pathAllows(me, fwd)));
+  if (refused) return { ok: false, roles: ownersOf(fwd && pathAllows(me, path) ? fwd : path) }; // refused as the form it forwards to: name that form's roles (N-27)
+  // 数据范围 and 他人档案 are refused here too, before the page runs — a refusal made inside a page that has begun to
+  // stream answers 200 (派修单 v3 第 7 条: every refusal is 403).
+  const p = path.split("?")[0], seg = p.split("/").filter(Boolean).map(decodeURIComponent);
+  try {
+    if (seg[0] === "people" && seg[1] && /^E[A-Z]{2}\d+$/i.test(seg[1]) && !(can.staff(me) || me.code === seg[1])) return { ok: false, roles: "MD / HR" };
+    if (seg[0] === "service-orders" && seg[1] && seg[1] !== "new") { const o = await prisma.serviceOrder.findUnique({ where: { no: seg[1] }, select: { id: true } }); if (o && !(await mayOpenOrder(me as never, o.id))) return { ok: false, scope: true }; }
+    if (seg[0] === "customers" && seg[1] && seg[1] !== "new" && !(await prisma.customer.count({ where: { AND: [{ code: seg[1] }, await customerScope(me as never)] } })) && (await prisma.customer.count({ where: { code: seg[1] } }))) return { ok: false, scope: true };
+    if (seg[0] === "assets" && seg[1] && seg[1] !== "new" && !(await prisma.asset.count({ where: { AND: [{ code: seg[1] }, await assetScope(me as never)] } })) && (await prisma.asset.count({ where: { code: seg[1] } }))) return { ok: false, scope: true };
+  } catch (e) { console.error("[gate] scope check:", (e as Error).message); }
+  return { ok: true };
+}

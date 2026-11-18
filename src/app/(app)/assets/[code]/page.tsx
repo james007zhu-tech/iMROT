@@ -1,4 +1,4 @@
-import { can, stripMoney } from "@/lib/caps";
+import { can, stripMoney, isFinDocNo } from "@/lib/caps";
 import { docTypeAllowed } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
@@ -141,7 +141,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
           {asset.events.map((e) => (
             <li key={e.id} className="mb-4">
               <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-blue" />
-              <div className="text-xs text-navy/70">{fmt(e.occurredAt)}{e.actor ? ` · ${t("by")} ${e.actor.name}` : e.actorName ? ` · ${maskName(e.actorName)}` : ""}{e.sourceDocNo ? ` · ${e.sourceDocNo}` : ""}</div>
+              <div className="text-xs text-navy/70">{fmt(e.occurredAt)}{e.actor ? ` · ${t("by")} ${e.actor.name}` : e.actorName ? ` · ${maskName(e.actorName)}` : ""}{e.sourceDocNo && (can.invoiceStatus(me) || !isFinDocNo(e.sourceDocNo)) ? ` · ${e.sourceDocNo}` : ""}</div>
               <div><span className="mr-2 rounded bg-blue/8 px-1.5 py-0.5 text-xs font-semibold">{te(e.type)}</span><EventSummary type={e.type} summary={e.summary} payload={e.payload as Record<string, unknown> | null} />{Array.isArray(e.attachments) && (e.attachments as { name: string; url: string }[]).map((f) => <a key={f.url} href={f.url} className="ml-2 text-xs text-blue underline">{f.name}</a>)}</div>
             </li>
           ))}

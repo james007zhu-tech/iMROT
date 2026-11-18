@@ -166,10 +166,20 @@ export async function cancelOvertime(input: { id: string; actorCode: string }) {
 
 type Payable = Prisma.OvertimeRequestGetPayload<{ include: { employee: true } }>;
 
-/** What a close of `month` would pay now: every APPROVED request not yet paid, worked before the month's end (late ones included). */
+/**
+ * What `month`'s pay takes in (H-R82, P0 2026-11-18: 12 月把 11 月的加班又算了一遍). Overtime is counted once:
+ *   · worked in the month itself (and not carried on to a later one);
+ *   · carried to exactly this month (挂到本月 — HR's or the MD's explicit choice);
+ *   · worked in an earlier month that never had a pay sheet at all (nothing ever counted it, nobody could choose).
+ * Overtime of an earlier month that does have a pay sheet belongs to that sheet: it was counted there, or it was
+ * approved after the sheet left HR and waits for HR's choice (补算 into that month / 挂到下月) — either way a later
+ * month does not pick it up by itself.
+ */
 async function payableFor(entityId: string, month: string): Promise<Payable[]> {
-  const { to } = monthRange(month);
-  return prisma.overtimeRequest.findMany({ where: { entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to }, OR: [{ payNotBefore: null }, { payNotBefore: { lte: month } }] }, include: { employee: true }, orderBy: { workDate: "asc" } });
+  const { from, to } = monthRange(month);
+  const rows = await prisma.overtimeRequest.findMany({ where: { entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to }, OR: [{ payNotBefore: null }, { payNotBefore: { lte: month } }] }, include: { employee: true }, orderBy: { workDate: "asc" } });
+  const sheets = new Set((await prisma.payrollRun.findMany({ where: { entityId, month: { lt: month } }, select: { month: true } })).map((r) => r.month));
+  return rows.filter((r) => r.payNotBefore === month || (r.workDate >= from ? !r.payNotBefore || r.payNotBefore <= month : !r.payNotBefore && !sheets.has(monthKeyOf(r.workDate))));
 }
 
 async function linesFor(rows: Payable[], month: string) {

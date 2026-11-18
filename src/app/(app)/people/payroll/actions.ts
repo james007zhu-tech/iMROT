@@ -47,7 +47,7 @@ export async function submitAction(month: string) {
   await guarded(async () => { const me = await currentEmployee(); await submitPayroll({ entityId: me.entityId, month, actorCode: me.code }); return "paySubmitted"; }, `${BACK}/${month}`);
 }
 export async function taxAction(month: string, confirmed: boolean, f?: FormData) {
-  await guarded(async () => { const me = await currentEmployee(); await confirmTax({ entityId: me.entityId, month, actorCode: me.code, confirmed, acknowledged: f?.get("ack") === "on" }); return confirmed ? "payReviewed" : "payReviewUndone"; }, `${BACK}/${month}`);
+  await guarded(async () => { const me = await currentEmployee(); await confirmTax({ entityId: me.entityId, month, actorCode: me.code, confirmed, acknowledged: f?.get("ack") === "on", note: String(f?.get("note") ?? "").trim() || undefined }); return confirmed ? "payReviewed" : "payReviewUndone"; }, `${BACK}/${month}`);
 }
 export async function targetAction(month: string, code: string, period: string, f: FormData) {
   await guarded(async () => {

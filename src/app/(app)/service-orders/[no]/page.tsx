@@ -4,7 +4,7 @@ import { FxDoc } from "@/components/FxDoc";
 import { docRateNote } from "@/server/fx";
 import { assertOrderAccess } from "@/server/scope";
 import { fxMark } from "@/lib/fx-label";
-import { can, hasRole, isApprover, pathAllows } from "@/lib/caps";
+import { can, hasRole, isApprover, isFinDocNo, pathAllows } from "@/lib/caps";
 import { skuGaps } from "@/server/purchasing";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
@@ -164,7 +164,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   };
   const reportLink = (docNo: string, r: { template?: string; key: string }) => <a key={r.key} className="text-blue hover:underline" href={`/api/documents/${docNo}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)}</a>;
   const docs = order.documents.filter((d) => !d.voidedAt);
-  const allReports = docs.flatMap((d) => reportsFor(d, shape.hasAcceptance, shape.hasQuote).map((r) => ({ no: d.no, ...r })));
+  const seeFin = can.invoiceStatus(me), FIN_EVENTS = ["INVOICED", "PAID"]; // N-32
+  const allReports = docs.filter((d) => docTypeAllowed(me, d.type)).flatMap((d) => reportsFor(d, shape.hasAcceptance, shape.hasQuote).map((r) => ({ no: d.no, ...r })));
 
   // Timeline: the order's events, one line per document/step even when several assets carry the same event.
   const seen = new Set<string>();
@@ -202,13 +203,19 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </details>}
           {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
           {/* a quote under the margin floor goes nowhere until the MD has decided: say so here, not after the next form is filled */}
-          {waitsMargin && seeCost ? (hasRole(me, "MD") ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-alert bg-alert/10 px-3 py-2 text-sm font-semibold text-alert-ink">{u("marginWaitingMd")}</span>)
+          {waitsMargin ? (hasRole(me, "MD") ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-[#C0392B] bg-[#FDECEC] px-3 py-2 text-sm font-semibold text-[#C0392B]" role="status">{u(seeCost ? "marginWaitingMd" : "priceWaitingMd")}</span>)
             : handedToFinance ? <form action={nudge} className="flex items-center gap-2"><span className="rounded-lg border border-navy/25 bg-white px-3 py-2 text-sm text-navy">✓ {u("handedToFinance")}{order.acceptance?.acceptedAt ? ` · ${localIso(order.acceptance.acceptedAt)?.slice(5, 16).replace("T", " ")}` : ""}{order.invoiceNudgedAt ? ` · ${u("nudgedAt", { time: localIso(order.invoiceNudgedAt)?.slice(5, 16).replace("T", " ") ?? "" })}` : ""}</span><button className={btnGhost}>{u("nudgeFinance")}</button></form>
             : primary && primary !== "assign" && primary !== "contractDirect" && <Link href={hrefOf(primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
       <DocChain order={order.no} slots={chain} />
-      <Flash ok={ok} error={error} />
+      <Flash ok={ok === "quoteNeedsMd" ? undefined : ok} error={error} />
+      {ok === "quoteNeedsMd" && <div role="alertdialog" aria-modal="true" className="fixed inset-0 z-40 flex items-center justify-center bg-navy/40 p-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-5 text-sm shadow-xl">
+          <h2 className="text-base font-bold text-[#C0392B]">{u("needsMdTitle")}</h2>
+          <p className="mt-2">{u("needsMdSay")}</p>
+          <div className="mt-4 text-right"><Link href={`/service-orders/${no}`} className={btnBlue}>{u("gotIt")}</Link></div>
+        </div></div>}
       {seePrice && order.fxRateToCny != null && <FxDoc kind="order" no={order.no} back={`/service-orders/${order.no}`} canEdit={can.finance(me) && order.status !== "INVOICED" && order.status !== "CLOSED"} pending={order.fxPending as never} isMd={hasRole(me, "MD")} currency={order.currency} current={Number(order.fxRateToCny)} note={await docRateNote(order.no, order)} />}
       {gaps.length > 0 && <Alert>{u("buyNeedsSku")}：{gaps.map((g) => `${g.lineNo ? `#${g.lineNo} ` : ""}${g.description}`).join("；")}。 <Link href={`/service-orders/${no}/quote`} className="font-semibold underline">{u("buyNeedsSkuGo")} →</Link></Alert>}
       {order.status === "ACCEPTANCE_PENDING" && order.mode !== "DOMESTIC_TRADE" && order.mode !== "INTERNATIONAL_TRADE" && !(order.acceptSheet as { files?: unknown[] } | null)?.files?.length && <Alert>{u("waitsAcceptSheet")} <Link href={`/service-orders/${no}/accept`} className="font-semibold underline">{u("acceptSheetUpload")}</Link></Alert>}
@@ -269,6 +276,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           <Card title={u("documentsDone")}>
             <Table head={[u("document"), t("type"), u("time"), u("executor"), u("summary"), u("reports")]}>
               {docs.map((d) => (
+                !docTypeAllowed(me, d.type) ? <tr key={d.id} className="text-navy/60"><td colSpan={6}>{u("finHandled")}</td></tr> :
                 <tr key={d.id}>
                   <td className="font-mono">{d.no}</td>
                   <td>{u(`docType_${d.type}`)}</td>
@@ -294,6 +302,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
                 <button name="decision" value="APPROVED" className={btnBlue}>{u("marginApprove")}</button>
                 <button name="decision" value="REJECTED" className={btnGhost}>{u("marginReject")}</button>
               </form>)}
+            {!seeCost && order.marginApproval === "PENDING" && <p className="mt-2 rounded-lg border border-[#C0392B] bg-[#FDECEC] p-2 text-sm font-semibold text-[#C0392B]">{u("priceWaitingMd")}</p>}
             {seeCost && order.marginApproval === "PENDING" && !hasRole(me, "MD") && <p className="mt-2 rounded-lg border border-alert bg-alert/10 p-2 text-sm text-alert-ink">{u("marginWaitingMd")}</p>}
           </Card>}
         </div>
@@ -346,7 +355,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </Card>}
           <Card title={u("timeline")}>
             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs text-navy/85">
-              {timeline.map((e) => <div key={e.id} className="contents"><span className="whitespace-nowrap tabular-nums">{stamp(e.occurredAt)}</span><span>{te(e.type)}{e.sourceDocNo && e.sourceDocNo !== order.no ? ` ${e.sourceDocNo}` : ""}{e.actor?.name ? ` · ${e.actor.name}` : e.actorName ? ` · ${maskName(e.actorName)}` : ""}</span></div>)}
+              {timeline.map((e) => <div key={e.id} className="contents"><span className="whitespace-nowrap tabular-nums">{stamp(e.occurredAt)}</span><span>{!seeFin && (isFinDocNo(e.sourceDocNo) || FIN_EVENTS.includes(e.type)) ? u("finHandled") : <>{te(e.type)}{e.sourceDocNo && e.sourceDocNo !== order.no ? ` ${e.sourceDocNo}` : ""}</>}{e.actor?.name ? ` · ${e.actor.name}` : e.actorName ? ` · ${maskName(e.actorName)}` : ""}</span></div>)}
             </div>
           </Card>
         </div>

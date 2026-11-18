@@ -65,6 +65,7 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
               {prep && <Link href={`/people/payroll/${month}?ask=recount#ask`} className={btnBlue}>{t("payLateOtRecount")}</Link>}
               {(prep || md) && <Link href={`/people/payroll/${month}?ask=carry#ask`} className={btnGhost}>{t("payLateOtCarry", { next: nextMonth, m: Number(month.slice(5)) })}</Link>}
               {!prep && !md && <span className="text-[13px] text-navy/70">{t("payLateOtAskHr")}</span>}
+              <span className="basis-full text-xs text-navy/60">{t("payCarryOnlyLate")}</span>
             </div>}
       </div>}
       {preview && <div id="ask" role="dialog" aria-modal="true" className="fixed inset-0 z-40 flex items-center justify-center bg-navy/40 p-4">
@@ -100,6 +101,7 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
         {fin && !run.submittedAt && <span className="text-[13px] text-navy/70">{t("payNotSubmitted")}</span>}
         {fin && !!run.submittedAt && <form action={taxAction.bind(null, month, !run.taxConfirmedAt)} className="flex flex-wrap items-center gap-2">
           {!run.taxConfirmedAt && reviewStop.length === 0 && reviewNoted.length > 0 && <label className="flex items-center gap-1.5 text-[13px]"><input type="checkbox" name="ack" required className="h-4 w-4" />{t("payReviewAck")}</label>}
+          {run.taxConfirmedAt && <input name="note" required placeholder={t("payUndoWhy")} className="min-h-10 rounded-lg border border-navy/40 px-2 text-sm" />}
           <button disabled={!run.taxConfirmedAt && reviewStop.length > 0} className={`${run.taxConfirmedAt ? btnGhost : btnPrimary} disabled:cursor-not-allowed disabled:opacity-40`}>{run.taxConfirmedAt ? t("payTaxUndo") : t("payTaxConfirm")}</button>
         </form>}
       </div>}

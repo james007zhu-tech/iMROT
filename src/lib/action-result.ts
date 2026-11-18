@@ -3,9 +3,19 @@
  */
 import { redirect } from "next/navigation";
 import { errorCode } from "@/lib/errors";
+import { prisma } from "@/lib/db";
+import { sessionEmployeeCode } from "@/server/auth";
+import { gateFor } from "@/server/gate";
 
 /** `run` may return a message, or `{ ok, to }` to land somewhere else on success (a step form returns to its order). */
 export async function guarded(run: () => Promise<string | void | { ok?: string; to: string }>, backTo: string): Promise<void> {
+  // N-37 (2026-11-18): a server action can be posted to any address, so the page being refused does not stop it. Before
+  // anything runs, the person is put through the same gate as the page this action belongs to; refused there, refused here.
+  const code = await sessionEmployeeCode().catch(() => null);
+  if (code) {
+    const me = await prisma.employee.findUnique({ where: { code }, select: { id: true, code: true, role: true, extraRoles: true, approver: true, active: true } });
+    if (me?.active) { const g = await gateFor(me, backTo.split("#")[0]); if (!g.ok) redirect(g.scope ? "/no-access?scope=1" : `/no-access?roles=${encodeURIComponent(g.roles ?? "MD")}`); }
+  }
   let target = backTo;
   const began = Date.now();
   try {

@@ -34,8 +34,8 @@ export default async function Accept({ params, searchParams }: { params: Promise
   const today = localIso(new Date())!.slice(0, 10);
   // 验收依据 (派修单 v5 P1-11)
   const trade = isTradeMode(order.mode), evidence = await acceptEvidence(order), canSign = await mayAccept(me, order.id);
-  const siblings = trade || !canSign ? [] : await prisma.serviceOrder.findMany({ where: { customerId: order.customerId, id: { not: order.id }, status: { in: ["IN_PROGRESS", "ACCEPTANCE_PENDING"] }, mode: { notIn: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] } }, orderBy: { no: "asc" }, take: 30, select: { id: true, no: true, reportedSymptom: true } });
-  const also: typeof siblings = []; for (const o of siblings) if (await mayAccept(me, o.id)) also.push(o);
+  const siblings = trade || !canSign ? [] : await prisma.serviceOrder.findMany({ where: { customerId: order.customerId, id: { not: order.id }, status: "ACCEPTANCE_PENDING", mode: { notIn: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] } }, orderBy: { no: "asc" }, take: 30, select: { id: true, no: true, reportedSymptom: true, acceptSheet: true } });
+  const also: typeof siblings = []; for (const o of siblings) if (!(o.acceptSheet as { files?: unknown[] } | null)?.files?.length && (await mayAccept(me, o.id))) also.push(o); // N-36: an order that already has its sheet is not offered
   async function sheet(f: FormData) {
     "use server";
     await guarded(async () => {
@@ -59,19 +59,19 @@ export default async function Accept({ params, searchParams }: { params: Promise
       // The customer's signature: a photo taken here, else the signed form from the upload box, else what the portal already has.
       const photo = f.get("signaturePhoto");
       const signed = photo instanceof File && photo.size > 0 ? (await saveUpload(photo, "signature")).url : atts(f).find((a) => a.kind === "ACCEPTANCE")?.url ?? atts(f)[0]?.url;
-      await recordAcceptance({ serviceOrderNo: no, actorCode: me.code, deliverables, status, punchList: str(f, "punchList"), acceptedAt: dayNow(str(f, "acceptedAt")), warrantyStart: str(f, "warrantyStart") ? new Date(str(f, "warrantyStart")!) : undefined, warrantyTerms: str(f, "warrantyTerms"), customerContactId: contactId, customerSignatory: str(f, "customerSignatory") ?? contact?.name, signatureUrl: signed, dcitSignatory: str(f, "dcitSignatory") ?? me.name });
+      await recordAcceptance({ serviceOrderNo: no, actorCode: me.code, deliverables, status, punchList: str(f, "punchList"), acceptedAt: dayNow(str(f, "acceptedAt")), warrantyStart: str(f, "warrantyStart") ? new Date(str(f, "warrantyStart")!) : undefined, warrantyTerms: str(f, "warrantyTerms"), customerContactId: contactId, customerSignatory: str(f, "customerSignatory") ?? contact?.name, signatureUrl: signed, dcitSignatory: str(f, "dcitSignatory") ?? me.name, sheet: atts(f).map((a) => ({ name: (a as { name?: string }).name, url: a.url })) });
       return { ok: no, to: `/service-orders/${no}` };
     }, `/service-orders/${no}/accept`);
   }
   return (
-    <StepPage badge={partsQuoted ? <span className={`rounded-full px-3 py-1 text-xs font-semibold ${partsLeft ? "bg-alert/15 text-alert-ink" : "bg-blue/10 text-navy"}`}>{u("acceptParts", { done: partsQuoted - partsLeft, all: partsQuoted })}</span> : undefined} order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={canSign && evidence ? u("saveAcceptance") : ""} notice={!canSign ? u("acceptReadOnly") : !evidence ? u(trade ? "acceptNeedsDn" : "acceptNeedsSheet") : undefined}>
+    <StepPage badge={partsQuoted ? <span className={`rounded-full px-3 py-1 text-xs font-semibold ${partsLeft ? "bg-alert/15 text-alert-ink" : "bg-blue/10 text-navy"}`}>{u("acceptParts", { done: partsQuoted - partsLeft, all: partsQuoted })}</span> : undefined} order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={canSign && !missing.length && (evidence || !trade) ? u("saveAcceptance") : ""} notice={!canSign ? u("acceptReadOnly") : missing.length ? u("acceptMissingDocs", { docs: missing.join(", ") }) : !evidence ? u(trade ? "acceptNeedsDn" : "acceptTwoWays") : undefined}>
       <Card title={u("acceptEvidence")} accent={!evidence}>
         {evidence?.kind === "DN" && <p className="text-sm">✓ {u("acceptByDn")} <a href={evidence.href} className="font-mono text-blue underline">{evidence.no}</a> · {evidence.by ?? "—"} · {evidence.at ? localIso(evidence.at)!.slice(0, 10) : ""}</p>}
         {evidence?.kind === "PORTAL" && <p className="text-sm">✓ {u("acceptByPortal", { who: evidence.name, date: evidence.at.slice(0, 10) })}</p>}
         {evidence?.kind === "SHEET" && <p className="text-sm">✓ {u("acceptBySheet")} <a href={evidence.href} target="_blank" className="text-blue underline">{evidence.name}</a> · {evidence.by} · {evidence.at.slice(0, 10)}{evidence.orders.length > 1 ? ` · ${u("acceptSheetCovers", { list: evidence.orders.join("、") })}` : ""}</p>}
         {!evidence && trade && <p className="text-sm font-semibold text-[#C0392B]">{u("acceptNeedsDn")}</p>}
-        {!evidence && !trade && <p className="text-sm font-semibold text-[#C0392B]">{u("acceptNeedsSheet")}</p>}
-        {!trade && canSign && order.status !== "INVOICED" && order.status !== "CLOSED" && <form action={sheet} data-nodraft className="mt-2 space-y-2 text-sm">
+        {!evidence && !trade && <p className="text-sm font-semibold text-[#C0392B]">{u("acceptTwoWays")}</p>}
+        {!trade && canSign && ["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(order.status) && <form action={sheet} data-nodraft className="mt-2 space-y-2 text-sm">
           <input type="file" name="sheet" accept="application/pdf,image/*" multiple required className="block w-full text-sm" />
           {also.length > 0 && <fieldset className="rounded-lg border border-hair p-2"><legend className="px-1 text-xs text-navy/70">{u("acceptSheetAlso")}</legend>
             {also.map((o) => <label key={o.no} className="flex items-center gap-2 py-0.5"><input type="checkbox" name="also" value={o.no} /><span className="font-mono">{o.no}</span><span className="truncate text-xs text-navy/60">{o.reportedSymptom}</span></label>)}</fieldset>}

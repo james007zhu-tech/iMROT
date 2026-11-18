@@ -2,6 +2,7 @@
  * 数据范围 (需求清单 v3 第 1 节): the engineer sees the orders assigned to them, the supervisor those of their team,
  * and through them only the customers and documents those orders involve. MD, finance, sales and 内勤 see all; HR none.
  */
+import { FIN_DOC_TYPES } from "@/lib/caps";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { can, hasRole, noOrders, isApprover, rolesOf, type Who, menuAllows } from "@/lib/caps";
@@ -79,6 +80,7 @@ export async function assertOrderAccess(me: Me, orderNo: string) {
 export function docTypeAllowed(who: Who, type: string): boolean {
   if (hasRole(who, "MD")) return true;
   if (type === "QT" && !can.price(who)) return false; // the quote paper carries the customer's price
+  if (FIN_DOC_TYPES.includes(type) && !can.invoiceStatus(who)) return false; // N-32: 税票、请款、收据、贷项 — finance, the MD, the customer's sales
   const place = DOC_PLACES[type];
   return !!place && menuAllows(who, place.nav);
 }

@@ -1,3 +1,4 @@
+import { acceptEvidence, invoiceBar } from "./slm-docs";
 import { Prisma } from "@prisma/client";
 import { marginFloor } from "./modes";
 import { belowMinLines } from "@/lib/margin";
@@ -146,8 +147,9 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // 验收后通知财务开票 (需求清单 v4 V4-P0-05): the moment an order is accepted it stands in finance's list — number,
   // customer, amount — and opens on its invoice. Sales can press 催财务开票; after 48 hours both are reminded.
   if (hasRole(me, "FINANCE", "MD", "SALES")) {
-    const waiting = await prisma.serviceOrder.findMany({ where: { AND: [hasRole(me, "FINANCE", "MD") ? {} : await orderScope(me), { status: "ACCEPTED", total: { gt: 0 }, noInvoiceAt: null, NOT: { kind: "CONTRACT" } }] }, select: { no: true, total: true, currency: true, invoiceNudgedAt: true, customer: { select: { name: true } }, acceptance: { select: { acceptedAt: true } } }, take: 100 });
+    const waiting = await prisma.serviceOrder.findMany({ where: { AND: [hasRole(me, "FINANCE", "MD") ? {} : await orderScope(me), { status: "ACCEPTED", total: { gt: 0 }, noInvoiceAt: null, NOT: { kind: "CONTRACT" } }] }, select: { id: true, mode: true, acceptSheet: true, noInvoiceAt: true, no: true, total: true, currency: true, invoiceNudgedAt: true, customer: { select: { name: true } }, acceptance: { select: { acceptedAt: true } } }, take: 100 });
     for (const o of waiting) {
+      if (invoiceBar(o, await acceptEvidence(o))) continue; // the same rule as the candidates: no evidence, no reminder to invoice
       const hours = o.acceptance?.acceptedAt ? (Date.now() - o.acceptance.acceptedAt.getTime()) / 3600000 : 0;
       if (hasRole(me, "FINANCE")) push(o.invoiceNudgedAt ? "toInvoiceUrgent" : hours > 48 ? "toInvoiceLate" : "toInvoice", -Math.floor(hours / 24), o.no, `/service-orders/${o.no}/invoice`, `${o.customer.name} · ${o.currency} ${Number(o.total).toFixed(2)}`);
       else if (hours > 48 && !hasRole(me, "MD")) push("invoiceWaiting", -Math.floor(hours / 24), o.no, `/service-orders/${o.no}`, o.customer.name);

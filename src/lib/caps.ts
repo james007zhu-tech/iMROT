@@ -169,12 +169,21 @@ export const MONEY_EVENTS = ["QUOTED", "INVOICED", "PAID", "ORDER_CONFIRMED", "Q
  * A copy of `value` without the figures this role may not see — by field name, at any depth, so a look-up written
  * tomorrow is covered too. Dates and Decimals pass through untouched.
  */
+/**
+ * N-32 / H-R80 (2026-11-18): tax invoices, payment requests, receipts and credit notes belong to finance, the MD and the
+ * sales person of the customer. For everyone else (PUR, ENG, HR) the order only says 财务已处理 — no number, no link, no
+ * amount — in the document chain, the list of documents, the timeline, the search and the API alike.
+ */
+export const FIN_DOC_TYPES = ["TI", "IV", "RC", "CN"];
+export const isFinDocNo = (no?: string | null) => !!no && /^(TEST-)?(TI|IV|RC|CN)[A-Z]{2}\d/.test(no);
+const FIN_DOC_KEYS = new Set(["taxInvoices", "invoices", "receipts", "creditNotes", "taxInvoiceNo", "receiptRequests"]);
 export function stripMoney<T>(value: T, who: Who): T {
   const price = can.price(who), cost = can.cost(who), margin = can.margin(who), bank = can.bank(who);
   const names = can.customerNames(who);
-  if (price && cost && margin && bank && names) return value;
+  const finDocs = can.invoiceStatus(who);
+  if (price && cost && margin && bank && names && finDocs) return value;
   const walk = (v: unknown): unknown => {
-    if (Array.isArray(v)) return v.map(walk);
+    if (Array.isArray(v)) return (finDocs ? v : v.filter((x) => !(x && typeof x === "object" && typeof (x as { type?: unknown }).type === "string" && FIN_DOC_TYPES.includes((x as { type: string }).type) && isFinDocNo((x as { no?: string }).no)))).map(walk);
     if (!v || typeof v !== "object" || v instanceof Date || typeof (v as { toFixed?: unknown }).toFixed === "function") return v;
     const o = v as Record<string, unknown>;
     const moneyEvent = !price && typeof o.type === "string" && MONEY_EVENTS.includes(o.type) && ("summary" in o || "payload" in o);
@@ -182,6 +191,7 @@ export function stripMoney<T>(value: T, who: Who): T {
     for (const [k, x] of Object.entries(o)) {
       if ((!price && PRICE_KEYS.has(k)) || (!cost && COST_KEYS.has(k)) || (!margin && (MARGIN_KEYS.has(k) || QUOTE_COST_KEYS.has(k))) || (!bank && BANK_KEYS.has(k))) continue;
       if (moneyEvent && (k === "summary" || k === "payload")) continue;
+      if (!finDocs && (FIN_DOC_KEYS.has(k) || (typeof x === "string" && isFinDocNo(x)))) continue;
       // PUR and HR work by order number: of the customer only the code travels (派修单 v2 第 4 条)
       if (!names && k === "customer" && x && typeof x === "object") { out[k] = { code: (x as { code?: unknown }).code }; continue; }
       if (!names && (k === "customerName" || k === "customerId")) continue;

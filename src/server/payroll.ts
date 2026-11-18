@@ -132,7 +132,10 @@ export async function computePayroll(input: { entityId: string; month: string; a
       ? await tx.payrollRun.update({ where: { id: existing.id }, data: { totals, computedAt: new Date(), policy: { bands } as unknown as Prisma.InputJsonValue, ...who, ...(moved ? { taxConfirmedBy: null, taxConfirmedAt: null } : {}) } })
       : await tx.payrollRun.create({ data: { entityId: input.entityId, month: input.month, createdBy: actor.code, totals, policy: { bands } as unknown as Prisma.InputJsonValue, ...who } });
     // 留痕 (派修单 v4): a recompute that moves the figures after the finance review sends the month back to finance — say who, when, why
-    if (moved) await audit(actor.id, existing!.taxConfirmedAt ? "PAYROLL_REVIEW_RESET" : "PAYROLL_RECOMPUTED", input.month, { via: internal ? "approve" : "compute", netBefore: (existing!.totals as { net?: number }).net, netAfter: totals.net, overtimeBefore: (existing!.totals as { overtime?: number }).overtime, overtimeAfter: totals.overtime, reviewedBy: existing!.taxConfirmedBy }, tx);
+    const was = moved ? await tx.payrollLine.findMany({ where: { runId: existing!.id }, select: { employeeId: true, gross: true, employee: { select: { code: true, name: true } } } }) : [];
+    const changedPeople = moved ? [...was.filter((w) => Math.abs(Number(w.gross) - Number(lines.find((l) => l.employeeId === w.employeeId)?.gross ?? 0)) > 0.005).map((w) => `${w.employee.code} ${w.employee.name} ${Number(w.gross)}→${Number(lines.find((l) => l.employeeId === w.employeeId)?.gross ?? 0)}`), ...lines.filter((l) => !was.some((w) => w.employeeId === l.employeeId)).map((l) => `+${l.employeeId.slice(-6)} ${Number(l.gross)}`)] : [];
+    if (moved) await audit(actor.id, existing!.taxConfirmedAt ? "PAYROLL_REVIEW_RESET" : "PAYROLL_RECOMPUTED", input.month, { from: payrollStage(existing!), to: payrollStage({ ...existing!, taxConfirmedAt: null }), reason: existing!.taxConfirmedAt ? "RECOMPUTED_MOVED" : "RECOMPUTED", grossBefore: (existing!.totals as { gross?: number }).gross, grossAfter: totals.gross, people: changedPeople, via: internal ? "approve" : "compute", netBefore: (existing!.totals as { net?: number }).net, netAfter: totals.net, overtimeBefore: (existing!.totals as { overtime?: number }).overtime, overtimeAfter: totals.overtime, reviewedBy: existing!.taxConfirmedBy }, tx);
+    if (existing && !moved && !internal) await audit(actor.id, "PAYROLL_RECOMPUTED", input.month, { from: payrollStage(existing), to: payrollStage(existing), reason: "RECOMPUTED_SAME", grossBefore: totals.gross, grossAfter: totals.gross, people: [] }, tx); // H-R85: a recompute is logged even when nothing moved
     await tx.payrollLine.deleteMany({ where: { runId: run.id } });
     for (const { claimIds, ...l } of lines) { await tx.payrollLine.create({ data: { ...l, runId: run.id } }); void claimIds; }
     await tx.expenseClaim.updateMany({ where: { payrollRunId: run.id }, data: { payrollRunId: null } });
@@ -169,7 +172,7 @@ export async function approvePayroll(input: { entityId: string; month: string; a
   if (new Set([run.preparedBy, run.taxConfirmedBy, actor.code]).size < 3) throw new Error("PAYROLL_SAME_PERSON");
   await closeOvertimeMonth({ entityId: input.entityId, month: input.month, closedBy: actor.code, early: true }); // the overtime in this pay is frozen with it
   await prisma.payrollRun.update({ where: { id: run.id }, data: { status: "APPROVED", approvedBy: actor.code, approvedAt: new Date() } });
-  await audit(actor.id, "PAYROLL_APPROVE", input.month, { net: (run.totals as { net: number }).net });
+  await audit(actor.id, "PAYROLL_APPROVE", input.month, { from: "APPROVE", to: "APPROVED", net: (run.totals as { net: number }).net });
 }
 
 export async function reopenPayroll(input: { entityId: string; month: string; actorCode: string }) {
@@ -177,7 +180,7 @@ export async function reopenPayroll(input: { entityId: string; month: string; ac
   const run = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: input.entityId, month: input.month } } });
   if (run.status === "PAID") throw new Error(`PAYROLL_PAID:${input.month}`);
   await prisma.payrollRun.update({ where: { id: run.id }, data: { status: "DRAFT", approvedBy: null, approvedAt: null, taxConfirmedBy: null, taxConfirmedAt: null } }); // back to finance: the review is done again, HR need not resubmit
-  await audit(actor.id, "PAYROLL_REOPEN", input.month);
+  await audit(actor.id, "PAYROLL_REOPEN", input.month, { from: payrollStage(run), to: payrollStage({ status: "DRAFT", submittedAt: run.submittedAt, taxConfirmedAt: null }), reason: "REOPENED" });
 }
 
 /** Paid: the month is final and the expense claims it carried are settled. */
@@ -190,7 +193,7 @@ export async function markPayrollPaid(input: { entityId: string; month: string; 
     prisma.payrollRun.update({ where: { id: run.id }, data: { status: "PAID", paidAt } }),
     prisma.expenseClaim.updateMany({ where: { payrollRunId: run.id, status: "APPROVED" }, data: { status: "PAID", paidAt, paidRef: `PAYROLL ${input.month}` } }),
   ]);
-  await audit(actor.id, "PAYROLL_PAID", input.month);
+  await audit(actor.id, "PAYROLL_PAID", input.month, { from: "APPROVED", to: "PAID" });
 }
 
 /** 月度绩效: who may score whom — the MD everyone, a manager the people who report to them; nobody scores themselves. */
@@ -305,12 +308,11 @@ export async function carryOvertime(input: { entityId: string; month: string; ac
   const late = await lateOvertime(input.entityId, input.month);
   if (late.locked || !late.rows.length) return 0;
   const [y, m] = input.month.split("-").map(Number), next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
-  const stageBefore = late.run ? payrollStage(late.run) : null, grossBefore = grossOf(late.run);
+  // H-R83 (MD 2026-11-18 14:19): only overtime that is not in this month's figure can be carried — which is what the
+  // late list is. The month is not computed again here: its figure and its state stay as they are.
+  const stage = late.run ? payrollStage(late.run) : null, gross = grossOf(late.run);
   await prisma.overtimeRequest.updateMany({ where: { id: { in: late.rows.map((r) => r.id) } }, data: { payNotBefore: next } });
-  const run = late.run?.status === "DRAFT" ? await computePayroll(input, !hasRole(actor, "HR")) : late.run; // resets the review by itself only when the totals moved
-  const stageAfter = run ? payrollStage(run) : null, grossAfter = grossOf(run), changed = Math.abs(grossAfter - grossBefore) > 0.005;
-  await audit(actor.id, "OT_CARRIED", input.month, { to: next, requests: late.rows.length, hours: late.hours, list: listOf(late.rows), grossBefore, grossAfter, changed, stateBefore: stageBefore, stateAfter: stageAfter });
-  if (stageBefore && stageBefore !== stageAfter) await audit(actor.id, "PAYROLL_STATE", input.month, { from: stageBefore, to: stageAfter, reason: "CARRY_CHANGED_AMOUNT", by: "SYSTEM", trigger: `${actor.code} 挂到下月` });
+  await audit(actor.id, "OT_CARRIED", input.month, { to: next, requests: late.rows.length, hours: late.hours, list: listOf(late.rows), ids: late.rows.map((r) => r.id), who: late.rows.map((r) => ({ id: r.id, code: r.employee.code, month: r.workDate.toISOString().slice(0, 7) })), grossBefore: gross, grossAfter: gross, changed: false, stateBefore: stage, stateAfter: stage });
   return late.rows.length;
 }
 
@@ -320,14 +322,14 @@ export async function submitPayroll(input: { entityId: string; month: string; ac
   const run = await computePayroll(input);
   if (run.status !== "DRAFT") throw new Error(`PAYROLL_LOCKED:${input.month}`);
   await prisma.payrollRun.update({ where: { id: run.id }, data: { submittedAt: new Date() } });
-  await audit(actor.id, "PAYROLL_SUBMITTED", input.month);
+  await audit(actor.id, "PAYROLL_SUBMITTED", input.month, { from: payrollStage(run), to: "REVIEW" });
 }
 /** Where a month stands, in the words of the people who wait for it. */
 export function payrollStage(run: { status: string; submittedAt: Date | null; taxConfirmedAt: Date | null }): "COMPUTING" | "REVIEW" | "APPROVE" | "APPROVED" | "PAID" {
   return run.status === "PAID" ? "PAID" : run.status === "APPROVED" ? "APPROVED" : run.taxConfirmedAt ? "APPROVE" : run.submittedAt ? "REVIEW" : "COMPUTING";
 }
 
-export async function confirmTax(input: { entityId: string; month: string; actorCode: string; confirmed: boolean; acknowledged?: boolean }) {
+export async function confirmTax(input: { entityId: string; month: string; actorCode: string; confirmed: boolean; acknowledged?: boolean; note?: string }) {
   const actor = await roleOf(input.actorCode, "FINANCE", "PAYROLL_REVIEWER_ONLY");
   const run = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: input.entityId, month: input.month } }, include: { lines: { select: { missing: true, employeeId: true, employee: { select: { code: true } } } } } });
   run.lines = await liveMissing(input.entityId, input.month, run.lines);
@@ -340,8 +342,9 @@ export async function confirmTax(input: { entityId: string; month: string; actor
   if (run.status !== "DRAFT") throw new Error(`PAYROLL_LOCKED:${input.month}`);
   if (input.confirmed && !run.submittedAt) throw new Error(`PAYROLL_NOT_SUBMITTED:${input.month}`);
   if (run.preparedBy === actor.code) throw new Error("PAYROLL_SAME_PERSON");
+  if (!input.confirmed && !input.note?.trim()) throw new Error("REASON_REQUIRED"); // H-R85: undoing the review says why
   await prisma.payrollRun.update({ where: { id: run.id }, data: input.confirmed ? { taxConfirmedBy: actor.code, taxConfirmedAt: new Date() } : { taxConfirmedBy: null, taxConfirmedAt: null } });
-  await audit(actor.id, input.confirmed ? "PAYROLL_TAX_CONFIRMED" : "PAYROLL_TAX_UNCONFIRMED", input.month);
+  await audit(actor.id, input.confirmed ? "PAYROLL_TAX_CONFIRMED" : "PAYROLL_TAX_UNCONFIRMED", input.month, input.confirmed ? { from: "REVIEW", to: "APPROVE" } : { from: payrollStage(run), to: "REVIEW", reason: "REVIEW_UNDONE", note: input.note!.trim() });
 }
 
 // ───────── 销售目标 ─────────

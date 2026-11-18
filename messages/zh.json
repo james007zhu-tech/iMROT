@@ -2802,7 +2802,7 @@
     "acceptSheetUpload": "上传客户签字验收单",
     "acceptSheetReplace": "重新上传",
     "acceptSheetSaved": "验收单已上传",
-    "err_ACCEPT_NEEDS_SHEET": "{detail} 还没有上传客户签字验收单，不能验收",
+    "err_ACCEPT_NEEDS_SHEET": "{detail} 还没有验收依据：请上传客户签字验收单，或由客户在门户里确认",
     "err_TRADE_NEEDS_SIGNED_DN": "{detail} 客户还没有签收送货单，不能记验收",
     "err_ACCEPT_EVIDENCE_MISSING": "{detail} 缺验收依据，不能开票",
     "err_ACCEPT_SHEET_FILE": "请选择文件",
@@ -2835,7 +2835,17 @@
     "err_RC_FX_WAITS_MD": "要先批准汇率，再批准这笔收款",
     "err_FX_NOT_WAITING": "没有待批准的汇率",
     "err_FX_ISSUED": "{detail} 已签发税票，不能改汇率，只能作废重开",
-    "acceptByPortal": "客户在门户里本人确认验收：{who} · {date}"
+    "acceptByPortal": "客户在门户里本人确认验收：{who} · {date}",
+    "finHandled": "财务已处理",
+    "costMissingBanner": "第 {list} 行缺成本，无法计算毛利。补上成本后报价才能出单。",
+    "estMissingBanner": "第 {list} 行请填预估成本，填了才能保存报价。",
+    "priceWaitingMd": "待 MD 批准：报价低于最低售价，批准前不能让客户确认 PO",
+    "needsMdTitle": "需 MD 批准",
+    "needsMdSay": "报价已保存，但有价格低于最低售价。已提交 MD 批准，MD 待办里已有这一张；批准前不能让客户确认 PO。",
+    "gotIt": "知道了",
+    "acceptTwoWays": "验收依据两种方式任选其一：① 上传客户签字验收单（PDF 或照片）——在这里，或在下面表单的上传区；② 客户本人在客户门户里确认。现场手机签名不能代替。",
+    "err_ACCEPT_SHEET_EXISTS": "{detail} 已经有签字验收单，不会被替换；要换请到那张单的验收页重新上传",
+    "issueOver": "超出"
   },
   "role": {
     "MD": "MD 董事总经理",
@@ -3055,7 +3065,10 @@
     "evidenceSheet": "客户签字验收单 · {date}",
     "evidenceMissing": "缺验收依据，不能开票。",
     "evidenceGo": "去补",
-    "evidencePortal": "客户门户确认 · {who} · {date}"
+    "evidencePortal": "客户门户确认 · {who} · {date}",
+    "outNoDn": "缺验收依据：客户还没有签收送货单",
+    "outNoSheet": "缺验收依据：没有客户签字验收单，也没有门户确认",
+    "uploadSheet": "上传签字单"
   },
   "chain": {
     "title": "单据链",
@@ -3078,7 +3091,8 @@
     "TI": "税票 TITH",
     "IV": "请款 IVTH",
     "RC": "收据 RCTH",
-    "doneNoNumber": "已开"
+    "doneNoNumber": "已开",
+    "finHandled": "财务已处理"
   },
   "ops": {
     "all": "全部",
@@ -3441,6 +3455,8 @@
     "trailSystem": "系统（由 {trigger} 触发）",
     "payEmptySay": "这张工资表里没有人。",
     "payEmptyDrop": "删掉这张空表",
-    "trail_PAYROLL_EMPTY_DROPPED": "删除空工资表"
+    "trail_PAYROLL_EMPTY_DROPPED": "删除空工资表",
+    "payUndoWhy": "撤销复核的原因（必填）",
+    "payCarryOnlyLate": "已计入本月工资的加班不能挂到下月；这里只能挂还没计入本月的。"
   }
 }

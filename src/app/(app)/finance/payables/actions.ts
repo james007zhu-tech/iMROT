@@ -11,7 +11,7 @@ const BACK = "/finance/payables";
 export async function requestAction(f: FormData) {
   await guarded(async () => {
     const me = await currentEmployee();
-    const amount = String(f.get("amount") ?? "").trim(), payDate = String(f.get("payDate") ?? "").trim();
+    const amount = String(f.get("amount") ?? "").replace(/[,\s]/g, ""), payDate = String(f.get("payDate") ?? "").trim();
     const p = await requestPayment({ invoiceId: String(f.get("id")), actorCode: me.code, account: String(f.get("account") ?? ""), amount: amount ? Number(amount) : undefined, fxRate: Number(String(f.get("fxRate") ?? "")) || undefined, fxReason: String(f.get("fxReason") ?? "").trim() || undefined, whtType: String(f.get("whtType") ?? "") || undefined, whtRate: String(f.get("whtPct") ?? "").trim() === "" ? undefined : Number(f.get("whtPct")) / 100, payDate: payDate ? new Date(payDate) : undefined });
     return { ok: p.no, to: BACK };
   }, BACK);

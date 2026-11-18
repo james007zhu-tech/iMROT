@@ -1,4 +1,4 @@
-import { acceptEvidence } from "@/server/slm-docs";
+import { acceptEvidence, invoiceBar } from "@/server/slm-docs";
 import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
@@ -27,23 +27,24 @@ export async function ReadyOrders({ type, title }: { type: string; title: string
   const me = await currentEmployee();
   const money = ["TI", "IV", "RC"].includes(type);
   if ((money && !can.invoice(me)) || !docTypeAllowed(me, type)) return null; // 开票、收款的候选只给 FIN 和 MD
-  // 开票候选 (需求清单 v4 V4-P0-06): accepted, not yet invoiced, worth more than zero — or a refused quote with a fee to bill
-  const billable: Prisma.ServiceOrderWhereInput = type === "TI" || type === "IV" ? { noInvoiceAt: null, OR: [{ status: "ACCEPTED", total: { gt: 0 }, OR: [{ acceptance: { is: { status: "ACCEPTED" } } }, { mode: { in: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] } }] }, { status: "DECLINED", decline: { isNot: null } }] } : {}; // a real acceptance record (派修单 v3 第 2 条)
-  const ready = (await prisma.serviceOrder.findMany({ where: { AND: [await orderScope(me), billable, { status: { in: step.statuses as never }, ...(step.modes ? { mode: { in: step.modes as never } } : {}) }] }, orderBy: { reportedAt: "desc" }, take: 40, select: { id: true, no: true, mode: true, acceptSheet: true, status: true, customer: { select: { name: true } }, reportedSymptom: true, project: true, currency: true, total: true, acceptance: { select: { acceptedAt: true, customerSignatory: true, signatureUrl: true } }, decline: { select: { fees: true } } } }))
-    .filter((o) => o.status !== "DECLINED" || ((o.decline?.fees as { amount?: number }[] | null) ?? []).some((f) => Number(f.amount) > 0)); // a refused quote with nothing to bill is not a candidate
-  // 被排除的单子要写明原因: accepted by status, but not a candidate
-  const out = type === "TI" || type === "IV" ? await prisma.serviceOrder.findMany({ where: { AND: [await orderScope(me), { status: "ACCEPTED", OR: [{ noInvoiceAt: { not: null } }, { total: { lte: 0 } }, { total: null }, { acceptance: { is: null } }, { acceptance: { isNot: { status: "ACCEPTED" } } }] }] }, orderBy: { reportedAt: "desc" }, take: 40, select: { no: true, total: true, noInvoiceAt: true, noInvoiceBy: true, noInvoiceReason: true, acceptance: { select: { status: true } } } }) : [];
-  // 验收依据按业务类型 (派修单 v5 P1-11): 贸易 = the delivery note the customer signed; 维修 = the customer's signed
-  // acceptance sheet, uploaded. An accepted order with nothing behind it is shown in red and cannot be opened for invoicing.
+  // 开票候选 — one rule for the bell, this list and the 排除 list (财神爷 2026-11-18): an accepted order worth more than
+  // zero, not marked 不开票, with acceptance evidence of its kind (贸易: the delivery note the customer signed; 维修等:
+  // the signed acceptance sheet or the customer's confirmation in the portal) — or a refused quote with a fee to bill.
+  // Everything else that is accepted stands under 排除 with its reason; one that only lacks the evidence has 上传签字单.
+  const taxy = type === "TI" || type === "IV";
+  const sel = { id: true, no: true, mode: true, acceptSheet: true, status: true, customer: { select: { name: true } }, reportedSymptom: true, project: true, currency: true, total: true, noInvoiceAt: true, noInvoiceBy: true, noInvoiceReason: true, decline: { select: { fees: true } } } as const;
+  const pool = await prisma.serviceOrder.findMany({ where: { AND: [await orderScope(me), taxy ? { OR: [{ status: "ACCEPTED" }, { status: "DECLINED", decline: { isNot: null }, noInvoiceAt: null }] } : {}, { status: { in: step.statuses as never }, ...(step.modes ? { mode: { in: step.modes as never } } : {}) }] }, orderBy: { reportedAt: "desc" }, take: 80, select: sel });
   const evs = new Map<string, Awaited<ReturnType<typeof acceptEvidence>>>();
-  if (type === "TI" || type === "IV") for (const o of ready) if (o.status !== "DECLINED") evs.set(o.no, await acceptEvidence(o));
+  const why = new Map<string, string>();
+  if (taxy) for (const o of pool) { if (o.status === "DECLINED") { if (!((o.decline?.fees as { amount?: number }[] | null) ?? []).some((f) => Number(f.amount) > 0)) why.set(o.no, "SKIP"); continue; } const ev = await acceptEvidence(o); evs.set(o.no, ev); const w = invoiceBar(o, ev); if (w) why.set(o.no, w); }
+  const ready = pool.filter((o) => !why.has(o.no)), out = pool.filter((o) => why.has(o.no) && why.get(o.no) !== "SKIP");
   const back = type === "IV" ? "/tax?doc=iv&new=1" : "/tax?doc=ti&new=1";
   const pick = type === "TI" || type === "IV";
   return (
     <Card title={d("pickOrder", { name: title })} accent>
       {ready.length === 0 ? <p className="text-sm text-navy/70">{d("noReady")}</p> : (
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {ready.map((o) => { const ev = evs.get(o.no), lacks = pick && o.status !== "DECLINED" && !ev; const head = <><span className={`font-mono ${lacks ? "text-navy" : "text-blue"}`}>{o.no}</span> <span className="text-navy">{o.customer.name}</span>
+          {ready.map((o) => { const ev = evs.get(o.no), lacks = false; const head = <><span className={`font-mono ${lacks ? "text-navy" : "text-blue"}`}>{o.no}</span> <span className="text-navy">{o.customer.name}</span>
               <span className="block truncate text-xs text-navy/60">{ts(o.status)}{o.reportedSymptom ? ` · ${o.reportedSymptom}` : ""}</span></>; return <div key={o.no} className={`rounded-lg border bg-white px-3 py-2 text-sm ${lacks ? "border-[#C0392B]" : "border-hair hover:border-blue"}`}>
             {lacks ? <div>{head}</div> : <Link href={`/service-orders/${o.no}/${step.path}`} className="block">{head}</Link>}
             {pick && ev && <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-navy"><span>{d("evidence")}：</span>{ev.kind === "DN"
@@ -56,7 +57,10 @@ export async function ReadyOrders({ type, title }: { type: string; title: string
           </div>; })}
         </div>
       )}
-      {out.length > 0 && <div className="mt-3 border-t border-hair pt-2 text-xs text-navy/70"><div className="font-semibold">{d("notCandidates")}</div><ul className="mt-1 space-y-0.5">{out.map((o) => <li key={o.no}><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link> — {o.noInvoiceAt ? <>{d("noInvoice")}：{o.noInvoiceReason} · {o.noInvoiceBy} · {o.noInvoiceAt.toISOString().slice(0, 10)} <form action={noInvoiceAction.bind(null, back)} className="inline"><input type="hidden" name="no" value={o.no} /><input type="hidden" name="undo" value="1" /><button className="text-blue hover:underline">{d("noInvoiceUndo")}</button></form></> : o.acceptance?.status !== "ACCEPTED" ? <span className="text-alert-ink">{d("outNoAcceptance")}</span> : d("outZero")}</li>)}</ul></div>}
+      {out.length > 0 && <div className="mt-3 border-t border-hair pt-2 text-xs text-navy/70"><div className="font-semibold">{d("notCandidates")}</div><ul className="mt-1 space-y-1">{out.map((o) => <li key={o.no}><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link> <span className="text-navy/60">{o.customer.name}</span> — {why.get(o.no) === "NO_INVOICE" ? <>{d("noInvoice")}：{o.noInvoiceReason} · {o.noInvoiceBy} · {o.noInvoiceAt!.toISOString().slice(0, 10)} <form action={noInvoiceAction.bind(null, back)} className="inline"><input type="hidden" name="no" value={o.no} /><input type="hidden" name="undo" value="1" /><button className="text-blue underline">{d("noInvoiceUndo")}</button></form></>
+        : why.get(o.no) === "ZERO" ? d("outZero")
+        : o.mode === "DOMESTIC_TRADE" || o.mode === "INTERNATIONAL_TRADE" ? <span className="font-semibold text-[#C0392B]">{d("outNoDn")}</span>
+        : <><span className="font-semibold text-[#C0392B]">{d("outNoSheet")}</span> <Link href={`/service-orders/${o.no}/accept`} className="ml-1 inline-block rounded-md border border-navy/40 bg-white px-2 py-0.5 font-semibold text-navy">{d("uploadSheet")}</Link></>}</li>)}</ul></div>}
     </Card>
   );
 }

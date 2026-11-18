@@ -74,7 +74,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
       if (!can.editPrice(me)) return { ok: "quoteItemsSaved", to: `/service-orders/${no}/quote` }; // saved for sales to price; the order does not move
       const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
       if (["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(cur.status)) await catchUpOrder(no, "QUOTE_PENDING", me.code);
-      return { ok: no, to: `/service-orders/${no}` };
+      return { ok: r.marginApproval === "PENDING" ? "quoteNeedsMd" : no, to: `/service-orders/${no}` }; // 低于最低售价或毛利底线: the order page opens with the notice (2026-11-18)
     }, `/service-orders/${no}/quote`);
   }
   async function hint(f: FormData) {
@@ -103,6 +103,11 @@ export default async function Quote({ params, searchParams }: { params: Promise<
     <StepPage order={order} title={u("step_quote")} ok={ok === "quoteItemsSaved" ? u("quoteItemsSaved") : ok === "priceHintSent" ? u("priceHintSent") : ok} error={error} kind="quote" uploadTitle={u("upQuoteTitle")} uploadHint={u("upQuoteHint")} lineFields={{ description: "d", qty: "q", unit: "u", unitPrice: "c" }} saveLabel={edit ? u("saveQuote") : items ? u("saveQuoteItems") : ""}>
       <form id="f" action={save}>
         <Card title={u("quoteLines")}>
+          {(() => { // 缺成本: one red banner of its own, in every view that carries a cost column (MD Q2; Jessie 2026-11-18)
+            if (partnerMode || (!seeCost && !estCol)) return null;
+            const miss = lines.map((l, i) => (Number(l.qty) > 0 && l.unitCost == null && l.costRef == null && !(Number(partOf(l)?.lastCost ?? 0) > 0) ? i + 1 : 0)).filter(Boolean);
+            const all = [...new Set([...miss, ...badCost])].sort((a, b) => a - b);
+            return all.length ? <div role="alert" className="rounded-lg border border-[#C0392B] bg-[#FDECEC] px-3 py-2 text-sm font-semibold text-[#C0392B]">{seeCost ? u("costMissingBanner", { list: all.join("、") }) : u("estMissingBanner", { list: all.join("、") })}</div> : null; })()}
           {fromInth && <Alert>{u("quoteFromInth")}</Alert>}
           <p className="mb-2 text-xs text-navy/70">{u("quoteSkuOptional")}</p>
           {!edit && <Alert>{u(items ? "quoteItemsNote" : "quoteReadOnly")}</Alert>}
@@ -126,7 +131,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
                 {estCol && (() => { const sys = !!l && !l.costEst && (l.unitCost != null || l.costRef != null || Number(partOf(l)?.lastCost ?? 0) > 0); return sys
                   ? <input type="text" readOnly disabled tabIndex={-1} aria-readonly="true" value={u("estSys")} placeholder={u("estCost")} className={`${inputCls} bg-[#F1F4F8] text-navy/70`} />
                   : <input name={`c${i}`} type="number" step="0.01" min="0" defaultValue={l?.costEst && l.unitCost != null ? Number(l.unitCost) : ""} placeholder={u("estPh")} className={`${inputCls} ${badCost.includes(i + 1) ? "field-bad" : ""}`} />; })()}
-                {estCol && badCost.includes(i + 1) && <span className="text-[11px] font-semibold text-[#C0392B] row-note">{u("estMissingRow", { n: i + 1 })}</span>}
+                {estCol && (badCost.includes(i + 1) || (!!l && Number(l.qty) > 0 && l.unitCost == null && l.costRef == null && !(Number(partOf(l)?.lastCost ?? 0) > 0))) && <span className="text-[11px] font-semibold text-[#C0392B] row-note">{u("estMissingRow", { n: i + 1 })}</span>}
                 {estCol && l && Number(l.qty) > 0 && byPrice.get(i) && <span className={`text-[11px] row-note ${Number(l.unitPrice ?? 0) > 0 && Number(l.unitPrice) < byPrice.get(i)!.min - 0.005 ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("priceHint", { n: i + 1, suggest: byPrice.get(i)!.suggest.toFixed(2), min: byPrice.get(i)!.min.toFixed(2) })}{Number(l.unitPrice ?? 0) > 0 && Number(l.unitPrice) < byPrice.get(i)!.min - 0.005 ? ` ${u("priceBelowMin")}` : ""}</span>}
                 {l?.costEst && (seeCost || estCol) && <span className="row-note"><span className="rounded bg-[#E5E9EF] px-1.5 py-0.5 text-[11px] text-navy/70">{u("estTag")}</span>{seeCost && <span className="ml-1 text-[11px] text-navy/70">{u("estByRow", { n: i + 1 })}</span>}</span>}
                 {seeCost && srcOf.get(i) && <span className="text-[11px] text-navy/70 row-note">{u("costSrc", { n: i + 1, src: srcOf.get(i)! })}</span>}

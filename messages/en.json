@@ -2802,7 +2802,7 @@
     "acceptSheetUpload": "Upload the signed sheet",
     "acceptSheetReplace": "Upload again",
     "acceptSheetSaved": "Sheet uploaded",
-    "err_ACCEPT_NEEDS_SHEET": "{detail}: no signed acceptance sheet uploaded",
+    "err_ACCEPT_NEEDS_SHEET": "{detail}: no signed acceptance sheet and no portal confirmation",
     "err_TRADE_NEEDS_SIGNED_DN": "{detail}: no delivery note signed by the customer",
     "err_ACCEPT_EVIDENCE_MISSING": "{detail}: no acceptance evidence — cannot invoice",
     "err_ACCEPT_SHEET_FILE": "Choose a file",
@@ -2835,7 +2835,17 @@
     "err_RC_FX_WAITS_MD": "Approve the rate first",
     "err_FX_NOT_WAITING": "No rate is waiting",
     "err_FX_ISSUED": "{detail}: a tax invoice is issued — void and re-issue",
-    "acceptByPortal": "Confirmed by the customer in the portal: {who} · {date}"
+    "acceptByPortal": "Confirmed by the customer in the portal: {who} · {date}",
+    "finHandled": "Handled by finance",
+    "costMissingBanner": "Lines {list}: no cost, the margin cannot be worked out",
+    "estMissingBanner": "Lines {list}: enter an estimated cost",
+    "priceWaitingMd": "Waiting for the MD: the price is under the minimum — the customer cannot confirm the PO yet",
+    "needsMdTitle": "Needs the MD's approval",
+    "needsMdSay": "The quote is saved, but a price is under the minimum. It has gone to the MD; until it is approved the customer cannot confirm the PO.",
+    "gotIt": "OK",
+    "acceptTwoWays": "Acceptance needs one of two: (1) the customer's signed acceptance sheet uploaded here or in the form's upload zone, or (2) the customer's own confirmation in the portal. A signature on the phone does not count.",
+    "err_ACCEPT_SHEET_EXISTS": "{detail} already has a sheet — it is not replaced from here",
+    "issueOver": "over by"
   },
   "role": {
     "MD": "MD Managing Director",
@@ -3039,7 +3049,7 @@
     "acceptedBy": "Accepted {date} · signed {who}",
     "notCandidates": "Not candidates, and why",
     "outNoAcceptance": "no acceptance record",
-    "outZero": "amount is 0",
+    "outZero": "Nothing to bill",
     "evidence": "Acceptance",
     "evidenceFile": "signature or file on record",
     "evidenceNoFile": "no file attached",
@@ -3055,7 +3065,10 @@
     "evidenceSheet": "Signed acceptance sheet · {date}",
     "evidenceMissing": "No acceptance evidence: cannot invoice.",
     "evidenceGo": "Add it",
-    "evidencePortal": "Confirmed in the portal · {who} · {date}"
+    "evidencePortal": "Confirmed in the portal · {who} · {date}",
+    "outNoDn": "No evidence: the delivery note is not signed",
+    "outNoSheet": "No evidence: no signed acceptance sheet and no portal confirmation",
+    "uploadSheet": "Upload the signed sheet"
   },
   "chain": {
     "title": "Document chain",
@@ -3078,7 +3091,8 @@
     "TI": "Tax invoice TITH",
     "IV": "Invoice IVTH",
     "RC": "Receipt RCTH",
-    "doneNoNumber": "done"
+    "doneNoNumber": "done",
+    "finHandled": "Handled by finance"
   },
   "ops": {
     "all": "All",
@@ -3441,6 +3455,8 @@
     "trailSystem": "system (triggered by {trigger})",
     "payEmptySay": "Nobody is on this pay sheet.",
     "payEmptyDrop": "Remove the empty sheet",
-    "trail_PAYROLL_EMPTY_DROPPED": "Empty sheet removed"
+    "trail_PAYROLL_EMPTY_DROPPED": "Empty sheet removed",
+    "payUndoWhy": "Why the review is undone (required)",
+    "payCarryOnlyLate": "Overtime already in this month's pay cannot be carried over."
   }
 }

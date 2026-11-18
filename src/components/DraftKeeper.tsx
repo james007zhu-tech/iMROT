@@ -39,7 +39,7 @@ function identity(form: HTMLFormElement, i: number) {
 const keyOf = (path: string, form: HTMLFormElement, i: number) => `${PREFIX}${path}:${identity(form, i)}`;
 /** A form that carries money is never filled in by itself: the person is shown the draft and decides (v5 P0-5). */
 const MONEY = /amount|gross|paid|cash|price|total|wht/i;
-const isMoney = (form: HTMLFormElement) => form.dataset.money != null || fields(form).some((el) => (el as HTMLInputElement).type === "number" && MONEY.test(el.name));
+const isMoney = (form: HTMLFormElement) => form.dataset.money != null || fields(form).some((el) => ((el as HTMLInputElement).type === "number" || (el as HTMLInputElement).inputMode === "decimal") && MONEY.test(el.name));
 function read(form: HTMLFormElement): Values {
   const v: Values = {};
   for (const el of fields(form)) {
@@ -88,7 +88,15 @@ export function DraftKeeper({ labels }: { labels: { found: string; drop: string;
 
     const dirty = new Set<HTMLFormElement>();
     const forms = () => Array.from(document.forms).filter(keepable);
-    const save = (form: HTMLFormElement) => { try { localStorage.setItem(keyOf(path, form, Array.from(document.forms).indexOf(form)), JSON.stringify({ at: Date.now(), values: read(form) } satisfies Draft)); } catch { /* storage full or off */ } };
+    // 财神爷 2026-11-18: what a form shows when the page opens is not a draft. Each form's opening values are remembered;
+    // a form that is back at them has no draft (and one that was saved earlier is removed).
+    const initial = new WeakMap<HTMLFormElement, string>();
+    const snap = (form: HTMLFormElement) => JSON.stringify(read(form));
+    const save = (form: HTMLFormElement) => { try {
+      const key = keyOf(path, form, Array.from(document.forms).indexOf(form)), now = snap(form);
+      if (initial.has(form) && initial.get(form) === now) { localStorage.removeItem(key); return; }
+      localStorage.setItem(key, JSON.stringify({ at: Date.now(), values: read(form) } satisfies Draft));
+    } catch { /* storage full or off */ } };
 
     // a money form: a strip at its top — 有 10:00 的草稿 · 恢复 / 丢掉. Nothing is filled in until 恢复 is pressed;
     // after that the form is marked 已恢复草稿，请核对金额.
@@ -101,8 +109,10 @@ export function DraftKeeper({ labels }: { labels: { found: string; drop: string;
       const say = document.createElement("span"); say.textContent = labels.offer.replace("{time}", hm(d.at));
       const mk = (text: string) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.className = "whitespace-nowrap rounded-lg border border-navy/40 bg-white px-2.5 py-1"; return b; };
       const yes = mk(labels.restore), no = mk(labels.drop);
-      yes.onclick = () => { write(form, d.values); dirty.add(form); window.dispatchEvent(new CustomEvent("draft-restored", { detail: form.id })); say.textContent = labels.check; say.className = "font-semibold"; yes.remove(); no.remove(); form.style.outline = "2px solid #E6A23C"; form.style.outlineOffset = "4px"; form.style.borderRadius = "8px"; };
-      no.onclick = () => { try { localStorage.removeItem(key); } catch { /* ignore */ } strip.remove(); };
+      yes.onclick = () => { write(form, d.values); dirty.add(form); window.dispatchEvent(new CustomEvent("draft-restored", { detail: form.id })); say.textContent = labels.check; say.className = "font-semibold"; yes.remove(); form.style.outline = "2px solid #E6A23C"; form.style.outlineOffset = "4px"; form.style.borderRadius = "8px"; };
+      // 丢掉: the draft is removed for good — it lives only in this browser — the form goes back to what the page opened
+      // with, and it is not kept again until the person changes something
+      no.onclick = () => { try { localStorage.removeItem(key); } catch { /* ignore */ } dirty.delete(form); const was = initial.get(form); if (was && snap(form) !== was) write(form, JSON.parse(was)); form.style.outline = ""; strip.remove(); };
       strip.append(say, yes, no); form.prepend(strip); strips.push(strip);
     };
 
@@ -110,9 +120,11 @@ export function DraftKeeper({ labels }: { labels: { found: string; drop: string;
     const t0 = setTimeout(() => {
       const found: { key: string; at: number }[] = [];
       for (const form of forms()) {
+        initial.set(form, snap(form));
         const key = keyOf(path, form, Array.from(document.forms).indexOf(form));
         let d: Draft | null = null; try { d = JSON.parse(localStorage.getItem(key) ?? "null"); } catch { /* ignore */ }
         if (!d) continue;
+        if (JSON.stringify(d.values) === initial.get(form)) { try { localStorage.removeItem(key); } catch { /* ignore */ } continue; } // only the opening values: not a draft
         // 需求清单 v4 V4-P0-13: the draft comes back by itself — after a failed save, after a refresh, after closing the
         // browser — and the banner says so, with 丢掉 for the person who wants the empty form.
         if (isMoney(form)) { ask(form, key, d); continue; }
@@ -126,6 +138,7 @@ export function DraftKeeper({ labels }: { labels: { found: string; drop: string;
     const onInput = (e: Event) => {
       const form = (e.target as HTMLElement | null)?.closest?.("form") as HTMLFormElement | null;
       if (!form || !keepable(form) || !e.isTrusted) return;
+      if (!initial.has(form)) initial.set(form, "");
       dirty.add(form);
       clearTimeout(timer); timer = setTimeout(() => dirty.forEach(save), 2000);
     };

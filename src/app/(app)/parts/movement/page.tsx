@@ -35,6 +35,11 @@ export default async function Movement({ searchParams }: { searchParams: Promise
   const warehouses = [...new Set(["RAYONG", ...whs.map((w) => w.warehouse)])];
   // 从工单出库: the order's part lines not yet issued are already on the form — part, quantity, the order's machine (需求清单 v3 P0-08)
   const fromOrder = order && direction === "OUT" && orders.some((o) => o.no === order) ? await issueNeeds(order) : null; // only an order this person may see
+  // N-40: stock on hand per part, so an issue for more than there is turns red in its row before it is sent
+  const moved = await prisma.stockMovement.groupBy({ by: ["partId", "direction"], where: { partId: { not: null } }, _sum: { qty: true } });
+  const idSku = new Map((await prisma.part.findMany({ select: { id: true, sku: true } })).map((x) => [x.id, x.sku]));
+  const onHand: Record<string, number> = {};
+  for (const r of moved) { const k = idSku.get(r.partId!); if (k) onHand[k] = (onHand[k] ?? 0) + (r.direction === "IN" ? 1 : -1) * Number(r._sum.qty ?? 0); }
   const pre = fromOrder?.lines ?? [];
   // 维修出库: only the machines of the order's own customer (测试报告 P0-03); 贸易出库 picks no machine at all
   const custIds = [...new Set(orders.map((o) => o.customerId))];
@@ -43,8 +48,8 @@ export default async function Movement({ searchParams }: { searchParams: Promise
   const orderCustomer = Object.fromEntries(orders.map((o) => [o.no, o.customerId]));
   // 贸易出库从采购单带出: POTHs of trade orders with goods received
   const names = can.customerNames(me); // PUR works by order number; who the customer is is not theirs to see
-  const pos = !can.purchase(me) ? [] : await prisma.purchaseOrder.findMany({ where: { kind: "PARTS", status: { in: ["PARTIAL", "RECEIVED"] }, serviceOrder: { mode: { in: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] }, status: { in: ["QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } } }, include: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, supplier: { select: { name: true } } }, orderBy: { orderedAt: "desc" }, take: 60 });
-  const poChoices: PoChoice[] = pos.map((p) => ({ no: p.no, orderNo: p.serviceOrder!.no, customer: names ? p.serviceOrder!.customer.name : "", label: `${p.no} · ${names ? p.serviceOrder!.customer.name : p.serviceOrder!.no} · ${p.supplier.name}`,
+  const pos = !can.purchase(me) ? [] : await prisma.purchaseOrder.findMany({ where: { kind: "PARTS", status: { in: ["PARTIAL", "RECEIVED"] }, serviceOrder: { mode: { in: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] }, status: { in: ["QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } } }, include: { serviceOrder: { select: { no: true, customer: { select: { name: true, code: true } } } }, supplier: { select: { name: true } } }, orderBy: { orderedAt: "desc" }, take: 60 });
+  const poChoices: PoChoice[] = pos.map((p) => ({ no: p.no, orderNo: p.serviceOrder!.no, customer: names ? p.serviceOrder!.customer.name : p.serviceOrder!.customer.code, label: `${p.no} · ${names ? p.serviceOrder!.customer.name : p.serviceOrder!.customer.code} · ${p.serviceOrder!.no}`,
     lines: ((p.lines as { partSku?: string; receivedQty?: number }[] | null) ?? []).filter((l) => l.partSku && Number(l.receivedQty ?? 0) > 0).map((l) => ({ sku: l.partSku!, qty: Number(l.receivedQty) })) })).filter((c) => c.lines.length > 0);
   const backTo = order ? `/service-orders/${order}` : "/parts";
   async function save(f: FormData) {
@@ -57,7 +62,7 @@ export default async function Movement({ searchParams }: { searchParams: Promise
       const nos = [`${doc.no} · ${doc.lines.length}`];
       const so = String(f.get("serviceOrderNo") || "");
       return { ok: nos.join(", "), to: so ? `/service-orders/${so}` : "/parts" };
-    }, `/parts/movement${order ? `?order=${order}` : ""}`);
+    }, `/parts/movement?direction=${f.get("direction") === "OUT" ? "OUT" : "IN"}${String(f.get("serviceOrderNo") || order || "") ? `&order=${String(f.get("serviceOrderNo") || order)}` : ""}`); // N-40: a refused issue comes back as an issue, with its order — never as a receipt
   }
   const [code, list] = (error ?? "").split(":");
   return (
@@ -89,7 +94,7 @@ export default async function Movement({ searchParams }: { searchParams: Promise
             {Array.from({ length: ROWS }, (_, i) => <div key={i} className={`grid grid-cols-2 gap-2 ${seeCost ? "md:grid-cols-[2fr_80px_1fr_1fr_1.4fr]" : "md:grid-cols-[2fr_80px_1fr_1.4fr]"}`}><span><input name={`s${i}`} list="skus" data-sku defaultValue={pre[i]?.sku ?? ""} className={`${inputCls} font-mono ${pre[i] && pre[i].onHand < pre[i].qty ? "field-bad" : ""}`} /><span data-sku-name={`s${i}`} />{pre[i] ? <span className={`block text-xs ${pre[i].onHand < pre[i].qty ? "font-semibold text-alert-ink" : "text-navy/60"}`}>{u("briefOnHand")} {pre[i].onHand}</span> : null}</span><input name={`q${i}`} type="number" step="1" defaultValue={pre[i]?.qty ?? ""} className={inputCls} /><input name={`b${i}`} className={inputCls} />{seeCost && <input name={`c${i}`} type="number" step="0.01" className={inputCls} />}<select name={`o${i}`} className={inputCls}><option value="">—</option><option value="SCRAP">{u("dispScrap")}</option><option value="RETURN_TO_CUSTOMER">{u("dispReturn")}</option><option value="KEEP_FOR_ANALYSIS">{u("dispKeep")}</option></select></div>)}
           </RevealRows>
           <PartDropdown formId="f" sku="s" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, unit: p.unit }))} />
-          <SkuNames names={Object.fromEntries(parts.map((p) => [p.sku, p.name ?? ""]))} unknown={u("skuUnknown")} />
+          <SkuNames names={Object.fromEntries(parts.map((p) => [p.sku, p.name ?? ""]))} unknown={u("skuUnknown")} stock={onHand} stockLabels={{ onHand: u("briefOnHand"), over: u("issueOver") }} />
           <p className="text-xs text-navy/70">{u("newPartInList")}</p>
         </Card>
       </form>

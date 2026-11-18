@@ -411,6 +411,7 @@ export const AcceptanceInput = z.object({
   customerSignatory: z.string().optional(),
   signatureUrl: z.string().optional(),
   dcitSignatory: z.string().optional(),
+  sheet: z.array(z.object({ name: z.string().optional(), url: z.string() })).optional(), /// files from the form's upload zone: the customer's signed sheet (N-33)
 });
 
 /** ACCEPTED / CONDITIONAL → assets back IN_SERVICE, order → ACCEPTED. REJECTED → assets to REPAIR, order back to DIAGNOSING. */
@@ -434,6 +435,13 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>, p
   if (ok) {
     // 验收依据按业务类型 (v5 P1-11): a trade order is accepted by the customer's signature on its delivery note; a repair
     // order by the customer's signed acceptance sheet, uploaded — a signature on a phone does not stand in for it.
+    // N-33 (2026-11-18): a file put into the acceptance form's own upload zone is the customer's signed sheet — it counts as
+    // the evidence, under the name it was uploaded with. (The phone signature, `signatureUrl`, still does not.)
+    const dropped = (d.sheet ?? []).filter((a) => a.url);
+    if (!portal && !isTradeMode(order.mode) && !(order.acceptSheet as AcceptSheet | null)?.files?.length && dropped.length) {
+      portalSheet = { sheetId: `AS${Date.now().toString(36)}`, files: dropped.map((a) => ({ name: a.name || a.url.split("/").pop() || "acceptance", url: a.url })), by: actor.code, at: new Date().toISOString(), orders: [order.no] };
+      order.acceptSheet = portalSheet as unknown as Prisma.JsonValue;
+    }
     if (portal && !isTradeMode(order.mode) && !(order.acceptSheet as AcceptSheet | null)?.files?.length) {
       const c = await prisma.contact.findFirst({ where: { id: portal.contactId, customerId: order.customerId }, select: { id: true, name: true } });
       if (!c) throw new Error("NO_PERMISSION");
@@ -455,7 +463,7 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>, p
     });
     // Acceptance is the financial freeze: price, cost, stock issues and purchasing are closed from here on.
     await tx.serviceOrder.update({ where: { id: order.id }, data: { status: ok ? "ACCEPTED" : "DIAGNOSING", lockedAt: ok ? (d.acceptedAt ?? new Date()) : null, lockedById: ok ? actor.id : null, ...(portalSheet ? { acceptSheet: portalSheet as unknown as Prisma.InputJsonValue } : {}) } });
-    if (portalSheet) await audit(actor.id, "ACCEPT_PORTAL", order.no, { contact: portalSheet.portal?.name }, tx);
+    if (portalSheet) await audit(actor.id, portalSheet.portal ? "ACCEPT_PORTAL" : "ACCEPT_SHEET", order.no, portalSheet.portal ? { contact: portalSheet.portal.name } : { sheetId: portalSheet.sheetId, file: portalSheet.files[0]?.name, covers: [order.no] }, tx);
     for (const link of order.assets) {
       const from = link.asset.status;
       const to: AssetStatus = ok ? "IN_SERVICE" : "REPAIR";
@@ -515,6 +523,8 @@ export async function missingForAcceptance(no: string): Promise<string[]> {
     if (!o.deliveries.some((d) => d.status === "SIGNED")) missing.push("DNTH");
     return missing;
   }
+  // N-34 (2026-11-18): a trade order has no inspection and no repair report — what it needs is the delivery note the customer signed
+  if (isTradeMode(o.mode)) { if (!o.deliveries.some((d) => d.status === "SIGNED")) missing.push("DNTH"); return missing; }
   // 维保 (trial finding 2026-11-14): a maintenance visit is accepted on its PMTH; an INTH is optional there, as the document chain says
   const maintenance = o.mode === "MAINTENANCE" || o.kind === "MAINTENANCE" || o.kind === "CONTRACT";
   if (!maintenance && o.kind !== "PARTS_SALE" && !o.inspections.length) missing.push("INTH");
@@ -631,16 +641,27 @@ export async function acceptEvidence(order: { id: string; no: string; mode: stri
 export async function attachAcceptSheet(input: { orderNos: string[]; actorCode: string; files: { name: string; url: string }[] }) {
   if (!input.files.length) throw new Error("ACCEPT_SHEET_FILE");
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
-  const orders = await prisma.serviceOrder.findMany({ where: { no: { in: [...new Set(input.orderNos)] } }, select: { id: true, no: true, mode: true, status: true, customerId: true } });
+  const orders = await prisma.serviceOrder.findMany({ where: { no: { in: [...new Set(input.orderNos)] } }, select: { id: true, no: true, mode: true, status: true, customerId: true, acceptSheet: true } });
   if (!orders.length || orders.length !== new Set(input.orderNos).size) throw new Error("NO_ORDER");
   if (new Set(orders.map((o) => o.customerId)).size > 1) throw new Error("ACCEPT_SHEET_ONE_CUSTOMER");
   for (const o of orders) {
     if (!(await mayAccept(actor, o.id))) throw new Error("NO_PERMISSION");
     if (isTradeMode(o.mode)) throw new Error(`ACCEPT_SHEET_TRADE:${o.no}`);
-    if (!["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(o.status)) throw new Error(`ACCEPT_SHEET_STATUS:${o.no}`);
+    if (!["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(o.status)) throw new Error(`ACCEPT_SHEET_STATUS:${o.no}`); // N-36: not before the work has begun
+    if (o.no !== input.orderNos[0] && (o.acceptSheet as AcceptSheet | null)?.files?.length) throw new Error(`ACCEPT_SHEET_EXISTS:${o.no}`); // N-36: only the order the upload is made on may be replaced, never another one silently
   }
   const sheet: AcceptSheet = { sheetId: `AS${Date.now().toString(36)}`, files: input.files, by: actor.code, at: new Date().toISOString(), orders: orders.map((o) => o.no).sort() };
   await prisma.serviceOrder.updateMany({ where: { id: { in: orders.map((o) => o.id) } }, data: { acceptSheet: sheet as unknown as Prisma.InputJsonValue } });
   for (const o of orders) await audit(actor.id, "ACCEPT_SHEET", o.no, { sheetId: sheet.sheetId, file: input.files[0].name, covers: sheet.orders });
   return sheet;
+}
+
+/**
+ * 开票候选的唯一判定 (2026-11-18: 铃铛、候选、排除区三处读同一个). For an accepted order: null = it may be invoiced;
+ * otherwise why not — NO_INVOICE (marked 不开票), ZERO (nothing to bill), NO_EVIDENCE (no acceptance evidence of its kind).
+ */
+export function invoiceBar(o: { total: unknown; noInvoiceAt: Date | null }, evidence: unknown): null | "NO_INVOICE" | "ZERO" | "NO_EVIDENCE" {
+  if (o.noInvoiceAt) return "NO_INVOICE";
+  if (!(Number(o.total ?? 0) > 0)) return "ZERO";
+  return evidence ? null : "NO_EVIDENCE";
 }
