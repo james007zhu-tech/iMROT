@@ -5,7 +5,8 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, advanceServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, createRepairJob, recordAcceptance, receiveEquipment } from "../../src/server/slm-docs";
+import { createInspection, createRepairJob, receiveEquipment } from "../../src/server/slm-docs";
+import { recordAcceptance } from "./_probe";
 import { recordStockDoc } from "../../src/server/scm";
 import { deliveryPlan, issueDelivery, signDelivery } from "../../src/server/delivery";
 import { issueInvoice } from "../../src/server/to";
@@ -81,6 +82,12 @@ async function main() {
     const plan = await deliveryPlan(o.no);
     const dn = await issueDelivery({ serviceOrderNo: o.no, actorCode: admin.code, deliverOn: new Date(), delivered: Object.fromEntries(plan.lines.map((l) => [l.key, l.expected - l.deliveredBefore])) } as never);
     await signDelivery({ no: dn.no, actorCode: admin.code, signedBy: "Khun Probe" });
+{ // 派修单 v5 P1-11: a repair order is not accepted without the customer's signed sheet — a phone signature does not replace it
+      const { recordAcceptance: rawAccept } = await import("../../src/server/slm-docs");
+      const m = await rawAccept({ serviceOrderNo: o.no, actorCode: admin.code, status: "ACCEPTED", deliverables: [{ deliverable: "runs" }], signatureUrl: "/uploads/phone-signature.png" }).then(() => "accepted", (e: Error) => e.message);
+      if (!/ACCEPT_NEEDS_SHEET/.test(m)) throw new Error(`FAIL P1-11 no sheet, no acceptance — ${m}`);
+      console.log("PASS P1-11 no signed sheet (phone signature only) → no acceptance — ACCEPT_NEEDS_SHEET");
+    }
     await recordAcceptance({ serviceOrderNo: o.no, actorCode: admin.code, status: "ACCEPTED", deliverables: [{ deliverable: "runs", criterion: "ok", result: "ok" }], customerContactId: contact.id });
 
     try {

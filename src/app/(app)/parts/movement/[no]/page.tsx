@@ -25,6 +25,14 @@ export default async function Movement({ params }: { params: Promise<{ no: strin
   const doc = await prisma.document.findUnique({ where: { no }, select: { createdBy: { select: { code: true, name: true } }, voidedAt: true } });
   const assets = [...new Map(rows.filter((r) => r.asset).map((r) => [r.asset!.code, r.asset!])).values()];
   const cost = can.cost(me);
+  // 派修单 v5 P2-3 (MD Q5): an issue carries no cost of its own — purchasing, finance and the MD see what the part came in
+  // at: the latest receipt (IBTH) before the issue, else the part's last purchase cost. Engineers see no cost column.
+  const inCost = new Map<string, { c: number; from: string }>();
+  if (cost) for (const r of rows) if (r.unitCost == null && r.partId) {
+    const rec = await prisma.stockMovement.findFirst({ where: { partId: r.partId, direction: "IN", unitCost: { not: null }, movedAt: { lte: r.movedAt } }, orderBy: { movedAt: "desc" }, select: { unitCost: true, no: true } });
+    const last = rec ? null : await prisma.part.findUnique({ where: { id: r.partId }, select: { lastCost: true } });
+    if (rec) inCost.set(r.id, { c: Number(rec.unitCost), from: rec.no }); else if (last?.lastCost != null) inCost.set(r.id, { c: Number(last.lastCost), from: "" });
+  }
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: `/documents?type=${out ? "OB" : "IB"}`, label: n(out ? "stockOut" : "stockIn") }} title={no} badge={<Tag>{n(out ? "stockOut" : "stockIn")}</Tag>} />
@@ -45,7 +53,7 @@ export default async function Movement({ params }: { params: Promise<{ no: strin
             <td>{r.part ? `${r.part.name}${r.part.nameLocal ? ` · ${r.part.nameLocal}` : ""}` : ""}</td>
             <td className="font-semibold tabular-nums">{out ? "−" : "+"}{Number(r.qty)}</td><td>{r.part?.unit ?? ""}</td>
             <td className="whitespace-nowrap">{r.asset ? <Link href={`/assets/${r.asset.code}`} className="font-mono text-blue hover:underline">{r.asset.code}</Link> : ""}</td>
-            {cost && <td className="tabular-nums">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : ""}</td>}
+            {cost && <td className="whitespace-nowrap tabular-nums">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : inCost.get(r.id) ? <>{inCost.get(r.id)!.c.toFixed(2)}{inCost.get(r.id)!.from ? <Link href={`/parts/movement/${inCost.get(r.id)!.from}`} className="ml-1 font-mono text-xs text-blue hover:underline">{inCost.get(r.id)!.from}</Link> : null}</> : "—"}</td>}
             <td className="text-xs text-navy/70">{[r.batch, r.oldPartDisposition].filter(Boolean).join(" · ")}</td>
           </tr>)}
         </Table>

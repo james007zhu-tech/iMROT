@@ -896,6 +896,10 @@ model ServiceOrder {
   poStaleAt          DateTime? /// the quote changed after the customer's PO was confirmed: the PO is confirmed again before anything is delivered (需求清单 v3 P0-07)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
   requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH
+  /// 客户签字验收单 (派修单 v5 P1-11, MD 2026-11-18 11:55): the customer's signed acceptance sheet, uploaded (PDF / photo).
+  /// A repair order is not accepted — and not invoiced — without it; one sheet may cover several orders of a customer.
+  /// {sheetId, files: [{name, url}], by, at, orders: [QTTH…]}
+  acceptSheet        Json?
   /// 开票前成本认可 (朱总 2026-11-18): the real cost — purchases, parts issued, hours on the reports, expenses — is read from the
   /// system and recognised by finance or the MD before the invoice is written. {parts, purchases, labour, expenses, total}
   costActual         Decimal?           @db.Decimal(18, 2)

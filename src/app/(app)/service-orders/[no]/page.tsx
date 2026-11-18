@@ -1,3 +1,4 @@
+import { docTypeAllowed } from "@/server/scope";
 import { Icon } from "@/components/Icon";
 import { FxDoc } from "@/components/FxDoc";
 import { docRateNote } from "@/server/fx";
@@ -173,7 +174,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const exportLeft = terms ? exportCloseBlockers({ incoterm: terms.incoterm, shipped: order.deliveries.some((d) => d.status === "SIGNED" && d.shipping), unpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, attachments: atts }) : [];
 
   // 单据链: the numbered documents of this order in sequence, with the customer's PO and the acceptance in their places
-  const chain = chainOf(order.mode, docs.map((d) => ({ no: d.no, type: d.type, date: localIso(d.issuedAt)?.slice(0, 10) })), {
+  // 派修单 v5 P2-7: a document this role may not open (税票、请款、收据 for PUR / ENG / HR) leaves no number and no date in the chain — only that the step is done
+  const chain = chainOf(order.mode, docs.map((d, i) => (docTypeAllowed(me, d.type) ? { no: d.no, type: d.type, date: localIso(d.issuedAt)?.slice(0, 10) } : { no: `·${i}`, type: d.type, hidden: true })), {
     customerPo: order.quoteConfirmedAt ? order.customerRef || custFiles.find((a) => a.kind === "PO")?.name || u("poConfirmed") : null,
     acceptance: order.acceptance ? (localIso(order.acceptance.acceptedAt)?.slice(0, 10) ?? u(`step_accept`)) : null,
   });
@@ -209,6 +211,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
       <Flash ok={ok} error={error} />
       {seePrice && order.fxRateToCny != null && <FxDoc kind="order" no={order.no} back={`/service-orders/${order.no}`} canEdit={can.finance(me)} currency={order.currency} current={Number(order.fxRateToCny)} note={await docRateNote(order.no, order)} />}
       {gaps.length > 0 && <Alert>{u("buyNeedsSku")}：{gaps.map((g) => `${g.lineNo ? `#${g.lineNo} ` : ""}${g.description}`).join("；")}。 <Link href={`/service-orders/${no}/quote`} className="font-semibold underline">{u("buyNeedsSkuGo")} →</Link></Alert>}
+      {order.status === "ACCEPTANCE_PENDING" && order.mode !== "DOMESTIC_TRADE" && order.mode !== "INTERNATIONAL_TRADE" && !(order.acceptSheet as { files?: unknown[] } | null)?.files?.length && <Alert>{u("waitsAcceptSheet")} <Link href={`/service-orders/${no}/accept`} className="font-semibold underline">{u("acceptSheetUpload")}</Link></Alert>}
       {order.poStaleAt && !dec && <Alert>{u("poStale")} {can.confirmPo(me) && <Link href={`/service-orders/${no}/confirm`} className="font-semibold underline">{u("poStaleGo")}</Link>}</Alert>}
       {dec && <Alert>{u("declinedBanner", { date: localIso(dec.toldAt)!.slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {!seePrice ? "" : dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}
 

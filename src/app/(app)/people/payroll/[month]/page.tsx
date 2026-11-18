@@ -80,7 +80,7 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
       </div>}
       {carried.rows.length > 0 && <div className="rounded-xl border border-[#E6A23C] bg-[#FFF4E5] p-3 text-[13px] text-[#7A4A00]" role="status">
         <b>{t("payCarried", { n: carried.rows.length, next: carried.rows[0].payNotBefore ?? "" })}</b>{carried.by ? ` · ${carried.by.code} ${carried.by.name} · ${localIso(carried.at)!.slice(0, 16).replace("T", " ")}` : ""}
-        <ul className="mt-1 list-disc pl-5">{carried.rows.map((r) => <li key={r.id}><span className="font-mono">{r.employee.code}</span> {r.employee.name} · {r.workDate.toISOString().slice(0, 10)} {r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime} · {Number(r.actualHours ?? r.hours)} h × {OT_MULTIPLIER[r.kind]}</li>)}</ul>
+        <ul className="mt-1 list-disc pl-5">{carried.rows.map((r) => <li key={r.id}><span className="font-mono">{r.employee.code}</span> {r.employee.name} · {r.workDate.toISOString().slice(0, 10)} {r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime} · {Number(r.actualHours ?? r.hours)} h × {OT_MULTIPLIER[r.kind]}{(() => { const base = Number(run.lines.find((l) => l.employeeId === r.employeeId)?.baseSalary ?? 0); return base > 0 ? ` = ${money(Math.round(Number(r.actualHours ?? r.hours) * (base / 30 / 8) * OT_MULTIPLIER[r.kind] * 100) / 100)}` : ""; })()}</li>)}</ul>
       </div>}
       {draft && prep && run.lines.length === 0 && <form action={dropEmptyAction.bind(null, month)} className="rounded-xl border bg-white p-3 text-[13px]">{t("payEmptySay")} <button className={`${btnGhost} ml-2`}>{t("payEmptyDrop")}</button></form>}
       <ol className="flex flex-wrap gap-2 text-[13px]">

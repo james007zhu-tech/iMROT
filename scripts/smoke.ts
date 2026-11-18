@@ -8,7 +8,8 @@ import { createServiceOrder, advanceServiceOrder, confirmCustomerPo, poLinesFrom
 import { deliveryPlan, issueDelivery, signDelivery } from "../src/server/delivery";
 import { createCustomer } from "../src/server/crm";
 import { createEmployee } from "../src/server/opd";
-import { createInspection, createRepairJob, recordAcceptance, receiveEquipment } from "../src/server/slm-docs";
+import { createInspection, createRepairJob, receiveEquipment } from "../src/server/slm-docs";
+import { recordAcceptance } from "./dev/_probe";
 import { recordMovement, recordStockDoc } from "../src/server/scm";
 import { issueInvoice, issueMonthlyStatement } from "../src/server/to";
 import { issueTaxInvoice } from "./dev/_probe";

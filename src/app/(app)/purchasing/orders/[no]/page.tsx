@@ -77,7 +77,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
   for (const r of po.receipts) receiptsByNo.set(r.no, [...(receiptsByNo.get(r.no) ?? []), r]);
   return (
     <div className="space-y-4">
-      <PageHeader back={{ href: "/purchasing/orders", label: u("purchaseOrders") }} title={<span className="font-mono">{po.no}</span>} badge={<Tag hot={po.status === "SENT" || po.status === "PARTIAL"}>{ts(po.status)}</Tag>}
+      <PageHeader back={{ href: "/purchasing/orders", label: u("purchaseOrders") }} title={<span className="font-mono">{po.no}</span>} badge={<Tag hot={po.status === "SENT" || po.status === "PARTIAL" || (po.status === "DRAFT" && !!po.approvalAskedAt && !po.approvedAt)}>{po.status !== "DRAFT" ? ts(po.status) : po.approvedAt ? u("poStage_APPROVED") : po.approvalAskedAt ? u("poStage_WAIT_MD") : ts(po.status)}</Tag>}
         actions={po.status !== "DRAFT" || !can.purchase(me) ? null : po.approvedAt ? <form action={markSent}><button className={btnBlue}>{u("markSent")}</button></form>
           : po.approvalAskedAt ? <span className="rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-3 py-2 text-sm text-[#7A4A00]">{u("poWaitingMd")}</span>
           : <form action={askApproval}><button className={btnBlue}>{u("poAsk")}</button></form>} />

@@ -20,7 +20,7 @@ export function DocChain({ order, slots }: { order: string; slots: ChainSlot[] }
             <div className={`min-w-[5.5rem] rounded-lg border px-2 py-1 ${s.done ? "border-navy/30 bg-blue/10" : s.next ? "border-blue bg-white ring-1 ring-blue" : s.optional ? "border-dashed border-navy/25 bg-white text-navy/50" : "border-navy/25 bg-white text-navy/60"}`}>
               <div className={`font-semibold ${s.next ? "text-blue" : s.done ? "text-navy" : ""}`}>{t(s.key)}{s.next ? ` · ${t("next")}` : ""}</div>
               {s.docs.length === 0 ? <div className="text-[11px]">{s.optional ? t("optional") : "—"}</div>
-                : s.docs.map((d) => <Link key={d.no} href={href(d.type, d.no)} className="block font-mono text-[11px] text-blue hover:underline">{d.no}{d.date ? <span className="ml-1 font-sans text-navy/60">{d.date.slice(5)}</span> : null}</Link>)}
+                : s.docs.map((d) => d.hidden ? <span key={d.no} className="block text-[11px] text-navy/60">{t("doneNoNumber")}</span> : <Link key={d.no} href={href(d.type, d.no)} className="block font-mono text-[11px] text-blue hover:underline">{d.no}{d.date ? <span className="ml-1 font-sans text-navy/60">{d.date.slice(5)}</span> : null}</Link>)}
             </div>
           </li>
         ))}

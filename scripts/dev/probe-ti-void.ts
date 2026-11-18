@@ -41,6 +41,8 @@ async function main() {
   console.log("0. 开票前成本认可 (2026-11-18)");
   const { issueTaxInvoice: rawIssue, recordPayment: rawPay } = await import("../../src/server/to");
   const { confirmOrderCost, orderCost } = await import("../../src/server/job-cost");
+  await refused(() => rawIssue({ serviceOrderNo: o.no, actorCode: md.code, lines }), /ACCEPT_EVIDENCE_MISSING/, "v5 P1-11: an accepted repair order without the customer's signed sheet is not invoiced");
+  await prisma.serviceOrder.update({ where: { id: o.id }, data: { acceptSheet: { sheetId: "probe", files: [{ name: "probe-signed.pdf", url: "/uploads/probe-signed.pdf" }], by: md.code, at: new Date().toISOString(), orders: [o.no] } } });
   await refused(() => rawIssue({ serviceOrderNo: o.no, actorCode: md.code, lines }), /COST_NOT_CONFIRMED/, "no tax invoice before finance or the MD recognised the real cost");
   const sp = await prisma.employee.create({ data: { code: `ETH97${String(Date.now()).slice(-5)}`, name: "TEST probe sales", role: "SALES", entityId: entity.id, joinedAt: new Date("2030-01-01") } });
   await refused(() => confirmOrderCost({ no: o.no, actorCode: sp.code }), /COST_FINANCE_MD/, "Sales cannot recognise the cost");

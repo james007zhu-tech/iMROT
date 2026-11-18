@@ -5,7 +5,8 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { advanceServiceOrder, confirmCustomerPo, createServiceOrder, getServiceOrder, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, recordAcceptance, suggestPrice } from "../../src/server/slm-docs";
+import { createInspection, suggestPrice } from "../../src/server/slm-docs";
+import { recordAcceptance } from "./_probe";
 import { issueTaxInvoice } from "./_probe";
 import { recordPayment } from "./_probe";
 import { createCustomer } from "../../src/server/crm";

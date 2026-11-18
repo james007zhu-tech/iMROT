@@ -1,7 +1,8 @@
 import { assertOrderAccess } from "@/server/scope";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
-import { missingForAcceptance, recordAcceptance } from "@/server/slm-docs";
+import { acceptEvidence, attachAcceptSheet, missingForAcceptance, recordAcceptance } from "@/server/slm-docs";
+import { isTradeMode } from "@/lib/modes";
 import { currentEmployee } from "@/server/auth";
 import { mayAccept } from "@/server/scope";
 import { guarded } from "@/lib/action-result";
@@ -31,6 +32,20 @@ export default async function Accept({ params, searchParams }: { params: Promise
   const parts = ((job?.partsReplaced as { partSku: string; newSerial?: string }[] | null) ?? []);
   const rows = [...tests, ...(parts.length ? [{ d: u("partsReplaced"), c: u("newSerialRecorded"), r: parts.map((p) => p.newSerial ?? p.partSku).join(" / ") }] : []), ...(job?.configBackupRef ? [{ d: u("paramBackup"), c: u("fileArchived"), r: job.configBackupRef }] : [])];
   const today = localIso(new Date())!.slice(0, 10);
+  // 验收依据 (派修单 v5 P1-11)
+  const trade = isTradeMode(order.mode), evidence = await acceptEvidence(order), canSign = await mayAccept(me, order.id);
+  const siblings = trade || !canSign ? [] : await prisma.serviceOrder.findMany({ where: { customerId: order.customerId, id: { not: order.id }, status: { in: ["IN_PROGRESS", "ACCEPTANCE_PENDING"] }, mode: { notIn: ["DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] } }, orderBy: { no: "asc" }, take: 30, select: { id: true, no: true, reportedSymptom: true } });
+  const also: typeof siblings = []; for (const o of siblings) if (await mayAccept(me, o.id)) also.push(o);
+  async function sheet(f: FormData) {
+    "use server";
+    await guarded(async () => {
+      const me = await currentEmployee();
+      const files: { name: string; url: string }[] = [];
+      for (const x of f.getAll("sheet")) if (x instanceof File && x.size > 0) files.push(await saveUpload(x, "accept"));
+      await attachAcceptSheet({ orderNos: [no, ...f.getAll("also").map(String)], actorCode: me.code, files });
+      return "acceptSheetSaved";
+    }, `/service-orders/${no}/accept`);
+  }
   async function save(f: FormData) {
     "use server";
     await guarded(async () => {
@@ -49,7 +64,19 @@ export default async function Accept({ params, searchParams }: { params: Promise
     }, `/service-orders/${no}/accept`);
   }
   return (
-    <StepPage badge={partsQuoted ? <span className={`rounded-full px-3 py-1 text-xs font-semibold ${partsLeft ? "bg-alert/15 text-alert-ink" : "bg-blue/10 text-navy"}`}>{u("acceptParts", { done: partsQuoted - partsLeft, all: partsQuoted })}</span> : undefined} order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={(await mayAccept(me, order.id)) ? u("saveAcceptance") : ""} notice={(await mayAccept(me, order.id)) ? undefined : u("acceptReadOnly")}>
+    <StepPage badge={partsQuoted ? <span className={`rounded-full px-3 py-1 text-xs font-semibold ${partsLeft ? "bg-alert/15 text-alert-ink" : "bg-blue/10 text-navy"}`}>{u("acceptParts", { done: partsQuoted - partsLeft, all: partsQuoted })}</span> : undefined} order={order} title={u("step_accept")} error={error} kind="acceptance" uploadTitle={u("upAcceptTitle")} uploadHint={u("upAcceptHint")} saveLabel={canSign && evidence ? u("saveAcceptance") : ""} notice={!canSign ? u("acceptReadOnly") : !evidence ? u(trade ? "acceptNeedsDn" : "acceptNeedsSheet") : undefined}>
+      <Card title={u("acceptEvidence")} accent={!evidence}>
+        {evidence?.kind === "DN" && <p className="text-sm">✓ {u("acceptByDn")} <a href={evidence.href} className="font-mono text-blue underline">{evidence.no}</a> · {evidence.by ?? "—"} · {evidence.at ? localIso(evidence.at)!.slice(0, 10) : ""}</p>}
+        {evidence?.kind === "SHEET" && <p className="text-sm">✓ {u("acceptBySheet")} <a href={evidence.href} target="_blank" className="text-blue underline">{evidence.name}</a> · {evidence.by} · {evidence.at.slice(0, 10)}{evidence.orders.length > 1 ? ` · ${u("acceptSheetCovers", { list: evidence.orders.join("、") })}` : ""}</p>}
+        {!evidence && trade && <p className="text-sm font-semibold text-[#C0392B]">{u("acceptNeedsDn")}</p>}
+        {!evidence && !trade && <p className="text-sm font-semibold text-[#C0392B]">{u("acceptNeedsSheet")}</p>}
+        {!trade && canSign && order.status !== "INVOICED" && order.status !== "CLOSED" && <form action={sheet} data-nodraft className="mt-2 space-y-2 text-sm">
+          <input type="file" name="sheet" accept="application/pdf,image/*" multiple required className="block w-full text-sm" />
+          {also.length > 0 && <fieldset className="rounded-lg border border-hair p-2"><legend className="px-1 text-xs text-navy/70">{u("acceptSheetAlso")}</legend>
+            {also.map((o) => <label key={o.no} className="flex items-center gap-2 py-0.5"><input type="checkbox" name="also" value={o.no} /><span className="font-mono">{o.no}</span><span className="truncate text-xs text-navy/60">{o.reportedSymptom}</span></label>)}</fieldset>}
+          <button className="min-h-10 whitespace-nowrap rounded-lg border border-navy/45 bg-white px-3 text-sm font-semibold">{u(evidence ? "acceptSheetReplace" : "acceptSheetUpload")}</button>
+        </form>}
+      </Card>
       <form id="f" action={save} className="space-y-4">
         <Card title={u("acceptChecklist")}>
           <ul className="grid gap-1 text-sm md:grid-cols-2">

@@ -1050,7 +1050,7 @@
     "neededBy": "Needed by",
     "comparison": "Comparison",
     "noQuotesYet": "No supplier quotes yet — add one below",
-    "costFlowedBack": "The selected prices were written into {order} as costs and the margin recomputed",
+    "costFlowedBack": "Sent back to quote {order}",
     "upSupplierQuoteTitle": "Upload the supplier's quotation (PDF / photo)",
     "upSupplierQuoteHint": "Quote number, dates, currency, VAT and line prices are read and filled in",
     "addSupplierQuote": "Add a supplier quote",
@@ -2791,7 +2791,27 @@
     "err_TAXID_TAKEN": "This tax ID belongs to another supplier",
     "err_STOCK_IN_PUR": "Receipts belong to purchasing; an engineer only returns parts drawn for an order",
     "otPayHrChoose": "Waits for HR: recount into {m} / carry to {next}",
-    "err_PAYROLL_NOT_EMPTY": "This pay sheet is not empty"
+    "err_PAYROLL_NOT_EMPTY": "This pay sheet is not empty",
+    "acceptEvidence": "Acceptance evidence",
+    "acceptByDn": "Delivery note signed by the customer",
+    "acceptBySheet": "Customer's signed acceptance sheet",
+    "acceptSheetCovers": "covers {list}",
+    "acceptNeedsDn": "Trade: the order is accepted when the customer signs the delivery note",
+    "acceptNeedsSheet": "Upload the customer's signed acceptance sheet first (PDF or photo); a signature on the phone does not replace it",
+    "acceptSheetAlso": "This sheet also covers these orders of the customer (tick only those on the sheet)",
+    "acceptSheetUpload": "Upload the signed sheet",
+    "acceptSheetReplace": "Upload again",
+    "acceptSheetSaved": "Sheet uploaded",
+    "err_ACCEPT_NEEDS_SHEET": "{detail}: no signed acceptance sheet uploaded",
+    "err_TRADE_NEEDS_SIGNED_DN": "{detail}: no delivery note signed by the customer",
+    "err_ACCEPT_EVIDENCE_MISSING": "{detail}: no acceptance evidence — cannot invoice",
+    "err_ACCEPT_SHEET_FILE": "Choose a file",
+    "err_ACCEPT_SHEET_ONE_CUSTOMER": "One sheet, one customer",
+    "err_ACCEPT_SHEET_TRADE": "{detail} is a trade order",
+    "err_ACCEPT_SHEET_STATUS": "{detail} is not at acceptance, or already invoiced",
+    "waitsAcceptSheet": "Work finished: waiting for the customer's signed acceptance sheet.",
+    "poStage_WAIT_MD": "Waiting for the MD",
+    "poStage_APPROVED": "Approved"
   },
   "role": {
     "MD": "MD Managing Director",
@@ -3005,7 +3025,11 @@
     "noInvoice_free": "Free / under warranty",
     "noInvoice_other": "Other",
     "noInvoiceMore": "Note",
-    "noInvoiceUndo": "Undo"
+    "noInvoiceUndo": "Undo",
+    "evidenceDn": "Signed delivery note {no} · {date} · {who}",
+    "evidenceSheet": "Signed acceptance sheet · {date}",
+    "evidenceMissing": "No acceptance evidence: cannot invoice.",
+    "evidenceGo": "Add it"
   },
   "chain": {
     "title": "Document chain",
@@ -3027,7 +3051,8 @@
     "AC": "Acceptance",
     "TI": "Tax invoice TITH",
     "IV": "Invoice IVTH",
-    "RC": "Receipt RCTH"
+    "RC": "Receipt RCTH",
+    "doneNoNumber": "done"
   },
   "ops": {
     "all": "All",

@@ -21,7 +21,7 @@ export const CHAINS: Record<BusinessMode, ChainStep[]> = {
   INTERNATIONAL_TRADE: [s("QT"), s("CPO"), s("PR", true), s("PO", true), s("PF", true), s("OB"), s("DN"), s("IV"), s("RC")],
 };
 
-export interface ChainDoc { no: string; type: string; date?: string | null }
+export interface ChainDoc { no: string; type: string; date?: string | null; hidden?: boolean /** this reader may not see the number: the step shows as done, nothing more (v5 P2-7) */ }
 export interface ChainSlot extends ChainStep { docs: ChainDoc[]; done: boolean; next: boolean }
 
 /**

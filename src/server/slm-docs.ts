@@ -8,6 +8,7 @@ import { fxFields, rateForNew } from "@/server/fx";
 import { audit } from "@/server/audit";
 import { can, hasRole } from "@/lib/caps";
 import { mayOpenOrder, mayAccept } from "@/server/scope";
+import { isTradeMode } from "@/lib/modes";
 import { localIso } from "@/lib/dates";
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
@@ -425,6 +426,10 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
   if (order.status !== "ACCEPTANCE_PENDING" && order.status !== "IN_PROGRESS") throw new Error(`${order.no} is ${order.status}; acceptance needs ACCEPTANCE_PENDING`);
   const ok = d.status !== "REJECTED";
   if (ok) {
+    // 验收依据按业务类型 (v5 P1-11): a trade order is accepted by the customer's signature on its delivery note; a repair
+    // order by the customer's signed acceptance sheet, uploaded — a signature on a phone does not stand in for it.
+    const ev = await acceptEvidence(order);
+    if (!ev) throw new Error(isTradeMode(order.mode) ? `TRADE_NEEDS_SIGNED_DN:${order.no}` : `ACCEPT_NEEDS_SHEET:${order.no}`);
     const missing = await missingForAcceptance(order.no);
     if (missing.length) throw new Error(`ACCEPTANCE_INCOMPLETE:${missing.join(",")}`);
   }
@@ -586,4 +591,41 @@ export async function suggestPrice(input: { no: string; actorCode: string; note:
   if (!input.note.trim()) throw new Error("PRICE_HINT_EMPTY");
   await prisma.serviceOrder.update({ where: { id: order.id }, data: { priceHint: input.note.trim().slice(0, 500), priceHintById: actor.id, priceHintAt: new Date() } });
   await audit(actor.id, "PRICE_HINT", order.no, { note: input.note.trim().slice(0, 500) });
+}
+
+/**
+ * 验收依据 (派修单 v5 P1-11; MD 2026-11-18 11:55). What stands behind an acceptance, by kind of business:
+ *   贸易 — a delivery note of the order signed by the customer (签收即验收, v3 P2-03);
+ *   维修 / 维保 / 合作维修 / 项目 — the customer's signed acceptance sheet, uploaded to the order.
+ * null = there is none: the order cannot be accepted, and one already accepted is not a candidate for invoicing.
+ */
+export type AcceptSheet = { sheetId: string; files: { name: string; url: string }[]; by: string; at: string; orders: string[] };
+export async function acceptEvidence(order: { id: string; no: string; mode: string | null; acceptSheet?: unknown }): Promise<null | { kind: "DN"; no: string; href: string; by: string | null; at: Date | null } | { kind: "SHEET"; href: string; name: string; by: string; at: string; orders: string[] }> {
+  if (isTradeMode(order.mode)) {
+    const dn = await prisma.deliveryNote.findFirst({ where: { serviceOrderId: order.id, status: "SIGNED" }, orderBy: { signedAt: "desc" }, select: { no: true, signedBy: true, signedAt: true } });
+    return dn ? { kind: "DN", no: dn.no, href: `/service-orders/${order.no}/deliver/${dn.no}`, by: dn.signedBy, at: dn.signedAt } : null;
+  }
+  const sh = (order.acceptSheet === undefined ? (await prisma.serviceOrder.findUnique({ where: { id: order.id }, select: { acceptSheet: true } }))?.acceptSheet : order.acceptSheet) as AcceptSheet | null;
+  return sh?.files?.length ? { kind: "SHEET", href: sh.files[0].url, name: sh.files[0].name, by: sh.by, at: sh.at, orders: sh.orders ?? [] } : null;
+}
+/**
+ * Upload the customer's signed acceptance sheet to one order, or to the several orders it covers (中策成批签回). Each
+ * order is checked on its own — the person must be allowed to accept it, it belongs to the same customer, it is not a
+ * trade order, and it is finished or accepted and not yet invoiced. Orders the sheet does not name are not touched.
+ */
+export async function attachAcceptSheet(input: { orderNos: string[]; actorCode: string; files: { name: string; url: string }[] }) {
+  if (!input.files.length) throw new Error("ACCEPT_SHEET_FILE");
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  const orders = await prisma.serviceOrder.findMany({ where: { no: { in: [...new Set(input.orderNos)] } }, select: { id: true, no: true, mode: true, status: true, customerId: true } });
+  if (!orders.length || orders.length !== new Set(input.orderNos).size) throw new Error("NO_ORDER");
+  if (new Set(orders.map((o) => o.customerId)).size > 1) throw new Error("ACCEPT_SHEET_ONE_CUSTOMER");
+  for (const o of orders) {
+    if (!(await mayAccept(actor, o.id))) throw new Error("NO_PERMISSION");
+    if (isTradeMode(o.mode)) throw new Error(`ACCEPT_SHEET_TRADE:${o.no}`);
+    if (!["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(o.status)) throw new Error(`ACCEPT_SHEET_STATUS:${o.no}`);
+  }
+  const sheet: AcceptSheet = { sheetId: `AS${Date.now().toString(36)}`, files: input.files, by: actor.code, at: new Date().toISOString(), orders: orders.map((o) => o.no).sort() };
+  await prisma.serviceOrder.updateMany({ where: { id: { in: orders.map((o) => o.id) } }, data: { acceptSheet: sheet as unknown as Prisma.InputJsonValue } });
+  for (const o of orders) await audit(actor.id, "ACCEPT_SHEET", o.no, { sheetId: sheet.sheetId, file: input.files[0].name, covers: sheet.orders });
+  return sheet;
 }

@@ -1,3 +1,4 @@
+import { acceptEvidence } from "./slm-docs";
 import { assertCostConfirmed } from "./job-cost";
 import { actorWith } from "@/server/guard";
 import { fxFields, rateFor } from "@/server/fx";
@@ -54,6 +55,7 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   if (!first && !reissue) throw new Error(order.status === "INVOICED" ? `TI_EXISTS:${order.taxInvoices.find((t) => !t.voidedAt)?.no ?? ""}` : `${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
   if (!order.decline && Number(order.total ?? 0) <= 0) throw new Error(`INVOICE_ZERO:${order.no}`); // 0 元不开票 (V4-P0-06)
   if (order.noInvoiceAt) throw new Error(`NO_INVOICE_MARKED:${order.no}`); // 已标「不开票」
+  if (!order.decline && !(await acceptEvidence(order))) throw new Error(`ACCEPT_EVIDENCE_MISSING:${order.no}`); // v5 P1-11: no invoice on an acceptance with nothing behind it
   await assertCostConfirmed(order); // 开票前成本认可 (朱总 2026-11-18): the real cost, read from the system, recognised by finance or the MD
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const issuedAt = d.issuedAt ?? new Date();

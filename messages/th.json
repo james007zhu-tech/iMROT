@@ -1050,7 +1050,7 @@
     "neededBy": "ต้องการภายใน",
     "comparison": "ตารางเปรียบเทียบราคา",
     "noQuotesYet": "ยังไม่มีใบเสนอราคาจากผู้ขาย — เพิ่มด้านล่าง",
-    "costFlowedBack": "ราคาที่เลือกถูกบันทึกเป็นต้นทุนในใบเสนอราคา {order} แล้ว และคำนวณกำไรใหม่",
+    "costFlowedBack": "ส่งราคากลับไปที่ใบเสนอราคา {order} แล้ว",
     "upSupplierQuoteTitle": "อัปโหลดใบเสนอราคาผู้ขาย (PDF / รูป)",
     "upSupplierQuoteHint": "ระบบอ่านเลขที่ใบเสนอราคา วันที่ สกุลเงิน VAT และราคาต่อรายการ แล้วเติมให้",
     "addSupplierQuote": "เพิ่มใบเสนอราคาผู้ขาย",
@@ -2791,7 +2791,27 @@
     "err_TAXID_TAKEN": "เลขนี้เป็นของผู้ขายรายอื่น",
     "err_STOCK_IN_PUR": "การรับเข้าคลังเป็นงานของจัดซื้อ วิศวกรคืนอะไหล่ได้เฉพาะของงานที่เบิกไป",
     "otPayHrChoose": "รอ HR เลือก: คิดรวมเดือน {m} / ยกไป {next}",
-    "err_PAYROLL_NOT_EMPTY": "ใบเงินเดือนนี้มีพนักงานแล้ว ลบไม่ได้"
+    "err_PAYROLL_NOT_EMPTY": "ใบเงินเดือนนี้มีพนักงานแล้ว ลบไม่ได้",
+    "acceptEvidence": "หลักฐานการตรวจรับ",
+    "acceptByDn": "ใบส่งของที่ลูกค้าเซ็นรับ",
+    "acceptBySheet": "ใบตรวจรับที่ลูกค้าเซ็น",
+    "acceptSheetCovers": "ครอบคลุม {list}",
+    "acceptNeedsDn": "งานซื้อขาย: ลูกค้าเซ็นรับใบส่งของแล้วจึงถือว่าตรวจรับ",
+    "acceptNeedsSheet": "กรุณาอัปโหลดใบตรวจรับที่ลูกค้าเซ็นก่อน (PDF หรือรูป) ลายเซ็นบนมือถือใช้แทนไม่ได้",
+    "acceptSheetAlso": "ใบนี้ครอบคลุมงานอื่นของลูกค้ารายนี้ด้วย (เลือกเฉพาะที่อยู่ในใบ)",
+    "acceptSheetUpload": "อัปโหลดใบตรวจรับที่ลูกค้าเซ็น",
+    "acceptSheetReplace": "อัปโหลดใหม่",
+    "acceptSheetSaved": "บันทึกใบตรวจรับแล้ว",
+    "err_ACCEPT_NEEDS_SHEET": "{detail}: ยังไม่มีใบตรวจรับที่ลูกค้าเซ็น จึงตรวจรับไม่ได้",
+    "err_TRADE_NEEDS_SIGNED_DN": "{detail}: ลูกค้ายังไม่ได้เซ็นรับใบส่งของ",
+    "err_ACCEPT_EVIDENCE_MISSING": "{detail}: ไม่มีหลักฐานการตรวจรับ ออกใบกำกับไม่ได้",
+    "err_ACCEPT_SHEET_FILE": "กรุณาเลือกไฟล์",
+    "err_ACCEPT_SHEET_ONE_CUSTOMER": "ใบเดียวใช้ได้กับลูกค้ารายเดียว",
+    "err_ACCEPT_SHEET_TRADE": "{detail} เป็นงานซื้อขาย ใช้ใบส่งของที่เซ็นรับ",
+    "err_ACCEPT_SHEET_STATUS": "{detail} ยังไม่ถึงขั้นตรวจรับ หรือออกใบกำกับแล้ว",
+    "waitsAcceptSheet": "งานเสร็จแล้ว รอใบตรวจรับที่ลูกค้าเซ็น",
+    "poStage_WAIT_MD": "รอ MD อนุมัติ",
+    "poStage_APPROVED": "อนุมัติแล้ว"
   },
   "role": {
     "MD": "MD กรรมการผู้จัดการ",
@@ -3005,7 +3025,11 @@
     "noInvoice_free": "ไม่คิดค่าบริการ",
     "noInvoice_other": "อื่น ๆ",
     "noInvoiceMore": "รายละเอียด",
-    "noInvoiceUndo": "ยกเลิก"
+    "noInvoiceUndo": "ยกเลิก",
+    "evidenceDn": "ใบส่งของ {no} เซ็นรับ {date} · {who}",
+    "evidenceSheet": "ใบตรวจรับที่ลูกค้าเซ็น · {date}",
+    "evidenceMissing": "ไม่มีหลักฐานการตรวจรับ ออกใบกำกับไม่ได้",
+    "evidenceGo": "ไปเพิ่ม"
   },
   "chain": {
     "title": "สายเอกสาร",
@@ -3027,7 +3051,8 @@
     "AC": "ตรวจรับ",
     "TI": "ใบกำกับภาษี TITH",
     "IV": "ใบแจ้งหนี้ IVTH",
-    "RC": "ใบเสร็จ RCTH"
+    "RC": "ใบเสร็จ RCTH",
+    "doneNoNumber": "ออกแล้ว"
   },
   "ops": {
     "all": "ทั้งหมด",

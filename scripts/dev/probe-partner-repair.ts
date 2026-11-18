@@ -9,7 +9,8 @@
 import { prisma } from "../../src/lib/db";
 import { onboardAsset } from "../../src/server/alm";
 import { createServiceOrder, confirmCustomerPo, poLinesFromQuote } from "../../src/server/slm";
-import { createInspection, receiveEquipment, missingForAcceptance, recordAcceptance } from "../../src/server/slm-docs";
+import { createInspection, receiveEquipment, missingForAcceptance } from "../../src/server/slm-docs";
+import { recordAcceptance } from "./_probe";
 import { addSupplierQuote, createPurchaseOrder, createSupplier, selectSupplierQuote } from "../../src/server/purchasing";
 import { addMilestone, createSubcontractInquiry, rateSupplier, recommendPartners, recordRetest, registerSupplierInvoice, returnFromPartner, reopenAsPartner, revisePurchaseOrder, savePartnerProfile } from "../../src/server/srm";
 import { deliveryPlan, issueDelivery, signDelivery } from "../../src/server/delivery";

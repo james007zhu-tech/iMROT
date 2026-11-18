@@ -73,7 +73,7 @@ export function AssetTriple({ asset, link = true }: { asset: { code: string; ser
   const m = asset.model;
   return (
     <div className="flex flex-col leading-snug">
-      {link ? <Link href={`/assets/${asset.code}`} className="font-mono font-bold text-blue hover:underline">{asset.code}</Link> : <b className="font-mono">{asset.code}</b>}
+      {link ? <Link href={`/assets/${asset.code}`} prefetch={false} className="font-mono font-bold text-blue hover:underline">{asset.code}</Link> : <b className="font-mono">{asset.code}</b>}
       {m && <span>{m.series.brand.name} {m.series.name.replace(/^SINAMICS\s+/i, "")} {m.code}</span>}
       <span className="text-xs text-navy/75">S/N {asset.serialNumber}</span>
     </div>

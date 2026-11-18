@@ -70,3 +70,10 @@ export async function issueTaxInvoice(input: Parameters<typeof issueTaxInvoice0>
   await confirmOrderCost({ no: input.serviceOrderNo, actorCode: "ETH2611001", map: Object.fromEntries(est.map((l) => [String(l.lineNo), "none"])), note: "probe" }).catch(() => undefined);
   return issueTaxInvoice0(input);
 }
+
+/** 维修单验收要有客户签字验收单 (v5 P1-11): the probes upload one as the MD, then accept. */
+import { recordAcceptance as recordAcceptance0, attachAcceptSheet } from "../../src/server/slm-docs";
+export async function recordAcceptance(input: Parameters<typeof recordAcceptance0>[0]) {
+  await attachAcceptSheet({ orderNos: [String(input.serviceOrderNo)], actorCode: "ETH2611001", files: [{ name: "probe-signed.pdf", url: "/uploads/probe-signed.pdf" }] }).catch(() => undefined);
+  return recordAcceptance0(input);
+}

@@ -1050,7 +1050,7 @@
     "neededBy": "需求日期",
     "comparison": "比价表",
     "noQuotesYet": "还没有供应商报价，在下方添加",
-    "costFlowedBack": "所选价格已写入 {order} 报价行的成本，毛利已重算",
+    "costFlowedBack": "已回传到报价单 {order}",
     "upSupplierQuoteTitle": "上传供应商报价单（PDF / 图片）",
     "upSupplierQuoteHint": "系统识别报价号、日期、币种、VAT 和各行单价并填入",
     "addSupplierQuote": "添加供应商报价",
@@ -2791,7 +2791,27 @@
     "err_TAXID_TAKEN": "这个税号已经是另一家供应商的",
     "err_STOCK_IN_PUR": "入库归采购。工程师只能把本单领出的料退回（要选业务单）",
     "otPayHrChoose": "待 HR 选：补算进 {m} / 挂到 {next}",
-    "err_PAYROLL_NOT_EMPTY": "这张工资表里有人，不能删"
+    "err_PAYROLL_NOT_EMPTY": "这张工资表里有人，不能删",
+    "acceptEvidence": "验收依据",
+    "acceptByDn": "客户已签收的送货单",
+    "acceptBySheet": "客户签字验收单",
+    "acceptSheetCovers": "同时覆盖 {list}",
+    "acceptNeedsDn": "贸易单：客户签收送货单后才算验收，这里不能凭空记验收",
+    "acceptNeedsSheet": "请先上传客户签字验收单（PDF 或照片）。现场手机签名不能代替。",
+    "acceptSheetAlso": "这份验收单同时覆盖本客户的这些订单（只勾签字单上有的）",
+    "acceptSheetUpload": "上传客户签字验收单",
+    "acceptSheetReplace": "重新上传",
+    "acceptSheetSaved": "验收单已上传",
+    "err_ACCEPT_NEEDS_SHEET": "{detail} 还没有上传客户签字验收单，不能验收",
+    "err_TRADE_NEEDS_SIGNED_DN": "{detail} 客户还没有签收送货单，不能记验收",
+    "err_ACCEPT_EVIDENCE_MISSING": "{detail} 缺验收依据，不能开票",
+    "err_ACCEPT_SHEET_FILE": "请选择文件",
+    "err_ACCEPT_SHEET_ONE_CUSTOMER": "一份验收单只能挂同一个客户的订单",
+    "err_ACCEPT_SHEET_TRADE": "{detail} 是贸易单，验收依据是客户签收的送货单",
+    "err_ACCEPT_SHEET_STATUS": "{detail} 还没到验收这一步，或者已经开票",
+    "waitsAcceptSheet": "已完工，等客户签字验收单。",
+    "poStage_WAIT_MD": "待 MD 批准",
+    "poStage_APPROVED": "已批准"
   },
   "role": {
     "MD": "MD 董事总经理",
@@ -3005,7 +3025,11 @@
     "noInvoice_free": "免费 / 保修内",
     "noInvoice_other": "其他",
     "noInvoiceMore": "说明",
-    "noInvoiceUndo": "撤销"
+    "noInvoiceUndo": "撤销",
+    "evidenceDn": "已签收送货单 {no} · {date} · {who}",
+    "evidenceSheet": "客户签字验收单 · {date}",
+    "evidenceMissing": "缺验收依据，不能开票。",
+    "evidenceGo": "去补"
   },
   "chain": {
     "title": "单据链",
@@ -3027,7 +3051,8 @@
     "AC": "验收",
     "TI": "税票 TITH",
     "IV": "请款 IVTH",
-    "RC": "收据 RCTH"
+    "RC": "收据 RCTH",
+    "doneNoNumber": "已开"
   },
   "ops": {
     "all": "全部",
