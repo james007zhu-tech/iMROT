@@ -205,7 +205,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   if (path === "/home") return null; // the home page is the conversation itself
   return (
     <>
-      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="ai-fab fixed bottom-3 right-3 z-40 h-12 w-12 md:bottom-4 md:right-4 md:h-14 md:w-14">
+      <button onClick={() => setOpen((o) => !o)} aria-label="AI" className="ai-fab fixed bottom-3 right-3 z-40 h-10 w-10 opacity-90 md:bottom-4 md:right-4 md:h-14 md:w-14 md:opacity-100">
         {/* the "i" of DCiT: white stem, blue square dot — the dot is the live part */}
         <svg viewBox="0 0 48 48" aria-hidden className="relative h-full w-full"><rect x="20.5" y="20" width="7" height="16" fill="#fff" /><rect x="20.5" y="10.5" width="7" height="7" className="ai-fab-dot" /></svg>
       </button>
@@ -216,7 +216,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
             {msgs.length === 0 && !formInfo && <p className="text-navy/70">{scope === "portal" ? t("hintPortal") : t("hintStaff")}</p>}
             {msgs.length === 0 && formInfo && <>
               <p className="text-navy/80">{t("formHint")}</p>
-              <div className="flex flex-wrap gap-2">{(["formAskFill", "formAskCheck", "formAskThai"] as const).map((k) => <button key={k} type="button" onClick={() => (k === "formAskFill" ? toggleVoice() : void send(t(k)))} className="rounded-full border border-blue/40 bg-white px-3 py-1.5 text-[13px] font-semibold text-blue hover:bg-blue hover:text-white">{k === "formAskFill" ? `<Icon name="mic" /> ${t(k)}` : t(k)}</button>)}</div>
+              <div className="flex flex-wrap gap-2">{(["formAskFill", "formAskCheck", "formAskThai"] as const).map((k) => <button key={k} type="button" onClick={() => (k === "formAskFill" ? toggleVoice() : void send(t(k)))} className="rounded-full border border-blue/40 bg-white px-3 py-1.5 text-[13px] font-semibold text-blue hover:bg-blue hover:text-white">{k === "formAskFill" ? <><Icon name="mic" /> {t(k)}</> : t(k)}</button>)}</div>
             </>}
             {msgs.map(bubble)}
             {busy && <div className="mr-auto rounded-2xl bg-[#F4F7FB] px-3 py-2 text-navy/70">…</div>}

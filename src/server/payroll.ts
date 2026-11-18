@@ -130,6 +130,8 @@ export async function computePayroll(input: { entityId: string; month: string; a
     const run = existing
       ? await tx.payrollRun.update({ where: { id: existing.id }, data: { totals, computedAt: new Date(), policy: { bands } as unknown as Prisma.InputJsonValue, ...who, ...(moved ? { taxConfirmedBy: null, taxConfirmedAt: null } : {}) } })
       : await tx.payrollRun.create({ data: { entityId: input.entityId, month: input.month, createdBy: actor.code, totals, policy: { bands } as unknown as Prisma.InputJsonValue, ...who } });
+    // 留痕 (派修单 v4): a recompute that moves the figures after the finance review sends the month back to finance — say who, when, why
+    if (moved) await audit(actor.id, existing!.taxConfirmedAt ? "PAYROLL_REVIEW_RESET" : "PAYROLL_RECOMPUTED", input.month, { via: internal ? "approve" : "compute", netBefore: (existing!.totals as { net?: number }).net, netAfter: totals.net, overtimeBefore: (existing!.totals as { overtime?: number }).overtime, overtimeAfter: totals.overtime, reviewedBy: existing!.taxConfirmedBy }, tx);
     await tx.payrollLine.deleteMany({ where: { runId: run.id } });
     for (const { claimIds, ...l } of lines) { await tx.payrollLine.create({ data: { ...l, runId: run.id } }); void claimIds; }
     await tx.expenseClaim.updateMany({ where: { payrollRunId: run.id }, data: { payrollRunId: null } });
@@ -264,7 +266,7 @@ export async function carryOvertime(input: { entityId: string; month: string; ac
   if (late.locked || !late.rows.length) return 0;
   const [y, m] = input.month.split("-").map(Number), next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
   await prisma.overtimeRequest.updateMany({ where: { id: { in: late.rows.map((r) => r.id) } }, data: { payNotBefore: next } });
-  await audit(actor.id, "OT_CARRIED", input.month, { to: next, requests: late.rows.length, hours: late.hours });
+  await audit(actor.id, "OT_CARRIED", input.month, { to: next, requests: late.rows.length, hours: late.hours, list: late.rows.map((r) => `${r.employee.code} ${r.workDate.toISOString().slice(0, 10)} ${r.actualStart ?? r.startTime}–${r.actualEnd ?? r.endTime}`) });
   return late.rows.length;
 }
 
@@ -294,7 +296,7 @@ export async function confirmTax(input: { entityId: string; month: string; actor
   if (input.confirmed && !run.submittedAt) throw new Error(`PAYROLL_NOT_SUBMITTED:${input.month}`);
   if (run.preparedBy === actor.code) throw new Error("PAYROLL_SAME_PERSON");
   await prisma.payrollRun.update({ where: { id: run.id }, data: input.confirmed ? { taxConfirmedBy: actor.code, taxConfirmedAt: new Date() } : { taxConfirmedBy: null, taxConfirmedAt: null } });
-  if (input.confirmed) await audit(actor.id, "PAYROLL_TAX_CONFIRMED", input.month);
+  await audit(actor.id, input.confirmed ? "PAYROLL_TAX_CONFIRMED" : "PAYROLL_TAX_UNCONFIRMED", input.month);
 }
 
 // ───────── 销售目标 ─────────
@@ -359,4 +361,17 @@ export async function setOrderSales(input: { no: string; actorCode: string; sale
   await prisma.serviceOrder.update({ where: { id: order.id }, data: { salesId: to?.id ?? null } });
   await audit(actor.id, "ORDER_SALES", input.no, { to: to?.code ?? null });
   return to;
+}
+
+/** 操作记录 of a month's payroll and its overtime (派修单 v4 D): who, when, what — newest first. Finance, HR and the MD. */
+export async function payrollTrail(entityId: string, month: string) {
+  const rows = await prisma.auditLog.findMany({ where: { target: month, OR: [{ action: { startsWith: "PAYROLL" } }, { action: { in: ["OT_CARRIED", "OT_MONTH_CLOSE", "OT_MONTH_REOPEN"] } }], actor: { entityId } }, orderBy: { at: "desc" }, take: 80, include: { actor: { select: { code: true, name: true, role: true } } } });
+  return rows.filter((r) => r.action !== "PAYROLL_EXPORT");
+}
+/** Overtime carried out of this month: which requests, and from the log who did it and when. */
+export async function carriedOvertime(entityId: string, month: string) {
+  const { from, to } = monthRange(month);
+  const rows = await prisma.overtimeRequest.findMany({ where: { entityId, status: "APPROVED", workDate: { gte: from, lt: to }, payNotBefore: { gt: month } }, include: { employee: { select: { code: true, name: true } } }, orderBy: { workDate: "asc" } });
+  const log = rows.length ? await prisma.auditLog.findFirst({ where: { action: "OT_CARRIED", target: month }, orderBy: { at: "desc" }, include: { actor: { select: { code: true, name: true } } } }) : null;
+  return { rows, by: log?.actor ?? null, at: log?.at ?? null };
 }

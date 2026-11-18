@@ -1,4 +1,5 @@
 import { localIso } from "@/lib/dates";
+import { WHT_TYPES, isTaxId13 } from "@/lib/wht";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
@@ -33,7 +34,7 @@ export default async function Payables({ searchParams }: { searchParams: Promise
         <Table head={[u("dueDate"), u("supplier"), u("supplierInvoiceNo"), "POTH", t("subtotal"), t("vat"), t("wht"), u("payableAmount"), t("status"), ""]}>
           {rows.map((r) => {
             const overdue = r.status === "OPEN" && r.dueDate < today;
-            return <tr key={r.id}>
+            return <tr key={r.id} id={`inv-${r.id}`} className="scroll-mt-24 target:bg-tint target:outline target:outline-2 target:outline-blue">
               <td className={overdue ? "font-semibold text-alert-ink" : ""}>{localIso(r.dueDate)!.slice(0, 10)}</td>
               <td><Link href={`/suppliers/${r.supplier.code}`} className="text-blue hover:underline">{r.supplier.name}</Link><span className="block text-xs text-navy/60">{u(`pay_${r.supplier.paymentMode}`)}</span></td>
               <td className="font-mono">{r.accrued ? <Link href={`/purchasing/orders/${r.purchaseOrder.no}`} className="font-sans text-blue hover:underline">{u("accrued")} · {u("registerSupplierInvoice")} →</Link> : r.invoiceNo}</td>
@@ -47,7 +48,7 @@ export default async function Payables({ searchParams }: { searchParams: Promise
                 {!r.accrued && Number(r.paidAmount) > 0 && <div className="text-navy/80">{u("payPaidOpen", { paid: Number(r.paidAmount).toFixed(2), open: outstandingOf(r).toFixed(2) })}</div>}
                 {r.payments.map((p) => <div key={p.id} id={p.no} className={`scroll-mt-24 rounded-lg border p-1.5 target:border-blue target:bg-tint target:ring-2 target:ring-blue ${p.status === "VOID" || p.status === "REJECTED" ? "text-navy/50 line-through decoration-navy/30" : ""}`}>
                   <span className="font-mono">{p.no}</span> · {u("payNet")} {r.currency} {Number(p.amount).toFixed(2)}{Number(p.whtAmount) > 0 ? ` · ${u("payWhtAmount")} ${Number(p.whtAmount).toFixed(2)}` : ""} · {acct.get(p.account) ?? (p.account === "before-rule" ? "—" : p.account)} · <b className="no-underline">{u(`payState_${p.status}`)}</b>
-                  {p.whtCertNo && p.status !== "VOID" && p.status !== "REJECTED" ? <> · <Link href={`/finance/payables/wht/${p.id}`} className="text-blue hover:underline">50 ทวิ {p.whtCertNo}</Link></> : null}
+                  {p.whtCertNo && p.status !== "VOID" && p.status !== "REJECTED" ? <> · <Link href={`/finance/payables/wht/${p.id}`} className="whitespace-nowrap rounded-full border border-blue/50 px-1.5 text-[11px] font-semibold text-blue hover:bg-tint">WHT {Number(p.whtAmount).toFixed(2)} · {p.status === "PAID" ? p.whtCertNo : u("whtPreview")}</Link></> : null}
                   {p.decisionNote ? <span className="block">{p.decisionNote}</span> : null}{p.voidReason ? <span className="block">{u("payVoidWhy")}: {p.voidReason}</span> : null}
                   {p.status === "REQUESTED" && md && p.requestedBy !== me.code && <form action={decideAction} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="id" value={p.id} /><input name="note" placeholder={u("poDecideNotePh")} className={`${inputCls} w-40`} /><button name="decision" value="yes" className={btnBlue}>{u("poApprove")}</button><button name="decision" value="no" className={btnGhost}>{u("payRefuse")}</button></form>}
                   {p.status === "REQUESTED" && !md && <span className="block font-semibold text-alert-ink">{u("payWaitsMd")}</span>}
@@ -58,7 +59,7 @@ export default async function Payables({ searchParams }: { searchParams: Promise
                 {r.status === "OPEN" && !r.accrued && mayPay && openOf(r) > 0.005 && <details open={r.payments.every((p) => p.status === "VOID" || p.status === "REJECTED")}><summary className="cursor-pointer font-semibold text-blue">{u("payStart")}</summary>
                   <form action={requestAction} className="mt-1 grid grid-cols-1 gap-1"><input type="hidden" name="id" value={r.id} />
                     <select name="account" required defaultValue="" className={inputCls}><option value="" disabled>{u("payAccountPh")}</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</select>
-                    <PayStartFields open={openOf(r)} baseShare={Number(r.total) > 0 ? Number(r.subtotal) / Number(r.total) : 1} rate={Number(r.whtRate)} currency={r.currency} cls={inputCls} labels={{ gross: u("payGross"), rate: u("payWhtRate"), wht: u("payWhtAmount"), net: u("payNet"), date: t("date") }} />
+                    <PayStartFields open={openOf(r)} baseShare={Number(r.total) > 0 ? Number(r.subtotal) / Number(r.total) : 1} rate={Number(r.whtRate)} currency={r.currency} cls={inputCls} taxIdOk={isTaxId13(r.supplier.taxId)} labels={{ gross: u("payGross"), rate: u("payWhtRate"), wht: u("payWhtAmount"), net: u("payNet"), date: t("date"), type: u("whtType"), types: Object.fromEntries(WHT_TYPES.map((k) => [k, u(`whtType_${k}`)])), draft: u("whtDraftNote"), noTaxId: u("whtNoTaxId") }} />
                     <input name="payDate" type="date" defaultValue={localIso(new Date())!.slice(0, 10)} className={`${inputCls} w-36`} />
                     <button className={`${btnBlue} whitespace-nowrap`}>{u("payStartBtn")}</button>
                   </form></details>}

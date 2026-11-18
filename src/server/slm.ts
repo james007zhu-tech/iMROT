@@ -266,6 +266,10 @@ export async function confirmCustomerPo(input: { no: string; actorCode: string; 
   const again = !!o.poStaleAt && o.status !== "QUOTE_PENDING"; // the quote changed during the work: the PO is confirmed again, the order stays where it is
   if (o.status !== "QUOTE_PENDING" && !again) throw new Error(`PO_ALREADY_CONFIRMED:${o.no}`);
   if (!quoteMayGoOut(o.marginApproval)) throw new Error(`MARGIN_APPROVAL_REQUIRED:${o.no}`);
+  if (o.mode !== "PARTNER_REPAIR") { // 待补成本的行不能出单 (派修单 v4 第 2 条)
+    const pending = (await prisma.quoteLine.findMany({ where: { serviceOrderId: o.id, unitCost: null, qty: { gt: 0 }, unitPrice: { gt: 0 } }, select: { lineNo: true }, orderBy: { lineNo: "asc" } })).map((l) => l.lineNo);
+    if (pending.length) throw new Error(`QUOTE_COST_PENDING:${pending.join("、")}`);
+  }
   if (!input.poLines.length) throw new Error("PO_LINES_REQUIRED");
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const merged = [...((o.attachments as { name: string; url: string; kind: string }[] | null) ?? []), ...(input.attachments ?? [])];

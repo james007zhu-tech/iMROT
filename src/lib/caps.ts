@@ -49,7 +49,7 @@ export const can = {
   /** purchase price, unit cost, last cost, supplier prices */
   cost: is("MD", "FINANCE", "PURCHASING"), // Sales never sees what we paid (MD 2026-11-17 18:29): they estimate the cost of their own quote
   /** margin, margin thresholds, and cost where it stands next to the customer's price (quotes, orders, plans) */
-  margin: is("MD", "FINANCE", "SALES"),
+  margin: is("MD", "FINANCE"), // Sales sees neither cost nor margin (派修单 v4 第 2 条: 看不到任何进价数字 — a margin beside a price is a cost); the quote page gives Sales 建议售价 and 最低价
   /** the company's bank accounts, /admin legal entities; maintain exchange rates */
   bank: is("MD", "FINANCE"),
   /** issue tax invoices and invoices, record receipts, credit notes, close an order */
@@ -99,7 +99,7 @@ const ALM = ["series", "assets", "knowledge"], REPORTS = ["inspectionReports", "
 export const ROLE_MENU: Record<Exclude<Role, "MD">, string[]> = {
   HR: [...HOME, ...SELF],
   FINANCE: [...HOME, ...DOCS, ...SELF, "customers", "opportunities", "deliveryNotes", "acceptance", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut",
-    "ledger", "paymentVouchers", "statements", "cashPlan", "finReports", "proforma", "billing", "taxInvoices", "receipts", "entities"],
+    "ledger", "paymentVouchers", "statements", "cashPlan", "finReports", "fxRates", "proforma", "billing", "taxInvoices", "receipts", "wht", "entities"],
   PURCHASING: [...HOME, ...DOCS, ...SELF, "knowledge", "opportunities", "deliveryNotes", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut", "dictionary"],
   SALES: [...HOME, ...DOCS, ...SELF, ...ALM, ...REPORTS, "receiving", "deliveryNotes", "acceptance", "projects", "customers", "opportunities", "inquiries", "purchaseOrders", "stock",
     "statements", "proforma", "billing", "taxInvoices", "receipts"],
@@ -111,17 +111,20 @@ export const menuOwners = (key: string): Role[] => ROLES6.filter((r) => r !== "M
 
 /** Pages that are not menu entries of their own but belong to a capability. First match decides. */
 const PATH_RULES: [RegExp, (who: Who) => boolean][] = [
+  [/^\/fault-codes\/import/, (w) => hasRole(w, "MD")], // 导入只开放给 MD (N-18)
   [/^\/customers\/new/, can.customers],
   [/^\/suppliers\/new/, can.purchase],
   [/^\/purchasing\/orders\/new/, can.purchase],
   [/^\/purchasing\/inquiries\/new/, is("MD", "PURCHASING", "SALES", "ENGINEER")],
   [/^\/parts\/new/, can.purchase],
+  [/^\/parts\/movement\/[A-Z-]+\d/, is("MD", "PURCHASING", "ENGINEER", "FINANCE")], // one IBTH / OBTH, to read (N-28)
   [/^\/parts\/movement/, is("MD", "PURCHASING", "ENGINEER")],
   [/^\/service-orders\/new/, is("MD", "SALES", "ENGINEER")],
   [/^\/service-orders\/[^/]+\/(invoice|payment)/, can.invoiceStatus],
   [/^\/service-reports/, can.reports],
   [/^\/finance\/expenses/, () => true],
   [/^\/finance/, can.finance],
+  [/^\/tax\/wht/, can.finance], // 50 ทวิ: finance and the MD
   [/^\/tax/, can.invoiceStatus],
   [/^\/admin\/permissions/, is("MD")],
   [/^\/admin\/dictionary/, can.purchase],

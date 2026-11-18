@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { currentEmployee } from "@/server/auth";
-import { BLOCKING, REVIEW_BLOCKING, REVIEW_NOTED, payrollDetail, payrollStage, lateOvertime } from "@/server/payroll";
+import { BLOCKING, REVIEW_BLOCKING, REVIEW_NOTED, payrollDetail, payrollStage, lateOvertime, carriedOvertime, payrollTrail } from "@/server/payroll";
+import { OT_MULTIPLIER } from "@/lib/overtime";
 import { PAYROLL_ROLES } from "@/lib/pay-rules";
 import { payslipNo } from "@/lib/numbering";
 import { DEFAULT_BANDS, type PerfBand, type Withholding } from "@/lib/payroll-run";
@@ -33,6 +34,7 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
   const bands = ((run.policy as { bands?: PerfBand[] } | null)?.bands) ?? DEFAULT_BANDS;
   const draft = run.status === "DRAFT";
   const late = await lateOvertime(me.entityId, month); // H-R67: overtime approved after the month was last computed
+  const [carried, trail] = await Promise.all([carriedOvertime(me.entityId, month), payrollTrail(me.entityId, month)]);
   const nextMonth = month.endsWith("-12") ? `${Number(month.slice(0, 4)) + 1}-01` : `${month.slice(0, 5)}${String(Number(month.slice(5)) + 1).padStart(2, "0")}`;
   const money = (n: unknown) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const blocking = run.lines.filter((l) => l.missing.some((m) => BLOCKING.includes(m)));
@@ -55,13 +57,17 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
       <Flash ok={ok} error={error} />
       {late.rows.length > 0 && (late.locked || run.submittedAt) && <div className="rounded-xl border border-alert bg-white p-3 text-sm" role="alert">
         <div className="font-semibold text-alert-ink">{t("payLateOt", { n: late.rows.length, hours: late.hours })}</div>
-        <ul className="mt-1 list-disc pl-5 text-[13px] text-navy">{late.rows.map((r) => <li key={r.id}><span className="font-mono">{r.employee.code}</span> {r.employee.name} · {r.workDate.toISOString().slice(0, 10)} {r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime} · {Number(r.actualHours ?? r.hours)} h</li>)}</ul>
+        <ul className="mt-1 list-disc pl-5 text-[13px] text-navy">{late.rows.map((r) => { const base = Number(run.lines.find((l) => l.employeeId === r.employeeId)?.baseSalary ?? 0), h = Number(r.actualHours ?? r.hours), x = OT_MULTIPLIER[r.kind]; return <li key={r.id}><span className="font-mono">{r.employee.code}</span> {r.employee.name} · {r.workDate.toISOString().slice(0, 10)} {r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime} · {h} h × {x}{base > 0 ? ` = ${(Math.round(h * (base / 30 / 8) * x * 100) / 100).toFixed(2)}` : ""}</li>; })}</ul>
         {late.locked ? <p className="mt-2 text-[13px] text-navy">{t("payLateOtNext", { next: nextMonth, m: Number(month.slice(5)) })}</p>
           : <div className="mt-2 flex flex-wrap items-center gap-2">
               {prep && <form action={recountAction.bind(null, month)}><button className={btnBlue}>{t("payLateOtRecount")}</button></form>}
               {(prep || md) && <form action={carryAction.bind(null, month)}><button className={btnGhost}>{t("payLateOtCarry", { next: nextMonth, m: Number(month.slice(5)) })}</button></form>}
               {!prep && !md && <span className="text-[13px] text-navy/70">{t("payLateOtAskHr")}</span>}
             </div>}
+      </div>}
+      {carried.rows.length > 0 && <div className="rounded-xl border border-[#E6A23C] bg-[#FFF4E5] p-3 text-[13px] text-[#7A4A00]" role="status">
+        <b>{t("payCarried", { n: carried.rows.length, next: carried.rows[0].payNotBefore ?? "" })}</b>{carried.by ? ` · ${carried.by.code} ${carried.by.name} · ${localIso(carried.at)!.slice(0, 16).replace("T", " ")}` : ""}
+        <ul className="mt-1 list-disc pl-5">{carried.rows.map((r) => <li key={r.id}><span className="font-mono">{r.employee.code}</span> {r.employee.name} · {r.workDate.toISOString().slice(0, 10)} {r.actualStart ?? r.startTime}–{r.actualEnd ?? r.endTime} · {Number(r.actualHours ?? r.hours)} h × {OT_MULTIPLIER[r.kind]}</li>)}</ul>
       </div>}
       <ol className="flex flex-wrap gap-2 text-[13px]">
         {([["payStepPrep", run.preparedBy, true], ["payStepReview", run.taxConfirmedBy, !!run.taxConfirmedAt], ["payStepApprove", run.approvedBy, !!run.approvedAt], ["payStepPaid", run.paidAt ? localIso(run.paidAt)!.slice(0, 10) : null, !!run.paidAt]] as const).map(([k, who, done], i) =>
@@ -143,6 +149,10 @@ export default async function PayrollMonth({ params, searchParams }: { params: P
         </form>
       </Card>}
       <p className="text-xs text-navy/60">{t("payMethodNote")}</p>
+      <details className="rounded-xl border bg-white p-3" open={trail.length > 0 && trail.length <= 8}>
+        <summary className="cursor-pointer text-sm font-semibold text-navy">{t("payTrail")} ({trail.length})</summary>
+        <ul className="mt-2 space-y-1 text-[13px]">{trail.map((a) => { const d = (a.detail ?? {}) as Record<string, unknown>; return <li key={a.id}><span className="font-mono text-xs text-navy/70">{localIso(a.at)!.slice(0, 16).replace("T", " ")}</span> · <span className="font-mono text-xs">{a.actor?.code}</span> {a.actor?.name} · <b>{t.has(`trail_${a.action}`) ? t(`trail_${a.action}`) : a.action}</b>{a.action === "PAYROLL_REVIEW_RESET" || a.action === "PAYROLL_RECOMPUTED" ? ` · ${t("trailNet")} ${d.netBefore} → ${d.netAfter} · ${t("trailOt")} ${d.overtimeBefore} → ${d.overtimeAfter}${d.via === "approve" ? ` · ${t("trailViaApprove")}` : ""}` : a.action === "OT_CARRIED" ? ` · → ${d.to} · ${d.requests} · ${d.hours} h${Array.isArray(d.list) ? ` · ${(d.list as string[]).join("; ")}` : ""}` : a.action === "PAYROLL_RECOUNT" ? ` · ${d.overtime} · ${d.hours} h` : ""}</li>; })}{!trail.length && <li className="text-navy/60">—</li>}</ul>
+      </details>
     </div>
   );
 }

@@ -10,7 +10,14 @@ import { askPoApproval, decidePurchaseOrder, receivePurchaseOrder as realReceive
 import { dispatchToPartner as realDispatch } from "../../src/server/srm";
 
 export const setQuoteLines: typeof realSetQuoteLines = async (input) => {
-  try { return await realSetQuoteLines(input); }
+  try {
+    const r = await realSetQuoteLines(input);
+    if (!r.costPending.length) return r;
+    // Sales saved lines that wait for a cost (派修单 v4): the probe plays the MD who fills 0 in, then Sales saves again and the quote goes out
+    const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.serviceOrderNo } });
+    await prisma.quoteLine.updateMany({ where: { serviceOrderId: o.id, unitCost: null }, data: { unitCost: 0 } });
+    return await realSetQuoteLines(input);
+  }
   catch (e) {
     const m = /^QUOTE_COST_REQUIRED:(.+)$/.exec((e as Error).message);
     if (!m) throw e;

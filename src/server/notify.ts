@@ -35,7 +35,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     hasRole(me, "HR") || hasRole(me, "FINANCE") ? [] : prisma.repairJob.findMany({ where: { nextDueAt: { gte: soon(-60), lte: soon(14) }, ...(team ? { engineerId: { in: team } } : {}) }, orderBy: { nextDueAt: "desc" }, select: { no: true, assetId: true, nextDueAt: true, finishedAt: true, asset: { select: { code: true, customer: { select: { name: true } } } } }, take: 200 }),
     !can.customers(me) || hasRole(me, "FINANCE") ? [] : prisma.contact.findMany({ where: { birthday: { not: null }, customer: await customerScope(me) }, select: { id: true, name: true, birthday: true, customer: { select: { code: true, name: true } } } }),
     money ? prisma.invoice.findMany({ where: { paidAt: null, cancelledAt: null, dueAt: { lte: soon(3) } }, select: { no: true, dueAt: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } }, take: 200 }) : [],
-    money ? prisma.supplierInvoice.findMany({ where: { status: "OPEN" }, select: { invoiceNo: true, invoiceDate: true, dueDate: true, accrued: true, mdApprovedAt: true, currency: true, payable: true, subtotal: true, matchDiff: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } }, take: 300 }) : [],
+    money ? prisma.supplierInvoice.findMany({ where: { status: "OPEN" }, select: { id: true, invoiceNo: true, invoiceDate: true, dueDate: true, accrued: true, mdApprovedAt: true, currency: true, payable: true, subtotal: true, matchDiff: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } }, take: 300 }) : [],
     can.staff(me) ? prisma.employee.findMany({ where: { active: true, birthDate: { not: null } }, select: { code: true, name: true, birthDate: true } }) : [],
     can.staff(me) ? prisma.employeeCredential.findMany({ where: { expiresAt: { not: null, lte: soon(180) }, employee: { active: true } }, select: { kind: true, expiresAt: true, remindDays: true, employee: { select: { code: true, name: true } } } }) : [],
   ]);
@@ -61,7 +61,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // 该付款了 — only what may be paid and falls due within 3 days.
   for (const p of payables) {
     if (p.accrued) { const waited = -daysUntil(p.invoiceDate, today); if (hasRole(me, "FINANCE") && waited >= 7) push("payableNoInvoice", -waited, p.purchaseOrder.no, `/purchasing/orders/${p.purchaseOrder.no}`, p.supplier.name); continue; }
-    if (hasRole(me, "FINANCE") && daysUntil(p.dueDate, today) <= 3) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, "/finance/payables", p.supplier.name);
+    if (hasRole(me, "FINANCE") && daysUntil(p.dueDate, today) <= 3) push("payable", daysUntil(p.dueDate, today), p.invoiceNo, `/finance/payables#inv-${p.id}`, p.supplier.name); // straight to that invoice
   }
   for (const e of staff) { const d = daysToBirthday(e.birthDate, today); if (d != null && d <= 7) push("staffBirthday", d, e.name, `/people/${e.code}`); }
   for (const c of creds) { const d = daysUntil(c.expiresAt!, today); if (d <= c.remindDays) push("credential", d, `${c.employee.name} ${c.kind}`, `/people/${c.employee.code}`); }
@@ -75,6 +75,10 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     const turn = !run || !run.preparedBy ? "HR" : run.status === "DRAFT" ? (run.taxConfirmedAt ? "MD" : "FINANCE") : run.status === "APPROVED" ? "FINANCE" : null;
     if (started && turn && hasRole(me, turn)) push(`payrollDue_${!run || !run.preparedBy ? "prep" : run.status === "APPROVED" ? "pay" : turn === "MD" ? "approve" : "review"}`, 5 - Number(date.slice(8, 10)), previousMonth, run ? `/people/payroll/${previousMonth}` : `/people/payroll?month=${previousMonth}`);
   }
+  // 报价行待补成本 (派修单 v4 第 2 条): the MD and finance are told which quote waits for a cost
+  if (hasRole(me, "MD", "FINANCE"))
+    for (const o of await prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, mode: { not: "PARTNER_REPAIR" }, lines: { some: { unitCost: null, qty: { gt: 0 }, unitPrice: { gt: 0 } } } }, select: { no: true }, take: 30 }))
+      push("quoteCost", 0, o.no, `/service-orders/${o.no}/quote`);
   // 锁定后新批准的加班不能漏 (H-R67): HR is told when overtime was approved after a month's payroll had left them
   if (hasRole(me, "HR")) {
     const { entityId } = await prisma.employee.findUniqueOrThrow({ where: { id: me.id }, select: { entityId: true } });
@@ -147,7 +151,23 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   }
   if (hasRole(me, "MD")) for (const r of await openResetRequests()) push("resetAsked", 0, r.employee.code, `/people/${r.employee.code}#account`, r.employee.name);
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
-  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "leaveApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
+  const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "quoteCost" || n.kind === "leaveApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
   const sorted = sortNotices(out);
   return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
+}
+
+/**
+ * The bell is part of every page, and its list is some thirty queries. Each page view, and every link the browser
+ * warms up beforehand, used to run them all again — on a busy screen that is what kept a first page spinning for half a
+ * minute (派修单 v4, 07:00). One person's list is now kept for 20 seconds; whoever has just done something sees the
+ * result on the next page at the latest 20 seconds later.
+ */
+const kept = new Map<string, { at: number; list: Promise<Notice[]> }>();
+export function cachedNotices(me: Parameters<typeof noticesFor>[0]): Promise<Notice[]> {
+  const key = (me as { id: string }).id, hit = kept.get(key);
+  if (hit && Date.now() - hit.at < 20_000) return hit.list;
+  const list = noticesFor(me); kept.set(key, { at: Date.now(), list });
+  list.catch(() => kept.delete(key));
+  if (kept.size > 500) for (const [k, v] of kept) if (Date.now() - v.at > 60_000) kept.delete(k);
+  return list;
 }

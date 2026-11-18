@@ -90,7 +90,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     const forEng = JSON.stringify(stripMoney(full, "ENGINEER")), forPur = JSON.stringify(stripMoney(full, "PURCHASING")), forSales = JSON.stringify(stripMoney(full, "SALES"));
     check("engineer and supervisor: no price, no cost, no margin in the order", !/12345\.67|15345\.67|6543\.21|marginPct|costTotal|unitPrice/.test(forEng) && JSON.stringify(stripMoney(full, mgr)) === forEng);
     check("PUR: no price, no margin", !/12345\.67|15345\.67|marginPct|unitPrice/.test(forPur));
-    check("Sales: price, the quote's own cost and margin — never what we paid (MD 2026-11-17)", /12345\.67/.test(forSales) && /unitCost/.test(forSales) && !/lastCost|costRef/.test(forSales));
+    check("Sales: price — no cost, no margin, never what we paid (派修单 v4 第 2 条)", /12345\.67/.test(forSales) && !/unitCost|costTotal|marginPct|lastCost|costRef|6543\.21/.test(forSales));
 
     console.log("5. 菜单和单据");
     const hid = async (r: string) => hiddenFor(r as never);

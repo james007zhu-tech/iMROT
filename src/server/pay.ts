@@ -10,6 +10,7 @@
  * Only finance asks and confirms; only the MD decides; nobody else has an entrance. A payment entered by mistake is
  * reversed (冲回) by finance or the MD with a reason: the invoice gets its amount back, the PVTH stays on file as VOID.
  */
+import { WHT_TYPES, isTaxId13 } from "@/lib/wht";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { allocateNumber } from "@/lib/numbering-db";
@@ -26,7 +27,7 @@ export async function payAccounts(entityId: string): Promise<{ id: string; label
   const others = (Array.isArray(e.payAccounts) ? e.payAccounts : []) as { bank: string; branch?: string; currency: string; accountNo: string }[];
   const short = (bank: string) => (/china/i.test(bank) ? "BOC 中国银行" : /kasikorn|kbank/i.test(bank) ? "KBank 开泰" : bank);
   const out = Object.entries(b.accounts ?? {}).map(([cur, no]) => ({ id: `${short(b.bank ?? "BANK").split(" ")[0]}-${cur}-${no.slice(-4)}`, label: `${short(b.bank ?? "")} · ${cur} · …${no.slice(-4)}` }));
-  for (const o of others) out.push({ id: `${short(o.bank).split(" ")[0]}-${o.currency}-${o.accountNo.replace(/\D/g, "").slice(-4)}`, label: `${short(o.bank)}${o.branch ? ` ${o.branch}` : ""} · ${o.currency} · ${o.accountNo}` });
+  for (const o of others) out.push({ id: `${short(o.bank).split(" ")[0]}-${o.currency}-${o.accountNo.replace(/\D/g, "").slice(-4)}`, label: `${short(o.bank)} · ${o.currency} · ${o.accountNo}` }); // short enough for a phone select; the branch is on the company record
   return [...out, { id: PAY_CASH, label: "现金 Cash เงินสด" }, { id: PAY_PETTY, label: "备用金 Petty cash เงินสดย่อย" }];
 }
 
@@ -61,10 +62,10 @@ async function person(code: string) { return prisma.employee.findUniqueOrThrow({
  * given) and the withholding rate (the invoice's own when not given). 预扣税 = rate × that part before VAT; 实付 = 应付 −
  * 预扣税. With tax withheld a 50 ทวิ number is taken.
  */
-export async function requestPayment(input: { invoiceId: string; actorCode: string; account: string; amount?: number; whtRate?: number; payDate?: Date }) {
+export async function requestPayment(input: { invoiceId: string; actorCode: string; account: string; amount?: number; whtRate?: number; whtType?: string; payDate?: Date }) {
   const actor = await person(input.actorCode);
   if (!hasRole(actor, "FINANCE")) throw new Error("FINANCE_PAYS");
-  const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.invoiceId }, include: { payments: true, supplier: { select: { name: true } } } });
+  const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.invoiceId }, include: { payments: true, supplier: { select: { name: true, taxId: true } } } });
   if (inv.status !== "OPEN") throw new Error(`PAYABLE_NOT_OPEN:${inv.status}`);
   if (inv.accrued) throw new Error("PAYABLE_ACCRUED");
   if (!input.account?.trim() || !(await payAccounts(inv.entityId)).some((a) => a.id === input.account)) throw new Error("PAY_ACCOUNT_REQUIRED");
@@ -75,12 +76,15 @@ export async function requestPayment(input: { invoiceId: string; actorCode: stri
   const rate = input.whtRate ?? Number(inv.whtRate);
   if (!(rate >= 0 && rate <= 0.15)) throw new Error("PAY_WHT_RATE");
   const { wht, net } = whtOf(inv, gross, rate);
+  // 50 ทวิ needs the payee's 13-digit taxpayer number: tax cannot be withheld from a supplier without one on file
+  if (wht > 0 && !isTaxId13(inv.supplier.taxId)) throw new Error("PAY_WHT_TAXID");
+  const whtType = wht > 0 ? ((WHT_TYPES as readonly string[]).includes(input.whtType ?? "") ? input.whtType! : "SERVICE") : null;
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "PV", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.payDate });
     await tx.document.create({ data: { no, type: "PV", entityId: inv.entityId, countryCode: no.slice(2, 4), createdById: actor.id, issuedAt: input.payDate } });
     const whtCertNo = wht > 0 ? await allocateNumber(tx, { prefix: "WT", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.payDate }) : null;
     await audit(actor.id, "PAYMENT_REQUESTED", no, { invoice: inv.invoiceNo, supplier: inv.supplier.name, gross, whtRate: rate, wht, amount: net, account: input.account, currency: inv.currency }, tx);
-    return tx.supplierPayment.create({ data: { no, entityId: inv.entityId, supplierInvoiceId: inv.id, account: input.account, gross, whtRate: rate, amount: net, whtAmount: wht, whtCertNo, payDate: input.payDate ?? new Date(), requestedBy: actor.code } });
+    return tx.supplierPayment.create({ data: { no, entityId: inv.entityId, supplierInvoiceId: inv.id, account: input.account, gross, whtRate: rate, whtType, amount: net, whtAmount: wht, whtCertNo, payDate: input.payDate ?? new Date(), requestedBy: actor.code } });
   });
 }
 

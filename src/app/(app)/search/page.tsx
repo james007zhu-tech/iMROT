@@ -24,13 +24,17 @@ export default async function Search({ searchParams }: { searchParams: Promise<{
   const names = can.customerNames(me);
   const [oScope, cScope] = await Promise.all([orderScope(me), customerScope(me)]);
   const types = DOC_TYPES.filter((ty) => docTypeAllowed(me, ty));
-  const [assets, orders, customers, parts, docs] = q ? await Promise.all([
+  const [assets, orders, customers, parts, docs0] = q ? await Promise.all([
     prisma.asset.findMany({ where: { AND: [await assetScope(me), { OR: [{ code: like }, { serialNumber: like }, { location: like }, { customerAssetNo: like }] }] }, include: { customer: { select: { name: true } }, model: { select: { code: true } } }, take: 20 }),
     prisma.serviceOrder.findMany({ where: { AND: [oScope, { OR: [{ no: like }, { reportedSymptom: like }, { customerRef: like }] }] }, include: { customer: { select: { name: true } } }, take: 20, orderBy: { reportedAt: "desc" } }),
     names ? prisma.customer.findMany({ where: { AND: [cScope, { OR: [{ code: like }, { name: like }, { nameLocal: like }, ...(can.customerMoney(me) ? [{ taxId: like }] : [])] }] }, take: 10 }) : Promise.resolve([]),
     prisma.part.findMany({ where: { OR: [{ sku: like }, { name: like }, { vendorPartNo: like }] }, take: 10 }),
     q.length >= 2 ? prisma.document.findMany({ where: { no: like, type: { in: types as never }, OR: [{ serviceOrderId: null }, { serviceOrder: oScope }] }, select: { no: true, type: true, issuedAt: true, voidedAt: true, serviceOrder: { select: { no: true } } }, orderBy: { issuedAt: "desc" }, take: 60 }) : Promise.resolve([]),
   ]) : [[], [], [], [], []];
+  const docs: { no: string; type: string; issuedAt: Date; voidedAt: Date | null; serviceOrder: { no: string } | null }[] = [...docs0];
+  // 出入库单 are found from the stock ledger too — a stock document issued by a repair report has no row of its own in the document table (N-28)
+  const moved = q.length >= 2 ? await prisma.stockMovement.findMany({ where: { no: like, ...(can.allOrders(me) ? {} : { OR: [{ serviceOrderId: null }, { serviceOrder: oScope }] }) }, distinct: ["no"], orderBy: { movedAt: "desc" }, take: 30, select: { no: true, direction: true, movedAt: true, serviceOrder: { select: { no: true } } } }) : [];
+  for (const m of moved) { const type = m.direction === "IN" ? "IB" : "OB"; if (types.includes(type) && !docs.some((d) => d.no === m.no)) docs.push({ no: m.no, type, issuedAt: m.movedAt, voidedAt: null, serviceOrder: m.serviceOrder }); }
   const byType = new Map<string, typeof docs>();
   for (const d of docs) { if (d.type === "QT") continue; byType.set(d.type, [...(byType.get(d.type) ?? []), d]); } // QTTH is the order itself: listed under 业务单
   const box = "rounded-xl border bg-white p-4";

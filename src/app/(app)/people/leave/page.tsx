@@ -39,7 +39,7 @@ export default async function Leave({ searchParams }: { searchParams: Promise<{ 
       <Flash ok={sp.ok} error={sp.error} />
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        {paid.map((k) => <div key={k} className="rounded-xl border bg-white p-3"><div className="text-xs text-navy/70">{kind(k)}</div><div className="mt-1 text-xl font-bold text-navy">{b.left[k]}<span className="ml-1 text-xs font-normal text-navy/60">/ {b.quota[k]} {u("leaveDaysLeft")}</span></div><div className="text-xs text-navy/60">{u("leaveUsed", { n: b.used[k] })}</div></div>)}
+        {paid.map((k) => <div key={k} className="rounded-xl border bg-white p-3"><div className="text-xs text-navy/70">{kind(k)}</div>{k === "ANNUAL" && b.quota[k] === 0 ? <div className="mt-1 text-sm font-semibold text-navy/70">{u("leaveAnnualLater")}</div> : <div className="mt-1 text-xl font-bold text-navy">{b.left[k]}<span className="ml-1 text-xs font-normal text-navy/60">/ {b.quota[k]} {u("leaveDaysLeft")}</span></div>}<div className="text-xs text-navy/60">{u("leaveUsed", { n: b.used[k] })}</div></div>)}
       </div>
 
       <Card title={u("leaveAsk")} accent>
@@ -86,7 +86,7 @@ export default async function Leave({ searchParams }: { searchParams: Promise<{ 
             <td className="whitespace-nowrap"><span className="font-mono text-xs">{e.code}</span> {e.name}</td>
             {paid.map((k) => <td key={k}>{e.taken[k] || ""}</td>)}<td>{e.taken.UNPAID || ""}</td>
             <td className={e.unpaid > 0 ? "font-semibold text-alert-ink" : ""}>{e.unpaid || ""}</td><td className={e.waiting > 0 ? "font-semibold text-alert-ink" : ""}>{e.waiting || ""}</td>
-            <td className="whitespace-nowrap text-xs text-navy/70">{paid.map((k) => `${kind(k)} ${e.left[k]}/${e.quota[k]}`).join(" · ")}</td>
+            <td className="whitespace-nowrap text-xs text-navy/70">{paid.map((k) => (k === "ANNUAL" && e.quota[k] === 0 ? `${kind(k)} ${u("leaveAnnualLater")}` : `${kind(k)} ${e.left[k]}/${e.quota[k]}`)).join(" · ")}</td>
           </tr>)}
         </Table>
         <p className="mt-2 text-xs text-navy/70">{u("leaveSheetNote")}</p>

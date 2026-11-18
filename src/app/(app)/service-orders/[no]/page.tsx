@@ -1,4 +1,6 @@
 import { Icon } from "@/components/Icon";
+import { FxDoc } from "@/components/FxDoc";
+import { docRateNote } from "@/server/fx";
 import { assertOrderAccess } from "@/server/scope";
 import { fxMark } from "@/lib/fx-label";
 import { can, hasRole, isApprover } from "@/lib/caps";
@@ -205,6 +207,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
       <DocChain order={order.no} slots={chain} />
       <Flash ok={ok} error={error} />
+      {seePrice && order.fxRateToCny != null && <FxDoc kind="order" no={order.no} back={`/service-orders/${order.no}`} canEdit={can.finance(me)} currency={order.currency} current={Number(order.fxRateToCny)} note={await docRateNote(order.no, order)} />}
       {gaps.length > 0 && <Alert>{u("buyNeedsSku")}：{gaps.map((g) => `${g.lineNo ? `#${g.lineNo} ` : ""}${g.description}`).join("；")}。 <Link href={`/service-orders/${no}/quote`} className="font-semibold underline">{u("buyNeedsSkuGo")} →</Link></Alert>}
       {order.poStaleAt && !dec && <Alert>{u("poStale")} {can.confirmPo(me) && <Link href={`/service-orders/${no}/confirm`} className="font-semibold underline">{u("poStaleGo")}</Link>}</Alert>}
       {dec && <Alert>{u("declinedBanner", { date: localIso(dec.toldAt)!.slice(0, 10), reason: u(`declineReason_${dec.reason}`) })}{dec.note ? ` ${dec.note}` : ""} · {!seePrice ? "" : dec.waivedReason ? u("feeWaivedLine", { reason: dec.waivedReason }) : u("feeLine", { amount: `${order.currency} ${feeTotal(decFees).toFixed(2)}` })}</Alert>}

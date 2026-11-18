@@ -59,6 +59,13 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     await decidePayment({ id: r.id, actorCode: md.code, approve: false, note: "probe: wrong supplier account" });
     check("refused by the MD: cannot be confirmed, the invoice can be asked again", /PAY_NOT_WAITING/.test(await msg(confirmPayment({ id: r.id, actorCode: fin.code, paymentRef: "x", slip }))) && (await msg(ask(big.id, fin.code).then((p) => voidPayment({ id: p.id, actorCode: fin.code, reason: "probe" })))) === "ok");
     // withholding tax → 50 ทวิ
+    // 50 ทวิ needs the payee's 13-digit tax ID (派修单 v4 A)
+    const sup0 = await prisma.supplier.findUniqueOrThrow({ where: { id: po.supplierId } });
+    await prisma.supplier.update({ where: { id: sup0.id }, data: { taxId: null } });
+    const noId = await prisma.supplierInvoice.create({ data: { entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: `MP-${tag}-NOID`, invoiceDate: new Date(), subtotal: 100, vatAmount: 7, total: 107, whtRate: 0.03, whtAmount: 3, payable: 104, dueDate: new Date(), createdById: eng.id } });
+    ids.push(noId.id);
+    check("a supplier without a 13-digit tax ID: tax cannot be withheld", /PAY_WHT_TAXID/.test(await msg(ask(noId.id, fin.code))));
+    await prisma.supplier.update({ where: { id: sup0.id }, data: { taxId: `0${String(Date.now()).slice(-12)}` } });
     const w = await prisma.supplierInvoice.create({ data: { entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: `MP-${tag}-W`, invoiceDate: new Date(), subtotal: 10000, vatAmount: 700, total: 10700, whtRate: 0.03, whtAmount: 300, payable: 10400, dueDate: new Date(), createdById: eng.id } });
     ids.push(w.id);
     const wp = await ask(w.id, fin.code);
@@ -70,14 +77,17 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     const n3 = await prisma.supplierInvoice.create({ data: { entityId: po.entityId, supplierId: po.supplierId, purchaseOrderId: po.id, invoiceNo: `MP-${tag}-N3`, invoiceDate: new Date(), subtotal: 1000, vatAmount: 70, total: 1070, whtRate: 0, whtAmount: 0, payable: 1070, dueDate: new Date(), createdById: eng.id } });
     ids.push(n3.id);
     const kb = accts.find((a) => /^KBank/.test(a.id))!.id;
-    const p3 = await requestPayment({ invoiceId: n3.id, actorCode: fin.code, account: kb, whtRate: 0.03 });
-    check("an invoice entered without WHT, paid from KBank with 3 %: withheld 30.00 on 1,000, paid out 1,040.00, 50 ทวิ taken", Number(p3.whtAmount) === 30 && Number(p3.amount) === 1040 && Number(p3.gross) === 1070 && /^WTTH/.test(p3.whtCertNo ?? ""), `${p3.whtAmount} ${p3.amount} ${p3.whtCertNo}`);
+    const p3 = await requestPayment({ invoiceId: n3.id, actorCode: fin.code, account: kb, whtRate: 0.05, whtType: "RENT" });
+    check("the income type is kept for the 50 ทวิ (租金 5 %: 50.00 on 1,000)", p3.whtType === "RENT" && Number(p3.whtAmount) === 50 && Number(p3.amount) === 1020);
+    await voidPayment({ id: p3.id, actorCode: fin.code, reason: "probe" });
+    const p3b = await requestPayment({ invoiceId: n3.id, actorCode: fin.code, account: kb, whtRate: 0.03 });
+    check("an invoice entered without WHT, paid from KBank with 3 %: withheld 30.00 on 1,000, paid out 1,040.00, 50 ทวิ taken", Number(p3b.whtAmount) === 30 && Number(p3b.amount) === 1040 && Number(p3b.gross) === 1070 && /^WTTH/.test(p3b.whtCertNo ?? ""), `${p3b.whtAmount} ${p3b.amount} ${p3b.whtCertNo}`);
     check("a rate above 15 % is refused", /PAY_WHT_RATE|PAY_OVER|PAY_AMOUNT/.test(await msg(requestPayment({ invoiceId: w.id, actorCode: fin.code, account: "CASH", whtRate: 0.5, amount: 1 }))));
-    await decidePayment({ id: p3.id, actorCode: md.code, approve: true });
-    await confirmPayment({ id: p3.id, actorCode: fin.code, paymentRef: "KB-1", slip });
+    await decidePayment({ id: p3b.id, actorCode: md.code, approve: true });
+    await confirmPayment({ id: p3b.id, actorCode: fin.code, paymentRef: "KB-1", slip });
     const s3 = await st(n3.id);
     check("confirmed: the invoice is PAID — 1,040 paid out + 30 withheld = 1,070", s3.status === "PAID" && Number(s3.paidAmount) === 1040 && Number(s3.whtAmount) === 30 && Number(s3.payable) === 1040, `${s3.status} ${s3.paidAmount} ${s3.whtAmount} ${s3.payable}`);
-    await voidPayment({ id: p3.id, actorCode: fin.code, reason: "probe" });
+    await voidPayment({ id: p3b.id, actorCode: fin.code, reason: "probe" });
     const v3 = await st(n3.id);
     check("reversed: open again with the full 1,070 and no withholding left on it", v3.status === "OPEN" && Number(v3.paidAmount) === 0 && Number(v3.whtAmount) === 0 && Number(v3.payable) === 1070, `${v3.status} ${v3.paidAmount} ${v3.whtAmount} ${v3.payable}`);
     const half = await ask(small.id, fin.code, { amount: 6000 });

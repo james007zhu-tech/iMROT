@@ -99,17 +99,17 @@ export async function cashJournal(entityId: string, range: Range, opts: { withPa
   const { payAccounts } = await import("@/server/pay");
   const labels = new Map((await payAccounts(entityId)).map((a) => [a.id, a.label]));
   const [rcs, pays, exps, runs] = await Promise.all([
-    prisma.receipt.findMany({ where: { voidedAt: null, receivedAt: { gte: from, lt: to }, invoice: { serviceOrder: { entityId } } }, select: { no: true, receivedAt: true, currency: true, cashAmount: true, account: true, bankRef: true, invoice: { select: { serviceOrder: { select: { customer: { select: { name: true } } } } } } } }),
+    prisma.receipt.findMany({ where: { voidedAt: null, receivedAt: { gte: from, lt: to }, invoice: { serviceOrder: { entityId } } }, select: { no: true, receivedAt: true, currency: true, cashAmount: true, account: true, bankRef: true, invoice: { select: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } } } }),
     prisma.supplierPayment.findMany({ where: { entityId, status: "PAID", paidAt: { gte: from, lt: to } }, select: { no: true, paidAt: true, amount: true, account: true, paymentRef: true, supplierInvoice: { select: { currency: true, invoiceNo: true, supplier: { select: { name: true } } } } } }),
     prisma.expenseClaim.findMany({ where: { entityId, status: "PAID", paidAt: { gte: from, lt: to }, NOT: { paidRef: { startsWith: "PAYROLL" } } }, select: { no: true, paidAt: true, currency: true, amount: true, paidBy: true, paidRef: true, employee: { select: { name: true } } } }),
     opts.withPayroll ? prisma.payrollRun.findMany({ where: { entityId, status: "PAID", paidAt: { gte: from, lt: to } }, select: { month: true, paidAt: true, totals: true } }) : Promise.resolve([]),
   ]);
-  type Row = { date: Date; no: string; who: string; account: string; currency: string; inAmt: number; outAmt: number; ref: string };
+  type Row = { date: Date; no: string; who: string; account: string; currency: string; inAmt: number; outAmt: number; ref: string; href: string };
   const rows: Row[] = [
-    ...rcs.filter((x) => opts.includeTest || !isTest(x.no)).map((x) => ({ date: x.receivedAt, no: x.no, who: x.invoice.serviceOrder.customer.name, account: x.account ?? "", currency: x.currency, inAmt: Number(x.cashAmount), outAmt: 0, ref: x.bankRef ?? "" })),
-    ...pays.filter((x) => opts.includeTest || !isTest(x.supplierInvoice.invoiceNo, x.supplierInvoice.supplier.name)).map((x) => ({ date: x.paidAt!, no: x.no, who: x.supplierInvoice.supplier.name, account: x.account === "before-rule" ? "" : x.account, currency: x.supplierInvoice.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paymentRef ?? "" })),
-    ...exps.map((x) => ({ date: x.paidAt!, no: x.no ?? "", who: x.employee.name, account: x.paidBy === "PETTY_CASH" ? "PETTY_CASH" : "", currency: x.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paidRef ?? "" })),
-    ...runs.map((x) => ({ date: x.paidAt!, no: `PAYROLL ${x.month}`, who: "", account: "", currency: "THB", inAmt: 0, outAmt: Number((x.totals as { net?: number }).net ?? 0) + Number((x.totals as { reimbursement?: number }).reimbursement ?? 0), ref: "" })),
+    ...rcs.filter((x) => opts.includeTest || !isTest(x.no)).map((x) => ({ date: x.receivedAt, no: x.no, who: x.invoice.serviceOrder.customer.name, account: x.account ?? "", currency: x.currency, inAmt: Number(x.cashAmount), outAmt: 0, ref: x.bankRef ?? "", href: `/service-orders/${x.invoice.serviceOrder.no}/payment` })),
+    ...pays.filter((x) => opts.includeTest || !isTest(x.supplierInvoice.invoiceNo, x.supplierInvoice.supplier.name)).map((x) => ({ date: x.paidAt!, no: x.no, who: x.supplierInvoice.supplier.name, account: x.account === "before-rule" ? "" : x.account, currency: x.supplierInvoice.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paymentRef ?? "", href: `/finance/payables?all=1#${x.no}` })),
+    ...exps.map((x) => ({ date: x.paidAt!, no: x.no ?? "", who: x.employee.name, account: x.paidBy === "PETTY_CASH" ? "PETTY_CASH" : "", currency: x.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paidRef ?? "", href: "/finance/expenses" })),
+    ...runs.map((x) => ({ date: x.paidAt!, no: `PAYROLL ${x.month}`, who: "", account: "", currency: "THB", inAmt: 0, outAmt: Number((x.totals as { net?: number }).net ?? 0) + Number((x.totals as { reimbursement?: number }).reimbursement ?? 0), ref: "", href: `/people/payroll/${x.month}` })),
   ].filter((x) => x.inAmt > 0 || x.outAmt > 0).sort((a, b) => a.date.getTime() - b.date.getTime());
   const accounts = [...new Set(rows.map((x) => `${x.account}|${x.currency}`))].sort().map((k) => { const [account, currency] = k.split("|"); const mine = rows.filter((x) => x.account === account && x.currency === currency);
     return { account, currency, label: account ? labels.get(account) ?? account : "", inAmt: r2(mine.reduce((a, x) => a + x.inAmt, 0)), outAmt: r2(mine.reduce((a, x) => a + x.outAmt, 0)), rows: mine }; });
@@ -154,4 +154,57 @@ export async function simpleBalance(entityId: string, asOf: string, opts: { incl
   const assets = { cashMoved: r2(cashIn - cashOut), receivable, stock }, liabilities = { payable, vat: Math.max(0, vat), wht, payroll };
   const totalAssets = r2(assets.cashMoved + receivable + stock), totalLiabilities = r2(payable + liabilities.vat + wht + payroll);
   return { asOf, assets, liabilities, totalAssets, totalLiabilities, net: r2(totalAssets - totalLiabilities), vatCredit: vat < 0 ? -vat : 0 };
+}
+
+/**
+ * 报表下钻 (派修单 v4 P0-1): the documents behind one number of the reports — the same filters as the number itself,
+ * so the list adds up to it. Each row opens its document.
+ */
+export type DetailKind = "result" | "vatNet" | "revenue" | "vatOut" | "collected" | "whtByCustomers" | "purchases" | "vatIn" | "paidSuppliers" | "expenses" | "payroll" | "stock" | "vatDue" | "whtDue" | "payrollDue";
+export interface DetailRow { date: Date | null; no: string; who: string; note?: string; amount: number; href: string }
+export async function reportDetail(entityId: string, range: Range, kind: DetailKind, opts: { withPayroll: boolean; includeTest?: boolean; mode?: string; customer?: string; category?: string }): Promise<{ rows: DetailRow[]; total: number }> {
+  const { from, to } = bounds(range), T = (...x: (string | null | undefined)[]) => opts.includeTest || !isTest(...x);
+  let rows: DetailRow[] = [];
+  if (kind === "revenue" || kind === "vatOut") {
+    const [tis, cns] = await Promise.all([
+      prisma.taxInvoice.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, serviceOrder: { entityId, ...(opts.mode ? { mode: opts.mode as never } : {}), ...(opts.customer ? { customer: { name: opts.customer } } : {}) } }, select: { no: true, issuedAt: true, subtotal: true, vatAmount: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } }),
+      prisma.creditNote.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, currency: "THB", taxInvoice: { serviceOrder: { entityId, ...(opts.mode ? { mode: opts.mode as never } : {}), ...(opts.customer ? { customer: { name: opts.customer } } : {}) } } }, select: { no: true, issuedAt: true, subtotal: true, vatAmount: true, taxInvoice: { select: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } } } }),
+    ]);
+    rows = [...tis.filter((x) => T(x.no)).map((x) => ({ date: x.issuedAt, no: x.no, who: x.serviceOrder.customer.name, note: x.serviceOrder.no, amount: Number(kind === "revenue" ? x.subtotal : x.vatAmount), href: `/service-orders/${x.serviceOrder.no}/invoice` })),
+      ...cns.map((x) => ({ date: x.issuedAt, no: x.no, who: x.taxInvoice.serviceOrder.customer.name, note: x.taxInvoice.serviceOrder.no, amount: -Number(kind === "revenue" ? x.subtotal : x.vatAmount), href: `/service-orders/${x.taxInvoice.serviceOrder.no}/invoice` }))];
+  } else if (kind === "collected" || kind === "whtByCustomers") {
+    rows = (await prisma.receipt.findMany({ where: { voidedAt: null, receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: { entityId } } }, select: { no: true, receivedAt: true, cashAmount: true, whtAmount: true, bankRef: true, invoice: { select: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } } } }))
+      .filter((x) => T(x.no)).map((x) => ({ date: x.receivedAt, no: x.no, who: x.invoice.serviceOrder.customer.name, note: x.bankRef ?? x.invoice.serviceOrder.no, amount: Number(kind === "collected" ? x.cashAmount : x.whtAmount), href: `/service-orders/${x.invoice.serviceOrder.no}/payment` }));
+  } else if (kind === "purchases" || kind === "vatIn") {
+    const sis = await prisma.supplierInvoice.findMany({ where: { entityId, status: { not: "CANCELLED" }, currency: "THB", invoiceDate: { gte: from, lt: to }, ...(kind === "vatIn" ? { accrued: false } : {}) }, select: { id: true, invoiceNo: true, invoiceDate: true, subtotal: true, vatAmount: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } } });
+    rows = sis.filter((x) => T(x.invoiceNo, x.supplier.name)).map((x) => ({ date: x.invoiceDate, no: x.invoiceNo, who: x.supplier.name, note: x.purchaseOrder.no, amount: Number(kind === "purchases" ? x.subtotal : x.vatAmount), href: `/purchasing/orders/${x.purchaseOrder.no}` }));
+    if (kind === "vatIn") rows.push(...(await prisma.expenseClaim.findMany({ where: { entityId, status: { in: ["APPROVED", "PAID"] }, currency: "THB", spentOn: { gte: from, lt: to }, vatAmount: { gt: 0 } }, select: { no: true, spentOn: true, vatAmount: true, employee: { select: { name: true } } } })).map((x) => ({ date: x.spentOn, no: x.no ?? "", who: x.employee.name, amount: Number(x.vatAmount ?? 0), href: "/finance/expenses" })));
+  } else if (kind === "paidSuppliers") {
+    rows = (await prisma.supplierPayment.findMany({ where: { entityId, status: "PAID", paidAt: { gte: from, lt: to }, supplierInvoice: { currency: "THB" } }, select: { no: true, paidAt: true, amount: true, supplierInvoice: { select: { invoiceNo: true, supplier: { select: { name: true } } } } } }))
+      .filter((x) => T(x.supplierInvoice.invoiceNo, x.supplierInvoice.supplier.name)).map((x) => ({ date: x.paidAt, no: x.no, who: x.supplierInvoice.supplier.name, note: x.supplierInvoice.invoiceNo, amount: Number(x.amount), href: `/finance/payables?all=1#${x.no}` }));
+  } else if (kind === "expenses") {
+    rows = (await prisma.expenseClaim.findMany({ where: { entityId, status: { in: ["APPROVED", "PAID"] }, currency: "THB", spentOn: { gte: from, lt: to }, ...(opts.category ? { category: opts.category } : {}) }, select: { no: true, spentOn: true, amount: true, vatAmount: true, category: true, employee: { select: { name: true } } } }))
+      .map((x) => ({ date: x.spentOn, no: x.no ?? "", who: x.employee.name, note: x.category, amount: Number(x.amount) - Number(x.vatAmount ?? 0), href: "/finance/expenses" }));
+  } else if (kind === "payroll" || kind === "payrollDue") {
+    if (opts.withPayroll) rows = (await prisma.payrollRun.findMany({ where: { entityId, ...(kind === "payroll" ? { status: { not: "DRAFT" }, month: { gte: range.from.slice(0, 7), lte: range.to.slice(0, 7) } } : { status: "APPROVED" }) }, select: { month: true, totals: true, approvedAt: true } }))
+      .map((x) => ({ date: x.approvedAt, no: x.month, who: "", amount: Number((x.totals as { employerCost?: number; net?: number })[kind === "payroll" ? "employerCost" : "net"] ?? 0), href: `/people/payroll/${x.month}` }));
+  } else if (kind === "stock") {
+    const moves = await prisma.stockMovement.findMany({ where: { kind: "PART", partId: { not: null }, movedAt: { lt: to } }, select: { direction: true, qty: true, part: { select: { sku: true, name: true, lastCost: true, lastCostCurrency: true } } } });
+    const by = new Map<string, { name: string; qty: number; cost: number }>();
+    for (const m of moves) { if (!m.part || (m.part.lastCostCurrency && m.part.lastCostCurrency !== "THB")) continue; const e = by.get(m.part.sku) ?? { name: m.part.name, qty: 0, cost: Number(m.part.lastCost ?? 0) }; e.qty += (m.direction === "IN" ? 1 : -1) * Number(m.qty); by.set(m.part.sku, e); }
+    rows = [...by].filter(([, e]) => Math.abs(e.qty * e.cost) > 0.005).map(([sku, e]) => ({ date: null, no: sku, who: e.name, note: `${e.qty} × ${e.cost.toFixed(2)}`, amount: r2(e.qty * e.cost), href: `/parts/${sku}` }));
+  } else if (kind === "result" || kind === "vatNet") { // a figure made of others: its parts, signed, so the list adds up to it
+    const parts: [DetailKind, number][] = kind === "result" ? [["revenue", 1], ["purchases", -1], ["expenses", -1], ["payroll", -1]] : [["vatOut", 1], ["vatIn", -1]];
+    for (const [k, sign] of parts) rows.push(...(await reportDetail(entityId, range, k, opts)).rows.map((x) => ({ ...x, amount: sign * x.amount })));
+  } else if (kind === "vatDue") {
+    const mr = { from: `${range.to.slice(0, 7)}-01`, to: range.to };
+    const [o, i] = await Promise.all([reportDetail(entityId, mr, "vatOut", opts), reportDetail(entityId, mr, "vatIn", opts)]);
+    rows = [...o.rows, ...i.rows.map((x) => ({ ...x, amount: -x.amount }))];
+  } else if (kind === "whtDue") {
+    const ms = bounds({ from: `${range.to.slice(0, 7)}-01`, to: range.to });
+    rows = (await prisma.supplierPayment.findMany({ where: { entityId, status: "PAID", paidAt: { gte: ms.from, lt: ms.to }, whtAmount: { gt: 0 } }, select: { id: true, no: true, paidAt: true, whtAmount: true, whtCertNo: true, supplierInvoice: { select: { supplier: { select: { name: true } } } } } }))
+      .map((x) => ({ date: x.paidAt, no: x.whtCertNo ?? x.no, who: x.supplierInvoice.supplier.name, note: x.no, amount: Number(x.whtAmount), href: `/finance/payables/wht/${x.id}` }));
+  }
+  rows.sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0));
+  return { rows, total: r2(rows.reduce((a, x) => a + x.amount, 0)) };
 }

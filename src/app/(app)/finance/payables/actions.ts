@@ -11,7 +11,7 @@ export async function requestAction(f: FormData) {
   await guarded(async () => {
     const me = await currentEmployee();
     const amount = String(f.get("amount") ?? "").trim(), payDate = String(f.get("payDate") ?? "").trim();
-    const p = await requestPayment({ invoiceId: String(f.get("id")), actorCode: me.code, account: String(f.get("account") ?? ""), amount: amount ? Number(amount) : undefined, whtRate: String(f.get("whtPct") ?? "").trim() === "" ? undefined : Number(f.get("whtPct")) / 100, payDate: payDate ? new Date(payDate) : undefined });
+    const p = await requestPayment({ invoiceId: String(f.get("id")), actorCode: me.code, account: String(f.get("account") ?? ""), amount: amount ? Number(amount) : undefined, whtType: String(f.get("whtType") ?? "") || undefined, whtRate: String(f.get("whtPct") ?? "").trim() === "" ? undefined : Number(f.get("whtPct")) / 100, payDate: payDate ? new Date(payDate) : undefined });
     return { ok: p.no, to: BACK };
   }, BACK);
 }

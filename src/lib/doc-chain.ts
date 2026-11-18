@@ -12,9 +12,9 @@ const s = (key: ChainKey, optional = false): ChainStep => ({ key, optional });
 const MONEY: ChainStep[] = [s("TI"), s("IV"), s("RC")];
 
 export const CHAINS: Record<BusinessMode, ChainStep[]> = {
-  REPAIR: [s("QT"), s("ER", true), s("IN"), s("CPO"), s("PR", true), s("PO", true), s("RP"), s("DN", true), s("AC"), ...MONEY],
+  REPAIR: [s("QT"), s("ER", true), s("IN"), s("CPO"), s("PR", true), s("PO", true), s("OB", true), s("RP"), s("DN", true), s("AC"), ...MONEY],
   PARTNER_REPAIR: [s("QT"), s("ER"), s("IN"), s("CPO"), s("PO"), s("OB"), s("IB"), s("DN"), s("AC"), ...MONEY],
-  MAINTENANCE: [s("QT"), s("ER", true), s("IN", true), s("CPO"), s("PM"), s("DN", true), s("AC"), ...MONEY],
+  MAINTENANCE: [s("QT"), s("ER", true), s("IN", true), s("CPO"), s("OB", true), s("PM"), s("DN", true), s("AC"), ...MONEY],
   AUTOMATION_PROJECT: [s("QT"), s("CPO"), s("PR", true), s("PO", true), s("DN"), s("AC"), ...MONEY],
   DOMESTIC_TRADE: [s("QT"), s("CPO"), s("PR", true), s("PO", true), s("IB", true), s("OB"), s("DN"), ...MONEY],
   // export: zero-rated, no TITH; the commercial invoice and packing list ride on the shipment (DNTH)

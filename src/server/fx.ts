@@ -104,3 +104,29 @@ export function refreshIfStale(ageDays: number | null | undefined) {
   lastTry = Date.now();
   running = refreshBocRates().catch((e) => console.error("[fx] auto refresh failed:", (e as Error).message)).finally(() => { running = null; });
 }
+
+/**
+ * 单据上改汇率 (派修单 v4 B): finance sets the rate of one quote or one purchase order by hand — the bank's actual
+ * rate, a rate agreed in the contract — with a reason. The document then says 手动, who and when; the CNY total follows;
+ * the change, the rate before and the Bank of China rate of the day are in the audit log.
+ */
+export const FX_REASONS = ["bank", "contract", "other"] as const;
+export async function overrideDocRate(input: { kind: "order" | "po"; no: string; actorCode: string; rateToCny: number; reason: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (!can.finance(actor)) throw new Error("NO_PERMISSION");
+  if (!(input.rateToCny > 0)) throw new Error("FX_RATE_REQUIRED");
+  if (!input.reason?.trim()) throw new Error("REASON_REQUIRED");
+  const doc = input.kind === "order" ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, select: { id: true, currency: true, total: true, fxRateToCny: true, fxRateDate: true } }) : await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.no }, select: { id: true, currency: true, total: true, fxRateToCny: true, fxRateDate: true } });
+  if (doc.currency === "CNY") throw new Error("FX_CURRENCY");
+  const boc = await prisma.fxRate.findFirst({ where: { currency: doc.currency, source: "BOC", rateDate: { lte: new Date() } }, orderBy: { rateDate: "desc" } });
+  const now = new Date(), data = { fxRateToCny: input.rateToCny, fxRateDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())), fxSource: "MANUAL", fxBy: `${actor.code} ${localIso(now)!.slice(0, 16).replace("T", " ")}`, totalCny: doc.total != null ? Math.round(Number(doc.total) * input.rateToCny * 100) / 100 : undefined };
+  if (input.kind === "order") await prisma.serviceOrder.update({ where: { id: doc.id }, data }); else await prisma.purchaseOrder.update({ where: { id: doc.id }, data });
+  await audit(actor.id, "FX_DOC_OVERRIDE", input.no, { currency: doc.currency, before: doc.fxRateToCny != null ? Number(doc.fxRateToCny) : null, rate: input.rateToCny, boc: boc ? Number(boc.rateToCny) : null, bocDate: boc ? localIso(boc.rateDate)!.slice(0, 10) : null, note: input.reason.trim() });
+}
+/** What the yellow line on a hand-rated document says: the rate, the Bank of China rate it stands in for, who and when, why. */
+export async function docRateNote(no: string, d: { currency: string; fxSource: string | null; fxRateToCny: unknown; fxBy: string | null }) {
+  if (d.fxSource !== "MANUAL" || d.fxRateToCny == null) return null;
+  const log = await prisma.auditLog.findFirst({ where: { action: "FX_DOC_OVERRIDE", target: no }, orderBy: { at: "desc" } });
+  const det = (log?.detail ?? {}) as { boc?: number | null; before?: number | null; note?: string };
+  return { rate: Number(d.fxRateToCny), boc: det.boc ?? null, before: det.before ?? null, by: d.fxBy ?? "", why: det.note ?? "" };
+}

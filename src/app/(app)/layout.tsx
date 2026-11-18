@@ -9,7 +9,7 @@ import { currentEmployee, signOut } from "@/server/auth";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { NAV } from "@/lib/nav";
-import { noticesFor } from "@/server/notify";
+import { cachedNotices } from "@/server/notify";
 import { MessageCenter } from "@/components/MessageCenter";
 import { PhoneTables } from "@/components/PhoneTables";
 import { MenuGuard } from "@/components/MenuGuard";
@@ -22,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const me = await currentEmployee(); // redirects to /login when not signed in
   const t = await getTranslations("nav");
   const c = await getTranslations("common");
-  const notices = await noticesFor(me).catch(() => []); // a reminder query must never take the page down
+  const notices = await cachedNotices(me).catch(() => []); // a reminder query must never take the page down
   // 权限管理: entries this role may not open leave the menu, and the page behind them is refused (server on arrival, client on moves inside the app)
   const hidden = await hiddenFor(me).catch(() => new Set<string>());
   const here = (await headers()).get("x-dcit-path");

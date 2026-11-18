@@ -52,6 +52,7 @@ export async function issueTaxInvoice(input: z.input<typeof TaxInvoiceInput>) {
   const first = order.decline ? order.status === "DECLINED" : order.status === "ACCEPTED";
   if (!first && !reissue) throw new Error(order.status === "INVOICED" ? `TI_EXISTS:${order.taxInvoices.find((t) => !t.voidedAt)?.no ?? ""}` : `${order.no} must be ACCEPTED before invoicing (is ${order.status})`);
   if (!order.decline && Number(order.total ?? 0) <= 0) throw new Error(`INVOICE_ZERO:${order.no}`); // 0 元不开票 (V4-P0-06)
+  if (order.noInvoiceAt) throw new Error(`NO_INVOICE_MARKED:${order.no}`); // 已标「不开票」
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   const issuedAt = d.issuedAt ?? new Date();
   const currency = order.entity.localCurrency;
@@ -366,4 +367,21 @@ export async function withdrawVoidRequest(input: { no: string; actorCode: string
   const data = { voidStatus: "NONE" as const, voidRequestedById: null, voidRequestReason: null };
   if (ti) await prisma.taxInvoice.update({ where: { id: ti.id }, data }); else await prisma.receipt.update({ where: { id: rc!.id }, data });
   await audit(actor.id, "VOID_REQUEST_WITHDRAWN", input.no, { reason: row.voidRequestReason });
+}
+
+/**
+ * 不开票 (派修单 v4 C): finance or the MD takes an accepted order out of the invoice candidates — a test order, a job
+ * billed another way — with a reason. It moves to the 已排除 list with who, when and why; undoing it is logged too.
+ */
+export async function markNoInvoice(input: { no: string; actorCode: string; reason?: string; undo?: boolean }) {
+  const actor = await actorWith(input.actorCode, can.invoice);
+  const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no } });
+  if (input.undo) {
+    if (!o.noInvoiceAt) return o;
+    await audit(actor.id, "NO_INVOICE_UNDONE", o.no, { was: o.noInvoiceReason, by: o.noInvoiceBy });
+    return prisma.serviceOrder.update({ where: { id: o.id }, data: { noInvoiceAt: null, noInvoiceBy: null, noInvoiceReason: null } });
+  }
+  if (!input.reason?.trim()) throw new Error("REASON_REQUIRED");
+  await audit(actor.id, "NO_INVOICE_MARKED", o.no, { reason: input.reason.trim() });
+  return prisma.serviceOrder.update({ where: { id: o.id }, data: { noInvoiceAt: new Date(), noInvoiceBy: actor.code, noInvoiceReason: input.reason.trim() } });
 }

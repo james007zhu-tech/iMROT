@@ -1,4 +1,6 @@
 import { can, hasRole } from "@/lib/caps";
+import { FxDoc } from "@/components/FxDoc";
+import { docRateNote } from "@/server/fx";
 import { fxMark } from "@/lib/fx-label";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
@@ -88,6 +90,7 @@ export default async function PurchaseOrder({ params, searchParams }: { params: 
           <button name="decision" value="yes" className={btnBlue}>{u("poApprove")}</button><button name="decision" value="no" className={btnGhost}>{u("poRefuse")}</button>
         </form></Card>}
       <Flash ok={ok} error={error?.startsWith("UNKNOWN_SKU") ? undefined : error} />
+      {seeCost && po.fxRateToCny != null && <FxDoc kind="po" no={po.no} back={`/purchasing/orders/${po.no}`} canEdit={can.finance(me)} currency={po.currency} current={Number(po.fxRateToCny)} note={await docRateNote(po.no, po)} />}
       {error?.startsWith("UNKNOWN_SKU") && <Alert>{u("unknownSku", { list: error.split(":").slice(1).join(":") })} {error.split(":").slice(1).join(":").split(",").map((s) => <Link key={s} href={`/parts/new?vendor=${encodeURIComponent(s.replace(/^[A-Z]{2,4}-/, ""))}&back=/purchasing/orders/${po.no}`} className="ml-2 underline">＋ {s}</Link>)}</Alert>}
       <Card title={u("poHeader")}>
         <div className="grid gap-2 text-sm md:grid-cols-4">

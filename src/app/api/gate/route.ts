@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   // /documents/new?type=IB only forwards to the form of that document: it is judged as that form
   const fwd = path.startsWith("/documents/new") ? DOC_PLACES[url.searchParams.get("path")?.match(/[?&]type=([A-Z]+)/)?.[1] ?? ""]?.newHref : undefined;
   const refused = hidden.has(menuKeyOf(path) ?? "") || !pathAllows(me, path.split("?")[0]) || (!!fwd && (hidden.has(menuKeyOf(fwd) ?? "") || !pathAllows(me, fwd.split("?")[0])));
-  if (refused) return NextResponse.json({ ok: false, roles: ownersOf(path) });
+  if (refused) return NextResponse.json({ ok: false, roles: ownersOf(fwd && pathAllows(me, path.split("?")[0]) ? fwd : path) }); // refused as the form it forwards to: name that form's roles (N-27)
   // 数据范围 and 他人档案 are refused here too, before the page runs — a refusal made inside a page that has begun to
   // stream answers 200 (派修单 v3 第 7 条: every refusal is 403).
   const p = path.split("?")[0], seg = p.split("/").filter(Boolean).map(decodeURIComponent);

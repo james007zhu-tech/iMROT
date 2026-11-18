@@ -17,8 +17,8 @@ export const dynamic = "force-dynamic";
  * 加班 (OPD, 2026-11-09). Everyone: apply before the work, confirm the actual hours after it, withdraw. Managers and the MD:
  * approve. The MD: the month-end results (closed automatically on the 1st, Bangkok time) — amounts are salary data, MD only.
  */
-export default async function Overtime({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
-  const { ok, error } = await searchParams;
+export default async function Overtime({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; om?: string; os?: string; oe?: string }> }) {
+  const sp = await searchParams, { ok, error } = sp;
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
   const md = hasRole(me, "MD");
   await autoCloseOvertime().catch(() => []); // the hourly job may have missed a restart around midnight — closing is idempotent
@@ -43,7 +43,9 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
     if (m < month) m = month; // approved late: paid with the running month
     return u("otPayExpected", { month: m });
   };
-  const everyone = hasRole(me, "MD", "HR") ? await allOvertime(me.entityId) : [];
+  const flt = { month: sp.om || undefined, status: sp.os || undefined, code: sp.oe || undefined };
+  const everyone = hasRole(me, "MD", "HR") ? await allOvertime(me.entityId, flt) : [];
+  const staffAll = hasRole(me, "MD", "HR") ? await prisma.employee.findMany({ where: { entityId: me.entityId, active: true }, orderBy: { code: "asc" }, select: { code: true, name: true } }) : [];
   const prevClosed = months.some((m) => m.month === previousMonth);
   return (
     <div className="space-y-4">
@@ -100,7 +102,14 @@ export default async function Overtime({ searchParams }: { searchParams: Promise
         </Table>
       </Card>
 
-      {hasRole(me, "MD", "HR") && <Card title={u("otEveryone")}>
+      {hasRole(me, "MD", "HR") && <Card title={`${u("otEveryone")} (${everyone.length})`}>
+        <form className="mb-2 flex flex-wrap items-end gap-2 text-sm">
+          <label className="text-xs text-navy/70">{u("leaveMonth")}<input name="om" type="month" defaultValue={flt.month ?? ""} className={`${inputCls} mt-1 block`} /></label>
+          <label className="text-xs text-navy/70">{t("status")}<select name="os" defaultValue={flt.status ?? ""} className={`${inputCls} mt-1 block`}><option value="">—</option>{(["PENDING", "APPROVED", "REJECTED", "CANCELLED"] as const).map((k) => <option key={k} value={k}>{u(`otStatus_${k}`)}</option>)}</select></label>
+          <label className="text-xs text-navy/70">{t("employees")}<select name="oe" defaultValue={flt.code ?? ""} className={`${inputCls} mt-1 block`}><option value="">—</option>{staffAll.map((e) => <option key={e.code} value={e.code}>{e.code} {e.name}</option>)}</select></label>
+          <button className={btnGhost}>{u("auditShow")}</button>
+          <a href={`/people/overtime/export?${new URLSearchParams(Object.fromEntries(Object.entries({ om: flt.month, os: flt.status, oe: flt.code }).filter(([, v]) => v)) as Record<string, string>).toString()}`} className={btnGhost}>{u("otExport")}</a>
+        </form>
         <Table head={[t("employees"), u("otDate"), u("otTime"), u("otHours"), u("otKind"), u("otReason"), t("status"), u("otPaidIn")]}>
           {everyone.map((r) => <tr key={r.id}>
             <td className="whitespace-nowrap"><span className="font-mono text-xs">{r.employee.code}</span> {r.employee.name}</td>

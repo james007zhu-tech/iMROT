@@ -33,7 +33,7 @@ export async function canReadDocument(scope: SessionScope, no: string): Promise<
 /** The signed-in employee behind an API call, or null. */
 export async function staffMe() {
   const code = await sessionEmployeeCode();
-  return code ? prisma.employee.findUnique({ where: { code }, select: { id: true, code: true, role: true, entityId: true } }) : null;
+  return code ? prisma.employee.findUnique({ where: { code }, select: { id: true, code: true, role: true, extraRoles: true, approver: true, entityId: true } }) : null; // extra roles and the team-approver flag decide what may be opened (N-16: a supervisor could not open the team's RPTH)
 }
 
 /**

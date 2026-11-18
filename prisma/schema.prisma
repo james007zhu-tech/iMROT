@@ -890,6 +890,9 @@ model ServiceOrder {
   sales              Employee?          @relation("OrderSales", fields: [salesId], references: [id])
   customerRef        String? /// customer's own order number, verbatim (e.g. XCGDD2610140001)
   invoiceNudgedAt    DateTime? /// Sales pressed 催财务开票: the customer is waiting for the invoice (需求清单 v4 V4-P0-05)
+  noInvoiceAt        DateTime? /// 不开票 (派修单 v4 C): finance or the MD took the order out of the invoice candidates — with a reason; can be undone
+  noInvoiceBy        String?
+  noInvoiceReason    String?
   poStaleAt          DateTime? /// the quote changed after the customer's PO was confirmed: the PO is confirmed again before anything is delivered (需求清单 v3 P0-07)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
   requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH
@@ -1442,6 +1445,7 @@ model SupplierPayment {
   whtAmount         Decimal         @default(0) @db.Decimal(18, 2) /// the withholding tax of this part, remitted to the Revenue Department
   whtRate           Decimal?        @db.Decimal(5, 4) /// the rate withheld on this payment (on its share of the amount before VAT)
   gross             Decimal?        @db.Decimal(18, 2) /// the part of the invoice this payment settles: amount + whtAmount
+  whtType           String? /// SERVICE 3% | RENT 5% | TRANSPORT 1% | ADVERTISING 2% | OTHER — what the 50 ทวิ says was paid for
   whtCertNo         String? /// 50 ทวิ number, when tax is withheld
   payDate           DateTime
   status            String          @default("REQUESTED") /// REQUESTED → APPROVED → PAID; REJECTED; VOID (reversed)

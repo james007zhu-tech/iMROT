@@ -259,8 +259,9 @@ export async function myOvertime(employeeId: string) {
 }
 
 /** 全员加班 (H-R68): HR and the MD see every request of the company — newest first. */
-export async function allOvertime(entityId: string) {
-  return prisma.overtimeRequest.findMany({ where: { entityId }, orderBy: [{ workDate: "desc" }, { startTime: "desc" }], take: 200, include: { employee: { select: { code: true, name: true } }, approver: { select: { name: true } }, payMonth: { select: { month: true } } } });
+export async function allOvertime(entityId: string, f: { month?: string; status?: string; code?: string } = {}) {
+  const m = f.month && /^\d{4}-\d{2}$/.test(f.month) ? monthRange(f.month) : null;
+  return prisma.overtimeRequest.findMany({ where: { entityId, ...(m ? { workDate: { gte: m.from, lt: m.to } } : {}), ...(f.status ? { status: f.status as never } : {}), ...(f.code ? { employee: { code: f.code } } : {}) }, orderBy: [{ workDate: "desc" }, { startTime: "desc" }], take: 500, include: { employee: { select: { code: true, name: true } }, approver: { select: { name: true } }, payMonth: { select: { month: true } } } });
 }
 
 /** Requests waiting for this person: their direct reports' (managers) or everyone's (MD). */

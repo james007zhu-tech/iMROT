@@ -193,11 +193,23 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const partnerCosts = order.mode === "PARTNER_REPAIR" ? await partnerCostByAsset(prisma, order.id) : new Map<string, number>();
   // 报价单成本必填 (MD 2026-11-17 18:29): a quote without cost has no margin. Whoever may see what we paid gets the last
   // purchase price where they wrote nothing; Sales writes its own estimate on every line — a line without one is refused.
-  if (!itemsOnly && order.mode !== "PARTNER_REPAIR") {
-    const noCost = d.lines.map((l, i) => (l.qty > 0 && l.unitCost == null && !(can.cost(actor) && l.partSku && Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) > 0) ? i + 1 : 0)).filter(Boolean);
-    if (noCost.length) throw new Error(`QUOTE_COST_REQUIRED:${noCost.join("、")}`);
+  // 派修单 v4 第 2 条 (supersedes "Sales estimates"): Sales neither sees nor writes a cost. For Sales the cost of a line is
+  // what the MD / finance wrote on that line before, else the part's last purchase cost — taken here, never shown. A
+  // line that has neither is 待补成本: the lines are saved, the quote does not go out until the MD or finance fills it.
+  const seesCost = can.cost(actor) || can.margin(actor);
+  if (!itemsOnly && !seesCost) {
+    const before = await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, include: { part: { select: { sku: true } } } }), left = [...before];
+    d.lines = d.lines.map((l) => {
+      const at = left.findIndex((b) => (l.partSku && b.part?.sku === l.partSku.trim()) || (!l.partSku && b.description === l.description));
+      const b = at >= 0 ? left.splice(at, 1)[0] : undefined;
+      return { ...l, unitCost: b?.unitCost != null ? Number(b.unitCost) : undefined };
+    });
   }
-  const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? (l.partSku && can.cost(actor) ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined) })), partnerCosts); // the last purchase cost is filled in only for those who may see it (派修单 v3 第 5 条)
+  const lastCostOf = (l: { partSku?: string | null }) => (l.partSku ? Number(parts.found.get(l.partSku.trim())?.lastCost ?? 0) || undefined : undefined);
+  const noCost = !itemsOnly && order.mode !== "PARTNER_REPAIR" ? d.lines.map((l, i) => (l.qty > 0 && l.unitCost == null && !lastCostOf(l) ? i + 1 : 0)).filter(Boolean) : [];
+  if (noCost.length && seesCost) throw new Error(`QUOTE_COST_REQUIRED:${noCost.join("、")}`);
+  const costPending = noCost; // Sales: saved, not sent
+  const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? lastCostOf(l) })), partnerCosts);
   const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
 
   // 需求清单 v3 P0-07: what is quoted changed after the customer's PO was confirmed → the PO on file no longer says
@@ -227,13 +239,14 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
         ...(d.warrantyDays !== undefined ? { warrantyDays: d.warrantyDays } : {}),
       },
     });
-    for (const link of itemsOnly ? [] : order.assets) {
+    for (const link of itemsOnly || costPending.length ? [] : order.assets) {
       await tx.assetEvent.create({ data: { assetId: link.assetId, type: "QUOTED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `${order.currency} ${t.total.toFixed(2)} · ${d.lines.length} lines`, payload: { ...t, costTotal: cost, marginPct: pct, marginApproval: approval } as unknown as Prisma.InputJsonValue } });
     }
-    if (itemsOnly) { await audit(actor.id, "QUOTE_ITEMS", order.no, { lines: d.lines.length }, tx); return updated; }
+    if (itemsOnly) { await audit(actor.id, "QUOTE_ITEMS", order.no, { lines: d.lines.length }, tx); return Object.assign(updated, { costPending: [] as number[] }); }
+    if (costPending.length) { await audit(actor.id, "QUOTE_COST_PENDING", order.no, { lines: costPending }, tx); return Object.assign(updated, { costPending }); } // saved; it goes out once the cost is in
     await tx.serviceOrder.update({ where: { id: order.id }, data: { priceHint: null, priceHintById: null, priceHintAt: null } });
     await progressOrder(tx, order, "QUOTE_PENDING", actor.id);
-    return updated;
+    return Object.assign(updated, { costPending: [] as number[] });
   });
 }
 
