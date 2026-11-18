@@ -4,7 +4,7 @@ import { FxDoc } from "@/components/FxDoc";
 import { docRateNote } from "@/server/fx";
 import { assertOrderAccess } from "@/server/scope";
 import { fxMark } from "@/lib/fx-label";
-import { can, hasRole, isApprover } from "@/lib/caps";
+import { can, hasRole, isApprover, pathAllows } from "@/lib/caps";
 import { skuGaps } from "@/server/purchasing";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
@@ -209,7 +209,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
       <DocChain order={order.no} slots={chain} />
       <Flash ok={ok} error={error} />
-      {seePrice && order.fxRateToCny != null && <FxDoc kind="order" no={order.no} back={`/service-orders/${order.no}`} canEdit={can.finance(me)} currency={order.currency} current={Number(order.fxRateToCny)} note={await docRateNote(order.no, order)} />}
+      {seePrice && order.fxRateToCny != null && <FxDoc kind="order" no={order.no} back={`/service-orders/${order.no}`} canEdit={can.finance(me) && order.status !== "INVOICED" && order.status !== "CLOSED"} pending={order.fxPending as never} isMd={hasRole(me, "MD")} currency={order.currency} current={Number(order.fxRateToCny)} note={await docRateNote(order.no, order)} />}
       {gaps.length > 0 && <Alert>{u("buyNeedsSku")}：{gaps.map((g) => `${g.lineNo ? `#${g.lineNo} ` : ""}${g.description}`).join("；")}。 <Link href={`/service-orders/${no}/quote`} className="font-semibold underline">{u("buyNeedsSkuGo")} →</Link></Alert>}
       {order.status === "ACCEPTANCE_PENDING" && order.mode !== "DOMESTIC_TRADE" && order.mode !== "INTERNATIONAL_TRADE" && !(order.acceptSheet as { files?: unknown[] } | null)?.files?.length && <Alert>{u("waitsAcceptSheet")} <Link href={`/service-orders/${no}/accept`} className="font-semibold underline">{u("acceptSheetUpload")}</Link></Alert>}
       {order.poStaleAt && !dec && <Alert>{u("poStale")} {can.confirmPo(me) && <Link href={`/service-orders/${no}/confirm`} className="font-semibold underline">{u("poStaleGo")}</Link>}</Alert>}
@@ -235,6 +235,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
                 <Field label={u("paymentTerms")}><Value>{terms.paymentTerms}{terms.paymentDays ? ` · ${u("paymentDaysShort", { n: terms.paymentDays })}` : ""}</Value></Field>
                 <Field label={t("currency")}><Value className="font-mono">{order.currency}</Value></Field></>}
             </Grid>
+            <p className="mb-1 mt-2 text-xs text-navy/70">{u("inquiryLinesNote", { n: ((order.requestLines as unknown[] | null) ?? []).length })}{order.lines.length > 0 ? ` ${u("inquiryLinesVsQuote", { q: order.lines.length })}` : ""}</p>
             <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy")]}>
               {((order.requestLines as { sku?: string; description: string; qty: number; unit: string; neededBy?: string }[] | null) ?? []).map((l, i) => <tr key={i}><td>{i + 1}</td><td className="font-mono">{l.sku ?? "—"}</td><td>{l.description}</td><td className="text-right">{l.qty}</td><td>{l.unit}</td><td>{l.neededBy ?? ""}</td></tr>)}
             </Table>
@@ -336,7 +337,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </Card>}
           {order.transferredTo && <Alert>{u("transferredTo", { no: order.transferredTo.no })} <Link href={`/service-orders/${order.transferredTo.no}`} className="font-mono text-blue underline">{order.transferredTo.no}</Link></Alert>}
           {(also.length > 0 || canBuy) && <Card title={u("alsoPossible")}>
-            <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={hrefOf(s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
+            <div className="flex flex-col gap-2">{also.map((s) => <Link key={s} href={hrefOf(s)} className={btnGhost}>{stepLabel(s)}</Link>)}{canBuy && pathAllows(me, "/purchasing/inquiries/new") && <Link href={`/purchasing/inquiries/new?order=${order.no}`} className={btnGhost}>{u("newInquiry")} (PRTH)</Link>}</div>
           </Card>}
           {transitions.length > 0 && <Card title={t("status")}>
             {mayClose && settledAwaitingClose && <Alert>{u("settledAwaitingClose")}</Alert>}

@@ -896,6 +896,9 @@ model ServiceOrder {
   poStaleAt          DateTime? /// the quote changed after the customer's PO was confirmed: the PO is confirmed again before anything is delivered (需求清单 v3 P0-07)
   poLines            Json? /// the customer PO, line by line: [{lineNo, description, qty, unit, isService}] — delivery notes are checked against it
   requestLines       Json? /// 贸易 (no ATH): the customer's inquiry, [{sku?, description, qty, unit, neededBy?, hsCode?, origin?}] — the quote starts from it, shortages raise a PRTH
+  /// 汇率待 MD 批准 (派修单 v5 P1-2, MD Q3): a hand-set rate more than 2 % off the Bank of China rate is not applied until
+  /// the MD approves; meanwhile no tax invoice is issued. {rate, boc, bocDate, diffPct, reason, by, at}
+  fxPending          Json?
   /// 客户签字验收单 (派修单 v5 P1-11, MD 2026-11-18 11:55): the customer's signed acceptance sheet, uploaded (PDF / photo).
   /// A repair order is not accepted — and not invoiced — without it; one sheet may cover several orders of a customer.
   /// {sheetId, files: [{name, url}], by, at, orders: [QTTH…]}
@@ -1469,6 +1472,9 @@ model SupplierPayment {
   paidAt            DateTime?
   paymentRef        String? /// bank transfer reference, verbatim
   slip              Json? /// the bank slip: [{ name, url }]
+  /// 外币付款的汇率 (派修单 v5 P1-3): {ccy, rate (1 ccy = rate THB), boc, bocDate, manual, reason?, by?, at?, equiv}
+  /// — BoC rate of the pay day by default; finance may set its own with a reason, the MD sees both when approving
+  fx                Json?
   voidedBy          String?
   voidedAt          DateTime?
   voidReason        String?
@@ -1622,6 +1628,8 @@ model ReceiptRequest {
   confirmedAt  DateTime?
   bankRef      String?
   slip         Json?
+  /// 收款汇率 (v5 P1-2): {ccy, rate (→ CNY), boc, bocDate, diffPct, manual, reason?, by?, at?, pending?, decidedBy?, decidedAt?}
+  fx           Json?
   receiptNo    String? /// the RCTH written at confirmation
 
   @@index([invoiceId])

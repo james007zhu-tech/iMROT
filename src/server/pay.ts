@@ -10,6 +10,7 @@
  * Only finance asks and confirms; only the MD decides; nobody else has an entrance. A payment entered by mistake is
  * reversed (冲回) by finance or the MD with a reason: the invoice gets its amount back, the PVTH stays on file as VOID.
  */
+import { rateFor } from "@/server/fx";
 import { WHT_TYPES, isTaxId13, taxIdChecks } from "@/lib/wht";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -62,7 +63,18 @@ async function person(code: string) { return prisma.employee.findUniqueOrThrow({
  * given) and the withholding rate (the invoice's own when not given). 预扣税 = rate × that part before VAT; 实付 = 应付 −
  * 预扣税. With tax withheld a 50 ทวิ number is taken.
  */
-export async function requestPayment(input: { invoiceId: string; actorCode: string; account: string; amount?: number; whtRate?: number; whtType?: string; payDate?: Date }) {
+/** The currency an account of ours is kept in — from its id (BOC-CNY-1234); cash and petty cash are local. */
+export const accountCcy = (id: string, local = "THB") => { const c = /^[A-Za-z]+-([A-Z]{3})-/.exec(id)?.[1] ?? local; return c === "RMB" ? "CNY" : c; };
+/** 1 unit of `ccy` in local currency at the Bank of China rate on or before the day (cross rate through CNY), or null. */
+export async function bocCross(ccy: string, on: Date, local = "THB"): Promise<{ rate: number; date: string } | null> {
+  if (ccy === local) return null;
+  const [a, b] = await Promise.all([rateFor(ccy, on), rateFor(local, on)]);
+  if (!a || !b || !(Number(b.rateToCny) > 0)) return null;
+  const d = a.rateDate < b.rateDate ? a.rateDate : b.rateDate;
+  return { rate: Math.round((Number(a.rateToCny) / Number(b.rateToCny)) * 1e6) / 1e6, date: d.toISOString().slice(0, 10) };
+}
+export type PayFx = { ccy: string; rate: number; boc: number | null; bocDate: string | null; manual: boolean; reason?: string; by?: string; at?: string; equiv: number; equivCcy: string };
+export async function requestPayment(input: { invoiceId: string; actorCode: string; account: string; amount?: number; whtRate?: number; whtType?: string; payDate?: Date; fxRate?: number; fxReason?: string }) {
   const actor = await person(input.actorCode);
   if (!hasRole(actor, "FINANCE")) throw new Error("FINANCE_PAYS");
   const inv = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: input.invoiceId }, include: { payments: true, supplier: { select: { name: true, taxId: true } } } });
@@ -79,12 +91,26 @@ export async function requestPayment(input: { invoiceId: string; actorCode: stri
   // 50 ทวิ needs the payee's 13-digit taxpayer number: tax cannot be withheld from a supplier without one on file
   if (wht > 0 && !isTaxId13(inv.supplier.taxId)) throw new Error("PAY_WHT_TAXID");
   const whtType = wht > 0 ? ((WHT_TYPES as readonly string[]).includes(input.whtType ?? "") ? input.whtType! : "SERVICE") : null;
+  // 外币 (v5 P1-3): money leaving a foreign-currency account, or settling a foreign-currency invoice, carries its rate to
+  // THB — the Bank of China rate of the pay day unless finance writes its own, and then with a reason. No threshold:
+  // every payment goes to the MD anyway, who sees both rates.
+  const local = "THB", ccy = accountCcy(input.account, local) !== local ? accountCcy(input.account, local) : inv.currency !== local ? inv.currency : null;
+  let fx: PayFx | null = null;
+  if (ccy) {
+    const boc = await bocCross(ccy, input.payDate ?? new Date(), local);
+    const rate = input.fxRate && input.fxRate > 0 ? Math.round(input.fxRate * 1e6) / 1e6 : boc?.rate;
+    if (!rate) throw new Error(`FX_RATE_MISSING:${ccy}`);
+    const manual = !boc || Math.abs(rate - boc.rate) > 1e-6;
+    if (manual && !input.fxReason?.trim()) throw new Error("FX_REASON_REQUIRED");
+    const same = inv.currency === ccy; // the invoice is in the account's currency → its THB value; a THB invoice paid from a foreign account → what leaves that account
+    fx = { ccy, rate, boc: boc?.rate ?? null, bocDate: boc?.date ?? null, manual, ...(manual ? { reason: input.fxReason!.trim(), by: actor.code, at: new Date().toISOString() } : {}), equiv: r2(same ? net * rate : net / rate), equivCcy: same ? local : ccy };
+  }
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "PV", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.payDate });
     await tx.document.create({ data: { no, type: "PV", entityId: inv.entityId, countryCode: no.slice(2, 4), createdById: actor.id, issuedAt: input.payDate } });
     const whtCertNo = wht > 0 ? await allocateNumber(tx, { prefix: "WT", createdByEmployeeCode: actor.code, entityId: inv.entityId, date: input.payDate }) : null;
-    await audit(actor.id, "PAYMENT_REQUESTED", no, { invoice: inv.invoiceNo, supplier: inv.supplier.name, gross, whtRate: rate, wht, amount: net, account: input.account, currency: inv.currency }, tx);
-    return tx.supplierPayment.create({ data: { no, entityId: inv.entityId, supplierInvoiceId: inv.id, account: input.account, gross, whtRate: rate, whtType, amount: net, whtAmount: wht, whtCertNo, payDate: input.payDate ?? new Date(), requestedBy: actor.code } });
+    await audit(actor.id, "PAYMENT_REQUESTED", no, { invoice: inv.invoiceNo, supplier: inv.supplier.name, gross, whtRate: rate, wht, amount: net, account: input.account, currency: inv.currency, ...(fx ? { fx } : {}) }, tx);
+    return tx.supplierPayment.create({ data: { no, entityId: inv.entityId, supplierInvoiceId: inv.id, account: input.account, gross, whtRate: rate, whtType, amount: net, whtAmount: wht, whtCertNo, payDate: input.payDate ?? new Date(), requestedBy: actor.code, ...(fx ? { fx: fx as unknown as Prisma.InputJsonValue } : {}) } });
   });
 }
 

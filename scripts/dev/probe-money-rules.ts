@@ -26,6 +26,22 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     check("no account chosen: refused", /PAY_ACCOUNT_REQUIRED/.test(await msg(ask(small.id, fin.code, { account: "" }))));
     check("an account that is not ours: refused", /PAY_ACCOUNT_REQUIRED/.test(await msg(ask(small.id, fin.code, { account: "SOMEWHERE" }))));
     check("more than what is open: refused", /PAY_OVER/.test(await msg(ask(small.id, fin.code, { amount: 12000.5 }))));
+    { // 派修单 v5 P1-3: a foreign-currency account carries its rate to THB; a changed rate needs a reason and is marked manual
+      const { payAccounts, voidPayment } = await import("../../src/server/pay");
+      const fa = (await payAccounts(small.entityId)).find((a) => /-(CNY|USD)-/.test(a.id));
+      if (!fa) console.log("  · (no foreign-currency account on the probe entity: the rate checks are skipped)");
+      else {
+        const auto = await requestPayment({ invoiceId: small.id, actorCode: fin.code, account: fa.id, amount: 100 });
+        const fx0 = auto.fx as { rate: number; boc: number | null; manual: boolean; equiv: number; equivCcy: string } | null;
+        check("a foreign-currency account takes the Bank of China rate of the day and says what leaves it", !!fx0 && !fx0.manual && fx0.rate === fx0.boc && fx0.equiv > 0 && fx0.equivCcy !== "THB", JSON.stringify(fx0));
+        await voidPayment({ id: auto.id, actorCode: fin.code, reason: "probe" });
+        check("a changed rate without a reason is refused", /FX_REASON_REQUIRED/.test(await msg(requestPayment({ invoiceId: small.id, actorCode: fin.code, account: fa.id, amount: 100, fxRate: (fx0?.rate ?? 5) * 1.05 }))));
+        const man = await requestPayment({ invoiceId: small.id, actorCode: fin.code, account: fa.id, amount: 100, fxRate: (fx0?.rate ?? 5) * 1.05, fxReason: "bank" });
+        const fx1 = man.fx as { manual: boolean; reason?: string; by?: string; boc: number | null } | null;
+        check("with a reason it is kept as manual — who, why, and the BoC rate beside it; no threshold", !!fx1?.manual && fx1.reason === "bank" && fx1.by === fin.code && fx1.boc === fx0?.boc, JSON.stringify(fx1));
+        await voidPayment({ id: man.id, actorCode: fin.code, reason: "probe" });
+      }
+    }
     // one baht
     const one = await ask(own.id, fin.code, { amount: 1 });
     const st = async (id: string) => (await prisma.supplierInvoice.findUniqueOrThrow({ where: { id } }));

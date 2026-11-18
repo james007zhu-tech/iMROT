@@ -55,6 +55,23 @@ async function main() {
   const sal = await prisma.salaryRecord.findFirst({ where: { employeeId: md.id } });
   if (sal) await refused(() => rawIssue({ serviceOrderNo: o.no, actorCode: md.code, lines }), /COST_CHANGED/, "hours changed after the recognition → recognise again");
   else console.log("  · (no salary record for the probe engineer: the changed-cost check is skipped)");
+  console.log("0b. 手动汇率: 2 % 以内直接生效, 超过要 MD 批 (v5 P1-2)");
+  { const { overrideDocRate, decideDocRate, bocFor } = await import("../../src/server/fx");
+    const boc = await bocFor("THB");
+    if (!boc) console.log("  · (no BoC rate for THB on this database: skipped)");
+    else {
+      const r1 = await overrideDocRate({ kind: "order", no: o.no, actorCode: md.code, rateToCny: Math.round(boc.rate * 1.015 * 1e8) / 1e8, reason: "probe" });
+      const a1 = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } });
+      assert(r1 === "saved" && a1.fxSource === "MANUAL" && !a1.fxPending, "1.5 % off the BoC rate: takes effect at once, nothing for the MD");
+      const r2 = await overrideDocRate({ kind: "order", no: o.no, actorCode: md.code, rateToCny: Math.round(boc.rate * 1.03 * 1e8) / 1e8, reason: "probe" });
+      const a2 = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } });
+      assert(r2 === "pending" && !!a2.fxPending && Number(a2.fxRateToCny) === Number(a1.fxRateToCny), "3 % off: waits for the MD, the order keeps its rate");
+      await refused(() => rawIssue({ serviceOrderNo: o.no, actorCode: md.code, lines }), /FX_WAITS_MD/, "no tax invoice while the rate waits for the MD");
+      await refused(() => decideDocRate({ no: o.no, actorCode: sp.code, approve: true }), /MD_ONLY/, "only the MD decides on the rate");
+      await decideDocRate({ no: o.no, actorCode: md.code, approve: true });
+      const a3 = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: o.id } });
+      assert(!a3.fxPending && Math.abs(Number(a3.fxRateToCny) - boc.rate * 1.03) < 1e-6, "approved: the rate is the order's");
+    } }
   console.log("1. first TITH + IVTH");
   const ti1 = await issueTaxInvoice({ serviceOrderNo: o.no, actorCode: md.code, lines });
   const iv1 = await issueInvoice({ serviceOrderNo: o.no, actorCode: md.code, taxInvoiceNo: ti1.no });
@@ -111,6 +128,17 @@ async function main() {
   await refused(() => confirmReceipt({ id: one.id, actorCode: fin.code, bankRef: " ", slip: [{ name: "s", url: "/uploads/s.jpg" }] }), /PAY_REF_REQUIRED/, "no transfer reference, not received");
   assert((await prisma.receipt.count({ where: { invoice: { no: iv2.no } } })) === 0 && Number((await prisma.invoice.findUniqueOrThrow({ where: { no: iv2.no } })).paidAmount ?? 0) === 0, "nothing is counted as received before the confirmation");
   await withdrawReceipt({ id: one.id, actorCode: fin.code });
+  { const { bocFor } = await import("../../src/server/fx"); const { decideReceiptRate } = await import("../../src/server/collect");
+    const boc = await bocFor("THB");
+    if (boc) {
+      await refused(() => requestReceipt({ invoiceNo: iv2.no, actorCode: fin.code, account: "CASH", cashAmount: 1, receivedOn: new Date(), fxRate: boc.rate * 1.05 }), /FX_REASON_REQUIRED/, "a changed receipt rate needs a reason");
+      const q = await requestReceipt({ invoiceNo: iv2.no, actorCode: fin.code, account: "CASH", cashAmount: 1, receivedOn: new Date(), fxRate: boc.rate * 1.05, fxReason: "probe" });
+      await refused(() => decideReceipt({ id: q.id, actorCode: md.code, approve: true }), /RC_FX_WAITS_MD/, "5 % off: the rate is approved first, as a step of its own");
+      await decideReceiptRate({ id: q.id, actorCode: md.code, approve: true });
+      await decideReceipt({ id: q.id, actorCode: md.code, approve: true });
+      await withdrawReceipt({ id: q.id, actorCode: fin.code });
+      console.log("  ok receipt rate 5 % off: MD approves the rate, then the receipt");
+    } }
   console.log("5. receipt: void asked, MD approves → the money is owed again");
   const p1 = await recordPayment({ invoiceNo: iv2.no, actorCode: md.code, paidAt: new Date(), paidAmount: 4000, whtAmount: 0 } as never);
   // 部分收款 (需求清单 v3 P0-16): 4,000 of 10,700 received — the invoice is not "paid", 6,700 is still owed, everywhere

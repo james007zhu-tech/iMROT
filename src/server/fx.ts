@@ -6,7 +6,8 @@ import { localIso } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { fetchBocRates, toFxRate } from "@/lib/fx/boc";
 import { audit } from "@/server/audit";
-import { can } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
+import { Prisma } from "@prisma/client";
 
 export async function refreshBocRates(): Promise<{ rateDate: string; count: number }> {
   const rows = await fetchBocRates();
@@ -111,17 +112,55 @@ export function refreshIfStale(ageDays: number | null | undefined) {
  * the change, the rate before and the Bank of China rate of the day are in the audit log.
  */
 export const FX_REASONS = ["bank", "contract", "other"] as const;
-export async function overrideDocRate(input: { kind: "order" | "po"; no: string; actorCode: string; rateToCny: number; reason: string }) {
+export const FX_MD_THRESHOLD = 0.02;
+/** The Bank of China rate a hand-set rate is measured against: the day's, or the last published before it (the date says which). */
+export async function bocFor(currency: string, on: Date = new Date()) {
+  const r = await prisma.fxRate.findFirst({ where: { currency, source: "BOC", rateDate: { lte: on } }, orderBy: { rateDate: "desc" } });
+  return r ? { rate: Number(r.rateToCny), date: localIso(r.rateDate)!.slice(0, 10) } : null;
+}
+export const fxDiff = (rate: number, boc: number | null | undefined) => (boc && boc > 0 ? Math.abs(rate - boc) / boc : 0);
+export type FxPending = { rate: number; boc: number; bocDate: string; diffPct: number; reason: string; by: string; at: string };
+/**
+ * 派修单 v5 P1-2 (MD Q3). The rate of an order is what its 开票单 (IVTH / TITH) is written at. Up to 2 % off the Bank of
+ * China rate a hand-set rate takes effect at once, with its trace. Beyond that it waits for the MD: nothing changes on
+ * the order, it carries 汇率待 MD 批准, and no tax invoice is issued until the MD has decided. A purchase order has no
+ * threshold — its payment goes to the MD anyway (P1-3). The global rate table is never touched from here.
+ */
+export async function overrideDocRate(input: { kind: "order" | "po"; no: string; actorCode: string; rateToCny: number; reason: string }): Promise<"saved" | "pending"> {
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   if (!can.finance(actor)) throw new Error("NO_PERMISSION");
   if (!(input.rateToCny > 0)) throw new Error("FX_RATE_REQUIRED");
   if (!input.reason?.trim()) throw new Error("REASON_REQUIRED");
   const doc = input.kind === "order" ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, select: { id: true, currency: true, total: true, fxRateToCny: true, fxRateDate: true } }) : await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.no }, select: { id: true, currency: true, total: true, fxRateToCny: true, fxRateDate: true } });
   if (doc.currency === "CNY") throw new Error("FX_CURRENCY");
-  const boc = await prisma.fxRate.findFirst({ where: { currency: doc.currency, source: "BOC", rateDate: { lte: new Date() } }, orderBy: { rateDate: "desc" } });
-  const now = new Date(), data = { fxRateToCny: input.rateToCny, fxRateDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())), fxSource: "MANUAL", fxBy: `${actor.code} ${localIso(now)!.slice(0, 16).replace("T", " ")}`, totalCny: doc.total != null ? Math.round(Number(doc.total) * input.rateToCny * 100) / 100 : undefined };
-  if (input.kind === "order") await prisma.serviceOrder.update({ where: { id: doc.id }, data }); else await prisma.purchaseOrder.update({ where: { id: doc.id }, data });
-  await audit(actor.id, "FX_DOC_OVERRIDE", input.no, { currency: doc.currency, before: doc.fxRateToCny != null ? Number(doc.fxRateToCny) : null, rate: input.rateToCny, boc: boc ? Number(boc.rateToCny) : null, bocDate: boc ? localIso(boc.rateDate)!.slice(0, 10) : null, note: input.reason.trim() });
+  if (input.kind === "order" && (await prisma.taxInvoice.count({ where: { serviceOrderId: doc.id, voidedAt: null } }))) throw new Error(`FX_ISSUED:${input.no}`); // an issued tax invoice is not re-rated: void and re-issue
+  const boc = await bocFor(doc.currency);
+  const now = new Date(), by = `${actor.code} ${localIso(now)!.slice(0, 16).replace("T", " ")}`;
+  if (input.kind === "order" && boc && fxDiff(input.rateToCny, boc.rate) > FX_MD_THRESHOLD + 1e-9) {
+    const pending: FxPending = { rate: input.rateToCny, boc: boc.rate, bocDate: boc.date, diffPct: Math.round(fxDiff(input.rateToCny, boc.rate) * 10000) / 100, reason: input.reason.trim(), by, at: now.toISOString() };
+    await prisma.serviceOrder.update({ where: { id: doc.id }, data: { fxPending: pending as unknown as Prisma.InputJsonValue } });
+    await audit(actor.id, "FX_DOC_PENDING", input.no, { currency: doc.currency, current: doc.fxRateToCny != null ? Number(doc.fxRateToCny) : null, ...pending });
+    return "pending";
+  }
+  const data = { fxRateToCny: input.rateToCny, fxRateDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())), fxSource: "MANUAL", fxBy: by, totalCny: doc.total != null ? Math.round(Number(doc.total) * input.rateToCny * 100) / 100 : undefined };
+  if (input.kind === "order") await prisma.serviceOrder.update({ where: { id: doc.id }, data: { ...data, fxPending: Prisma.DbNull } }); else await prisma.purchaseOrder.update({ where: { id: doc.id }, data });
+  await audit(actor.id, "FX_DOC_OVERRIDE", input.no, { currency: doc.currency, before: doc.fxRateToCny != null ? Number(doc.fxRateToCny) : null, rate: input.rateToCny, boc: boc?.rate ?? null, bocDate: boc?.date ?? null, note: input.reason.trim() });
+  return "saved";
+}
+/** The MD decides on a rate that waits (more than 2 % off): approved → it becomes the order's rate; refused → dropped. Both are kept. */
+export async function decideDocRate(input: { no: string; actorCode: string; approve: boolean; note?: string }) {
+  const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
+  if (!hasRole(actor, "MD")) throw new Error("MD_ONLY");
+  const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, select: { id: true, currency: true, total: true, fxRateToCny: true, fxPending: true } });
+  const p = o.fxPending as FxPending | null;
+  if (!p) throw new Error("FX_NOT_WAITING");
+  if (!input.approve && !input.note?.trim()) throw new Error("REASON_REQUIRED");
+  const now = new Date();
+  await prisma.serviceOrder.update({ where: { id: o.id }, data: input.approve
+    ? { fxRateToCny: p.rate, fxRateDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())), fxSource: "MANUAL", fxBy: p.by, totalCny: o.total != null ? Math.round(Number(o.total) * p.rate * 100) / 100 : undefined, fxPending: Prisma.DbNull }
+    : { fxPending: Prisma.DbNull } });
+  if (input.approve) await audit(actor.id, "FX_DOC_OVERRIDE", input.no, { currency: o.currency, before: o.fxRateToCny != null ? Number(o.fxRateToCny) : null, rate: p.rate, boc: p.boc, bocDate: p.bocDate, note: p.reason, approvedBy: actor.code, diffPct: p.diffPct });
+  await audit(actor.id, input.approve ? "FX_DOC_APPROVED" : "FX_DOC_REJECTED", input.no, { rate: p.rate, boc: p.boc, diffPct: p.diffPct, askedBy: p.by, note: input.note?.trim() || null });
 }
 /** What the yellow line on a hand-rated document says: the rate, the Bank of China rate it stands in for, who and when, why. */
 export async function docRateNote(no: string, d: { currency: string; fxSource: string | null; fxRateToCny: unknown; fxBy: string | null }) {
