@@ -11,12 +11,18 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname + req.nextUrl.search;
   const headers = new Headers(req.headers);
   headers.set("x-dcit-path", path);
+  if (req.nextUrl.pathname === "/no-access" && req.method !== "GET" && req.method !== "HEAD") return new NextResponse("NO_ACCESS:roles=MD", { status: 403, headers: { "content-type": "text/plain" } }); // nothing is ever posted to the 无权限 page (N-43)
   if (req.nextUrl.pathname === "/no-access") return NextResponse.rewrite(req.nextUrl, { status: 403, request: { headers } }); // every refusal answers 403 (派修单 v2 第 9 条)
   if (req.cookies.has("dcit_session")) {
     try {
       const r = await fetch(`http://127.0.0.1:${process.env.PORT || "3000"}/api/gate?path=${encodeURIComponent(path)}`, { headers: { cookie: req.headers.get("cookie") ?? "", "x-dcit-gate": gateKey() }, cache: "no-store" });
       const g = (await r.json()) as { ok?: boolean; roles?: string; scope?: boolean };
       if (r.ok && g.ok === false) {
+        // N-43 (2026-11-18): a refused save is answered right here. Rewriting a server-action POST to the 无权限 page made
+        // the server run the action against that page over and over until it ran out of memory — one such request from
+        // an account without the right took the whole system down. A POST gets a bare 403; the page (app/error.tsx)
+        // reads the marker and shows the 无权限 page.
+        if (req.method !== "GET" && req.method !== "HEAD") return new NextResponse(`NO_ACCESS:${g.scope ? "scope=1" : `roles=${encodeURIComponent(g.roles ?? "MD")}`}`, { status: 403, headers: { "content-type": "text/plain" } });
         const to = req.nextUrl.clone(); to.pathname = "/no-access"; to.search = g.scope ? "?scope=1" : `?roles=${encodeURIComponent(g.roles ?? "MD")}`;
         headers.set("x-dcit-path", "/no-access");
         return NextResponse.rewrite(to, { status: 403, request: { headers } });

@@ -55,6 +55,7 @@ export async function approveMargin(input: { no: string; actorCode: string; deci
     prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } }),
   ]);
   if (!hasRole(actor, "MD")) throw new Error("MD_ONLY");
+  if (order.marginApproval === "NO_COST") throw new Error(`QUOTE_COST_MISSING:${order.no}`); // 缺成本 cannot be approved (测试 2026-11-18)
   if (order.marginApproval !== "PENDING" && order.marginApproval !== "REJECTED") throw new Error(`MARGIN_NOT_PENDING:${order.no}`);
   return prisma.$transaction(async (tx) => {
     const u = await tx.serviceOrder.update({ where: { id: order.id }, data: { marginApproval: input.decision, marginApprovedById: actor.id, marginApprovedAt: new Date(), marginNote: input.note } });
@@ -265,6 +266,7 @@ export async function confirmCustomerPo(input: { no: string; actorCode: string; 
   const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, include: { assets: true } });
   const again = !!o.poStaleAt && o.status !== "QUOTE_PENDING"; // the quote changed during the work: the PO is confirmed again, the order stays where it is
   if (o.status !== "QUOTE_PENDING" && !again) throw new Error(`PO_ALREADY_CONFIRMED:${o.no}`);
+  if (o.marginApproval === "NO_COST") throw new Error(`QUOTE_COST_MISSING:${o.no}`);
   if (!quoteMayGoOut(o.marginApproval)) throw new Error(`MARGIN_APPROVAL_REQUIRED:${o.no}`);
   if (o.mode !== "PARTNER_REPAIR") { // 待补成本的行不能出单 (派修单 v4 第 2 条)
     const pending = (await prisma.quoteLine.findMany({ where: { serviceOrderId: o.id, unitCost: null, qty: { gt: 0 }, unitPrice: { gt: 0 } }, select: { lineNo: true }, orderBy: { lineNo: "asc" } })).map((l) => l.lineNo);

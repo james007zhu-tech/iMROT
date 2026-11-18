@@ -32,7 +32,8 @@ function keepable(form: HTMLFormElement) {
  * the form's id, else what its hidden fields say it is about (invoice id, document number), else its position.
  */
 function identity(form: HTMLFormElement, i: number) {
-  if (form.id) return form.id;
+  const own = form.getAttribute("id"); // not form.id: a field named "id" shadows it, and every payment form then shared one draft (2026-11-18)
+  if (own) return own;
   const hid = (Array.from(form.elements) as HTMLInputElement[]).filter((el) => el.type === "hidden" && !!el.name && !el.name.startsWith("$") && !!el.value).map((el) => `${el.name}=${el.value}`);
   return hid.length ? `h:${hid.join("&").slice(0, 200)}` : `#${i}`;
 }
@@ -50,7 +51,11 @@ function read(form: HTMLFormElement): Values {
   return v;
 }
 /** Put the values back so that React-controlled fields notice too (native setter + the events React listens to). */
-function write(form: HTMLFormElement, values: Values) {
+function write(form: HTMLFormElement, values: Values, again = true) {
+  // a field the draft holds may sit behind a pencil that has not been pressed yet (the hand-set rate of a payment):
+  // press it, and write once more when the field is there
+  if (again) { const have = new Set(fields(form).map((el) => el.name)); const opener = form.querySelector<HTMLElement>("[data-draft-open]");
+    if (opener && Object.keys(values).some((k) => !have.has(k) && values[k] !== "")) { setTimeout(() => { form.querySelector<HTMLElement>("[data-draft-open]")?.click(); setTimeout(() => write(form, values, false), 60); }, 60); } }
   for (const el of fields(form)) {
     if (!(el.name in values)) continue;
     const t = (el as HTMLInputElement).type, want = values[el.name];

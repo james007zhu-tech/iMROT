@@ -1,3 +1,4 @@
+import { missingCostLines } from "@/lib/margin";
 import { docTypeAllowed } from "@/server/scope";
 import { Icon } from "@/components/Icon";
 import { FxDoc } from "@/components/FxDoc";
@@ -85,6 +86,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const mine = (k: StepKey) => !(money(k) && !seeInv) && !(k === "confirm" && !can.confirmPo(me));
   const steps = nextSteps(shape);
   const waitsMargin = order.marginApproval === "PENDING";
+  // 测试 2026-11-18 P1: a priced line without cost — no margin, red, nothing goes to the MD or the customer
+  const noCost = order.marginApproval === "NO_COST", gapLines = noCost ? missingCostLines(order.lines.map((l) => ({ qty: Number(l.qty), unitPrice: Number(l.unitPrice), unitCost: l.unitCost != null ? Number(l.unitCost) : null }))) : [];
   const primary0 = businessClosureOn() || !steps.primary || !money(steps.primary) ? steps.primary : undefined;
   const primary = primary0 && mine(primary0) ? primary0 : undefined;
   async function nudge() {
@@ -203,13 +206,13 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </details>}
           {allReports.length > 0 && <details className="relative"><summary className={`${btnGhost} cursor-pointer list-none`}>{u((await pdfAvailable()) ? "exportPdf" : "exportWord")} ▾</summary><div className="absolute right-0 z-10 mt-1 flex w-64 flex-col gap-1 rounded-lg border bg-white p-2 text-sm shadow">{allReports.map((r) => <a key={`${r.no}${r.key}`} className="rounded px-2 py-1 hover:bg-tint" href={`/api/documents/${r.no}/render?format=pdf${r.template ? `&template=${r.template}` : ""}`}>{u(r.key)} <span className="font-mono text-xs text-navy/60">{r.no}</span></a>)}</div></details>}
           {/* a quote under the margin floor goes nowhere until the MD has decided: say so here, not after the next form is filled */}
-          {waitsMargin ? (hasRole(me, "MD") ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-[#C0392B] bg-[#FDECEC] px-3 py-2 text-sm font-semibold text-[#C0392B]" role="status">{u(seeCost ? "marginWaitingMd" : "priceWaitingMd")}</span>)
+          {noCost ? <Link href={`/service-orders/${no}/quote`} className="rounded-lg border border-[#C0392B] bg-[#FDECEC] px-3 py-2 text-sm font-semibold text-[#C0392B]" role="status">{u("quoteNoCostShort", { list: gapLines.join("、") })} →</Link> : waitsMargin ? (hasRole(me, "MD") ? <a href="#margin" className={btnBlue}>{u("nextStep")}: {u("marginDecision")}</a> : <span className="rounded-lg border border-[#C0392B] bg-[#FDECEC] px-3 py-2 text-sm font-semibold text-[#C0392B]" role="status">{u(seeCost ? "marginWaitingMd" : "priceWaitingMd")}</span>)
             : handedToFinance ? <form action={nudge} className="flex items-center gap-2"><span className="rounded-lg border border-navy/25 bg-white px-3 py-2 text-sm text-navy">✓ {u("handedToFinance")}{order.acceptance?.acceptedAt ? ` · ${localIso(order.acceptance.acceptedAt)?.slice(5, 16).replace("T", " ")}` : ""}{order.invoiceNudgedAt ? ` · ${u("nudgedAt", { time: localIso(order.invoiceNudgedAt)?.slice(5, 16).replace("T", " ") ?? "" })}` : ""}</span><button className={btnGhost}>{u("nudgeFinance")}</button></form>
             : primary && primary !== "assign" && primary !== "contractDirect" && <Link href={hrefOf(primary)} className={btnBlue}>{u("nextStep")}: {stepLabel(primary)}</Link>}
         </>} />
       <OrderProgress status={order.status as OrderStatus} declined={!!dec} />
       <DocChain order={order.no} slots={chain} />
-      <Flash ok={ok === "quoteNeedsMd" ? undefined : ok} error={error} />
+      <Flash ok={ok === "quoteNeedsMd" || ok === "quoteNoCost" ? undefined : ok} error={error} />
       {ok === "quoteNeedsMd" && <div role="alertdialog" aria-modal="true" className="fixed inset-0 z-40 flex items-center justify-center bg-navy/40 p-4">
         <div className="w-full max-w-md rounded-xl bg-white p-5 text-sm shadow-xl">
           <h2 className="text-base font-bold text-[#C0392B]">{u("needsMdTitle")}</h2>
@@ -295,6 +298,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             </Table>
             {seePrice && <p className="text-right text-[13px]">{t("subtotal")} {Number(order.subtotal).toFixed(2)} · {t("vat")} {Number(order.vatAmount).toFixed(2)} · <b>{t("total")} {order.currency} {Number(order.total).toFixed(2)}</b>{order.totalCny != null ? ` · CNY ${Number(order.totalCny).toFixed(2)} @${Number(order.fxRateToCny).toFixed(4)}（${fxMark(u, order.fxSource, order.fxRateDate, order.fxBy)}）` : ""}</p>}
             {seeCost && order.marginPct != null && <p className={`text-right text-[13px] ${marginLow ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("marginLine", { cost: Number(order.costTotal ?? 0).toFixed(2), pct: (Number(order.marginPct) * 100).toFixed(1) })} · {u("marginFloor", { pct: Math.round(floor * 100) })} · {u(`margin_${order.marginApproval}`)}{order.lockedAt ? ` · ${u("lockedAt", { date: localIso(order.lockedAt)!.slice(0, 10) })}` : ""}</p>}
+            {noCost && <p role="alert" className="mt-2 rounded-lg border border-[#C0392B] bg-[#FDECEC] p-2 text-right text-sm font-semibold text-[#C0392B]">{seeCost ? u("marginNoCost", { list: gapLines.join("、") }) : u("quoteNoCostSales", { list: gapLines.join("、") })} <Link href={`/service-orders/${no}/quote`} className="underline">{u("quoteNoCostGo")}</Link></p>}
             {order.marginApproval === "PENDING" && hasRole(me, "MD") && (
               <form id="margin" action={decideMargin} className="mt-2 flex scroll-mt-24 flex-wrap items-center gap-2 rounded-lg border border-alert bg-alert/10 p-2">
                 <span className="text-sm font-semibold text-alert-ink">{u("marginDecision")}</span>
@@ -315,7 +319,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             </form> : <p className="text-sm">{owner ? `${owner.code} ${owner.name}` : u("salesOwnerNone", { name: (opener?.name ?? "") })}</p>}
             <p className="mt-1 text-xs text-navy/60">{u("salesOwnerHint")}</p>
           </Card>
-          {primary && !waitsMargin && <Card title={`${u("nextStep")}: ${stepLabel(primary)}`} accent>
+          {primary && !waitsMargin && !noCost && <Card title={`${u("nextStep")}: ${stepLabel(primary)}`} accent>
             {primary === "assign" ? (
               <form action={assign} id="assign" className="space-y-2">
                 <select name="assignee" className={inputCls}>{engineers.map((e) => <option key={e.id} value={e.code}>{e.code} {e.name}</option>)}</select>

@@ -13,16 +13,16 @@ export const setQuoteLines: typeof realSetQuoteLines = async (input) => {
   try {
     const r = await realSetQuoteLines(input);
     if (!r.costPending.length) return r;
-    // Sales saved lines that wait for a cost (派修单 v4): the probe plays the MD who fills 0 in, then Sales saves again and the quote goes out
+    // Sales saved lines that wait for a cost (派修单 v4): the probe plays the MD who fills 1 in, then Sales saves again and the quote goes out
     const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.serviceOrderNo } });
-    await prisma.quoteLine.updateMany({ where: { serviceOrderId: o.id, unitCost: null }, data: { unitCost: 0 } });
+    await prisma.quoteLine.updateMany({ where: { serviceOrderId: o.id, unitCost: null }, data: { unitCost: 1 } });
     return await realSetQuoteLines(input);
   }
   catch (e) {
     const m = /^QUOTE_(?:COST|EST)_REQUIRED:(.+)$/.exec((e as Error).message);
     if (!m) throw e;
-    const missing = m[1].split("、").map(Number); // the lines a person would be asked for: the probe answers 0 (no cost on this line)
-    return realSetQuoteLines({ ...input, lines: input.lines.map((l, i) => (missing.includes(i + 1) ? { ...l, unitCost: 0 } : l)) });
+    const missing = m[1].split("、").map(Number); // the lines a person would be asked for: the probe answers 1 per unit (0 is no cost: 测试 2026-11-18)
+    return realSetQuoteLines({ ...input, lines: input.lines.map((l, i) => (missing.includes(i + 1) ? { ...l, unitCost: 1 } : l)) });
   }
 };
 

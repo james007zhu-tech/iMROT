@@ -15,7 +15,7 @@ export function QuoteSum({ rows, vatRate, floor, currency, labels, plain }: { pl
     const n = (name: string) => { const el = form.elements.namedItem(name) as HTMLInputElement | null; const v = el ? parseFloat(el.value) : NaN; return Number.isFinite(v) ? v : null; };
     const sum = () => {
       let sub = 0, cost = 0, costed = true, any = false;
-      for (let i = 0; i < rows; i++) { const q = n(`q${i}`), p = n(`p${i}`), c = n(`c${i}`); if (!q || p == null) continue; any = true; sub += q * p; if (c == null) costed = false; else cost += q * c; }
+      for (let i = 0; i < rows; i++) { const q = n(`q${i}`), p = n(`p${i}`), c = n(`c${i}`); if (!q || p == null) continue; any = true; sub += q * p; if (c == null || (c <= 0 && p > 0)) costed = false; else cost += q * c; }
       setS({ sub, cost, costed, any });
     };
     sum();
@@ -25,7 +25,7 @@ export function QuoteSum({ rows, vatRate, floor, currency, labels, plain }: { pl
   }, [rows]);
   const f = (x: number) => x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const margin = s.sub > 0 && s.costed ? (s.sub - s.cost) / s.sub : null;
-  const low = margin != null && margin < floor;
+  const low = (margin != null && margin < floor) || (s.any && s.sub > 0 && !s.costed);
   return (
     <div ref={ref} className={`z-10 rounded-xl xl:sticky xl:bottom-2 xl:mr-16 border bg-white/95 p-3 text-sm shadow-md backdrop-blur ${low && !plain ? "border-alert" : ""}`}>
       {!s.any ? <span className="text-navy/60">{labels.total}: —</span> : (
@@ -34,7 +34,7 @@ export function QuoteSum({ rows, vatRate, floor, currency, labels, plain }: { pl
           <span>{labels.vat}<b className="block font-mono">{f(s.sub * vatRate)}</b></span>
           <span>{labels.total} ({currency})<b className="block font-mono text-base text-navy">{f(s.sub * (1 + vatRate))}</b></span>
           {!plain && <span>{labels.cost}<b className="block font-mono">{s.costed ? f(s.cost) : "—"}</b></span>}
-          {!plain && <span className={low ? "text-alert-ink" : ""}>{labels.margin}<b className="block font-mono">{margin == null ? labels.noCost : `${(margin * 100).toFixed(1)}%`}</b>{low && <span className="text-xs">{labels.below}</span>}</span>}
+          {!plain && <span className={low ? "text-alert-ink" : ""}>{labels.margin}<b className="block font-mono">{margin == null ? (s.sub > 0 && !s.costed ? "—" : labels.noCost) : `${(margin * 100).toFixed(1)}%`}</b>{low && <span className="text-xs">{margin == null ? labels.noCost : labels.below}</span>}</span>}
         </div>
       )}
     </div>

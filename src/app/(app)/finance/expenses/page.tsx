@@ -13,11 +13,12 @@ export const dynamic = "force-dynamic";
 const STATUSES = ["PENDING", "APPROVED", "PAID", "REJECTED"] as const;
 
 /** 费用报销: one's own claims; a manager also sees and decides their people's; the MD and finance see all and pay. */
-export default async function Expenses({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; status?: string }> }) {
-  const { ok, error, status } = await searchParams;
+export default async function Expenses({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; status?: string; no?: string }> }) {
+  const { ok, error, status, no } = await searchParams;
   const [t, me, locale] = await Promise.all([getTranslations("ops"), currentEmployee(), getLocale()]);
   const st = STATUSES.includes(status as never) ? status : undefined;
-  const [{ rows, seeAll }, cats] = await Promise.all([expensesFor(me.code, { status: st }), dictMap("expenseCategory", locale)]);
+  const [{ rows: all, seeAll }, cats] = await Promise.all([expensesFor(me.code, { status: st }), dictMap("expenseCategory", locale)]);
+  const rows = no ? all.filter((r) => r.no === no) : all; // 报表下钻 opens one claim
   const money = (n: unknown, cur = "THB") => `${cur} ${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const waiting = rows.filter((r) => r.canDecide).length;
   const openSum = rows.filter((r) => r.status === "APPROVED").reduce((s, r) => s + Number(r.amount), 0);
@@ -33,7 +34,7 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
         {rows.map((r) => {
           const files = (r.receipts as { name: string; url: string }[] | null) ?? [];
           return (
-            <li key={r.id} className="rounded-xl border bg-white p-3 text-sm">
+            <li key={r.id} id={r.no ?? undefined} className="scroll-mt-24 rounded-xl border bg-white p-3 text-sm target:ring-2 target:ring-blue">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 {r.no && <span className="font-mono font-semibold text-navy">{r.no}</span>}
                 <span className="font-mono text-navy/70">{localIso(r.spentOn)!.slice(0, 10)}</span>

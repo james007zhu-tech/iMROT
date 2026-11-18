@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { docRateAction, docRateDecideAction } from "@/app/actions/fx-doc";
 import { bocFor, FX_MD_THRESHOLD, type FxPending } from "@/server/fx";
+import { fmtRate } from "@/lib/money";
 import { FxInput } from "@/components/FxInput";
 
 /**
@@ -15,7 +16,7 @@ export async function FxDoc({ kind, no, back, canEdit, note, current, currency, 
   return (
     <div className="space-y-1">
       {note && <div className="rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-3 py-2 text-[13px] text-[#7A4A00]" role="status"><b>{u("fxDocBanner", { rate: note.rate.toFixed(4), boc: note.boc != null ? note.boc.toFixed(4) : "—" })}</b> · {note.by}{note.before != null ? ` · ${u("fxDocWas", { was: note.before.toFixed(4) })}` : ""}{note.why ? ` · ${u("fxWhy")}：${note.why}` : ""}</div>}
-      {pending && <div className="rounded-lg border border-[#C0392B] bg-[#FDECEC] px-3 py-2 text-[13px] text-[#7A1F14]" role="status"><b>{u("fxPendingBanner", { rate: pending.rate, boc: pending.boc, date: pending.bocDate, diff: pending.diffPct.toFixed(2) })}</b> · {pending.by} · {u("fxWhy")}：{pending.reason}
+      {pending && <div className="rounded-lg border border-[#C0392B] bg-[#FDECEC] px-3 py-2 text-[13px] text-[#7A1F14]" role="status"><b>{u("fxPendingBanner", { rate: fmtRate(pending.rate), boc: fmtRate(pending.boc), date: pending.bocDate, diff: pending.diffPct.toFixed(2) })}</b> · {pending.by} · {u("fxWhy")}：{pending.reason}
         {isMd && <form action={docRateDecideAction.bind(null, no, back)} className="mt-1 flex flex-wrap items-center gap-2"><button name="decision" value="yes" className="rounded-md bg-navy px-3 py-1.5 text-sm font-semibold text-white">{u("poApprove")}</button><input name="note" placeholder={u("poDecideNotePh")} className="rounded-md border px-2 py-1 text-sm" /><button name="decision" value="no" className="rounded-md border border-navy/40 bg-white px-3 py-1.5 text-sm">{u("poRefuse")}</button></form>}</div>}
       {canEdit && <details className="text-[13px]"><summary className="inline-flex cursor-pointer items-center gap-1 text-blue hover:underline"><svg viewBox="0 0 24 24" aria-hidden className="h-3.5 w-3.5 fill-none stroke-current" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></svg>{u("fxDocEdit")}{current != null ? ` (@${current.toFixed(4)})` : ""}</summary>
         <form action={docRateAction.bind(null, kind, no, back)} className="mt-1 flex flex-wrap items-end gap-2 rounded-lg border bg-white p-2">

@@ -2879,7 +2879,14 @@
     "err_RETURN_NEEDS_ORDER": "退料必须选业务单",
     "err_RETURN_OB_NOT_FOUND": "这张业务单下没有出库单 {detail}",
     "err_RETURN_OVER": "退料数量超过了这张出库单还能退的数量（要退/可退）：{detail}",
-    "err_RETURN_NEEDS_OB": "这张业务单有出库记录：退料请先选「原出库单」"
+    "err_RETURN_NEEDS_OB": "这张业务单有出库记录：退料请先选「原出库单」",
+    "prLinesNote": "从 QTTH 带入已报价但库存不足的物料，可改可加",
+    "margin_NO_COST": "缺成本，不能送审",
+    "marginNoCost": "第 {list} 行缺成本 · 毛利 — · 补齐成本之前，这张报价不能送 MD 审批，也不能发给客户",
+    "quoteNoCostSales": "第 {list} 行还没有成本，请填预估成本；补齐前这张报价不能发出",
+    "quoteNoCostShort": "缺成本：第 {list} 行",
+    "quoteNoCostGo": "去补成本",
+    "err_QUOTE_COST_MISSING": "报价 {detail} 缺成本，不能审批，请先补齐成本"
   },
   "role": {
     "MD": "MD 董事总经理",

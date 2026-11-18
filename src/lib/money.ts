@@ -38,3 +38,12 @@ export function expectedReceipt(invoiceTotal: number, settled: number, whtThisTi
 export function toBookCurrency(amount: number, rateToCny: number): number {
   return round2(amount * rateToCny);
 }
+
+/** An exchange rate as people read it: at least four decimals, up to six — 0.21 is shown 0.2100, never cut short. */
+export function fmtRate(n: number | string | null | undefined): string {
+  const v = Number(n); if (n == null || n === "" || !Number.isFinite(v)) return "—";
+  const [i, d = ""] = v.toFixed(6).replace(/0+$/, "").split(".");
+  return `${i}.${d.padEnd(4, "0")}`;
+}
+/** What a person may type into a rate box: digits and one decimal point; nothing typed is dropped or reformatted. */
+export const rateTyped = (s: string) => { const c = s.replace(/[，,]/g, "").replace(/[^0-9.]/g, ""); const i = c.indexOf("."); return i < 0 ? c : c.slice(0, i + 1) + c.slice(i + 1).replace(/\./g, ""); };

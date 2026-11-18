@@ -1,6 +1,7 @@
 "use client";
 /** 发起付款: 应付金额、预扣税率 → 预扣税额 and 实付 are worked out as finance types (server/pay.ts whtOf does the same). */
 import { useState } from "react";
+import { fmtRate, rateTyped } from "@/lib/money";
 const TYPE_PCT: Record<string, number> = { SERVICE: 3, RENT: 5, TRANSPORT: 1, ADVERTISING: 2 };
 
 export function PayStartFields({ open, baseShare, rate, currency, cls, labels, taxIdOk, accounts, fx, invoiceId }: { invoiceId: string; accounts: { id: string; label: string; ccy: string }[]; fx: Record<string, { rate: number; date: string }>; open: number; baseShare: number; rate: number; currency: string; cls: string; labels: { gross: string; rate: string; wht: string; net: string; date: string; type: string; types: Record<string, string>; draft: string; noTaxId: string; preview: string; account: string; fxAt: string; fxBoc: string; fxEdit: string; fxReason: string; fxReasons: Record<string, string>; fxEquiv: string; fxNone: string; fxDiff: string }; taxIdOk: boolean; }) {
@@ -22,9 +23,9 @@ export function PayStartFields({ open, baseShare, rate, currency, cls, labels, t
       <label className="text-[11px] text-navy/70">{labels.wht}<input readOnly tabIndex={-1} value={wht.toFixed(2)} className={`${cls} w-full bg-tint`} /></label>
       <label className="text-[11px] font-semibold text-navy">{labels.net}<input readOnly tabIndex={-1} value={`${currency} ${net.toFixed(2)}`} className={`${cls} w-full bg-tint font-semibold`} /></label>
       {ccy && acc && <div className="col-span-2 rounded-md border border-hair bg-white px-2 py-1 text-[11px] text-navy">
-        {boc ? <span>@ 1 {ccy} = {boc.rate} THB · {labels.fxBoc} {boc.date} </span> : <span className="font-semibold text-alert-ink">{labels.fxNone} </span>}
-        {!edit && <button type="button" onClick={() => { setEdit(true); setFxRate(boc ? String(boc.rate) : ""); }} className="text-blue underline" aria-label={labels.fxEdit}>✎ {labels.fxEdit}</button>}
-        {edit && <span className="mt-1 flex flex-wrap items-center gap-1"><input name="fxRate" type="text" inputMode="decimal" autoComplete="off" required pattern="[0-9]*\.?[0-9]*" defaultValue={fxRate} onChange={(e) => setFxRate(e.target.value)} className={`${cls} w-28`} />
+        {boc ? <span>@ 1 {ccy} = {fmtRate(boc.rate)} THB · {labels.fxBoc} {boc.date} </span> : <span className="font-semibold text-alert-ink">{labels.fxNone} </span>}
+        {!edit && <button type="button" onClick={() => { setEdit(true); setFxRate(boc ? fmtRate(boc.rate) : ""); }} data-draft-open className="text-blue underline" aria-label={labels.fxEdit}>✎ {labels.fxEdit}</button>}
+        {edit && <span className="mt-1 flex flex-wrap items-center gap-1"><input name="fxRate" type="text" inputMode="decimal" autoComplete="off" required pattern="[0-9]*\.?[0-9]*" value={fxRate} onChange={(e) => setFxRate(rateTyped(e.target.value))} className={`${cls} w-28`} />
           <select name="fxReason" required={changed} defaultValue="" className={`${cls} w-36`}><option value="" disabled>{labels.fxReason}</option>{Object.entries(labels.fxReasons).map(([k, v]) => <option key={k} value={v}>{v}</option>)}</select>
           {boc && changed && <span className="text-[#9A5B00]">{labels.fxDiff} {(((used - boc.rate) / boc.rate) * 100).toFixed(2)}%</span>}</span>}
         {used > 0 && <span className="block font-semibold">{labels.fxEquiv} {currency === ccy ? `THB ${(net * used).toFixed(2)}` : `${ccy} ${(net / used).toFixed(2)}`}</span>}

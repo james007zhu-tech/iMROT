@@ -824,6 +824,7 @@ enum MarginApproval {
   PENDING
   APPROVED
   REJECTED
+  NO_COST /// 测试 2026-11-18: a priced line has no cost — no margin, cannot go to the MD or the customer
 }
 
 enum ServiceKind {

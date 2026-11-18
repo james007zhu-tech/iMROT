@@ -80,7 +80,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
       if (!can.editPrice(me)) return { ok: "quoteItemsSaved", to: `/service-orders/${no}/quote` }; // saved for sales to price; the order does not move
       const cur = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { status: true } });
       if (["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(cur.status)) await catchUpOrder(no, "QUOTE_PENDING", me.code);
-      return { ok: r.marginApproval === "PENDING" ? "quoteNeedsMd" : no, to: `/service-orders/${no}` }; // 低于最低售价或毛利底线: the order page opens with the notice (2026-11-18)
+      return { ok: r.marginApproval === "NO_COST" ? "quoteNoCost" : r.marginApproval === "PENDING" ? "quoteNeedsMd" : no, to: `/service-orders/${no}` }; // 低于最低售价或毛利底线: the order page opens with the notice (2026-11-18)
     }, `/service-orders/${no}/quote`);
   }
   async function hint(f: FormData) {

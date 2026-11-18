@@ -31,7 +31,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ no: string }> }
     return new NextResponse(new Uint8Array(body), {
       headers: {
         "content-type": ext === ".pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "content-disposition": `attachment; filename="${r.fileBase}${ext}"; filename*=UTF-8''${encodeURIComponent(local)}`,
+        "content-disposition": `${u.searchParams.get("inline") && ext === ".pdf" ? "inline" : "attachment"}; filename="${r.fileBase}${ext}"; filename*=UTF-8''${encodeURIComponent(local)}`,
         "cache-control": "no-store",
         "x-unfilled-placeholders": r.unfilled.join(","),
       },

@@ -48,7 +48,7 @@ async function main() {
   const after = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no }, include: { lines: true } });
   const costLine = after.lines.find((l) => l.partId === part.id)!;
   assert(Number(costLine.unitCost) === 8200, "selected quote price became the quote line's cost");
-  assert(Number(after.costTotal) === 8200 && Math.abs(Number(after.marginPct) - (23000 - 8200) / 23000) < 1e-4, `margin recomputed: cost ${after.costTotal}, ${(Number(after.marginPct) * 100).toFixed(1)}%`);
+  assert(Number(after.costTotal) === 8202 && Math.abs(Number(after.marginPct) - (23000 - 8202) / 23000) < 1e-4, /* labour: 2 h at the probe's cost of 1 */ `margin recomputed: cost ${after.costTotal}, ${(Number(after.marginPct) * 100).toFixed(1)}%`);
   assert(after.marginApproval === "NOT_NEEDED", "margin above the floor needs no approval");
   assert((await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: inq.no } })).status === "COMPARED", "inquiry COMPARED");
 

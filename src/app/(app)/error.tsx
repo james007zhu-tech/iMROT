@@ -17,6 +17,9 @@ const kindOf = (m: string) =>
 
 export default function AppError({ error }: { error: Error & { digest?: string }; reset: () => void }) {
   const t = useTranslations("common");
+  // N-43: a save refused for want of the right comes back as "NO_ACCESS:roles=…" — show the 无权限 page, nothing else
+  const refused = /^NO_ACCESS:((?:roles|scope)=[^\s]*)/.exec(error.message ?? "")?.[1];
+  useEffect(() => { if (refused) location.replace(`/no-access?${refused}`); }, [refused]);
   const kind = kindOf(error.message ?? "");
   const [offline, setOffline] = useState(false);
   const back = () => { try { sessionStorage.setItem("dcit-draft-restore", "1"); } catch { /* ignore */ } location.reload(); };
@@ -28,6 +31,7 @@ export default function AppError({ error }: { error: Error & { digest?: string }
     window.addEventListener("online", on); window.addEventListener("offline", off);
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
   }, []);
+  if (refused) return null;
   return (
     <div className="mx-auto max-w-lg space-y-3 rounded-lg border border-alert bg-white p-6">
       <h2 className="font-bold text-alert-ink">{t("saveFailedTitle")}</h2>

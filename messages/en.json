@@ -2879,7 +2879,14 @@
     "err_RETURN_NEEDS_ORDER": "A return must name its order",
     "err_RETURN_OB_NOT_FOUND": "No issue {detail} on this order",
     "err_RETURN_OVER": "More returned than this issue still has out (returning/possible): {detail}",
-    "err_RETURN_NEEDS_OB": "This order has issues: pick the original issue for a return"
+    "err_RETURN_NEEDS_OB": "This order has issues: pick the original issue for a return",
+    "prLinesNote": "From a QTTH the quoted parts that stock cannot cover are brought in; edit or add freely",
+    "margin_NO_COST": "Cost missing — cannot go for approval",
+    "marginNoCost": "Line {list} has no cost · margin — · until the cost is filled in, this quote cannot go to the MD or the customer",
+    "quoteNoCostSales": "Line {list} has no cost yet — enter your estimate; the quote cannot go out until then",
+    "quoteNoCostShort": "Cost missing: line {list}",
+    "quoteNoCostGo": "Fill in the cost",
+    "err_QUOTE_COST_MISSING": "Quote {detail} has lines without cost; it cannot be approved until they are filled in"
   },
   "role": {
     "MD": "MD Managing Director",

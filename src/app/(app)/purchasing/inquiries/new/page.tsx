@@ -62,7 +62,7 @@ export default async function NewInquiry({ searchParams }: { searchParams: Promi
               </div>); })}
           </RevealRows>
           <PartDropdown formId="f" sku="s" name="d" unit="u" vendor="v" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, unit: p.unit }))} />
-          <p className="text-xs text-navy/70">{u("inquiryLinesNote")}</p>
+          <p className="text-xs text-navy/70">{u("prLinesNote")}</p>
         </Card>
       </form>
     </div>

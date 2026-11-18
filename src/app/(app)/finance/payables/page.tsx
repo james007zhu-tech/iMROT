@@ -10,16 +10,17 @@ import { mismatch } from "@/lib/pay-rules";
 import { decideAction, requestAction, taxIdAction, voidAction, withdrawAction } from "./actions";
 import { outstandingOf, payAccounts, grossOpenOf, accountCcy, bocCross, type PayFx } from "@/server/pay";
 import { FX_REASONS } from "@/server/fx";
+import { fmtRate } from "@/lib/money";
 import { PayStartFields } from "@/components/PayStartFields";
 import { can, hasRole } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
 /** 应付 — supplier invoices by due date (TH partners: monthly, 15 days after month end; others per order). Paying issues a PVTH. */
-export default async function Payables({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; all?: string }> }) {
-  const { ok, error, all } = await searchParams;
+export default async function Payables({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; all?: string; pv?: string }> }) {
+  const { ok, error, all, pv } = await searchParams;
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
-  const rows = await prisma.supplierInvoice.findMany({ where: all ? {} : { status: "OPEN" }, orderBy: [{ status: "asc" }, { dueDate: "asc" }], take: 200, include: { supplier: true, payments: { orderBy: { requestedAt: "asc" } }, purchaseOrder: { select: { no: true, kind: true, serviceOrder: { select: { no: true } } } } } });
+  const rows = await prisma.supplierInvoice.findMany({ where: pv ? { payments: { some: { no: pv } } } : all ? {} : { status: "OPEN" }, orderBy: [{ status: "asc" }, { dueDate: "asc" }], take: 200, include: { supplier: true, payments: { orderBy: { requestedAt: "asc" } }, purchaseOrder: { select: { no: true, kind: true, serviceOrder: { select: { no: true } } } } } });
   const accounts = await payAccounts(me.entityId), acct = new Map(accounts.map((a) => [a.id, a.label]));
   // 派修单 v5 P1-3: today's Bank of China rate to THB for every foreign currency an account or an invoice on this page is in
   const fxNow: Record<string, { rate: number; date: string }> = {};
@@ -54,8 +55,8 @@ export default async function Payables({ searchParams }: { searchParams: Promise
                   <span className="font-mono">{p.no}</span> · {u("payNet")} {r.currency} {Number(p.amount).toFixed(2)}{Number(p.whtAmount) > 0 ? ` · ${u("payWhtAmount")} ${Number(p.whtAmount).toFixed(2)}` : ""} · {acct.get(p.account) ?? (p.account === "before-rule" ? "—" : p.account)} · <b className="no-underline">{u(`payState_${p.status}`)}</b>
                   {p.whtCertNo && p.status !== "VOID" && p.status !== "REJECTED" ? <> · <Link href={`/finance/payables/wht/${p.id}`} className="whitespace-nowrap rounded-full border border-blue/50 px-1.5 text-[11px] font-semibold text-blue hover:bg-tint">WHT {Number(p.whtAmount).toFixed(2)} · {p.status === "PAID" ? p.whtCertNo : u("whtPreview")}</Link></> : null}
                   {(() => { const x = p.fx as PayFx | null; if (!x || p.status === "VOID" || p.status === "REJECTED") return null; return x.manual
-                    ? <span className="mt-1 block rounded-md border border-[#E6A23C] bg-[#FFF4E5] px-2 py-1 font-semibold text-[#7A4A00] no-underline">{u("fxManualBanner", { ccy: x.ccy, rate: x.rate, boc: x.boc ?? "—", diff: x.boc ? (((x.rate - x.boc) / x.boc) * 100).toFixed(2) : "—", by: x.by ?? "", at: (x.at ?? "").slice(0, 16).replace("T", " "), reason: x.reason ?? "" })} · {u("fxEquiv")} {x.equivCcy} {x.equiv.toFixed(2)}</span>
-                    : <span className="block text-navy/70">@ 1 {x.ccy} = {x.rate} THB · {u("fxBocName")} {x.bocDate} · {u("fxEquiv")} {x.equivCcy} {x.equiv.toFixed(2)}</span>; })()}
+                    ? <span className="mt-1 block rounded-md border border-[#E6A23C] bg-[#FFF4E5] px-2 py-1 font-semibold text-[#7A4A00] no-underline">{u("fxManualBanner", { ccy: x.ccy, rate: fmtRate(x.rate), boc: x.boc ? fmtRate(x.boc) : "—", diff: x.boc ? (((x.rate - x.boc) / x.boc) * 100).toFixed(2) : "—", by: x.by ?? "", at: (x.at ?? "").slice(0, 16).replace("T", " "), reason: x.reason ?? "" })} · {u("fxEquiv")} {x.equivCcy} {x.equiv.toFixed(2)}</span>
+                    : <span className="block text-navy/70">@ 1 {x.ccy} = {fmtRate(x.rate)} THB · {u("fxBocName")} {x.bocDate} · {u("fxEquiv")} {x.equivCcy} {x.equiv.toFixed(2)}</span>; })()}
                   {p.decisionNote ? <span className="block">{p.decisionNote}</span> : null}{p.voidReason ? <span className="block">{u("payVoidWhy")}: {p.voidReason}</span> : null}
                   {p.status === "REQUESTED" && md && p.requestedBy !== me.code && <form action={decideAction} className="mt-1 flex flex-wrap gap-1"><input type="hidden" name="id" value={p.id} /><input name="note" placeholder={u("poDecideNotePh")} className={`${inputCls} w-40`} /><button name="decision" value="yes" className={btnBlue}>{u("poApprove")}</button><button name="decision" value="no" className={btnGhost}>{u("payRefuse")}</button></form>}
                   {p.status === "REQUESTED" && !md && <span className="block font-semibold text-alert-ink">{u("payWaitsMd")}</span>}

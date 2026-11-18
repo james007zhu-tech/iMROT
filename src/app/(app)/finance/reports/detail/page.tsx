@@ -26,7 +26,7 @@ export default async function Detail({ searchParams }: { searchParams: Promise<{
       <PageHeader back={{ href: `/finance/reports?${back}`, label: "←" }} title={`${t(`det_${kind}`)}${sub ? ` · ${sub}` : ""}`} badge={<Tag>{kind === "stock" || kind.startsWith("bs") ? range.to : `${range.from} → ${range.to}`}</Tag>} />
       <div className="rounded-xl border bg-white p-2">
         <Table head={[t("repDate"), t("repDocNo"), t("repParty"), t("repRef"), "THB"]}>
-          {r.rows.map((x, i) => <tr key={x.no + i}><td className="whitespace-nowrap font-mono text-xs">{localIso(x.date)?.slice(0, 10) ?? ""}</td><td className="whitespace-nowrap"><Link href={x.href} className="font-mono text-blue hover:underline">{x.no || "—"}</Link></td><td>{x.who}</td><td className="text-xs text-navy/70">{x.note}</td><td className="text-right tabular-nums">{m(x.amount)}</td></tr>)}
+          {r.rows.map((x, i) => <tr key={x.no + i}><td className="whitespace-nowrap font-mono text-xs">{localIso(x.date)?.slice(0, 10) ?? ""}</td><td className="whitespace-nowrap">{x.href.startsWith("/api/") ? <a href={x.href} target="_blank" rel="noreferrer" className="font-mono text-blue hover:underline">{x.no || "—"}</a> : <Link href={x.href} className="font-mono text-blue hover:underline">{x.no || "—"}</Link>}</td><td>{x.who}</td><td className="text-xs text-navy/70">{x.note}</td><td className="text-right tabular-nums">{m(x.amount)}</td></tr>)}
           {!r.rows.length && <tr><td colSpan={5} className="py-4 text-center text-navy/60">{t("detNone")}</td></tr>}
           <tr className="font-semibold"><td colSpan={4} className="text-right">{t("total")} ({r.rows.length})</td><td className="text-right tabular-nums">{m(r.total)}</td></tr>
         </Table>

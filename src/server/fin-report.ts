@@ -115,9 +115,9 @@ async function cashMoves(entityId: string, from: Date, to: Date, opts: { withPay
   ]);
   const acc = (x: string | null) => (x && known.has(x) ? x : ""); // a hand-written account is not one of ours until finance says which
   return [
-    ...rcs.filter((x) => opts.includeTest || !isTest(x.no)).map((x) => ({ date: x.receivedAt, no: x.no, who: x.invoice.serviceOrder.customer.name, account: acc(x.account), currency: x.currency, inAmt: Number(x.cashAmount), outAmt: 0, ref: x.bankRef ?? "", href: `/service-orders/${x.invoice.serviceOrder.no}/payment`, rcNo: acc(x.account) ? undefined : x.no, hint: acc(x.account) ? undefined : x.account ?? "" })),
-    ...pays.filter((x) => opts.includeTest || !isTest(x.supplierInvoice.invoiceNo, x.supplierInvoice.supplier.name)).map((x) => ({ date: x.paidAt!, no: x.no, who: x.supplierInvoice.supplier.name, account: acc(x.account), currency: x.supplierInvoice.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paymentRef ?? "", href: `/finance/payables?all=1#${x.no}` })),
-    ...exps.map((x) => ({ date: x.paidAt!, no: x.no ?? "", who: x.employee.name, account: x.paidBy === "PETTY_CASH" ? "PETTY_CASH" : "", currency: x.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paidRef ?? "", href: "/finance/expenses" })),
+    ...rcs.filter((x) => opts.includeTest || !isTest(x.no)).map((x) => ({ date: x.receivedAt, no: x.no, who: x.invoice.serviceOrder.customer.name, account: acc(x.account), currency: x.currency, inAmt: Number(x.cashAmount), outAmt: 0, ref: x.bankRef ?? "", href: pdfOf(x.no), rcNo: acc(x.account) ? undefined : x.no, hint: acc(x.account) ? undefined : x.account ?? "" })),
+    ...pays.filter((x) => opts.includeTest || !isTest(x.supplierInvoice.invoiceNo, x.supplierInvoice.supplier.name)).map((x) => ({ date: x.paidAt!, no: x.no, who: x.supplierInvoice.supplier.name, account: acc(x.account), currency: x.supplierInvoice.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paymentRef ?? "", href: pvOf(x.no) })),
+    ...exps.map((x) => ({ date: x.paidAt!, no: x.no ?? "", who: x.employee.name, account: x.paidBy === "PETTY_CASH" ? "PETTY_CASH" : "", currency: x.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paidRef ?? "", href: exOf(x.no ?? "") })),
     ...runs.map((x) => ({ date: x.paidAt!, no: `PAYROLL ${x.month}`, who: "", account: "", currency: "THB", inAmt: 0, outAmt: Number((x.totals as { net?: number }).net ?? 0) + Number((x.totals as { reimbursement?: number }).reimbursement ?? 0), ref: "", href: `/people/payroll/${x.month}` })),
   ].filter((x) => x.inAmt > 0 || x.outAmt > 0).sort((a, b) => a.date.getTime() - b.date.getTime());
 }
@@ -190,6 +190,11 @@ export async function simpleBalance(entityId: string, asOf: string, opts: { incl
   return { asOf, assets, liabilities, totalAssets, totalLiabilities, net: r2(totalAssets - totalLiabilities), vatCredit: vat < 0 ? -vat : 0 };
 }
 
+/** 报表下钻 (测试 2026-11-18): a row opens its own document — the issued PDF for TI / IV / RC, the page row for the rest */
+const pdfOf = (no: string) => `/api/documents/${encodeURIComponent(no)}/render?format=pdf&inline=1`;
+const pvOf = (no: string) => `/finance/payables?pv=${encodeURIComponent(no)}#${no}`;
+const siOf = (po: string, inv: string) => `/purchasing/orders/${po}#si-${encodeURIComponent(inv)}`;
+const exOf = (no: string) => (no ? `/finance/expenses?no=${encodeURIComponent(no)}#${no}` : "/finance/expenses");
 /**
  * 报表下钻 (派修单 v4 P0-1): the documents behind one number of the reports — the same filters as the number itself,
  * so the list adds up to it. Each row opens its document.
@@ -204,21 +209,21 @@ export async function reportDetail(entityId: string, range: Range, kind: DetailK
       prisma.taxInvoice.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, serviceOrder: { entityId, ...(opts.mode ? { mode: opts.mode as never } : {}), ...(opts.customer ? { customer: { name: opts.customer } } : {}) } }, select: { no: true, issuedAt: true, subtotal: true, vatAmount: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } }),
       prisma.creditNote.findMany({ where: { voidedAt: null, issuedAt: { gte: from, lt: to }, currency: "THB", taxInvoice: { serviceOrder: { entityId, ...(opts.mode ? { mode: opts.mode as never } : {}), ...(opts.customer ? { customer: { name: opts.customer } } : {}) } } }, select: { no: true, issuedAt: true, subtotal: true, vatAmount: true, taxInvoice: { select: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } } } }),
     ]);
-    rows = [...tis.filter((x) => T(x.no)).map((x) => ({ date: x.issuedAt, no: x.no, who: x.serviceOrder.customer.name, note: x.serviceOrder.no, amount: Number(kind === "revenue" ? x.subtotal : x.vatAmount), href: `/service-orders/${x.serviceOrder.no}/invoice` })),
+    rows = [...tis.filter((x) => T(x.no)).map((x) => ({ date: x.issuedAt, no: x.no, who: x.serviceOrder.customer.name, note: x.serviceOrder.no, amount: Number(kind === "revenue" ? x.subtotal : x.vatAmount), href: pdfOf(x.no) })),
       ...cns.map((x) => ({ date: x.issuedAt, no: x.no, who: x.taxInvoice.serviceOrder.customer.name, note: x.taxInvoice.serviceOrder.no, amount: -Number(kind === "revenue" ? x.subtotal : x.vatAmount), href: `/service-orders/${x.taxInvoice.serviceOrder.no}/invoice` }))];
   } else if (kind === "collected" || kind === "whtByCustomers") {
     rows = (await prisma.receipt.findMany({ where: { voidedAt: null, receivedAt: { gte: from, lt: to }, currency: "THB", invoice: { serviceOrder: { entityId } } }, select: { no: true, receivedAt: true, cashAmount: true, whtAmount: true, bankRef: true, invoice: { select: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } } } }))
-      .filter((x) => T(x.no)).map((x) => ({ date: x.receivedAt, no: x.no, who: x.invoice.serviceOrder.customer.name, note: x.bankRef ?? x.invoice.serviceOrder.no, amount: Number(kind === "collected" ? x.cashAmount : x.whtAmount), href: `/service-orders/${x.invoice.serviceOrder.no}/payment` }));
+      .filter((x) => T(x.no)).map((x) => ({ date: x.receivedAt, no: x.no, who: x.invoice.serviceOrder.customer.name, note: x.bankRef ?? x.invoice.serviceOrder.no, amount: Number(kind === "collected" ? x.cashAmount : x.whtAmount), href: pdfOf(x.no) }));
   } else if (kind === "purchases" || kind === "vatIn") {
     const sis = await prisma.supplierInvoice.findMany({ where: { entityId, status: { not: "CANCELLED" }, currency: "THB", invoiceDate: { gte: from, lt: to }, ...(kind === "vatIn" ? { accrued: false } : {}) }, select: { id: true, invoiceNo: true, invoiceDate: true, subtotal: true, vatAmount: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } } });
-    rows = sis.filter((x) => T(x.invoiceNo, x.supplier.name)).map((x) => ({ date: x.invoiceDate, no: x.invoiceNo, who: x.supplier.name, note: x.purchaseOrder.no, amount: Number(kind === "purchases" ? x.subtotal : x.vatAmount), href: `/purchasing/orders/${x.purchaseOrder.no}` }));
-    if (kind === "vatIn") rows.push(...(await prisma.expenseClaim.findMany({ where: { entityId, status: { in: ["APPROVED", "PAID"] }, currency: "THB", spentOn: { gte: from, lt: to }, vatAmount: { gt: 0 } }, select: { no: true, spentOn: true, vatAmount: true, employee: { select: { name: true } } } })).map((x) => ({ date: x.spentOn, no: x.no ?? "", who: x.employee.name, amount: Number(x.vatAmount ?? 0), href: "/finance/expenses" })));
+    rows = sis.filter((x) => T(x.invoiceNo, x.supplier.name)).map((x) => ({ date: x.invoiceDate, no: x.invoiceNo, who: x.supplier.name, note: x.purchaseOrder.no, amount: Number(kind === "purchases" ? x.subtotal : x.vatAmount), href: siOf(x.purchaseOrder.no, x.invoiceNo) }));
+    if (kind === "vatIn") rows.push(...(await prisma.expenseClaim.findMany({ where: { entityId, status: { in: ["APPROVED", "PAID"] }, currency: "THB", spentOn: { gte: from, lt: to }, vatAmount: { gt: 0 } }, select: { no: true, spentOn: true, vatAmount: true, employee: { select: { name: true } } } })).map((x) => ({ date: x.spentOn, no: x.no ?? "", who: x.employee.name, amount: Number(x.vatAmount ?? 0), href: exOf(x.no ?? "") })));
   } else if (kind === "paidSuppliers") {
     rows = (await prisma.supplierPayment.findMany({ where: { entityId, status: "PAID", paidAt: { gte: from, lt: to }, supplierInvoice: { currency: "THB" } }, select: { no: true, paidAt: true, amount: true, supplierInvoice: { select: { invoiceNo: true, supplier: { select: { name: true } } } } } }))
-      .filter((x) => T(x.supplierInvoice.invoiceNo, x.supplierInvoice.supplier.name)).map((x) => ({ date: x.paidAt, no: x.no, who: x.supplierInvoice.supplier.name, note: x.supplierInvoice.invoiceNo, amount: Number(x.amount), href: `/finance/payables?all=1#${x.no}` }));
+      .filter((x) => T(x.supplierInvoice.invoiceNo, x.supplierInvoice.supplier.name)).map((x) => ({ date: x.paidAt, no: x.no, who: x.supplierInvoice.supplier.name, note: x.supplierInvoice.invoiceNo, amount: Number(x.amount), href: pvOf(x.no) }));
   } else if (kind === "expenses") {
     rows = (await prisma.expenseClaim.findMany({ where: { entityId, status: { in: ["APPROVED", "PAID"] }, currency: "THB", spentOn: { gte: from, lt: to }, ...(opts.category ? { category: opts.category } : {}) }, select: { no: true, spentOn: true, amount: true, vatAmount: true, category: true, employee: { select: { name: true } } } }))
-      .map((x) => ({ date: x.spentOn, no: x.no ?? "", who: x.employee.name, note: x.category, amount: Number(x.amount) - Number(x.vatAmount ?? 0), href: "/finance/expenses" }));
+      .map((x) => ({ date: x.spentOn, no: x.no ?? "", who: x.employee.name, note: x.category, amount: Number(x.amount) - Number(x.vatAmount ?? 0), href: exOf(x.no ?? "") }));
   } else if (kind === "payroll" || kind === "payrollDue") {
     if (opts.withPayroll) rows = (await prisma.payrollRun.findMany({ where: { entityId, ...(kind === "payroll" ? { status: { not: "DRAFT" }, month: { gte: range.from.slice(0, 7), lte: range.to.slice(0, 7) } } : { status: "APPROVED" }) }, select: { month: true, totals: true, approvedAt: true } }))
       .map((x) => ({ date: x.approvedAt, no: x.month, who: "", amount: Number((x.totals as { employerCost?: number; net?: number })[kind === "payroll" ? "employerCost" : "net"] ?? 0), href: `/people/payroll/${x.month}` }));
@@ -241,14 +246,14 @@ export async function reportDetail(entityId: string, range: Range, kind: DetailK
     ]);
     const got = new Map<string, number>(); for (const r of rcs) if (T(r.no)) got.set(r.invoiceId, (got.get(r.invoiceId) ?? 0) + Number(r.settledAmount));
     const back = new Map<string, number>(); for (const c of cns) if (c.invoiceId) back.set(c.invoiceId, (back.get(c.invoiceId) ?? 0) + Number(c.total));
-    rows = invs.filter((i) => T(i.no)).map((i) => ({ date: i.issuedAt, no: i.no, who: i.serviceOrder.customer.name, note: i.serviceOrder.no, amount: r2(Math.max(0, Number(i.amountDue) + (back.get(i.id) ?? 0) - (got.get(i.id) ?? 0))), href: `/service-orders/${i.serviceOrder.no}/payment` })).filter((x) => x.amount > 0.005);
+    rows = invs.filter((i) => T(i.no)).map((i) => ({ date: i.issuedAt, no: i.no, who: i.serviceOrder.customer.name, note: i.serviceOrder.no, amount: r2(Math.max(0, Number(i.amountDue) + (back.get(i.id) ?? 0) - (got.get(i.id) ?? 0))), href: pdfOf(i.no) })).filter((x) => x.amount > 0.005);
   } else if (kind === "bsAp") {
     const [sis, pays] = await Promise.all([
       prisma.supplierInvoice.findMany({ where: { entityId, status: { not: "CANCELLED" }, currency: "THB", invoiceDate: { lt: to } }, select: { id: true, invoiceNo: true, invoiceDate: true, total: true, supplier: { select: { name: true } }, purchaseOrder: { select: { no: true } } } }),
       prisma.supplierPayment.findMany({ where: { entityId, status: "PAID", paidAt: { lt: to }, supplierInvoice: { currency: "THB" } }, select: { supplierInvoiceId: true, amount: true, whtAmount: true } }),
     ]);
     const paid = new Map<string, number>(); for (const p of pays) paid.set(p.supplierInvoiceId, (paid.get(p.supplierInvoiceId) ?? 0) + Number(p.amount) + Number(p.whtAmount));
-    rows = sis.filter((i) => T(i.invoiceNo, i.supplier.name)).map((i) => ({ date: i.invoiceDate, no: i.invoiceNo, who: i.supplier.name, note: i.purchaseOrder.no, amount: r2(Math.max(0, Number(i.total) - (paid.get(i.id) ?? 0))), href: `/purchasing/orders/${i.purchaseOrder.no}` })).filter((x) => x.amount > 0.005);
+    rows = sis.filter((i) => T(i.invoiceNo, i.supplier.name)).map((i) => ({ date: i.invoiceDate, no: i.invoiceNo, who: i.supplier.name, note: i.purchaseOrder.no, amount: r2(Math.max(0, Number(i.total) - (paid.get(i.id) ?? 0))), href: siOf(i.purchaseOrder.no, i.invoiceNo) })).filter((x) => x.amount > 0.005);
   } else if (kind === "vatDue") {
     const mr = { from: `${range.to.slice(0, 7)}-01`, to: range.to };
     const [o, i] = await Promise.all([reportDetail(entityId, mr, "vatOut", opts), reportDetail(entityId, mr, "vatIn", opts)]);
