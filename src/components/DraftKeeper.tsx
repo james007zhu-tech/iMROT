@@ -26,7 +26,20 @@ function keepable(form: HTMLFormElement) {
   if (form.dataset.nodraft != null || (form.getAttribute("method") ?? "").toLowerCase() === "get" || form.getAttribute("action") === "/search") return false;
   return fields(form).filter((el) => (el as HTMLInputElement).type !== "hidden").length >= 2;
 }
-const keyOf = (path: string, form: HTMLFormElement, i: number) => `${PREFIX}${path}:${form.id || `#${i}`}`;
+/**
+ * 派修单 v5 P0-5: one draft per form *and* per document. A page with a form on every row (应付: one payment form per
+ * invoice) used to key them by position, so a draft came back in whichever row now stood at that position. The key is
+ * the form's id, else what its hidden fields say it is about (invoice id, document number), else its position.
+ */
+function identity(form: HTMLFormElement, i: number) {
+  if (form.id) return form.id;
+  const hid = (Array.from(form.elements) as HTMLInputElement[]).filter((el) => el.type === "hidden" && !!el.name && !el.name.startsWith("$") && !!el.value).map((el) => `${el.name}=${el.value}`);
+  return hid.length ? `h:${hid.join("&").slice(0, 200)}` : `#${i}`;
+}
+const keyOf = (path: string, form: HTMLFormElement, i: number) => `${PREFIX}${path}:${identity(form, i)}`;
+/** A form that carries money is never filled in by itself: the person is shown the draft and decides (v5 P0-5). */
+const MONEY = /amount|gross|paid|cash|price|total|wht/i;
+const isMoney = (form: HTMLFormElement) => form.dataset.money != null || fields(form).some((el) => (el as HTMLInputElement).type === "number" && MONEY.test(el.name));
 function read(form: HTMLFormElement): Values {
   const v: Values = {};
   for (const el of fields(form)) {
@@ -53,7 +66,7 @@ function write(form: HTMLFormElement, values: Values) {
   }
 }
 
-export function DraftKeeper({ labels }: { labels: { found: string; drop: string } }) {
+export function DraftKeeper({ labels }: { labels: { found: string; drop: string; offer: string; restore: string; check: string } }) {
   const path = usePathname(), search = useSearchParams().toString();
   const [offer, setOffer] = useState<{ key: string; at: number }[]>([]);
 
@@ -77,6 +90,22 @@ export function DraftKeeper({ labels }: { labels: { found: string; drop: string 
     const forms = () => Array.from(document.forms).filter(keepable);
     const save = (form: HTMLFormElement) => { try { localStorage.setItem(keyOf(path, form, Array.from(document.forms).indexOf(form)), JSON.stringify({ at: Date.now(), values: read(form) } satisfies Draft)); } catch { /* storage full or off */ } };
 
+    // a money form: a strip at its top — 有 10:00 的草稿 · 恢复 / 丢掉. Nothing is filled in until 恢复 is pressed;
+    // after that the form is marked 已恢复草稿，请核对金额.
+    const strips: HTMLElement[] = [];
+    const hm = (at: number) => { const t = new Date(at); return `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`; };
+    const ask = (form: HTMLFormElement, key: string, d: Draft) => {
+      const strip = document.createElement("div");
+      strip.className = "mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[#E6A23C] bg-[#FFF4E5] px-3 py-1.5 text-xs text-[#7A4A00]";
+      strip.setAttribute("role", "status"); strip.dataset.draftStrip = "1";
+      const say = document.createElement("span"); say.textContent = labels.offer.replace("{time}", hm(d.at));
+      const mk = (text: string) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.className = "whitespace-nowrap rounded-lg border border-navy/40 bg-white px-2.5 py-1"; return b; };
+      const yes = mk(labels.restore), no = mk(labels.drop);
+      yes.onclick = () => { write(form, d.values); dirty.add(form); window.dispatchEvent(new CustomEvent("draft-restored", { detail: form.id })); say.textContent = labels.check; say.className = "font-semibold"; yes.remove(); no.remove(); form.style.outline = "2px solid #E6A23C"; form.style.outlineOffset = "4px"; form.style.borderRadius = "8px"; };
+      no.onclick = () => { try { localStorage.removeItem(key); } catch { /* ignore */ } strip.remove(); };
+      strip.append(say, yes, no); form.prepend(strip); strips.push(strip);
+    };
+
     // what was left behind on this page
     const t0 = setTimeout(() => {
       const found: { key: string; at: number }[] = [];
@@ -86,6 +115,7 @@ export function DraftKeeper({ labels }: { labels: { found: string; drop: string 
         if (!d) continue;
         // 需求清单 v4 V4-P0-13: the draft comes back by itself — after a failed save, after a refresh, after closing the
         // browser — and the banner says so, with 丢掉 for the person who wants the empty form.
+        if (isMoney(form)) { ask(form, key, d); continue; }
         write(form, d.values); dirty.add(form); window.dispatchEvent(new CustomEvent("draft-restored", { detail: form.id }));
         found.push({ key, at: d.at });
       }
@@ -107,7 +137,7 @@ export function DraftKeeper({ labels }: { labels: { found: string; drop: string 
       try { localStorage.setItem(PENDING, JSON.stringify({ key: keyOf(path, form, Array.from(document.forms).indexOf(form)), path })); } catch { /* ignore */ }
     };
     document.addEventListener("input", onInput, true); document.addEventListener("change", onInput, true); document.addEventListener("submit", onSubmit, true);
-    return () => { clearTimeout(t0); clearTimeout(timer); clearInterval(every); document.removeEventListener("input", onInput, true); document.removeEventListener("change", onInput, true); document.removeEventListener("submit", onSubmit, true); };
+    return () => { strips.forEach((x) => x.remove()); clearTimeout(t0); clearTimeout(timer); clearInterval(every); document.removeEventListener("input", onInput, true); document.removeEventListener("change", onInput, true); document.removeEventListener("submit", onSubmit, true); };
   }, [path, search]);
 
   const drop = () => { try { for (const o of offer) localStorage.removeItem(o.key); localStorage.removeItem(PENDING); } catch { /* ignore */ } location.replace(location.pathname + location.search.replace(/[?&](error|ok)=[^&]*/g, "").replace(/^&/, "?")); };

@@ -12,7 +12,7 @@ import { guarded } from "@/lib/action-result";
 import { businessClosureOn } from "@/lib/closure";
 import { Alert, Card, Field, Grid, Table, Tag, Value, btnGhost, inputCls } from "@/components/ui";
 import { StepPage, dayNow, loadOrder, str } from "../_shell";
-import { confirmOrderCost, orderCost } from "@/server/job-cost";
+import { confirmOrderCost, costChoices, isSettled, lineCosts, openCostItems, orderCost, type LineCost, type OrderCost } from "@/server/job-cost";
 import { declineInvoiceLines } from "@/server/decline";
 import { totals } from "@/lib/money";
 
@@ -63,11 +63,21 @@ export default async function Invoice({ params, searchParams }: { params: Promis
   }
   // 开票前成本认可 (朱总 2026-11-18)
   const seeCost = can.invoice(me);
-  const cost = seeCost ? await orderCost(order.id) : null;
-  const costOk = !!order.costConfirmedAt && !!cost && Math.abs(cost.total - Number(order.costActual ?? 0)) <= 0.005;
-  async function okCost() {
+  // 开票即结算 (朱总 2026-11-18 11:59): with a tax invoice standing, what was recognised is frozen and shown as it was
+  const frozen = seeCost && !!order.costDetail && (await isSettled(order.id));
+  const snap = order.costDetail as unknown as (OrderCost & { lines?: LineCost[]; map?: Record<string, string>; note?: string | null }) | null;
+  const cost: OrderCost | null = !seeCost ? null : frozen ? snap : await orderCost(order.id);
+  const costOk = frozen || (!!order.costConfirmedAt && !!cost && Math.abs(cost.total - Number(order.costActual ?? 0)) <= 0.005);
+  const costLines: LineCost[] = !cost ? [] : frozen || costOk ? snap?.lines ?? [] : await lineCosts(order.id, cost, snap?.map ?? {});
+  const choices = cost ? costChoices(cost) : [];
+  const openItems = cost && !frozen ? await openCostItems(order) : [];
+  async function okCost(f: FormData) {
     "use server";
-    await guarded(async () => { const me = await currentEmployee(); await assertOrderAccess(me, no); await confirmOrderCost({ no, actorCode: me.code }); return "costConfirmed"; }, `/service-orders/${no}/invoice`);
+    await guarded(async () => {
+      const me = await currentEmployee(); await assertOrderAccess(me, no);
+      const map: Record<string, string> = {}; for (const [k, v] of f.entries()) if (k.startsWith("m") && typeof v === "string" && v) map[k.slice(1)] = v;
+      await confirmOrderCost({ no, actorCode: me.code, map, note: str(f, "note") }); return "costConfirmed";
+    }, `/service-orders/${no}/invoice`);
   }
   async function requestVoid(f: FormData) {
     "use server";
@@ -127,7 +137,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
       {!mayIssue && !active && <Alert>{u(stage ? "invoiceByFinance" : "invoiceNotYet")}</Alert>}
       {mayIssue && !active && whyNot && <Alert>{u(`invoiceWhyNot_${whyNot}`)}</Alert>}
       {active && <Alert>{u("tiExistsNotice", { no: active.no })}</Alert>}
-      {cost && !active && stage && <Card title={<>{u("costCard")} {costOk ? <Tag>{u("costOkTag", { by: order.costConfirmedBy ?? "", at: localIso(order.costConfirmedAt!)!.slice(0, 16).replace("T", " ") })}</Tag> : <Tag hot>{order.costConfirmedAt ? u("costChangedTag") : u("costWaitTag")}</Tag>}</>} accent={!costOk}>
+      {cost && (frozen || (!active && stage)) && <Card title={<>{u("costCard")} {frozen ? <Tag>{u("costFrozenTag")}</Tag> : null} {costOk ? <Tag>{u("costOkTag", { by: order.costConfirmedBy ?? "", at: localIso(order.costConfirmedAt!)!.slice(0, 16).replace("T", " ") })}</Tag> : <Tag hot>{order.costConfirmedAt ? u("costChangedTag") : u("costWaitTag")}</Tag>}</>} accent={!costOk}>
         <p className="mb-2 text-sm">{u("costSay")}</p>
         <Table head={[u("costKind"), u("costRef"), u("costWhat"), t("qty"), u("unitCost"), t("amount")]}>
           {([["costParts", cost.parts], ["costPurchases", cost.purchases], ["costLabour", cost.labour], ["costExpenses", cost.expenses]] as const).flatMap(([k, rows]) => rows.map((r, i) => <tr key={`${k}${i}`}>
@@ -138,7 +148,20 @@ export default async function Invoice({ params, searchParams }: { params: Promis
         <p className="mt-2 text-right text-[13px]">{u("costParts")} {cost.partsTotal.toFixed(2)} · {u("costPurchases")} {cost.purchasesTotal.toFixed(2)} · {u("costLabour")} {cost.labourTotal.toFixed(2)}（{cost.hours} h）· {u("costExpenses")} {cost.expensesTotal.toFixed(2)}</p>
         <p className="text-right text-sm"><b>{u("costActualTotal")} {order.currency} {cost.total.toFixed(2)}</b> · {u("costQuoted")} {order.costTotal != null ? Number(order.costTotal).toFixed(2) : "—"} · {u("costRealMargin")} {sum.subtotal > 0 ? `${(((sum.subtotal - cost.total) / sum.subtotal) * 100).toFixed(1)}%` : "—"}</p>
         {cost.missing.length > 0 && <Alert>{u("costMissing", { list: cost.missing.join("、") })}</Alert>}
-        {!costOk && <form action={okCost} className="mt-2"><button className="min-h-11 rounded-lg bg-navy px-4 text-sm font-semibold text-white">{u("costOkBtn")}</button></form>}
+        {openItems.length > 0 && <Alert>{u("costOpenItems", { list: openItems.join("、") })}</Alert>}
+        {snap?.note && costOk && <p className="mt-1 text-xs text-navy/70">{u("costNoteWas")}：{snap.note}</p>}
+        <form action={okCost} data-nodraft className="mt-3">
+          <h3 className="mb-1 text-sm font-semibold">{u("costByLine")}</h3>
+          <Table head={["#", u("costWhat"), u("costQuotedCol"), "", u("costRealCol"), u("costSrcCol")]}>
+            {costLines.map((l) => <tr key={l.lineNo} className={l.est && l.real == null ? "bg-[#FFF5F4]" : ""}>
+              <td>{l.lineNo}</td><td>{l.description}{l.est ? <span className="ml-1 whitespace-nowrap rounded bg-[#E5E9EF] px-1.5 py-0.5 text-[11px] text-navy/70">{u("estTag")}</span> : null}</td>
+              <td className="whitespace-nowrap text-right tabular-nums">{l.quoted != null ? l.quoted.toFixed(2) : "—"}</td><td>→</td>
+              <td className={`whitespace-nowrap text-right tabular-nums ${l.real == null ? "font-semibold text-[#C0392B]" : ""}`}>{l.real != null ? l.real.toFixed(2) : u("costNotReplaced")}</td>
+              <td>{l.est && !costOk ? <select name={`m${l.lineNo}`} defaultValue={l.choice ?? ""} className={`${inputCls} min-w-40`}><option value="">{u("costPick")}</option>{choices.map((x) => <option key={x.id} value={x.id}>{x.id === "none" ? u("costChoiceNone") : x.id === "labour" ? `${u("costLabour")} · ${x.label} = ${x.amount.toFixed(2)}` : `${x.label} = ${x.amount.toFixed(2)}`}</option>)}</select> : l.source === "SYSTEM" ? u("costSrcSystem") : l.choice === "none" ? u("costChoiceNone") : l.source}</td></tr>)}
+          </Table>
+          {!costOk && cost.missing.length > 0 && <div className="mt-2"><Field label={u("costGapNote")} required><input name="note" required className={inputCls} /></Field></div>}
+          {!costOk && <button className="mt-2 min-h-11 rounded-lg bg-navy px-4 text-sm font-semibold text-white">{u("costOkBtn")}</button>}
+        </form>
       </Card>}
       {canIssue && taxInvoices.length > 0 && <Alert>{u("tiReissueNotice")}</Alert>}
       {canIssue && <form id="f" action={save} className="space-y-4">

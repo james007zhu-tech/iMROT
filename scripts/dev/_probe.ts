@@ -66,6 +66,7 @@ export async function recordPayment(input: { invoiceNo: string; actorCode: strin
 import { issueTaxInvoice as issueTaxInvoice0 } from "../../src/server/to";
 import { confirmOrderCost } from "../../src/server/job-cost";
 export async function issueTaxInvoice(input: Parameters<typeof issueTaxInvoice0>[0]) {
-  await confirmOrderCost({ no: input.serviceOrderNo, actorCode: "ETH2611001" }).catch(() => undefined);
+  const est = await prisma.quoteLine.findMany({ where: { serviceOrder: { no: input.serviceOrderNo }, costEst: true }, select: { lineNo: true } });
+  await confirmOrderCost({ no: input.serviceOrderNo, actorCode: "ETH2611001", map: Object.fromEntries(est.map((l) => [String(l.lineNo), "none"])), note: "probe" }).catch(() => undefined);
   return issueTaxInvoice0(input);
 }

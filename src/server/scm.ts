@@ -2,6 +2,7 @@
  * SCM Phase 1 slice: stock movements. An OUT movement into an asset writes PART_REPLACED on that asset.
  * Parts are keyed by brand + vendor part no, never by customer, so the same SKU can be matched across customers.
  */
+import { assertNotSettled } from "./job-cost";
 import { can, hasRole } from "@/lib/caps";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -78,6 +79,7 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
   const asset = d.assetCode ? await prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }) : null;
   const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo } }) : null;
   if (order) assertNotLocked(order);
+  await assertNotSettled(order); // 开票即结算: nothing more is issued to (or returned from) an invoiced order
   if (d.direction === "OUT" && !asset && !order) throw new Error("an OUT movement must name the asset or the service order it serves");
   // nothing leaves the store that is not in it (trial finding 2026-11-14)
   // 一个库存数 (需求清单 v3 P0-07): stock is what came in minus what went out, counted over every warehouse — the

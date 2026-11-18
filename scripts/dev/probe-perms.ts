@@ -68,7 +68,7 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     check("建议改价 reaches sales", (await noticesFor(sales)).some((x) => x.kind === "priceHint" && x.ref === o.no));
     check("the other engineer cannot touch the quote", /NO_PERMISSION/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: e2.code, lines: [{ description: "x", qty: 1, unitPrice: 1 }] }))));
     check("finance and HR do not write quotes", /NO_PERMISSION/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: fin.code, lines: [{ description: "x", qty: 1, unitPrice: 1 }] }))) && /NO_PERMISSION/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: hr.code, lines: [{ description: "x", qty: 1, unitPrice: 1 }] }))));
-    await setQuoteLines({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ assetCode: vfd.code, partSku: part.sku, description: "Fan", qty: 1, unitPrice: 12345.67 }, { description: "Labour", qty: 2, unit: "h", unitPrice: 1500 }] });
+    await setQuoteLines({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ assetCode: vfd.code, partSku: part.sku, description: "Fan", qty: 1, unitPrice: 13345.67 }, { description: "Labour", qty: 2, unit: "h", unitPrice: 1000 }] });
     const priced = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } });
     check("sales prices it and it goes to the customer; the hint is cleared", priced.status === "QUOTE_PENDING" && priced.priceHint === null && Number(priced.subtotal) === 15345.67, `${priced.status} ${priced.subtotal}`);
     check("once the customer has the quote the engineer cannot change it", /QUOTE_PRICED_SALES_ONLY/.test(await msg(setQuoteLines({ serviceOrderNo: o.no, actorCode: e1.code, lines: [{ description: "Fan", qty: 3, unitPrice: 0 }] }))));
@@ -89,9 +89,9 @@ const msg = (p: Promise<unknown>) => p.then(() => "ok", (e) => String(e.message)
     console.log("4. 接口里没有这些数字");
     const full = JSON.parse(JSON.stringify(await getServiceOrder(o.no)));
     const forEng = JSON.stringify(stripMoney(full, "ENGINEER")), forPur = JSON.stringify(stripMoney(full, "PURCHASING")), forSales = JSON.stringify(stripMoney(full, "SALES"));
-    check("engineer and supervisor: no price, no cost, no margin in the order", !/12345\.67|15345\.67|6543\.21|marginPct|costTotal|unitPrice/.test(forEng) && JSON.stringify(stripMoney(full, mgr)) === forEng);
-    check("PUR: no price, no margin", !/12345\.67|15345\.67|marginPct|unitPrice/.test(forPur));
-    check("Sales: price — no cost, no margin, never what we paid (派修单 v4 第 2 条)", /12345\.67/.test(forSales) && !/unitCost|costTotal|marginPct|lastCost|costRef|6543\.21/.test(forSales));
+    check("engineer and supervisor: no price, no cost, no margin in the order", !/13345\.67|15345\.67|6543\.21|marginPct|costTotal|unitPrice/.test(forEng) && JSON.stringify(stripMoney(full, mgr)) === forEng);
+    check("PUR: no price, no margin", !/13345\.67|15345\.67|marginPct|unitPrice/.test(forPur));
+    check("Sales: price — no cost, no margin, never what we paid (派修单 v4 第 2 条)", /13345\.67/.test(forSales) && !/unitCost|costTotal|marginPct|lastCost|costRef|6543\.21/.test(forSales));
 
     console.log("5. 菜单和单据");
     const hid = async (r: string) => hiddenFor(r as never);

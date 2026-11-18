@@ -1,3 +1,5 @@
+import { marginFloor } from "./modes";
+import { belowMinLines } from "@/lib/margin";
 /**
  * 消息中心 — the reminders one person sees (rules: src/lib/notify.ts). Computed from the records on every page load,
  * so a message disappears when the work is done; nothing to mark as read.
@@ -30,7 +32,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   const push = (kind: string, days: number, ref: string, href: string, who?: string) => out.push({ id: `${kind}:${ref}`, kind, level: days < 0 ? "late" : "soon", days, ref, who, href });
 
   const [orders, milestones, pm, contacts, invoices, payables, staff, creds] = await Promise.all([
-    prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, ...mine }, select: { no: true, status: true, project: true, requestLines: true, quoteSentAt: true, reportedAt: true, assigneeId: true, marginApproval: true, priceHint: true, total: true, _count: { select: { lines: true } }, customer: { select: { name: true } } }, take: 400 }),
+    prisma.serviceOrder.findMany({ where: { status: { in: [...OPEN] }, ...mine }, select: { no: true, status: true, mode: true, project: true, requestLines: true, quoteSentAt: true, reportedAt: true, assigneeId: true, marginApproval: true, priceHint: true, total: true, _count: { select: { lines: true } }, customer: { select: { name: true } } }, take: 400 }),
     prisma.projectMilestone.findMany({ where: { doneAt: null, plannedOn: { lt: soon(3) }, serviceOrder: { status: { in: [...OPEN] }, ...mine } }, select: { phase: true, plannedOn: true, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } }, take: 100 }),
     hasRole(me, "HR") || hasRole(me, "FINANCE") ? [] : prisma.repairJob.findMany({ where: { nextDueAt: { gte: soon(-60), lte: soon(14) }, ...(team ? { engineerId: { in: team } } : {}) }, orderBy: { nextDueAt: "desc" }, select: { no: true, assetId: true, nextDueAt: true, finishedAt: true, asset: { select: { code: true, customer: { select: { name: true } } } } }, take: 200 }),
     !can.customers(me) || hasRole(me, "FINANCE") ? [] : prisma.contact.findMany({ where: { birthday: { not: null }, customer: await customerScope(me) }, select: { id: true, name: true, birthday: true, customer: { select: { code: true, name: true } } } }),
@@ -49,7 +51,12 @@ export async function noticesFor(me: { id: string; code: string; role: string },
     // 定价是销售和 MD 的事: items saved by the shop floor wait for a price; a word about the price waits to be read
     if (can.editPrice(me) && ["RECEIVED", "ASSIGNED", "DIAGNOSING"].includes(o.status) && o._count.lines > 0 && Number(o.total ?? 0) === 0) push("needsPrice", 0, o.no, `/service-orders/${o.no}/quote`, who);
     if (can.editPrice(me) && o.priceHint) push("priceHint", 0, o.no, `/service-orders/${o.no}/quote`, who);
-    if (lead && hasRole(me, "MD") && o.marginApproval === "PENDING") push("marginApproval", 0, o.no, `/service-orders/${o.no}/quote`, who);
+    if (lead && hasRole(me, "MD") && o.marginApproval === "PENDING") {
+      // v5 P0-2: the MD is told which line is under its 最低售价 and by how much
+      const ls = await prisma.quoteLine.findMany({ where: { serviceOrder: { no: o.no } }, orderBy: { lineNo: "asc" }, select: { qty: true, unitPrice: true, unitCost: true } });
+      const low = belowMinLines(ls.map((l) => ({ qty: Number(l.qty), unitPrice: Number(l.unitPrice), unitCost: l.unitCost != null ? Number(l.unitCost) : null })), await marginFloor(o.mode));
+      push("marginApproval", 0, o.no, `/service-orders/${o.no}/quote`, low.length ? `${who} · ${low.map((x) => `#${x.n} ${x.price.toFixed(2)} < ${x.min.toFixed(2)}`).join("、")}` : who);
+    }
   }
   for (const m of milestones) push(`milestone`, daysUntil(m.plannedOn!, today), `${m.serviceOrder.no} ${m.phase}`, `/service-orders/${m.serviceOrder.no}/project`, m.serviceOrder.customer.name);
   // maintenance: only the latest visit of a machine counts
@@ -130,7 +137,7 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // 验收后通知财务开票 (需求清单 v4 V4-P0-05): the moment an order is accepted it stands in finance's list — number,
   // customer, amount — and opens on its invoice. Sales can press 催财务开票; after 48 hours both are reminded.
   if (hasRole(me, "FINANCE", "MD", "SALES")) {
-    const waiting = await prisma.serviceOrder.findMany({ where: { AND: [hasRole(me, "FINANCE", "MD") ? {} : await orderScope(me), { status: "ACCEPTED", total: { gt: 0 }, NOT: { kind: "CONTRACT" } }] }, select: { no: true, total: true, currency: true, invoiceNudgedAt: true, customer: { select: { name: true } }, acceptance: { select: { acceptedAt: true } } }, take: 100 });
+    const waiting = await prisma.serviceOrder.findMany({ where: { AND: [hasRole(me, "FINANCE", "MD") ? {} : await orderScope(me), { status: "ACCEPTED", total: { gt: 0 }, noInvoiceAt: null, NOT: { kind: "CONTRACT" } }] }, select: { no: true, total: true, currency: true, invoiceNudgedAt: true, customer: { select: { name: true } }, acceptance: { select: { acceptedAt: true } } }, take: 100 });
     for (const o of waiting) {
       const hours = o.acceptance?.acceptedAt ? (Date.now() - o.acceptance.acceptedAt.getTime()) / 3600000 : 0;
       if (hasRole(me, "FINANCE")) push(o.invoiceNudgedAt ? "toInvoiceUrgent" : hours > 48 ? "toInvoiceLate" : "toInvoice", -Math.floor(hours / 24), o.no, `/service-orders/${o.no}/invoice`, `${o.customer.name} · ${o.currency} ${Number(o.total).toFixed(2)}`);

@@ -34,6 +34,13 @@ async function main() {
   const s1 = await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ ...two[0], unitCost: 999 }, { ...two[1], unitCost: 20 }] });
   const st1 = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no }, include: { lines: { orderBy: { lineNo: "asc" } } } });
   check("Sales estimates: the part keeps the last purchase cost 40 (999 ignored), freight takes the estimate 20 and is marked 预估, margin (250 − 100) ÷ 250 = 60 %, the quote goes out", Number(st1.lines[0].unitCost) === 40 && !st1.lines[0].costEst && Number(st1.lines[1].unitCost) === 20 && st1.lines[1].costEst && Math.abs(Number(s1.marginPct) - 0.6) < 0.001 && st1.status === "QUOTE_PENDING", `${st1.lines.map((l) => `${l.unitCost}/${l.costEst}`)} ${s1.marginPct} ${st1.status}`);
+  const { confirmOrderCost } = await import("../../src/server/job-cost");
+  check("开票前: the estimated line must be replaced by a real cost before the cost is recognised", /COST_EST_LEFT:2$/.test(await msg(confirmOrderCost({ no: o.no, actorCode: md.code, note: "x" }))));
+  check("…and with 'nothing spent' chosen for it, it is recognised", (await msg(confirmOrderCost({ no: o.no, actorCode: md.code, map: { "2": "none" }, note: "x" }))) === "ok");
+  await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ ...two[0], unitPrice: 45 }, { ...two[1], unitPrice: 500, unitCost: 20 }] });
+  const low = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: o.no } });
+  check("a line under its 最低售价 sends the quote to the MD even when the whole margin is fine", low.marginApproval === "PENDING" && Number(low.marginPct) > 0.8, `${low.marginApproval} ${low.marginPct}`);
+  await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [two[0], { ...two[1], unitCost: 20 }] });
   check("MD: a line without cost is named and refused", /QUOTE_COST_REQUIRED:2$/.test(await msg(rawSet({ serviceOrderNo: o.no, actorCode: md.code, lines: two }))));
   await rawSet({ serviceOrderNo: o.no, actorCode: md.code, lines: [two[0], { ...two[1], unitCost: 30 }] });
   const saved = await rawSet({ serviceOrderNo: o.no, actorCode: sales.code, lines: [{ ...two[0], unitCost: 999 }, { ...two[1], unitCost: 999 }] });

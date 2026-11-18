@@ -33,3 +33,9 @@ export function marginApprovalFor(pct: number | null, floor = MIN_MARGIN_PCT): M
 export function quoteMayGoOut(approval: MarginApproval): boolean {
   return approval === "NOT_NEEDED" || approval === "APPROVED";
 }
+
+/** 派修单 v5 P0-2 (MD Q6): the lines priced under their 最低售价 = cost ÷ (1 − floor). Any of them sends the quote to the MD. */
+export function belowMinLines(lines: { qty: number; unitPrice: number; unitCost?: number | null }[], floor = MIN_MARGIN_PCT): { n: number; min: number; price: number }[] {
+  if (floor >= 1) return [];
+  return lines.flatMap((l, i) => { const c = Number(l.unitCost ?? 0); if (!(l.qty > 0) || c <= 0) return []; const min = Math.round((c / (1 - floor)) * 100) / 100; return l.unitPrice < min - 0.005 ? [{ n: i + 1, min, price: l.unitPrice }] : []; });
+}

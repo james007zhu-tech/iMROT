@@ -148,7 +148,7 @@ export function pathOwners(path: string): Role[] {
 
 const PRICE_KEYS = new Set(["unitPrice", "amount", "subtotal", "vatAmount", "total", "totalCny", "fxRateToCny", "amountDue", "paidAmount", "whtAmount", "cashAmount", "settledAmount", "payable", "creditLimit", "price", "fee", "fees", "payPct"]);
 const COST_KEYS = new Set(["costRef", "lastCost", "lastCostCurrency", "costPerHour", "travelCost"]); // what we paid: MD, FIN, PUR
-const QUOTE_COST_KEYS = new Set(["unitCost", "costTotal"]); // the cost written on a quote: those who see its margin (MD, FIN, Sales)
+const QUOTE_COST_KEYS = new Set(["unitCost", "costTotal", "costActual", "costDetail", "costEst", "costConfirmedAt", "costConfirmedBy"]); // the cost written on a quote: those who see its margin (MD, FIN, Sales)
 const MARGIN_KEYS = new Set(["marginPct", "marginApproval", "marginNote", "marginApprovedAt", "marginApprovedById"]);
 const BANK_KEYS = new Set(["bankAccount", "bankAccounts", "bankName", "bankBranch", "swift", "accountNo", "accountName"]);
 /** Asset events whose summary and payload speak of money. */

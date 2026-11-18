@@ -47,7 +47,8 @@ async function main() {
   const job = await prisma.repairJob.create({ data: { no: `TEST-RPTH${Date.now()}`, serviceOrderId: o.id, assetId: vfd.id, engineerId: md.id, kind: "REPAIR", laborHours: 3 } });
   const c0 = await orderCost(o.id);
   assert(c0.hours === 3 && c0.labour.length === 1 && c0.labour[0].ref === job.no, `the hours come from the report: ${c0.hours} h on ${c0.labour[0]?.ref}`);
-  await confirmOrderCost({ no: o.no, actorCode: md.code });
+  await refused(() => confirmOrderCost({ no: o.no, actorCode: md.code }), /COST_GAPS_NEED_NOTE|COST_/, "a gap in the system data (no salary on file) needs a written reason");
+  await confirmOrderCost({ no: o.no, actorCode: md.code, note: "probe: no salary record" });
   await prisma.repairJob.update({ where: { id: job.id }, data: { laborHours: 5 } });
   const sal = await prisma.salaryRecord.findFirst({ where: { employeeId: md.id } });
   if (sal) await refused(() => rawIssue({ serviceOrderNo: o.no, actorCode: md.code, lines }), /COST_CHANGED/, "hours changed after the recognition → recognise again");
@@ -89,6 +90,10 @@ async function main() {
   assert(stillInvoiced.status === "INVOICED", "order is INVOICED again");
   assert((await prisma.invoice.count({ where: { taxInvoice: { no: ti2.no }, cancelledAt: null } })) === 1, "the tax invoice brought exactly one IVTH with it (issueInvoice afterwards answers with the same one)");
 
+  console.log("4a. 开票即结算: the cost is frozen");
+  await refused(() => confirmOrderCost({ no: o.no, actorCode: md.code, note: "again" }), /ORDER_SETTLED/, "the recognised cost cannot be redone on an invoiced order");
+  const { fileExpense } = await import("../../src/server/expense");
+  await refused(() => fileExpense({ actorCode: md.code, serviceOrderNo: o.no, category: "TRAVEL", description: "TEST probe", amount: 10, currency: "THB", spentOn: new Date(), receipts: [] } as never), /ORDER_SETTLED/, "no expense is booked to an invoiced order");
   console.log("4b. 收款三步、两人 (2026-11-18)");
   const { requestReceipt, decideReceipt, confirmReceipt, withdrawReceipt } = await import("../../src/server/collect");
   const fin = await prisma.employee.create({ data: { code: `ETH96${String(Date.now()).slice(-5)}`, name: "TEST probe fin", role: "FINANCE", entityId: entity.id, joinedAt: new Date("2030-01-01") } });

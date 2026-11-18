@@ -2,6 +2,7 @@
  * Execution documents under a QTTH: INTH inspection · quote lines · RPTH/PMTH jobs · acceptance.
  * Each one appends an event to every asset it concerns and registers its number in Document.
  */
+import { assertNotSettled } from "./job-cost";
 import { draftOvertimeFromWork } from "@/server/overtime";
 import { fxFields, rateForNew } from "@/server/fx";
 import { audit } from "@/server/audit";
@@ -18,7 +19,7 @@ import { openJob } from "@/lib/drafts";
 import { allocateNumber } from "@/lib/numbering-db";
 import { totals } from "@/lib/money";
 import { assetStatusForWork, canTransitionAsset } from "@/lib/lifecycle";
-import { costTotal, marginApprovalFor, marginPct } from "@/lib/margin";
+import { belowMinLines, costTotal, marginApprovalFor, marginPct } from "@/lib/margin";
 import { marginFloor } from "@/server/modes";
 import { assertNotLocked, progressOrder } from "@/server/slm";
 import type { AssetStatus, Prisma } from "@prisma/client";
@@ -218,7 +219,9 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   if (noCost.length) throw new Error(`${seesCost ? "QUOTE_COST_REQUIRED" : "QUOTE_EST_REQUIRED"}:${noCost.join("、")}`);
   const costPending: number[] = [];
   const costed = spreadPartnerCost(d.lines.map((l) => ({ assetCode: l.assetCode, qty: l.qty, unitPrice: l.unitPrice, unitCost: l.unitCost ?? lastCostOf(l) })), partnerCosts);
-  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(order.mode));
+  // 两道独立的检查 (v5 P0-2): the whole quote against the margin floor, and every line against its 最低售价
+  const floorNow = await marginFloor(order.mode);
+  const cost = costTotal(costed), pct = marginPct(costed), approval = belowMinLines(costed, floorNow).length ? "PENDING" : marginApprovalFor(pct, floorNow);
 
   // 需求清单 v3 P0-07: what is quoted changed after the customer's PO was confirmed → the PO on file no longer says
   // what will be delivered. Mark it; delivery waits until the PO is confirmed again (confirmCustomerPo clears the mark).
@@ -302,6 +305,7 @@ export async function createRepairJob(input: z.input<typeof RepairJobInput>) {
     prisma.asset.findUniqueOrThrow({ where: { code: d.assetCode } }),
     prisma.employee.findUniqueOrThrow({ where: { code: d.engineerCode } }),
   ]);
+  await assertNotSettled(order); // 开票即结算 (朱总 2026-11-18): hours are not changed on an invoiced order
   // the same wall as the page: no report before the order has reached the work, none after it is over
   const maintenance = d.kind === "MAINTENANCE";
   const rework = !!(await prisma.acceptance.findFirst({ where: { serviceOrderId: order.id, status: "REJECTED" }, select: { id: true } }));
@@ -457,7 +461,8 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
 export async function recomputeMargin(tx: Prisma.TransactionClient, orderId: string, actorId: string, sourceDocNo?: string) {
   const o = await tx.serviceOrder.findUniqueOrThrow({ where: { id: orderId }, include: { lines: true, assets: true } });
   const costed = o.lines.map((l) => ({ qty: Number(l.qty), unitPrice: Number(l.unitPrice), unitCost: l.unitCost != null ? Number(l.unitCost) : undefined }));
-  const cost = costTotal(costed), pct = marginPct(costed), approval = marginApprovalFor(pct, await marginFloor(o.mode, tx));
+  const floorNow = await marginFloor(o.mode, tx);
+  const cost = costTotal(costed), pct = marginPct(costed), approval = belowMinLines(costed, floorNow).length ? "PENDING" : marginApprovalFor(pct, floorNow);
   const keep = approval === "NOT_NEEDED" ? "NOT_NEEDED" : o.marginApproval === "APPROVED" && o.marginPct != null && pct != null && pct >= Number(o.marginPct) ? "APPROVED" : "PENDING";
   await tx.serviceOrder.update({ where: { id: orderId }, data: { costTotal: cost, marginPct: pct, marginApproval: keep, ...(keep === "PENDING" ? { marginApprovedById: null, marginApprovedAt: null } : {}) } });
   for (const a of o.assets) await tx.assetEvent.create({ data: { assetId: a.assetId, type: "QUOTED", actorId, serviceOrderId: orderId, sourceDocNo: sourceDocNo ?? o.no, summary: `cost ${cost.toFixed(2)} · margin ${pct == null ? "-" : (pct * 100).toFixed(1) + "%"}`, payload: { costTotal: cost, marginPct: pct, marginApproval: keep } as Prisma.InputJsonValue } });

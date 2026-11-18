@@ -70,13 +70,74 @@ export async function orderCost(orderId: string): Promise<OrderCost> {
   return { parts, purchases, labour, expenses, partsTotal, purchasesTotal, labourTotal, expensesTotal, hours: r2(labour.reduce((s, r) => s + r.qty, 0)), total: r2(partsTotal + purchasesTotal + labourTotal + expensesTotal), missing };
 }
 
-/** Finance or the MD recognises the cost the system shows. Kept on the order with who and when. */
-export async function confirmOrderCost(input: { no: string; actorCode: string }) {
+/**
+ * 逐行「预估 → 真实」 (派修单 v5 P0-2, MD Q7). Every quote line gets its real cost before the invoice:
+ *   · a line with a part number — what was issued to the order for that part (OBTH); nothing issued → the system
+ *     cost the quote already carried (last purchase price);
+ *   · a line Sales estimated — finance or the MD says which system record replaces the estimate: the hours on the
+ *     reports, one purchase line, one expense claim, or "nothing was spent". Until every estimate is replaced the
+ *     cost cannot be recognised and no invoice is written.
+ */
+export type LineCost = { lineNo: number; description: string; est: boolean; quoted: number | null; real: number | null; source: string; choice?: string };
+export type CostChoice = { id: string; label: string; amount: number };
+export function costChoices(c: OrderCost): CostChoice[] {
+  return [
+    ...(c.labour.length ? [{ id: "labour", label: `${c.labour.map((r) => r.ref).join(" ")} · ${c.hours} h`, amount: c.labourTotal }] : []),
+    ...c.purchases.map((r, i) => ({ id: `po:${r.ref}:${i}`, label: `${r.ref} · ${r.what}`, amount: r.amount })),
+    ...c.expenses.map((r, i) => ({ id: `exp:${r.ref}:${i}`, label: `${r.ref} · ${r.what}`, amount: r.amount })),
+    { id: "none", label: "0", amount: 0 },
+  ];
+}
+export async function lineCosts(orderId: string, c: OrderCost, map: Record<string, string> = {}): Promise<LineCost[]> {
+  const lines = await prisma.quoteLine.findMany({ where: { serviceOrderId: orderId }, orderBy: { lineNo: "asc" }, include: { part: { select: { sku: true } } } });
+  const choices = costChoices(c);
+  return lines.map((l) => {
+    const quoted = l.unitCost != null ? r2(Number(l.unitCost) * Number(l.qty)) : null;
+    if (!l.costEst) {
+      const issued = l.part ? c.parts.filter((p) => p.what.startsWith(l.part!.sku)) : [];
+      return issued.length ? { lineNo: l.lineNo, description: l.description, est: false, quoted, real: r2(issued.reduce((s, p) => s + p.amount, 0)), source: [...new Set(issued.map((p) => p.ref))].join(" ") }
+        : { lineNo: l.lineNo, description: l.description, est: false, quoted, real: quoted, source: "SYSTEM" };
+    }
+    const pick = choices.find((x) => x.id === map[String(l.lineNo)]);
+    return { lineNo: l.lineNo, description: l.description, est: true, quoted, real: pick ? pick.amount : null, source: pick ? pick.label : "", choice: pick?.id };
+  });
+}
+
+/** 开票即结算 (朱总 2026-11-18 11:59): once a tax invoice stands on the order, its cost is frozen — nothing more is booked to it. */
+export async function assertNotSettled(order: { id: string; no: string } | null | undefined) {
+  if (!order) return;
+  if (await prisma.taxInvoice.count({ where: { serviceOrderId: order.id, voidedAt: null } })) throw new Error(`ORDER_SETTLED:${order.no}`);
+}
+export const isSettled = async (orderId: string) => (await prisma.taxInvoice.count({ where: { serviceOrderId: orderId, voidedAt: null } })) > 0;
+
+/** What must be decided before the cost can be called clear: claims still waiting, purchase orders not yet approved and sent. */
+export async function openCostItems(order: { id: string; no: string }): Promise<string[]> {
+  const [claims, pos] = await Promise.all([
+    prisma.expenseClaim.count({ where: { serviceOrderNo: order.no, status: "PENDING" as never } }).catch(() => 0),
+    prisma.purchaseOrder.findMany({ where: { serviceOrderId: order.id, status: { in: ["DRAFT"] as never } }, select: { no: true } }),
+  ]);
+  return [...(claims ? [`expense ×${claims}`] : []), ...pos.map((p) => p.no)];
+}
+
+/**
+ * Finance or the MD recognises the cost the system shows. Clear: every estimate replaced, nothing still open, and a gap
+ * in the system's own data (a part without a cost, a report without hours, no salary on file) is named in a note.
+ */
+export async function confirmOrderCost(input: { no: string; actorCode: string; map?: Record<string, string>; note?: string }) {
   const actor = await actorWith(input.actorCode, can.invoice, "COST_FINANCE_MD");
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: input.no }, select: { id: true, no: true, costTotal: true } });
+  await assertNotSettled(order);
+  const open = await openCostItems(order);
+  if (open.length) throw new Error(`COST_OPEN_ITEMS:${open.join("、")}`);
   const c = await orderCost(order.id);
-  await prisma.serviceOrder.update({ where: { id: order.id }, data: { costActual: c.total, costDetail: c as unknown as Prisma.InputJsonValue, costConfirmedAt: new Date(), costConfirmedBy: actor.code } });
-  await audit(actor.id, "COST_CONFIRMED", order.no, { total: c.total, parts: c.partsTotal, purchases: c.purchasesTotal, labour: c.labourTotal, hours: c.hours, expenses: c.expensesTotal, quoted: order.costTotal != null ? Number(order.costTotal) : null, missing: c.missing });
+  const lines = await lineCosts(order.id, c, input.map ?? {});
+  const left = lines.filter((l) => l.est && l.real == null).map((l) => l.lineNo);
+  if (left.length) throw new Error(`COST_EST_LEFT:${left.join("、")}`);
+  const used = lines.filter((l) => l.choice && l.choice !== "none").map((l) => l.choice!);
+  if (new Set(used).size !== used.length) throw new Error("COST_CHOICE_TWICE");
+  if (c.missing.length && !input.note?.trim()) throw new Error(`COST_GAPS_NEED_NOTE:${c.missing.join("、")}`);
+  await prisma.serviceOrder.update({ where: { id: order.id }, data: { costActual: c.total, costDetail: { ...c, lines, map: input.map ?? {}, note: input.note?.trim() || null } as unknown as Prisma.InputJsonValue, costConfirmedAt: new Date(), costConfirmedBy: actor.code } });
+  await audit(actor.id, "COST_CONFIRMED", order.no, { total: c.total, parts: c.partsTotal, purchases: c.purchasesTotal, labour: c.labourTotal, hours: c.hours, expenses: c.expensesTotal, quoted: order.costTotal != null ? Number(order.costTotal) : null, missing: c.missing, note: input.note?.trim() || null, lines: lines.map((l) => ({ n: l.lineNo, est: l.est, quoted: l.quoted, real: l.real, source: l.source })) });
   return c;
 }
 

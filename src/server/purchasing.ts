@@ -3,6 +3,7 @@
  * into the QTTH (margin) → customer signs → POTH → goods arrive on an IBTH against the POTH.
  * PRTH and POTH can also be raised on their own (stock replenishment, parts sale) — serviceOrderNo is optional.
  */
+import { assertNotSettled } from "./job-cost";
 import { fxFields, rateForNew } from "@/server/fx";
 import { actorWith } from "@/server/guard";
 import { can, hasRole } from "@/lib/caps";
@@ -221,6 +222,7 @@ export async function createPurchaseOrder(input: z.input<typeof PurchaseOrderInp
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode }, include: { entity: true } });
   const inq = d.inquiryNo ? await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no: d.inquiryNo }, include: { serviceOrder: true } }) : null;
   const order = d.serviceOrderNo ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { assets: true } }) : inq?.serviceOrder ? await prisma.serviceOrder.findUniqueOrThrow({ where: { id: inq.serviceOrder.id }, include: { assets: true } }) : null;
+  await assertNotSettled(order); // 开票即结算 (朱总 2026-11-18)
   if (order) assertNotLocked(order);
   const supplier = await prisma.supplier.findUniqueOrThrow({ where: { id: d.supplierId } });
   const kind = inq?.kind ?? d.kind;
