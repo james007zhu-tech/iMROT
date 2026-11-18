@@ -87,6 +87,9 @@ async function main() {
       const m = await rawAccept({ serviceOrderNo: o.no, actorCode: admin.code, status: "ACCEPTED", deliverables: [{ deliverable: "runs" }], signatureUrl: "/uploads/phone-signature.png" }).then(() => "accepted", (e: Error) => e.message);
       if (!/ACCEPT_NEEDS_SHEET/.test(m)) throw new Error(`FAIL P1-11 no sheet, no acceptance — ${m}`);
       console.log("PASS P1-11 no signed sheet (phone signature only) → no acceptance — ACCEPT_NEEDS_SHEET");
+      const m2 = await rawAccept({ serviceOrderNo: o.no, actorCode: admin.code, status: "ACCEPTED", deliverables: [{ deliverable: "runs" }] }, { contactId: "not-a-contact-of-this-customer", name: "x" }).then(() => "accepted", (e: Error) => e.message);
+      if (!/NO_PERMISSION/.test(m2)) throw new Error(`FAIL portal confirmation by someone who is not the customer's contact — ${m2}`);
+      console.log("PASS 门户确认: only a contact of the order's customer counts — NO_PERMISSION");
     }
     await recordAcceptance({ serviceOrderNo: o.no, actorCode: admin.code, status: "ACCEPTED", deliverables: [{ deliverable: "runs", criterion: "ok", result: "ok" }], customerContactId: contact.id });
 

@@ -48,6 +48,7 @@ export async function ReadyOrders({ type, title }: { type: string; title: string
             {lacks ? <div>{head}</div> : <Link href={`/service-orders/${o.no}/${step.path}`} className="block">{head}</Link>}
             {pick && ev && <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-navy"><span>{d("evidence")}：</span>{ev.kind === "DN"
               ? <Link href={ev.href} className="text-blue hover:underline">{d("evidenceDn", { no: ev.no, date: ev.at ? ev.at.toISOString().slice(0, 10) : "", who: ev.by ?? "—" })}</Link>
+              : ev.kind === "PORTAL" ? <Link href={ev.href} className="text-blue hover:underline">{d("evidencePortal", { date: ev.at.slice(0, 10), who: ev.name })}</Link>
               : <a href={ev.href} target="_blank" className="text-blue hover:underline">{d("evidenceSheet", { date: ev.at.slice(0, 10), n: ev.orders.length })}</a>}<b className="ml-auto tabular-nums">{o.currency} {Number(o.total).toFixed(2)}</b></div>}
             {lacks && <div className="mt-1 text-xs font-semibold text-[#C0392B]">{d("evidenceMissing")} <Link href={`/service-orders/${o.no}/accept`} className="underline">{d("evidenceGo")}</Link></div>}
             {pick && <details className="mt-1"><summary className="cursor-pointer text-xs text-navy/60 hover:text-navy">{d("noInvoice")}</summary>

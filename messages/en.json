@@ -2834,7 +2834,8 @@
     "err_FX_WAITS_MD": "{detail}: the rate waits for the MD — no tax invoice yet",
     "err_RC_FX_WAITS_MD": "Approve the rate first",
     "err_FX_NOT_WAITING": "No rate is waiting",
-    "err_FX_ISSUED": "{detail}: a tax invoice is issued — void and re-issue"
+    "err_FX_ISSUED": "{detail}: a tax invoice is issued — void and re-issue",
+    "acceptByPortal": "Confirmed by the customer in the portal: {who} · {date}"
   },
   "role": {
     "MD": "MD Managing Director",
@@ -3053,7 +3054,8 @@
     "evidenceDn": "Signed delivery note {no} · {date} · {who}",
     "evidenceSheet": "Signed acceptance sheet · {date}",
     "evidenceMissing": "No acceptance evidence: cannot invoice.",
-    "evidenceGo": "Add it"
+    "evidenceGo": "Add it",
+    "evidencePortal": "Confirmed in the portal · {who} · {date}"
   },
   "chain": {
     "title": "Document chain",

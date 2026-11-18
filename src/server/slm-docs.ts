@@ -414,7 +414,12 @@ export const AcceptanceInput = z.object({
 });
 
 /** ACCEPTED / CONDITIONAL → assets back IN_SERVICE, order → ACCEPTED. REJECTED → assets to REPAIR, order back to DIAGNOSING. */
-export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
+/**
+ * `portal`: the customer's own confirmation in the customer portal (朱总 2026-11-18 14:20: 门户确认算客户签字). Only the
+ * portal page passes it — never a request body — after it has checked that the signed-in contact belongs to the order's
+ * customer. For a repair / maintenance / partner-repair / project order it then stands as the acceptance evidence.
+ */
+export async function recordAcceptance(input: z.input<typeof AcceptanceInput>, portal?: { contactId: string; name: string }) {
   { // V4-P0-03: who is signing is settled before anything else is looked at
     const [who, o] = await Promise.all([prisma.employee.findUnique({ where: { code: String(input.actorCode) } }), prisma.serviceOrder.findUnique({ where: { no: String(input.serviceOrderNo) }, select: { id: true } })]);
     if (!who || !o || !(await mayAccept(who, o.id))) throw new Error("NO_PERMISSION");
@@ -425,9 +430,17 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
   if (!(await mayAccept(actor, order.id))) throw new Error("NO_PERMISSION"); // V4-P0-03: not anyone who knows the number
   if (order.status !== "ACCEPTANCE_PENDING" && order.status !== "IN_PROGRESS") throw new Error(`${order.no} is ${order.status}; acceptance needs ACCEPTANCE_PENDING`);
   const ok = d.status !== "REJECTED";
+  let portalSheet: AcceptSheet | null = null;
   if (ok) {
     // 验收依据按业务类型 (v5 P1-11): a trade order is accepted by the customer's signature on its delivery note; a repair
     // order by the customer's signed acceptance sheet, uploaded — a signature on a phone does not stand in for it.
+    if (portal && !isTradeMode(order.mode) && !(order.acceptSheet as AcceptSheet | null)?.files?.length) {
+      const c = await prisma.contact.findFirst({ where: { id: portal.contactId, customerId: order.customerId }, select: { id: true, name: true } });
+      if (!c) throw new Error("NO_PERMISSION");
+      const sheet: AcceptSheet = { sheetId: `PORTAL${Date.now().toString(36)}`, files: [], by: `portal:${c.name}`, at: new Date().toISOString(), orders: [order.no], portal: { contactId: c.id, name: c.name } };
+      portalSheet = sheet; // kept only if the acceptance itself goes through (below, in the same transaction)
+      order.acceptSheet = sheet as unknown as Prisma.JsonValue;
+    }
     const ev = await acceptEvidence(order);
     if (!ev) throw new Error(isTradeMode(order.mode) ? `TRADE_NEEDS_SIGNED_DN:${order.no}` : `ACCEPT_NEEDS_SHEET:${order.no}`);
     const missing = await missingForAcceptance(order.no);
@@ -441,7 +454,8 @@ export async function recordAcceptance(input: z.input<typeof AcceptanceInput>) {
       create: { serviceOrderId: order.id, deliverables: d.deliverables as Prisma.InputJsonValue, punchList: d.punchList, status: d.status, acceptedAt: d.acceptedAt ?? new Date(), warrantyStart: d.warrantyStart, warrantyTerms: d.warrantyTerms, customerContactId: d.customerContactId, customerSignatory: d.customerSignatory, signatureUrl: d.signatureUrl, dcitSignatory: d.dcitSignatory },
     });
     // Acceptance is the financial freeze: price, cost, stock issues and purchasing are closed from here on.
-    await tx.serviceOrder.update({ where: { id: order.id }, data: { status: ok ? "ACCEPTED" : "DIAGNOSING", lockedAt: ok ? (d.acceptedAt ?? new Date()) : null, lockedById: ok ? actor.id : null } });
+    await tx.serviceOrder.update({ where: { id: order.id }, data: { status: ok ? "ACCEPTED" : "DIAGNOSING", lockedAt: ok ? (d.acceptedAt ?? new Date()) : null, lockedById: ok ? actor.id : null, ...(portalSheet ? { acceptSheet: portalSheet as unknown as Prisma.InputJsonValue } : {}) } });
+    if (portalSheet) await audit(actor.id, "ACCEPT_PORTAL", order.no, { contact: portalSheet.portal?.name }, tx);
     for (const link of order.assets) {
       const from = link.asset.status;
       const to: AssetStatus = ok ? "IN_SERVICE" : "REPAIR";
@@ -599,13 +613,14 @@ export async function suggestPrice(input: { no: string; actorCode: string; note:
  *   维修 / 维保 / 合作维修 / 项目 — the customer's signed acceptance sheet, uploaded to the order.
  * null = there is none: the order cannot be accepted, and one already accepted is not a candidate for invoicing.
  */
-export type AcceptSheet = { sheetId: string; files: { name: string; url: string }[]; by: string; at: string; orders: string[] };
-export async function acceptEvidence(order: { id: string; no: string; mode: string | null; acceptSheet?: unknown }): Promise<null | { kind: "DN"; no: string; href: string; by: string | null; at: Date | null } | { kind: "SHEET"; href: string; name: string; by: string; at: string; orders: string[] }> {
+export type AcceptSheet = { sheetId: string; files: { name: string; url: string }[]; by: string; at: string; orders: string[]; portal?: { contactId: string; name: string } };
+export async function acceptEvidence(order: { id: string; no: string; mode: string | null; acceptSheet?: unknown }): Promise<null | { kind: "DN"; no: string; href: string; by: string | null; at: Date | null } | { kind: "SHEET"; href: string; name: string; by: string; at: string; orders: string[] } | { kind: "PORTAL"; href: string; name: string; at: string }> {
   if (isTradeMode(order.mode)) {
     const dn = await prisma.deliveryNote.findFirst({ where: { serviceOrderId: order.id, status: "SIGNED" }, orderBy: { signedAt: "desc" }, select: { no: true, signedBy: true, signedAt: true } });
     return dn ? { kind: "DN", no: dn.no, href: `/service-orders/${order.no}/deliver/${dn.no}`, by: dn.signedBy, at: dn.signedAt } : null;
   }
   const sh = (order.acceptSheet === undefined ? (await prisma.serviceOrder.findUnique({ where: { id: order.id }, select: { acceptSheet: true } }))?.acceptSheet : order.acceptSheet) as AcceptSheet | null;
+  if (sh?.portal && !sh.files?.length) return { kind: "PORTAL", href: `/service-orders/${order.no}/accept`, name: sh.portal.name, at: sh.at }; // the customer confirmed in the portal
   return sh?.files?.length ? { kind: "SHEET", href: sh.files[0].url, name: sh.files[0].name, by: sh.by, at: sh.at, orders: sh.orders ?? [] } : null;
 }
 /**

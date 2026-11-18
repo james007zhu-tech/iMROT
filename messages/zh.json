@@ -2834,7 +2834,8 @@
     "err_FX_WAITS_MD": "{detail} 的汇率待 MD 批准，批准前不能签发税票",
     "err_RC_FX_WAITS_MD": "要先批准汇率，再批准这笔收款",
     "err_FX_NOT_WAITING": "没有待批准的汇率",
-    "err_FX_ISSUED": "{detail} 已签发税票，不能改汇率，只能作废重开"
+    "err_FX_ISSUED": "{detail} 已签发税票，不能改汇率，只能作废重开",
+    "acceptByPortal": "客户在门户里本人确认验收：{who} · {date}"
   },
   "role": {
     "MD": "MD 董事总经理",
@@ -3053,7 +3054,8 @@
     "evidenceDn": "已签收送货单 {no} · {date} · {who}",
     "evidenceSheet": "客户签字验收单 · {date}",
     "evidenceMissing": "缺验收依据，不能开票。",
-    "evidenceGo": "去补"
+    "evidenceGo": "去补",
+    "evidencePortal": "客户门户确认 · {who} · {date}"
   },
   "chain": {
     "title": "单据链",

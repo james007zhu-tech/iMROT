@@ -47,7 +47,7 @@ export default async function PortalOrder({ params }: { params: Promise<{ no: st
     const tests = (o.repairJobs.at(-1)?.tests as { test: string; criterion?: string; result?: string }[] | null) ?? [];
     let attachments: { url: string }[] = [];
     try { attachments = JSON.parse(String(form.get("attachments") || "[]")); } catch { /* none */ }
-    await recordAcceptance({ serviceOrderNo: no, actorCode: desk.code, deliverables: tests.length ? tests.map((x) => ({ deliverable: x.test, criterion: x.criterion, result: x.result })) : [{ deliverable: "Service completed", result: "OK" }], status: form.get("status") as "ACCEPTED", punchList: String(form.get("punchList") || "") || undefined, customerContactId: me.id, customerSignatory: me.name, signatureUrl: attachments[0]?.url });
+    await recordAcceptance({ serviceOrderNo: no, actorCode: desk.code, deliverables: tests.length ? tests.map((x) => ({ deliverable: x.test, criterion: x.criterion, result: x.result })) : [{ deliverable: "Service completed", result: "OK" }], status: form.get("status") as "ACCEPTED", punchList: String(form.get("punchList") || "") || undefined, customerContactId: me.id, customerSignatory: me.name, signatureUrl: attachments[0]?.url }, { contactId: me.id, name: me.name });
     redirect(`/portal/orders/${no}`);
   }
 
