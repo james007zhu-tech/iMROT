@@ -35,7 +35,8 @@ export default async function CustomerDetail({ params, searchParams }: { params:
   const me0 = await currentEmployee();
   const full = can.customerMoney(me0), mayEdit = can.customers(me0); // 工程师、主管: name, plants, site contacts, machines, their own orders — no tax id, terms, receivables
   const oScope = await orderScope(me0);
-  const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: { include: { plant: true } }, assets: { include: { model: true, plant: true }, orderBy: { code: "asc" } }, serviceOrders: { where: oScope, orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
+  const c = await prisma.customer.findUnique({ where: { code }, include: { plants: true, contacts: { include: { plant: true } }, assets: { include: { model: true, plant: true }, orderBy: { code: "asc" }, take: 100 }, _count: { select: { assets: true } }, serviceOrders: { where: oScope, orderBy: { reportedAt: "desc" }, take: 20 }, entity: true } });
+  const byPlant = c ? (await prisma.asset.groupBy({ by: ["plantId"], where: { customerId: c.id }, _count: { _all: true } })).map((g) => ({ name: c.plants.find((p) => p.id === g.plantId)?.name ?? "—", n: g._count._all })).sort((a, b) => b.n - a.n) : [];
   if (!c) notFound();
   if (!(await prisma.customer.count({ where: { AND: [{ id: c.id }, await customerScope(me0)] } }))) redirect("/no-access?scope=1"); // 只看自己负责的 / 自己单上的客户
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
@@ -147,7 +148,9 @@ export default async function CustomerDetail({ params, searchParams }: { params:
           <div className="mt-3"><button className={btnGhost}>{u("addContact")}</button></div>
         </form>
       </Card>
-      <Card title={`${t("assets")} (${c.assets.length})`}>
+      <Card title={`${t("assets")} (${c._count.assets})`}>
+        {/* 2026-11-19 real data: one customer has 8,762 machines — the page lists the first 100 and the counts by plant; the rest are on the equipment list */}
+        {c._count.assets > c.assets.length && <p className="mb-2 text-sm text-navy">{u("custAssetsMore", { shown: c.assets.length, total: c._count.assets })} <Link href={`/assets?customerId=${c.id}`} className="font-semibold text-blue underline">{u("custAssetsAll")}</Link>{byPlant.length > 1 ? ` · ${byPlant.map((p) => `${p.name} ${p.n}`).join(" · ")}` : ""}</p>}
         <Table head={[t("assetCode"), t("model"), t("serial"), t("plant"), t("location"), t("status")]}>
           {c.assets.map((a) => <tr key={a.id}><td><Link href={`/assets/${a.code}`} className="font-mono text-blue hover:underline">{a.code}</Link></td><td>{a.model?.code ?? t(a.type)}</td><td className="font-mono">{a.serialNumber}</td><td>{a.plant?.code ?? ""}</td><td>{a.location ?? ""}</td><td><AssetStatusBadge status={a.status} /></td></tr>)}
         </Table>

@@ -2886,7 +2886,11 @@
     "quoteNoCostSales": "บรรทัดที่ {list} ยังไม่มีต้นทุน กรุณาใส่ต้นทุนประมาณการ ใบเสนอราคานี้ยังส่งไม่ได้",
     "quoteNoCostShort": "ขาดต้นทุน บรรทัด {list}",
     "quoteNoCostGo": "ไปใส่ต้นทุน",
-    "err_QUOTE_COST_MISSING": "ใบเสนอราคา {detail} ขาดต้นทุน อนุมัติไม่ได้ ให้ใส่ต้นทุนก่อน"
+    "err_QUOTE_COST_MISSING": "ใบเสนอราคา {detail} ขาดต้นทุน อนุมัติไม่ได้ ให้ใส่ต้นทุนก่อน",
+    "pickMore": "แสดง {shown} จาก {total} เครื่อง พิมพ์เลขท้าย S/N หรือรหัสเพื่อค้นหา",
+    "pickLoading": "กำลังโหลด…",
+    "custAssetsMore": "แสดง {shown} จาก {total} เครื่อง",
+    "custAssetsAll": "ดูทั้งหมดในรายการอุปกรณ์"
   },
   "role": {
     "MD": "MD กรรมการผู้จัดการ",

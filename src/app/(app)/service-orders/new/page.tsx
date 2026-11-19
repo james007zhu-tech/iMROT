@@ -15,6 +15,7 @@ import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { CustomerPicker } from "@/components/CustomerPicker";
 import { FormMemory } from "@/components/FormMemory";
+import { pickRow } from "@/lib/asset-pick-row";
 import { AssetPicker } from "@/components/AssetPicker";
 import { ScanButton } from "@/components/ScanButton";
 import { Card, Field, Grid, PageHeader, Table, btnGhost, btnPrimary, inputCls } from "@/components/ui";
@@ -36,7 +37,8 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
   const floors = await modeRules();
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const [assets, engineers, contacts] = await Promise.all([
-    prisma.asset.findMany({ where: { AND: [aScope, { status: { not: "RETIRED" }, customer: customer ? { code: customer } : undefined }] }, include: { customer: true, plant: true, model: true }, orderBy: { code: "asc" } }),
+    // 2026-11-19: the customers with machines (and how many) — their machines come from /api/assets/pick when one is chosen
+    prisma.asset.groupBy({ by: ["customerId"], where: { AND: [aScope, { status: { not: "RETIRED" }, customerId: { not: null } }] }, _count: { _all: true } }),
     prisma.employee.findMany({ where: { active: true, OR: [{ role: "ENGINEER" }, { extraRoles: { has: "ENGINEER" } }] }, orderBy: { name: "asc" } }), // 派工只列 ENG
     prisma.contact.findMany({ where: { customer: cScope }, include: { customer: { select: { name: true } } }, orderBy: { name: "asc" } }),
   ]);
@@ -70,7 +72,10 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         const others = await prisma.asset.findMany({ where: { code: { in: codes } }, select: { code: true, customerId: true } });
         const stray = others.filter((a) => a.customerId !== first.customerId).map((a) => a.code);
         if (stray.length) throw new Error(`ASSET_NOT_OF_CUSTOMER:${stray.join("、")}`);
-        if (s("pickCustomer") && first.customer?.name !== s("pickCustomer")) throw new Error(`ASSET_NOT_OF_CUSTOMER:${first.code}`);
+        if (s("pickCustomer") && first.customerId !== s("pickCustomer")) throw new Error(`ASSET_NOT_OF_CUSTOMER:${first.code}`);
+        // the picker fetches within the person's scope; the action checks the same, whatever the page sent
+        const meNow = await currentEmployee();
+        if ((await prisma.asset.count({ where: { AND: [await assetScope(meNow), { code: { in: codes } }] } })) !== new Set(codes).size) throw new Error("NO_PERMISSION");
       }
       const customerId = first?.customerId ?? s("customerId");
       if (!customerId) throw new Error(s("customerName") ? `CUSTOMER_NOT_PICKED:${s("customerName")}` : "INVALID_INPUT:customer");
@@ -99,7 +104,9 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
     }, `/service-orders/new?mode=${encodeURIComponent(String(form.get("mode") ?? "REPAIR"))}`); // an error comes back to the same form, with what was typed
   }
 
-  const pick = assets.map((a) => ({ code: a.code, serial: a.serialNumber, location: a.location ?? "", customer: a.customer?.name ?? "", plant: a.plant ? `${a.plant.code} ${a.plant.name}` : "", label: `${a.code} · ${a.location ?? ""} · ${a.customer?.name ?? ""}${a.plant ? ` ${a.plant.code}` : ""} · S/N ${a.serialNumber}` }));
+  const names = new Map((await prisma.customer.findMany({ where: { id: { in: assets.map((g) => g.customerId!) } }, select: { id: true, name: true, code: true } })).map((c) => [c.id, c]));
+  const pickCustomers = assets.map((g) => ({ id: g.customerId!, name: names.get(g.customerId!)?.name ?? "", n: g._count._all, code: names.get(g.customerId!)?.code })).filter((c) => !customer || c.code === customer).sort((a, b) => a.name.localeCompare(b.name)).map(({ code: _c, ...c }) => c);
+  const pre = asset ? await prisma.asset.findFirst({ where: { AND: [aScope, { code: asset }] }, select: { code: true, serialNumber: true, location: true, customerId: true, customer: { select: { name: true } }, plant: { select: { code: true, name: true } }, model: { select: { code: true } } } }) : null;
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/service-orders", label: u("backToOrders") }} title={u("newServiceOrder")}
@@ -166,7 +173,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
         </Card>}
         </>) : (<>
         <Card title={u("whichAsset")}>
-          <AssetPicker formId="f" assets={pick} initial={asset ? [asset] : []} labels={{ asset: t("asset"), customer: u("customerAuto"), plant: u("plantAuto"), add: u("addAnotherAsset"), pickCustomer: u("pickCustomerFirst"), allCustomers: u("allCustomersOpt"), find: u("findAssetPh") }} />
+          <AssetPicker formId="f" customers={pickCustomers} initial={pre ? pickRow(pre) : null} labels={{ more: u.raw("pickMore") as string, loading: u("pickLoading"), asset: t("asset"), customer: u("customerAuto"), plant: u("plantAuto"), add: u("addAnotherAsset"), pickCustomer: u("pickCustomerFirst"), allCustomers: u("allCustomersOpt"), find: u("findAssetPh") }} />
           <div className="flex flex-wrap items-center gap-2">
             <ScanButton compact label={u("scanDcitLabel")} hrefTemplate="/service-orders/new?asset={code}" />
             <Link href="/assets/new" className="text-sm text-blue underline">{u("assetNotListed")}</Link>
@@ -180,7 +187,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           <Field label={t("symptom")} required><textarea name="reportedSymptom" required rows={2} className={`${inputCls} font-semibold text-fault`} /></Field>
           <Grid>
             <Field label={u("customerRefVerbatim")}><input name="customerRef" className={`${inputCls} font-mono`} /></Field>
-            <Field label={u("reportedBy")}><ScopedSelect name="reportedById" follow="assetCodes" via={Object.fromEntries(assets.map((a) => [a.code, a.customerId ?? ""]))} className={inputCls} options={contacts.map((c) => ({ value: c.id, scope: c.customerId, label: staffContact(c), wide: `${staffContact(c)} · ${c.customer.name}` }))} /></Field>
+            <Field label={u("reportedBy")}><ScopedSelect name="reportedById" follow="pickCustomer" className={inputCls} options={contacts.map((c) => ({ value: c.id, scope: c.customerId, label: staffContact(c), wide: `${staffContact(c)} · ${c.customer.name}` }))} /></Field>
             <Field label={t("reportedAt")}><input name="reportedAt" type="datetime-local" defaultValue={now} className={inputCls} /></Field>
           </Grid>
           <Field label={u("poAttachments")}><input name="poFiles" type="file" multiple accept="image/*,application/pdf" className={inputCls} /></Field>
