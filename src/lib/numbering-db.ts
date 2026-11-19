@@ -35,5 +35,21 @@ export async function allocateNumber(
     select: { last: true },
   });
 
-  return (test ? TEST_MARK : "") + formatNumber(opts.prefix, country, date, seq.last);
+  // a master number already taken (records kept or imported while the counter was reset — 2026-11-19: the first new
+  // employee after the cleanup got ETH2611001, the MD's number, and the save was refused) is skipped, never handed out twice
+  const taken = TAKEN[opts.prefix as keyof typeof TAKEN];
+  let last = seq.last;
+  if (taken && !test) {
+    while (await taken(tx, formatNumber(opts.prefix, country, date, last))) last++;
+    if (last !== seq.last) await tx.docSequence.update({ where: { entityId_prefix_period: { entityId: owner, prefix: key, period } }, data: { last } });
+  }
+  return (test ? TEST_MARK : "") + formatNumber(opts.prefix, country, date, last);
 }
+
+type Tx = PrismaClient | Prisma.TransactionClient;
+const TAKEN = {
+  E: async (tx: Tx, code: string) => !!(await tx.employee.findUnique({ where: { code }, select: { id: true } })),
+  C: async (tx: Tx, code: string) => !!(await tx.customer.findUnique({ where: { code }, select: { id: true } })),
+  A: async (tx: Tx, code: string) => !!(await tx.asset.findUnique({ where: { code }, select: { id: true } })),
+  S: async (tx: Tx, code: string) => !!(await tx.supplier.findUnique({ where: { code }, select: { id: true } })),
+};
