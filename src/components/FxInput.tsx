@@ -3,6 +3,8 @@
  * 手动汇率 (派修单 v5 P1-2): the rate field of a document with the Bank of China rate beside it. While the person types,
  * it says how far the new rate is from the BoC rate; past the threshold (2 %) it says the MD has to approve — and the
  * button, when this component carries one, changes to 提交 MD 批准.
+ * The box is left to the browser (uncontrolled): a box the page rewrote on every keystroke scrambled what testers typed
+ * on the collection page — "0.2100" became "02.001" (2026-11-19). Stray characters are only cleaned when it loses focus.
  */
 import { useState } from "react";
 import { fmtRate, rateTyped } from "@/lib/money";
@@ -17,7 +19,7 @@ export function FxInput({ name, reasonName, boc, start, threshold, cls, labels, 
   if (!open) return <span className="text-[12px] text-navy/80">{boc ? `@ ${fmtRate(boc.rate)} · ${labels.boc} ${boc.date} ` : `${labels.noBoc} `}<button type="button" onClick={() => setOpen(true)} className="text-blue underline">✎ {labels.edit}</button></span>;
   return (
     <span className="flex flex-wrap items-end gap-2">
-      <label className="text-xs text-navy/70">{labels.rate}<input name={name} type="text" inputMode="decimal" autoComplete="off" required pattern="[0-9]*\.?[0-9]*" value={v} onChange={(e) => setV(rateTyped(e.target.value))} className={`${cls} mt-0.5 block w-32`} /></label>
+      <label className="text-xs text-navy/70">{labels.rate}<input name={name} type="text" inputMode="decimal" autoComplete="off" required pattern="[0-9]*\.?[0-9]*" defaultValue={v} onInput={(e) => setV(e.currentTarget.value)} onBlur={(e) => { const c = rateTyped(e.currentTarget.value); if (c !== e.currentTarget.value) e.currentTarget.value = c; setV(c); }} className={`${cls} mt-0.5 block w-32`} /></label>
       <label className="text-xs text-navy/70">{labels.reason}<select name={reasonName} required={changed} defaultValue="" className={`${cls} mt-0.5 block`}><option value="" disabled>—</option>{reasons.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}</select></label>
       <span className={`pb-1 text-xs ${over ? "font-semibold text-[#C0392B]" : "text-navy/70"}`} role="status">{boc ? `${labels.boc} ${fmtRate(boc.rate)} (${boc.date}) · ${labels.diff} ${(diff * 100).toFixed(2)}%` : labels.noBoc}{over ? ` · ${labels.needsMd}` : ""}</span>
       {button && <button className={`rounded-md px-3 py-1.5 text-sm font-semibold text-white ${over ? "bg-[#C0392B]" : "bg-navy"}`}>{over ? button.askMd : button.save}</button>}

@@ -7,7 +7,7 @@ import { BellBox } from "@/components/BellBox";
  * 消息中心 (top right, 朱总 2026-11-10): the bell shows how many things want this person's attention; red when
  * something is already late. Each line opens its record; "ask" hands it to the assistant on the home page.
  */
-export async function MessageCenter({ notices }: { notices: Notice[] }) {
+export async function MessageCenter({ notices, total }: { notices: Notice[]; total?: number }) {
   const t = await getTranslations("msg");
   const late = notices.filter((n) => n.level === "late").length;
   const when = (n: Notice) => (n.days < 0 ? t("lateN", { n: -n.days }) : n.days === 0 ? t("today") : t("inN", { n: n.days }));
@@ -15,7 +15,7 @@ export async function MessageCenter({ notices }: { notices: Notice[] }) {
     <BellBox className="group relative">
       <summary className="relative flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-navy/25 bg-white text-navy hover:bg-tint [&::-webkit-details-marker]:hidden" aria-label={t("title")} title={t("title")}>
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-none stroke-current" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9z" /><path d="M10 20a2.2 2.2 0 0 0 4 0" /></svg>
-        {notices.length > 0 && <span className={`absolute -right-1.5 -top-1.5 min-w-[18px] rounded-full px-1 text-center text-[11px] font-bold leading-[18px] text-white ${late ? "bg-alert" : "bg-blue"}`}>{notices.length}</span>}
+        {notices.length > 0 && <span className={`absolute -right-1.5 -top-1.5 min-w-[18px] rounded-full px-1 text-center text-[11px] font-bold leading-[18px] text-white ${late ? "bg-alert" : "bg-blue"}`}>{total ?? notices.length}</span>}
       </summary>
       <div className="absolute right-0 top-11 z-50 w-[min(92vw,26rem)] rounded-xl border bg-white shadow-xl">
         <div className="flex items-baseline justify-between border-b px-4 py-2.5"><b className="text-navy">{t("title")}</b><span className="text-xs text-navy/60">{late ? t("lateCount", { n: late }) : t("count", { n: notices.length })}</span></div>

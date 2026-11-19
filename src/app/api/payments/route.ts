@@ -1,9 +1,11 @@
+import { forgetNotices } from "@/server/notify";
 import { NextResponse } from "next/server";
 import { errorCode, errorStatus } from "@/lib/errors";
 import { bodyAsSession, jsonForSession, requireSession } from "@/server/api-auth";
 import { requestReceipt } from "@/server/collect";
 
 export async function POST(req: Request) {
+  setTimeout(forgetNotices, 1500); // the bell recounts after this change (2026-11-19)
   const denied = await requireSession(); if (denied) return denied;
   try {
     // 收款三步 (2026-11-18): the API asks; the MD approves and finance confirms with the slip on the order's payment page

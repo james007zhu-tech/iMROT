@@ -6,6 +6,7 @@ import { errorCode } from "@/lib/errors";
 import { prisma } from "@/lib/db";
 import { sessionEmployeeCode } from "@/server/auth";
 import { gateFor } from "@/server/gate";
+import { forgetNotices } from "@/server/notify";
 
 /** `run` may return a message, or `{ ok, to }` to land somewhere else on success (a step form returns to its order). */
 export async function guarded(run: () => Promise<string | void | { ok?: string; to: string }>, backTo: string): Promise<void> {
@@ -20,6 +21,7 @@ export async function guarded(run: () => Promise<string | void | { ok?: string; 
   const began = Date.now();
   try {
     const r = await run();
+    forgetNotices(); // the bell counts what is still open — after an approval, not 20 seconds later (2026-11-19)
     if (Date.now() - began > 3000) console.warn(`[slow-action] ${backTo} took ${Date.now() - began} ms`); // so a slow save can be told from a slow network
     const ok = typeof r === "object" && r ? r.ok : r;
     const dest = typeof r === "object" && r ? r.to : backTo;

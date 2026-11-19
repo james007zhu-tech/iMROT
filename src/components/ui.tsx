@@ -7,6 +7,7 @@
  * No text lives here; callers pass translated labels.
  */
 import Link from "next/link";
+import { HeaderSave } from "./HeaderSave";
 
 export const inputCls = "w-full rounded-md border px-2.5 py-2 text-sm";
 /** For filter rows: natural width. */
@@ -20,6 +21,7 @@ export function PageHeader({ title, badge, back, actions, newHref, newLabel }: {
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
+      <HeaderSave />
       {back && <Link href={back.href} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-navy/45 bg-white px-3 text-sm text-navy hover:bg-tint">← {back.label}</Link>}
       <h1 className="text-2xl font-bold text-navy">{title}</h1>
       {badge}

@@ -23,7 +23,7 @@ import { issueNeeds } from "@/server/scm";
 
 const OPEN = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] as const;
 
-export async function noticesFor(me: { id: string; code: string; role: string }, today = new Date()): Promise<Notice[]> {
+export async function noticesFor(me: { id: string; code: string; role: string }, today = new Date()): Promise<Notice[] & { total?: number }> {
   const lead = hasRole(me, "MD");
   const money = can.finance(me);
   // whose orders: everything for the MD and 内勤; sales their own; the shop floor what is assigned to them (主管: their team); HR none
@@ -177,7 +177,8 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // someone locked out, and money waiting for the MD's word, are never pushed off the list by a long tail of late items
   const first = (n: Notice) => n.kind === "resetAsked" || n.kind === "payRelease" || n.kind === "voidAsked" || n.kind === "otApprove" || n.kind === "rcApprove" || n.kind === "fxApprove" || n.kind === "rcConfirm" || n.kind === "quoteCost" || n.kind === "leaveApprove" || n.kind === "expenseApprove" || n.kind === "payrollReview" || n.kind === "otLate" || n.kind === "payrollApprove" || n.kind.startsWith("toInvoice") || n.kind === "poApprove" || n.kind === "payApprove" || n.kind === "payConfirm";
   const sorted = sortNotices(out);
-  return [...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60);
+  // the bell shows how many are open, not how many fit in the list (2026-11-19: a capped list stayed at 60 after an approval)
+  return Object.assign([...sorted.filter(first), ...sorted.filter((n) => !first(n))].slice(0, 60), { total: out.length });
 }
 
 /**
@@ -185,9 +186,12 @@ export async function noticesFor(me: { id: string; code: string; role: string },
  * warms up beforehand, used to run them all again — on a busy screen that is what kept a first page spinning for half a
  * minute (派修单 v4, 07:00). One person's list is now kept for 20 seconds; whoever has just done something sees the
  * result on the next page at the latest 20 seconds later.
+ * 2026-11-19: …which meant the bell still counted an approval the MD had just made. Every successful save or approval now
+ * forgets the kept lists of everyone (one approval changes other people's bells too); plain page views still use them.
  */
-const kept = new Map<string, { at: number; list: Promise<Notice[]> }>();
-export function cachedNotices(me: Parameters<typeof noticesFor>[0]): Promise<Notice[]> {
+const kept = new Map<string, { at: number; list: Promise<Notice[] & { total?: number }> }>();
+export function forgetNotices() { kept.clear(); }
+export function cachedNotices(me: Parameters<typeof noticesFor>[0]): Promise<Notice[] & { total?: number }> {
   const key = (me as { id: string }).id, hit = kept.get(key);
   if (hit && Date.now() - hit.at < 20_000) return hit.list;
   const list = noticesFor(me); kept.set(key, { at: Date.now(), list });

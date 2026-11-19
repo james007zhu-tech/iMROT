@@ -1,3 +1,4 @@
+import { forgetNotices } from "@/server/notify";
 import { NextResponse } from "next/server";
 import { errorCode, errorStatus } from "@/lib/errors";
 import { sessionEmployeeCode } from "@/server/auth";
@@ -5,6 +6,7 @@ import { decideAction } from "@/server/ai-actions";
 
 /** POST { id, go } — the person confirms (or cancels) an action the assistant prepared. Staff only; owner only. */
 export async function POST(req: Request) {
+  setTimeout(forgetNotices, 1500); // the bell recounts after this change (2026-11-19)
   const code = await sessionEmployeeCode();
   if (!code) return NextResponse.json({ error: "not signed in" }, { status: 401 });
   try {
