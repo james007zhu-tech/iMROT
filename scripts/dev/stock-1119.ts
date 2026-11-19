@@ -13,8 +13,10 @@ type P = { sku: string; brandCode: string | null; vendorPartNo: string; name: st
 type L = { sku: string; qty: number; priceCny: number | null; date: string; bin: string | null; book: number; legacy: string; operator: string | null };
 (async () => {
   const mode = process.env.MODE ?? "dry";
-  const d = JSON.parse(await readFile(process.env.FILE ?? ".dev-ops/stock-1119.json", "utf8")) as { parts: P[]; lines: L[] };
-  if ((await prisma.part.count()) || (await prisma.stockMovement.count()) ) { if (process.env.FORCE !== "1") throw new Error(`not empty: ${await prisma.part.count()} parts, ${await prisma.stockMovement.count()} movements`); }
+  const d = JSON.parse(await readFile(process.env.FILE ?? ".dev-ops/stock-1119.json", "utf8")) as { parts: P[]; lines: L[]; replace?: string[] };
+  // a first run created the part numbers with descriptions in them and stopped before any stock: those (never moved, never quoted) go first
+  if (d.replace?.length && mode === "run") { const gone = await prisma.part.deleteMany({ where: { sku: { in: d.replace }, movements: { none: {} }, quoteLines: { none: {} }, bomLines: { none: {} } } }); console.log(`removed ${gone.count} part numbers of the first run`); }
+  if (((await prisma.part.count()) && !d.replace) || (await prisma.stockMovement.count({ where: { part: { sku: { in: d.parts.map((p) => p.sku) } } } }))) { if (process.env.FORCE !== "1") throw new Error(`not empty: ${await prisma.part.count()} parts, ${await prisma.stockMovement.count()} movements`); }
   const brands = new Map((await prisma.brand.findMany({ select: { id: true, code: true } })).map((b) => [b.code, b.id]));
   for (const p of d.parts) if (p.brandCode && !brands.has(p.brandCode)) throw new Error(`brand ${p.brandCode} missing`);
   // CNY → THB at the BOC rate of each receiving date (rateToCny of THB = CNY per 1 THB)
