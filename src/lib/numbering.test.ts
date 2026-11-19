@@ -31,6 +31,8 @@ describe("numbering", () => {
   it("derives country from the creator's employee code", () => {
     expect(countryFromEmployeeCode("ETH2610001")).toBe("TH");
     expect(countryFromEmployeeCode("EVN2611003")).toBe("VN");
+    expect(countryFromEmployeeCode("ETH26002")).toBe("TH"); // the short codes of the 2026-11-19 accounts
+    expect(() => countryFromEmployeeCode("ETH2600")).toThrow();
     expect(() => countryFromEmployeeCode("CTH2610001")).toThrow();
   });
 

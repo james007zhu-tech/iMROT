@@ -78,9 +78,13 @@ export function serialDigits(prefix: Prefix): number {
   return isMasterPrefix(prefix) ? MASTER_PREFIXES[prefix].digits : DOC_PREFIXES[prefix].digits;
 }
 
-/** Country of everything an employee creates comes from their own code: ETH2610001 → TH. */
+/**
+ * Country of everything an employee creates comes from their own code: ETH2610001 → TH. The accounts created for the
+ * last test round carry the short form the MD gave them, ETH26002 … ETH26010 (2026-11-19 P0: every one of them failed
+ * here with "Not a valid employee code"), so 5 to 7 digits are accepted.
+ */
 export function countryFromEmployeeCode(employeeCode: string): CountryCode {
-  const m = /^E(TH|VN|CN)\d{7}$/.exec(employeeCode);
+  const m = /^E(TH|VN|CN)\d{5,7}$/.exec(employeeCode);
   if (!m) throw new Error(`Not a valid employee code: ${employeeCode}`);
   return m[1] as CountryCode;
 }
@@ -133,7 +137,7 @@ export function keepCustomerRef(ref: string | null | undefined): string | null {
  * No counter: a person has one payslip a month, so the number follows from the month and the employee code.
  */
 export function payslipNo(month: string, employeeCode: string): string {
-  const m = /^E(TH|VN|CN)\d{4}(\d{3})$/.exec(employeeCode);
+  const m = /^E(TH|VN|CN)\d{2,4}(\d{3})$/.exec(employeeCode); // ETH2611002 → E002, ETH26002 → E002
   if (!m || !/^\d{4}-\d{2}$/.test(month)) throw new Error(`Cannot number a payslip for ${employeeCode} ${month}`);
   return `ES${m[1]}${month.slice(2, 4)}${month.slice(5, 7)}E${m[2]}`;
 }
