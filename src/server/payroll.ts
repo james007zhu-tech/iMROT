@@ -10,7 +10,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/server/audit";
 import { monthRange } from "@/lib/overtime";
-import { previewOvertimeMonth, closeOvertimeMonth } from "@/server/overtime";
+import { previewOvertimeMonth, closeOvertimeMonth, otLedger } from "@/server/overtime";
 import type { Allowance } from "@/lib/payroll";
 import { DEFAULT_BANDS, computeLine, isQuarterEnd, periodsInYear, quarterOf, type PerfBand, type TaxProfile } from "@/lib/payroll-run";
 import { hasRole, isApprover } from "@/lib/caps";
@@ -68,9 +68,11 @@ export async function computePayroll(input: { entityId: string; month: string; a
   // happens when the MD approves the payroll. What still stops the month is overtime nobody has decided yet.
   const otWaiting = new Set((await prisma.overtimeRequest.findMany({ where: { entityId: input.entityId, status: "PENDING", workDate: { lt: to } }, select: { employeeId: true } })).map((r) => r.employeeId));
   const otPreview = otMonth ? null : await previewOvertimeMonth(input.entityId, input.month);
+  const otPaid = otMonth ? await prisma.overtimeRequest.findMany({ where: { payMonthId: otMonth.id }, select: { id: true, employeeId: true, hours: true, actualHours: true } }) : [];
   const unpaidLeave = await unpaidLeaveOfMonth(ids, input.month); // 请假 (v4 V4-P0-12): 无薪假 and leave beyond the paid days of the year
 
   const lines: (Prisma.PayrollLineUncheckedCreateWithoutRunInput & { claimIds: string[] })[] = [];
+  const otBook: Record<string, string[]> = {}; // H-R82: employee id → the requests in the figure ("id:hours"); an empty book is still a book
   const skipped: string[] = [];
   for (const e of staff) {
     const salary = await prisma.salaryRecord.findFirst({ where: { employeeId: e.id, effectiveFrom: { lte: lastDay } }, orderBy: { effectiveFrom: "desc" } });
@@ -86,6 +88,9 @@ export async function computePayroll(input: { entityId: string; month: string; a
     const mine = claims.filter((c) => c.employeeId === e.id);
     const reimbursement = r2(mine.reduce((s, c) => s + Number(c.amount), 0));
     const overtime = otMonth ? Number(otMonth.lines.find((l) => l.employeeId === e.id)?.total ?? 0) : r2(otPreview?.find((l) => l.employeeId === e.id)?.pay.total ?? 0);
+    // H-R82: exactly which requests this figure is made of
+    const otIds = (otMonth ? otPaid.filter((r) => r.employeeId === e.id) : otPreview?.find((l) => l.employeeId === e.id)?.requests ?? []).map((r) => `${r.id}:${Number(r.actualHours ?? r.hours)}`);
+    if (otIds.length) otBook[e.id] = otIds;
     const otLateFrom = (otMonth ? (otMonth.lines.find((l) => l.employeeId === e.id)?.lateFrom ?? []) : (otPreview?.find((l) => l.employeeId === e.id)?.lateFrom ?? [])) as string[]; // 补发 ×月加班
     const unpaidLeaveDays = unpaidLeave.get(e.id) ?? 0, leaveCut = leaveDeduction(Number(salary.baseSalary), unpaidLeaveDays); // 月薪 ÷ 30 × days, off the base before tax and SSO
     const variablePay = Number(salary?.variablePay ?? 0);
@@ -129,8 +134,8 @@ export async function computePayroll(input: { entityId: string; month: string; a
     const moved = !!existing && flat(existing.totals) !== flat(totals);
     const who = internal ? {} : { preparedBy: actor.code };
     const run = existing
-      ? await tx.payrollRun.update({ where: { id: existing.id }, data: { totals, computedAt: new Date(), policy: { bands } as unknown as Prisma.InputJsonValue, ...who, ...(moved ? { taxConfirmedBy: null, taxConfirmedAt: null } : {}) } })
-      : await tx.payrollRun.create({ data: { entityId: input.entityId, month: input.month, createdBy: actor.code, totals, policy: { bands } as unknown as Prisma.InputJsonValue, ...who } });
+      ? await tx.payrollRun.update({ where: { id: existing.id }, data: { totals, computedAt: new Date(), policy: { bands, ot: otBook } as unknown as Prisma.InputJsonValue, ...who, ...(moved ? { taxConfirmedBy: null, taxConfirmedAt: null } : {}) } })
+      : await tx.payrollRun.create({ data: { entityId: input.entityId, month: input.month, createdBy: actor.code, totals, policy: { bands, ot: otBook } as unknown as Prisma.InputJsonValue, ...who } });
     // 留痕 (派修单 v4): a recompute that moves the figures after the finance review sends the month back to finance — say who, when, why
     const was = moved ? await tx.payrollLine.findMany({ where: { runId: existing!.id }, select: { employeeId: true, gross: true, employee: { select: { code: true, name: true } } } }) : [];
     const changedPeople = moved ? [...was.filter((w) => Math.abs(Number(w.gross) - Number(lines.find((l) => l.employeeId === w.employeeId)?.gross ?? 0)) > 0.005).map((w) => `${w.employee.code} ${w.employee.name} ${Number(w.gross)}→${Number(lines.find((l) => l.employeeId === w.employeeId)?.gross ?? 0)}`), ...lines.filter((l) => !was.some((w) => w.employeeId === l.employeeId)).map((l) => `+${l.employeeId.slice(-6)} ${Number(l.gross)}`)] : [];
@@ -152,7 +157,7 @@ export async function setBands(input: { entityId: string; month: string; actorCo
   if (!bands.length || bands.at(-1)!.min !== 0) throw new Error("BANDS_NEED_ZERO");
   const run = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: input.entityId, month: input.month } } });
   if (run.status !== "DRAFT") throw new Error(`PAYROLL_LOCKED:${input.month}`);
-  await prisma.payrollRun.update({ where: { id: run.id }, data: { policy: { bands } as unknown as Prisma.InputJsonValue } });
+  await prisma.payrollRun.update({ where: { id: run.id }, data: { policy: { ...((run.policy as object | null) ?? {}), bands } as unknown as Prisma.InputJsonValue } });
   return computePayroll(input, true);
 }
 
@@ -180,6 +185,14 @@ export async function reopenPayroll(input: { entityId: string; month: string; ac
   const run = await prisma.payrollRun.findUniqueOrThrow({ where: { entityId_month: { entityId: input.entityId, month: input.month } } });
   if (run.status === "PAID") throw new Error(`PAYROLL_PAID:${input.month}`);
   await prisma.payrollRun.update({ where: { id: run.id }, data: { status: "DRAFT", approvedBy: null, approvedAt: null, taxConfirmedBy: null, taxConfirmedAt: null } }); // back to finance: the review is done again, HR need not resubmit
+  // H-R82 (2026-11-20): approval froze this month's overtime (closeOvertimeMonth, early). A reopened month used to keep
+  // that frozen figure, so 重新计算 never changed the overtime — duplicates included. Reopening the pay reopens its
+  // overtime too (unless the automatic month-end close made it, or a later month is already closed on top of it).
+  const om = await prisma.overtimeMonth.findUnique({ where: { entityId_month: { entityId: input.entityId, month: input.month } } });
+  if (om && om.closedBy !== "SYSTEM" && !(await prisma.overtimeMonth.findFirst({ where: { entityId: input.entityId, month: { gt: input.month } }, select: { id: true } }))) {
+    await prisma.$transaction([prisma.overtimeRequest.updateMany({ where: { payMonthId: om.id }, data: { payMonthId: null } }), prisma.overtimeMonth.delete({ where: { id: om.id } })]);
+    await audit(actor.id, "OT_MONTH_REOPEN", input.month, { entityId: input.entityId, via: "PAYROLL_REOPEN" });
+  }
   await audit(actor.id, "PAYROLL_REOPEN", input.month, { from: payrollStage(run), to: payrollStage({ status: "DRAFT", submittedAt: run.submittedAt, taxConfirmedAt: null }), reason: "REOPENED" });
 }
 
@@ -244,14 +257,29 @@ export async function mySlips(employeeId: string) {
  */
 export async function lateOvertime(entityId: string, month: string) {
   const run = await prisma.payrollRun.findUnique({ where: { entityId_month: { entityId, month } } });
-  if (!run) return { run: null, rows: [], hours: 0, locked: false };
+  if (!run) return { run: null, rows: [], hours: 0, locked: false, standing: new Set<string>() };
   const { to } = monthRange(month);
   // locked: the month is approved, or its overtime was already closed (the automatic close on the 1st) — late overtime then goes to the next month by itself
   const locked = run.status !== "DRAFT" || !!(await prisma.overtimeMonth.findUnique({ where: { entityId_month: { entityId, month } }, select: { id: true } }));
-  const rows = await prisma.overtimeRequest.findMany({
-    where: { entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to }, ...(locked ? {} : { AND: [{ OR: [{ payNotBefore: null }, { payNotBefore: { lte: month } }] }, { OR: [{ decidedAt: { gt: run.computedAt } }, { confirmedAt: { gt: run.computedAt } }] }] }) },
+  const all = await prisma.overtimeRequest.findMany({
+    where: { entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to }, ...(locked ? {} : { OR: [{ payNotBefore: null }, { payNotBefore: { lte: month } }] }) },
     include: { employee: { select: { code: true, name: true } } }, orderBy: { workDate: "asc" } });
-  return { run, rows, hours: r2(rows.reduce((a, r) => a + Number(r.actualHours ?? r.hours), 0)), locked };
+  // H-R82, third round: 未计入 is read from the sheet itself — a request is late when it is not among the requests this
+  // month's lines are made of, or stands there with other hours (its actual hours were confirmed since). A request that
+  // stands in another month's sheet is that month's business. Sheets computed before the lines kept this record fall
+  // back on the old test (approved or confirmed after the sheet was computed).
+  const here = await otLedger(entityId, month), elsewhere = await otLedger(entityId, { not: month });
+  const { from } = monthRange(month);
+  const hasLedger = !!(run.policy as { ot?: unknown } | null)?.ot; // sheets computed before 2026-11-20 have none
+  const earlierSheets = new Set((await prisma.payrollRun.findMany({ where: { entityId, month: { lt: month } }, select: { month: true } })).map((r) => r.month));
+  const rows = locked ? all.filter((r) => !elsewhere.has(r.id)) : all.filter((r) => {
+    if (elsewhere.has(r.id) && r.payNotBefore !== month) return false;
+    if (r.workDate < from && r.payNotBefore !== month && earlierSheets.has(r.workDate.toISOString().slice(0, 7))) return false; // an earlier month's, waiting for that month's choice
+    if (!hasLedger) return (r.decidedAt != null && r.decidedAt > run.computedAt) || (r.confirmedAt != null && r.confirmedAt > run.computedAt);
+    const in_ = here.get(r.id); return !in_ || Math.abs(in_.hours - Number(r.actualHours ?? r.hours)) > 0.001;
+  });
+  const standing = new Set(rows.filter((r) => here.has(r.id)).map((r) => r.id)); // in this month's figure with other hours: 补算 only, never 挂到下月
+  return { run, rows, hours: r2(rows.reduce((a, r) => a + Number(r.actualHours ?? r.hours), 0)), locked, standing };
 }
 /**
  * 派修单 v5 P1-6 (H-R72): what stops the review is judged now, not from what was stored when the month was computed.
@@ -306,7 +334,10 @@ export async function carryOvertime(input: { entityId: string; month: string; ac
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   if (!hasRole(actor, "HR", "MD")) throw new Error("NO_PERMISSION");
   const late = await lateOvertime(input.entityId, input.month);
-  if (late.locked || !late.rows.length) return 0;
+  if (late.locked) return 0;
+  // H-R82 / H-R83: what already stands in this month's figure is never carried on — that is how one overtime got paid twice
+  late.rows = late.rows.filter((r) => !late.standing.has(r.id));
+  if (!late.rows.length) { if (late.standing.size) throw new Error("OT_IN_FIGURE"); return 0; }
   const [y, m] = input.month.split("-").map(Number), next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
   // H-R83 (MD 2026-11-18 14:19): only overtime that is not in this month's figure can be carried — which is what the
   // late list is. The month is not computed again here: its figure and its state stay as they are.

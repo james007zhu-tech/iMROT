@@ -179,7 +179,20 @@ async function payableFor(entityId: string, month: string): Promise<Payable[]> {
   const { from, to } = monthRange(month);
   const rows = await prisma.overtimeRequest.findMany({ where: { entityId, status: "APPROVED", payMonthId: null, workDate: { lt: to }, OR: [{ payNotBefore: null }, { payNotBefore: { lte: month } }] }, include: { employee: true }, orderBy: { workDate: "asc" } });
   const sheets = new Set((await prisma.payrollRun.findMany({ where: { entityId, month: { lt: month } }, select: { month: true } })).map((r) => r.month));
-  return rows.filter((r) => r.payNotBefore === month || (r.workDate >= from ? !r.payNotBefore || r.payNotBefore <= month : !r.payNotBefore && !sheets.has(monthKeyOf(r.workDate))));
+  // H-R82, third round (2026-11-20): the rule above still let a request into two sheets when the months were computed
+  // out of order, or when it was carried on while still standing in its own month's figure. Every pay line now records
+  // the requests in its figure (PayrollRun.policy.ot); a request recorded in another month's sheet is not taken again —
+  // unless it was carried to exactly this month, which takes it out of the other sheet's claim (see lateOvertime).
+  const elsewhere = await otLedger(entityId, { not: month });
+  return rows.filter((r) => r.payNotBefore === month || (!elsewhere.has(r.id) && (r.workDate >= from ? !r.payNotBefore || r.payNotBefore <= month : !r.payNotBefore && !sheets.has(monthKeyOf(r.workDate)))));
+}
+/** The overtime requests standing in the pay sheets of this entity: request id → { month, hours } (H-R82). */
+export async function otLedger(entityId: string, month: string | { not: string }) {
+  // kept with the sheet itself (PayrollRun.policy.ot: employee id → "request id:hours"), written by computePayroll
+  const runs = await prisma.payrollRun.findMany({ where: { entityId, month }, select: { month: true, policy: true } });
+  const out = new Map<string, { month: string; hours: number }>();
+  for (const r of runs) for (const list of Object.values(((r.policy as { ot?: Record<string, string[]> } | null)?.ot) ?? {})) for (const x of list) { const i = x.lastIndexOf(":"); out.set(x.slice(0, i), { month: r.month, hours: Number(x.slice(i + 1)) }); }
+  return out;
 }
 
 async function linesFor(rows: Payable[], month: string) {

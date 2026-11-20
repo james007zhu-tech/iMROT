@@ -2890,7 +2890,8 @@
     "pickMore": "显示 {shown} / {total} 台，输入序列号或编号后几位查找",
     "pickLoading": "正在加载…",
     "custAssetsMore": "这里列出前 {shown} 台，共 {total} 台",
-    "custAssetsAll": "在设备列表里看全部"
+    "custAssetsAll": "在设备列表里看全部",
+    "err_OT_IN_FIGURE": "这些加班已经算在本月工资里，不能挂到下月；时数有变请点「补算」"
   },
   "role": {
     "MD": "MD 董事总经理",

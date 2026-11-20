@@ -2890,7 +2890,8 @@
     "pickMore": "Showing {shown} of {total} — type the last digits of a serial or code",
     "pickLoading": "Loading…",
     "custAssetsMore": "First {shown} of {total} machines",
-    "custAssetsAll": "See all on the equipment list"
+    "custAssetsAll": "See all on the equipment list",
+    "err_OT_IN_FIGURE": "This overtime is already in this month’s figure and cannot be carried on; use 补算 to recount"
   },
   "role": {
     "MD": "MD Managing Director",
