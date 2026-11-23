@@ -22,6 +22,7 @@ services:
     environment:
       DATABASE_URL: postgresql://dcit:${DB_PASSWORD}@db:5432/dcit_os?schema=public
       NODE_OPTIONS: --max-old-space-size=1400
+      BUILD_SKIP_TYPECHECK: "1"
     ports: [ "127.0.0.1:3000:3000" ]
     volumes:
       - ".:/app"
