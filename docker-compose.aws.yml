@@ -1,0 +1,42 @@
+# Production stack on the AWS server (Lightsail, Ubuntu 24.04): `docker compose -f docker-compose.aws.yml up -d --build`
+# - db    : PostgreSQL 16, reachable only from the app container; sized for a small machine
+# - app   : the same container as on the Mac mini (scripts/dev/container-entry.sh, .dev-ops/mode = prod), on 127.0.0.1:3000
+# - caddy : the public door on 80/443; with SITE_ADDRESS set to the host name it obtains and renews the certificate itself
+# DB_PASSWORD and SITE_ADDRESS come from .env on the server (written at installation, never in the repository).
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment: { POSTGRES_USER: dcit, POSTGRES_PASSWORD: "${DB_PASSWORD:?set in .env}", POSTGRES_DB: dcit_os }
+    command: postgres -c shared_buffers=96MB -c max_connections=30 -c work_mem=4MB -c maintenance_work_mem=48MB -c effective_cache_size=256MB
+    volumes: [ "dbdata:/var/lib/postgresql/data" ]
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U dcit -d dcit_os" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  app:
+    build: { context: ., dockerfile: Dockerfile.dev }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://dcit:${DB_PASSWORD}@db:5432/dcit_os?schema=public
+      NODE_OPTIONS: --max-old-space-size=1400
+    ports: [ "127.0.0.1:3000:3000" ]
+    volumes:
+      - ".:/app"
+      - "node_modules:/app/node_modules"
+      - "next:/app/.next"
+    depends_on:
+      db: { condition: service_healthy }
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment: { SITE_ADDRESS: "${SITE_ADDRESS:-:80}" }
+    ports: [ "80:80", "443:443" ]
+    volumes:
+      - "./deploy/Caddyfile:/etc/caddy/Caddyfile:ro"
+      - "caddy_data:/data"
+      - "caddy_config:/config"
+    depends_on: [ app ]
+volumes: { dbdata: {}, node_modules: {}, next: {}, caddy_data: {}, caddy_config: {} }

@@ -1,0 +1,8 @@
+# The public door of the AWS server. SITE_ADDRESS is ":80" until the host name points here, then the host name itself
+# (opth.ducheng-industrial.com) — Caddy then serves HTTPS and renews the certificate on its own.
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
