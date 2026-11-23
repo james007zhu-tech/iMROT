@@ -89,6 +89,20 @@ export function countryFromEmployeeCode(employeeCode: string): CountryCode {
   return m[1] as CountryCode;
 }
 
+/**
+ * 税票编号 (朱总 2026-11-23: 「税票把前缀改掉，流水号接着来」): the old system numbered tax invoices UVID + YYMM + one serial
+ * that ran on across the months (last one UVID2611207). Ours keep that shape under our own prefix and carry the serial
+ * on: TITH2611208, TITH2611209 … TITH2612215. The serial is also the invoice's place in the book (เล่มที่ / เลขที่).
+ * Three digits at least; it simply grows past 999.
+ */
+export const TAX_INVOICE_RUN = "RUN";
+export function taxInvoiceNo(country: CountryCode, date: Date, serial: number): string {
+  if (serial < 1) throw new Error(`Serial ${serial} out of range for TI${country}`);
+  return `TI${country}${yy(date)}${mm(date)}${pad(serial, 3)}`;
+}
+/** The running serial inside a tax invoice number of the new shape; null for any other number. */
+export const taxInvoiceSerial = (no: string): number | null => { const m = /^TI(?:TH|VN|CN)\d{4}(\d{3,})$/.exec(no); return m ? Number(m[1]) : null; };
+
 /** Build the number for a given serial. Throws if the serial overflows the width. */
 export function formatNumber(prefix: Prefix, country: CountryCode, date: Date, serial: number): string {
   const digits = serialDigits(prefix);
@@ -116,6 +130,9 @@ export function parseNumber(raw: string): ParsedNumber | null {
     if (master[4].length !== digits) return null;
     return { prefix, country: master[2] as CountryCode, period: master[3], serial: Number(master[4]), tier: "master" };
   }
+  // 税票 since 2026-11-23: TITH + YYMM + a serial that never starts again (TITH2611208) — see taxInvoiceNo
+  const ti = /^TI(TH|VN|CN)(\d{4})(\d{3})$/.exec(no);
+  if (ti) return { prefix: "TI", country: ti[1] as CountryCode, period: ti[2], serial: Number(ti[3]), tier: "document" };
   const doc = /^([A-Z]{2})(TH|VN|CN)(\d{6})(\d{2,3})$/.exec(no);
   if (doc && isDocPrefix(doc[1])) {
     const prefix = doc[1];

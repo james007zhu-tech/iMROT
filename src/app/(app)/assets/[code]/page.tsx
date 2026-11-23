@@ -2,6 +2,7 @@ import { can, stripMoney, isFinDocNo } from "@/lib/caps";
 import { docTypeAllowed } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
+import { LegacyDocs } from "@/components/LegacyDocs";
 import { confirmSerial, looseDocsOf, relinkDoc } from "@/server/asset-first";
 import { maskName } from "@/lib/mask";
 import { PageHeader, btnGhost } from "@/components/ui";
@@ -225,6 +226,7 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
           </div>
         </Section>
       )}
+      <LegacyDocs me={me} where={{ assetId: asset.id }} more={`/documents/legacy?asset=${asset.code}`} />
     </div>
   );
 }

@@ -53,7 +53,8 @@
     "cashPlan": "Cash plan",
     "leave": "Leave",
     "wht": "50 ทวิ WTTH",
-    "fxRates": "Booking rates · changes"
+    "fxRates": "Booking rates · changes",
+    "legacyDocs": "History (old system)"
   },
   "assetStatus": {
     "ONBOARDED": "Onboarded",
@@ -3508,5 +3509,36 @@
     "repBsCashBank": "Bank deposits",
     "det_bsCashHand": "Cash / petty cash: every movement",
     "det_bsCashBank": "Bank deposits: every movement"
+  },
+  "legacy": {
+    "title": "History (old system)",
+    "hint": "Records of the old system (Jiandaoyun), kept under their old numbers, read-only. They use no serial of this system and trigger no reminder, approval or report.",
+    "oldNo": "Old number",
+    "kind": "Kind",
+    "date": "Date",
+    "customer": "Customer",
+    "asset": "Machine",
+    "what": "Content",
+    "amount": "Amount",
+    "all": "See all {n}",
+    "allKinds": "All",
+    "search": "Old number, related number, customer, serial no.",
+    "none": "No records",
+    "readOnly": "Old system record · read-only",
+    "tiedTo": "Matched in this system",
+    "notTied": "Not matched",
+    "refs": "Other numbers named in the record",
+    "by": "Submitted in the old system by",
+    "record": "Original record",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "k_TAX_INVOICE": "Tax invoice",
+    "k_RECEIPT": "Receipt",
+    "k_BILLING": "Billing",
+    "k_QUOTE": "Service quote",
+    "k_TRADE_QUOTE": "Trading quote",
+    "k_INSPECTION": "Inspection report",
+    "k_REPAIR": "Repair report",
+    "k_LEDGER": "Cash book"
   }
 }

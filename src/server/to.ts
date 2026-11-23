@@ -3,7 +3,7 @@ import { assertCostConfirmed } from "./job-cost";
 import { actorWith } from "@/server/guard";
 import { fxFields, rateFor } from "@/server/fx";
 import { can, hasRole } from "@/lib/caps";
-import { countryOfNo, isTestNo } from "@/lib/numbering";
+import { countryOfNo, isTestNo, taxInvoiceSerial } from "@/lib/numbering";
 /**
  * T&O / FIN Phase 1 slice: TITH tax invoice (local currency, Thai text, VAT separate), IVTH invoice (also the payment record),
  * BLTH monthly statement for credit customers. Every amount is booked in CNY at the BoC rate of the document date.
@@ -101,8 +101,8 @@ export async function writeTaxInvoice(tx: Prisma.TransactionClient, a: {
   // tax invoice keeps its place in the book, exactly as a torn page in a paper book would.
   // A TEST- tax invoice takes no page in the book: the book starts with the first real one.
   const test = isTestNo(no);
-  const last = test ? null : await tx.taxInvoice.findFirst({ where: { serviceOrder: { entityId: order.entityId }, seq: { not: null } }, orderBy: { seq: "desc" }, select: { seq: true } });
-  const seq = test ? null : (last?.seq ?? 0) + 1;
+  // the place in the book is the running serial of the number itself (朱总 2026-11-23: the serial carries on from the old system)
+  const seq = test ? null : taxInvoiceSerial(no);
   const bookSize = Math.max(1, order.entity.taxInvoiceBookSize);
   const bookNo = seq ? String(Math.ceil(seq / bookSize)).padStart(3, "0") : null;
   const bookSeq = seq ? ((seq - 1) % bookSize) + 1 : null;

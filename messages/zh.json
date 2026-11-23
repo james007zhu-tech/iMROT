@@ -53,7 +53,8 @@
     "cashPlan": "现金计划",
     "leave": "请假",
     "wht": "50 ทวิ 预扣税凭证",
-    "fxRates": "记账汇率 · 修改记录"
+    "fxRates": "记账汇率 · 修改记录",
+    "legacyDocs": "历史单据"
   },
   "assetStatus": {
     "ONBOARDED": "建档/接管",
@@ -3508,5 +3509,36 @@
     "repBsCashBank": "银行存款",
     "det_bsCashHand": "现金 / 备用金：全部收付",
     "det_bsCashBank": "银行存款：全部收付"
+  },
+  "legacy": {
+    "title": "历史单据（原系统）",
+    "hint": "原系统（简道云）里的记录，按原编号原样保留，只读。不占用本系统的流水号，不触发提醒、审批和报表。",
+    "oldNo": "原编号",
+    "kind": "类别",
+    "date": "日期",
+    "customer": "客户",
+    "asset": "设备",
+    "what": "内容",
+    "amount": "金额",
+    "all": "查看全部 {n} 条",
+    "allKinds": "全部",
+    "search": "原编号、关联单号、客户、序列号",
+    "none": "没有记录",
+    "readOnly": "原系统记录 · 只读",
+    "tiedTo": "在本系统里的对应",
+    "notTied": "未对上",
+    "refs": "记录里提到的其他单号",
+    "by": "原系统提交人",
+    "record": "原记录",
+    "prevPage": "上一页",
+    "nextPage": "下一页",
+    "k_TAX_INVOICE": "发票",
+    "k_RECEIPT": "收据",
+    "k_BILLING": "账单",
+    "k_QUOTE": "主营报价",
+    "k_TRADE_QUOTE": "贸易报价",
+    "k_INSPECTION": "检测报告",
+    "k_REPAIR": "维修报告",
+    "k_LEDGER": "明细账"
   }
 }

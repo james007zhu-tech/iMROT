@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countryFromEmployeeCode, formatNumber, parseNumber, periodKey } from "./numbering";
+import { countryFromEmployeeCode, formatNumber, parseNumber, taxInvoiceNo, taxInvoiceSerial, periodKey } from "./numbering";
 
 const d = new Date(2026, 10, 2); // 2026-11-02 local
 
@@ -55,5 +55,15 @@ describe("supplier numbers (STH, 2026-11-08)", () => {
   it("parses STH like a customer number", () => {
     expect(parseNumber("STH2611001")).toEqual({ prefix: "S", country: "TH", period: "2611", serial: 1, tier: "master" });
     expect(parseNumber("STH26110001")).toBeNull(); // suppliers have 3 digits, not 4
+  });
+
+  it("税票: TITH + YYMM + a serial that carries on from the old system (朱总 2026-11-23)", () => {
+    expect(taxInvoiceNo("TH", new Date(2026, 10, 23), 208)).toBe("TITH2611208");
+    expect(taxInvoiceNo("TH", new Date(2026, 11, 2), 215)).toBe("TITH2612215"); // a new month does not start the serial again
+    expect(taxInvoiceNo("TH", new Date(2029, 0, 5), 1002)).toBe("TITH29011002");
+    expect(taxInvoiceSerial("TITH2611208")).toBe(208);
+    expect(taxInvoiceSerial("UVID2611207")).toBeNull();
+    expect(parseNumber("TITH2611208")).toEqual({ prefix: "TI", country: "TH", period: "2611", serial: 208, tier: "document" });
+    expect(parseNumber("TITH26110201")?.period).toBe("261102"); // the shape used before the change still parses
   });
 });

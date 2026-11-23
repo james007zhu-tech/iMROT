@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { MONEY_PREFIXES, TEST_MARK, countryFromEmployeeCode, formatNumber, liveNumbers, periodKey, type CountryCode, type Prefix } from "./numbering";
+import { MONEY_PREFIXES, TEST_MARK, countryFromEmployeeCode, formatNumber, liveNumbers, periodKey, taxInvoiceNo, TAX_INVOICE_RUN, type CountryCode, type Prefix } from "./numbering";
 
 /**
  * Allocate the next number atomically. Call inside the transaction that creates the record,
@@ -28,6 +28,12 @@ export async function allocateNumber(
   // TEST 号段: money documents before go-live count on their own row and carry TEST- in front
   const test = MONEY_PREFIXES.includes(opts.prefix) && !liveNumbers();
   const key = test ? `${TEST_MARK}${opts.prefix}` : opts.prefix;
+  // 税票 (朱总 2026-11-23): one serial that never starts again, carried on from the old system's last tax invoice — the
+  // counter row (period RUN) is set to that last number at the import; without one it starts at 001.
+  if (opts.prefix === "TI" && !test) {
+    const run = await tx.docSequence.upsert({ where: { entityId_prefix_period: { entityId: owner, prefix: "TI", period: TAX_INVOICE_RUN } }, create: { entityId: owner, prefix: "TI", period: TAX_INVOICE_RUN, last: 1 }, update: { last: { increment: 1 } }, select: { last: true } });
+    return taxInvoiceNo(country, date, run.last);
+  }
   const seq = await tx.docSequence.upsert({
     where: { entityId_prefix_period: { entityId: owner, prefix: key, period } },
     create: { entityId: owner, prefix: key, period, last: 1 },

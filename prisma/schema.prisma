@@ -356,6 +356,7 @@ model Customer {
   assets        Asset[]
   serviceOrders ServiceOrder[]
   documents     Document[]
+  legacyDocs    LegacyDoc[]
 }
 
 /// A customer's factory. The smallest unit an asset belongs to.
@@ -703,6 +704,7 @@ model Asset {
   inspections      Inspection[]
   repairJobs       RepairJob[]
   stockMovements   StockMovement[]
+  legacyDocs       LegacyDoc[]
 
   @@unique([serialNumber, modelId])
   @@index([customerId, status])
@@ -1737,6 +1739,50 @@ model Document {
   voidReason     String?
 
   @@index([type, issuedAt])
+}
+
+// ───────────────────────── 历史单据 — what was written in the old system (简道云) ─────────────────────────
+
+enum LegacyKind {
+  TAX_INVOICE /// 发票 UVID…
+  RECEIPT /// 收据 RCIP…
+  BILLING /// 账单 BLTH… / UBID…
+  QUOTE /// 主营业务报价 DCiT… / QTTH…
+  TRADE_QUOTE /// 贸易业务报价 TQTH… / DCiTT…
+  INSPECTION /// 检测报告 INTH… (变频器, 触摸屏)
+  REPAIR /// 维修报告 RPTH… / INTH… (变频器, 触摸屏, 电机)
+  LEDGER /// 明细账 — one line of the cash book
+}
+
+/// 朱总 2026-11-23: the records of the old system come in as they were — their own numbers kept letter for letter,
+/// read-only, outside every counter, approval, reminder and report of this system. Each one is tied to our customer
+/// and our machine where that could be established (`match` says how), and can be found by its old number.
+model LegacyDoc {
+  id          String     @id @default(cuid())
+  source      String     @default("JDY")
+  legacyId    String     @unique /// 简道云 data_id
+  kind        LegacyKind
+  form        String /// the old form's name, e.g. 变频器检测报告
+  no          String? /// 原系统编号, verbatim; not unique there (35 repair reports carry an inspection number)
+  docDate     DateTime?  @db.Date
+  title       String?
+  customerId  String?
+  customer    Customer?  @relation(fields: [customerId], references: [id])
+  assetId     String?
+  asset       Asset?     @relation(fields: [assetId], references: [id])
+  amount      Decimal?   @db.Decimal(18, 2)
+  currency    String?
+  refs        String[] /// the other numbers the record names (检测单号, 报价单号, 发票号, 客户 PO) — verbatim
+  data        Json /// { fields: [[label, value]], lines: { <子表单>: [[ [label, value] ]] } }
+  match       Json? /// { customer: how, asset: how, note }
+  submittedBy String?
+  submittedAt DateTime?
+  importedAt  DateTime   @default(now())
+
+  @@index([kind, docDate])
+  @@index([no])
+  @@index([customerId])
+  @@index([assetId])
 }
 
 // ───────────────────────── Dashboards (built by people or by the AI assistant) ─────────────────────────

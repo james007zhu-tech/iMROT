@@ -14,7 +14,7 @@ const doc = (key: string, type: string): NavItem => ({ key, href: `/documents?ty
  * behind tabs); 首页 itself opens the conversation; 单据中心 lists every document.
  */
 export const NAV: NavGroup[] = [
-  { key: "home", href: "/home", items: [{ key: "dash", href: "/dashboard" }, { key: "shortcuts", href: "/shortcuts" }, { key: "documents", href: "/documents" }] },
+  { key: "home", href: "/home", items: [{ key: "dash", href: "/dashboard" }, { key: "shortcuts", href: "/shortcuts" }, { key: "documents", href: "/documents" }, { key: "legacyDocs", href: "/documents/legacy" }] },
   { key: "alm", items: [{ key: "series", href: "/series" }, { key: "assets", href: "/assets" }, { key: "knowledge", href: "/fault-codes" }] },
   { key: "crm", items: [{ key: "customers", href: "/customers" }, { key: "opportunities", href: "/service-orders" }] },
   { key: "lean", items: [doc("receiving", "ER"), { key: "inspectionReports", href: "/service-reports?kind=inspection" }, { key: "repairReports", href: "/service-reports?kind=repair" }, { key: "maintenanceReports", href: "/service-reports?kind=maintenance" }, doc("deliveryNotes", "DN"), doc("acceptance", "AC"), { key: "projects", href: "/service-orders?mode=AUTOMATION_PROJECT" }] },

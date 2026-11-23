@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { customerScope, orderScope } from "@/server/scope";
 import { localIso } from "@/lib/dates";
 import Link from "next/link";
+import { LegacyDocs } from "@/components/LegacyDocs";
 import { notFound } from "next/navigation";
 import { completeCustomer } from "@/server/company-lookup";
 import { isThaiTaxId } from "@/server/dbd";
@@ -170,6 +171,7 @@ export default async function CustomerDetail({ params, searchParams }: { params:
           {statements.map((b) => <tr key={b.id}><td className="font-mono"><Link href={`/statements/${b.no}`} className="text-blue hover:underline">{b.no}</Link></td><td>20{b.period.slice(0, 2)}-{b.period.slice(2, 4)}</td><td>{localIso(b.issuedAt)!.slice(0, 10)}</td><td>{b._count.invoices}</td><td>{b.currency} {Number(b.total).toFixed(2)}</td><td className="text-xs"><a className="text-blue hover:underline" href={`/api/documents/${b.no}/render?format=pdf`}>BLTH</a></td></tr>)}
         </Table>
       </Card>}
+      <LegacyDocs me={me0} where={{ customerId: c.id }} more={`/documents/legacy?customer=${c.code}`} />
       {c.editedFields && <p className="text-xs text-navy/70">{u("dbdEdited", { fields: (c.editedFields as string[]).join(", ") })}</p>}
     </div>
   );
