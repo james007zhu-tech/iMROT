@@ -1,4 +1,6 @@
-import { LegacyLink } from "@/components/LegacyLink";
+import { legacyTail } from "@/server/legacy";
+import { OldTag } from "@/components/OldTag";
+import type { LegacyKindKey } from "@/lib/legacy";
 import { currentEmployee } from "@/server/auth";
 import { orderScope } from "@/server/scope";
 import Link from "next/link";
@@ -34,12 +36,15 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
     }),
     prisma.serviceOrder.count({ where }),
   ]);
+  // the old system's quotes follow in the same list (朱总 2026-11-24) — not under a status filter: they have no status here
+  const oldKinds: LegacyKindKey[] = status ? [] : !mode ? ["QUOTE", "TRADE_QUOTE"] : /TRADE/.test(mode) ? ["TRADE_QUOTE"] : mode === "REPAIR" ? ["QUOTE"] : [];
+  const old = await legacyTail(me, oldKinds, { q: q?.trim() || undefined, page: p, size: PAGE_SIZE, liveTotal: total });
+  const lg = await getTranslations("legacy");
   const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}), ...(mode ? { mode } : {}), page: String(n) })}`;
   const fmt = new Intl.DateTimeFormat(locale, { year: "2-digit", month: "2-digit", day: "2-digit" });
   return (
     <div className="space-y-4">
       <PageHeader title={t("serviceOrders")} newHref="/service-orders/new" newLabel={u("newServiceOrder")} />
-      <LegacyLink me={me} kinds={["QUOTE", "TRADE_QUOTE", "INSPECTION", "REPAIR"]} />
       <form className="flex flex-wrap gap-2">
         <input name="q" defaultValue={q} placeholder={u("searchOrders")} className={`${inputCls} max-w-sm`} />
         <select name="mode" defaultValue={mode ?? ""} className={filterCls}><option value="">{u("businessMode")} ▾</option>{MODES.map((m) => <option key={m} value={m}>{u(`mode_${m}`)}</option>)}</select>
@@ -61,9 +66,22 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               {seePrice && <td className="text-right">{o.total != null ? `${o.currency} ${Number(o.total).toFixed(2)}` : "—"}</td>}
             </tr>
           ))}
-          {orders.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-navy/60">{t("none")}</td></tr>}
+          {old.rows.map((x) => (
+            <tr key={x.id}>
+              <td className="whitespace-nowrap"><Link href={x.href} className="font-mono text-blue hover:underline">{x.no}</Link><OldTag /></td>
+              <td>{x.customer}</td>
+              <td></td>
+              <td className="max-w-xs">{x.title}</td>
+              <td className="whitespace-nowrap">{lg(`k_${x.kind}`)}</td>
+              <td>{x.date ? fmt.format(new Date(x.date)) : ""}</td>
+              <td>{x.field("业务经理") || x.by}</td>
+              <td></td>
+              {seePrice && <td className="whitespace-nowrap text-right">{x.amount != null ? `${x.currency} ${x.amount.toFixed(2)}` : "—"}</td>}
+            </tr>
+          ))}
+          {orders.length + old.rows.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-navy/60">{t("none")}</td></tr>}
         </Table>
-        <Pager page={p} total={total} href={qs} prev={u("prevPage")} next={u("nextPage")} />
+        <Pager page={p} total={total + old.total} href={qs} prev={u("prevPage")} next={u("nextPage")} />
       </div>
     </div>
   );

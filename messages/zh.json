@@ -3540,6 +3540,7 @@
     "k_INSPECTION": "检测报告",
     "k_REPAIR": "维修报告",
     "k_LEDGER": "明细账",
-    "linkLead": "原系统（简道云）的历史记录在这里："
+    "linkLead": "原系统（简道云）的历史记录在这里：",
+    "oldTag": "原系统"
   }
 }

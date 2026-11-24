@@ -1,4 +1,4 @@
-import { LegacyLink } from "@/components/LegacyLink";
+import { legacyTail } from "@/server/legacy";
 import { currentEmployee } from "@/server/auth";
 import { orderScope, teamIds } from "@/server/scope";
 import { can } from "@/lib/caps";
@@ -8,6 +8,7 @@ import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { ReadyOrders } from "@/components/ReadyOrders";
 import { PageHeader, Table, Pager, PAGE_SIZE } from "@/components/ui";
+import { OldTag } from "@/components/OldTag";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export default async function ServiceReports({ searchParams }: { searchParams: P
   const inc = { asset: { select: { code: true, serialNumber: true } }, engineer: { select: { name: true } }, serviceOrder: { select: { no: true, customer: { select: { name: true } } } } };
   const paging = { skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE };
   let total = 0;
-  let rows: { no: string; date: string; asset: { code: string; serialNumber: string }; customer: string; order: string; engineer: string; gist: string; href: string; draft?: boolean }[] = [];
+  let rows: { no: string; date: string; asset: { code: string; serialNumber: string }; customer: string; order: string; engineer: string; gist: string; href: string; draft?: boolean; old?: boolean }[] = [];
   if (kind === "inspection") {
     const [list, c] = await Promise.all([prisma.inspection.findMany({ where: scope, include: { ...inc, asset: { select: { code: true, serialNumber: true, customer: { select: { name: true } } } } }, orderBy: { inspectedAt: "desc" }, ...paging }), prisma.inspection.count({ where: scope })]);
     total = c;
@@ -46,19 +47,24 @@ export default async function ServiceReports({ searchParams }: { searchParams: P
     total = c;
     rows = list.map((j) => ({ no: j.no, date: day(j.finishedAt ?? j.startedAt), asset: j.asset, customer: j.serviceOrder.customer.name, order: j.serviceOrder.no, engineer: j.engineer.name, gist: cut(kind === "maintenance" ? j.hazards || j.handled || j.conclusion : j.rootCause || j.confirmedFault || j.conclusion), href: `/service-orders/${j.serviceOrder.no}` }));
   }
+  // the old system's reports follow this system's own (朱总 2026-11-24: one list, old and new together)
+  if (kind !== "maintenance") {
+    const old = await legacyTail(me, [kind === "inspection" ? "INSPECTION" : "REPAIR"], { q, page, size: PAGE_SIZE, liveTotal: total });
+    rows = [...rows, ...old.rows.map((x) => ({ no: x.no, date: x.date, asset: { code: x.assetCode, serialNumber: x.serial || x.field("序列号") }, customer: x.customer, order: "", engineer: x.by, gist: cut(x.field("主要故障点", "实际维修方案", "设备故障内容", "故障内容", "ผลการตรวจสอบ") || x.title), href: x.href, old: true }))];
+    total += old.total;
+  }
   const href = (p: number) => `/service-reports?kind=${kind}${q ? `&q=${encodeURIComponent(q)}` : ""}&page=${p}`;
   return (
     <div className="space-y-4">
       <PageHeader title={n(NAVKEY[kind])} badge={<span className="text-sm text-navy/60">{total}</span>} newHref={kind === "inspection" ? "/inspections/new" : `/service-reports?kind=${kind}&new=1`} newLabel={d("new", { name: n(NAVKEY[kind]) })} />
-      {kind !== "maintenance" && <LegacyLink me={me} kinds={[kind === "inspection" ? "INSPECTION" : "REPAIR"]} />}
       {sp.new && <ReadyOrders type={DOC[kind]} title={n(NAVKEY[kind])} />}
       <form className="flex max-w-md gap-2"><input type="hidden" name="kind" value={kind} /><input name="q" defaultValue={q} placeholder={r("searchPh")} className="w-full rounded-lg border px-3 py-2 text-sm" /><button className="whitespace-nowrap rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy">{t("search")}</button></form>
       <Table head={[r("reportNo"), r("date"), t("assetCode"), t("customer"), r("order"), r("engineer"), r(kind === "inspection" ? "gistInspection" : kind === "repair" ? "gistRepair" : "gistMaintenance")]}>
         {rows.map((x) => (
-          <tr key={x.no}>
-            <td className="font-mono"><Link href={x.href} className="text-blue hover:underline">{x.no}</Link>{x.draft ? <span className="ml-1 text-xs text-[#9A5B00]">{r("draft")}</span> : null}</td>
+          <tr key={x.href + x.no}>
+            <td className="whitespace-nowrap font-mono"><Link href={x.href} className="text-blue hover:underline">{x.no}</Link>{x.draft ? <span className="ml-1 text-xs text-[#9A5B00]">{r("draft")}</span> : null}{x.old ? <OldTag /> : null}</td>
             <td className="whitespace-nowrap">{x.date}</td>
-            <td><Link href={`/assets/${x.asset.code}`} className="font-mono hover:underline">{x.asset.code}</Link><span className="block text-xs text-navy/60">{x.asset.serialNumber}</span></td>
+            <td>{x.asset.code ? <Link href={`/assets/${x.asset.code}`} className="font-mono hover:underline">{x.asset.code}</Link> : null}<span className="block text-xs text-navy/60">{x.asset.serialNumber}</span></td>
             <td>{x.customer}</td>
             <td className="font-mono"><Link href={x.href} className="hover:underline">{x.order}</Link></td>
             <td>{x.engineer}</td>

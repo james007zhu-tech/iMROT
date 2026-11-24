@@ -1,4 +1,6 @@
-import { LegacyLink } from "@/components/LegacyLink";
+import { legacyTail } from "@/server/legacy";
+import { OldTag } from "@/components/OldTag";
+import type { LegacyKindKey } from "@/lib/legacy";
 import { currentEmployee } from "@/server/auth";
 import { docTypeAllowed, orderScope } from "@/server/scope";
 import { can, pathAllows } from "@/lib/caps";
@@ -60,7 +62,11 @@ export default async function Documents({ searchParams }: { searchParams: Promis
       q ? { OR: [{ no: like(q) }, { customer: { name: like(q) } }, { serviceOrder: { no: like(q) } }, { serviceOrder: { customerRef: like(q) } }] } : {},
     ] };
     const [rows, c] = await Promise.all([prisma.document.findMany({ where, orderBy: [{ issuedAt: "desc" }, { no: "desc" }], skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE, include: { customer: { select: { name: true } }, serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, createdBy: { select: { name: true } } } }), prisma.document.count({ where })]);
-    total = c;
+    // the old system's papers of the same kind follow in the same list (朱总 2026-11-24)
+    const oldKinds: LegacyKindKey[] = type === "QT" ? ["QUOTE", "TRADE_QUOTE"] : type === "IN" ? ["INSPECTION"] : type === "RP" ? ["REPAIR"] : type === "TI" ? ["TAX_INVOICE"] : type === "RC" ? ["RECEIPT"] : type === "BL" ? ["BILLING"] : type ? [] : ["QUOTE", "TRADE_QUOTE", "INSPECTION", "REPAIR", "TAX_INVOICE", "BILLING", "RECEIPT"];
+    const old = await legacyTail(me, oldKinds, { q, page, size: PAGE_SIZE, liveTotal: c });
+    const lg = await getTranslations("legacy");
+    total = c + old.total;
     body = (
       <Table head={[d("no"), ...(type ? [] : [d("kind")]), d("date"), t("customer"), d("order"), d("by"), ""]}>
         {rows.map((x) => {
@@ -77,7 +83,18 @@ export default async function Documents({ searchParams }: { searchParams: Promis
             </tr>
           );
         })}
-        {rows.length === 0 && <tr><td colSpan={7} className="py-6 text-center text-navy/60">{d("none")}</td></tr>}
+        {old.rows.map((x) => (
+          <tr key={x.id}>
+            <td className="whitespace-nowrap font-mono"><Link href={x.href} className="text-blue hover:underline">{x.no}</Link><OldTag /></td>
+            {!type && <td>{lg(`k_${x.kind}`)}</td>}
+            <td className="whitespace-nowrap">{x.date}</td>
+            <td>{x.customer}</td>
+            <td className="text-[13px] text-navy/70">{x.title}</td>
+            <td>{x.by}</td>
+            <td className="whitespace-nowrap text-right text-[13px]">{x.amount != null ? `${x.currency} ${x.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : ""}</td>
+          </tr>
+        ))}
+        {rows.length + old.rows.length === 0 && <tr><td colSpan={7} className="py-6 text-center text-navy/60">{d("none")}</td></tr>}
       </Table>
     );
   }
@@ -85,7 +102,6 @@ export default async function Documents({ searchParams }: { searchParams: Promis
   return (
     <div className="space-y-4">
       <PageHeader title={title} badge={<span className="text-sm text-navy/60">{total}</span>} actions={newButton} />
-      <LegacyLink me={me} kinds={type === "QT" ? ["QUOTE", "TRADE_QUOTE"] : type === "IN" ? ["INSPECTION"] : type === "RP" ? ["REPAIR"] : type === "TI" ? ["TAX_INVOICE"] : type === "RC" ? ["RECEIPT"] : type === "BL" || type === "IV" ? ["BILLING"] : type ? [] : ["QUOTE", "TRADE_QUOTE", "INSPECTION", "REPAIR", "TAX_INVOICE", "BILLING", "RECEIPT", "LEDGER"]} />
       {!type && (
         <div className="flex flex-wrap gap-2">
           {kinds.map((k) => <Link key={k} href={href({ type: k })} className="rounded-full border border-navy/20 bg-white px-3 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{n(DOC_PLACES[k].nav)} <span className="text-xs text-navy/50">{counts.find((c) => c.type === k)?._count ?? 0}</span></Link>)}

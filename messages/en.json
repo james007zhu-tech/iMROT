@@ -3540,6 +3540,7 @@
     "k_INSPECTION": "Inspection report",
     "k_REPAIR": "Repair report",
     "k_LEDGER": "Cash book",
-    "linkLead": "Records from the old system (Jiandaoyun):"
+    "linkLead": "Records from the old system (Jiandaoyun):",
+    "oldTag": "Old system"
   }
 }
