@@ -1,3 +1,4 @@
+import { LegacyLink } from "@/components/LegacyLink";
 import { currentEmployee } from "@/server/auth";
 import { orderScope } from "@/server/scope";
 import Link from "next/link";
@@ -38,6 +39,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   return (
     <div className="space-y-4">
       <PageHeader title={t("serviceOrders")} newHref="/service-orders/new" newLabel={u("newServiceOrder")} />
+      <LegacyLink me={me} kinds={["QUOTE", "TRADE_QUOTE", "INSPECTION", "REPAIR"]} />
       <form className="flex flex-wrap gap-2">
         <input name="q" defaultValue={q} placeholder={u("searchOrders")} className={`${inputCls} max-w-sm`} />
         <select name="mode" defaultValue={mode ?? ""} className={filterCls}><option value="">{u("businessMode")} ▾</option>{MODES.map((m) => <option key={m} value={m}>{u(`mode_${m}`)}</option>)}</select>

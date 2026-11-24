@@ -1,3 +1,4 @@
+import { LegacyLink } from "@/components/LegacyLink";
 import { currentEmployee } from "@/server/auth";
 import { orderScope, teamIds } from "@/server/scope";
 import { can } from "@/lib/caps";
@@ -49,6 +50,7 @@ export default async function ServiceReports({ searchParams }: { searchParams: P
   return (
     <div className="space-y-4">
       <PageHeader title={n(NAVKEY[kind])} badge={<span className="text-sm text-navy/60">{total}</span>} newHref={kind === "inspection" ? "/inspections/new" : `/service-reports?kind=${kind}&new=1`} newLabel={d("new", { name: n(NAVKEY[kind]) })} />
+      {kind !== "maintenance" && <LegacyLink me={me} kinds={[kind === "inspection" ? "INSPECTION" : "REPAIR"]} />}
       {sp.new && <ReadyOrders type={DOC[kind]} title={n(NAVKEY[kind])} />}
       <form className="flex max-w-md gap-2"><input type="hidden" name="kind" value={kind} /><input name="q" defaultValue={q} placeholder={r("searchPh")} className="w-full rounded-lg border px-3 py-2 text-sm" /><button className="whitespace-nowrap rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy">{t("search")}</button></form>
       <Table head={[r("reportNo"), r("date"), t("assetCode"), t("customer"), r("order"), r("engineer"), r(kind === "inspection" ? "gistInspection" : kind === "repair" ? "gistRepair" : "gistMaintenance")]}>

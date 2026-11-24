@@ -1,3 +1,4 @@
+import { LegacyLink } from "@/components/LegacyLink";
 import { currentEmployee } from "@/server/auth";
 import { docTypeAllowed, orderScope } from "@/server/scope";
 import { can, pathAllows } from "@/lib/caps";
@@ -84,6 +85,7 @@ export default async function Documents({ searchParams }: { searchParams: Promis
   return (
     <div className="space-y-4">
       <PageHeader title={title} badge={<span className="text-sm text-navy/60">{total}</span>} actions={newButton} />
+      <LegacyLink me={me} kinds={type === "QT" ? ["QUOTE", "TRADE_QUOTE"] : type === "IN" ? ["INSPECTION"] : type === "RP" ? ["REPAIR"] : type === "TI" ? ["TAX_INVOICE"] : type === "RC" ? ["RECEIPT"] : type === "BL" || type === "IV" ? ["BILLING"] : type ? [] : ["QUOTE", "TRADE_QUOTE", "INSPECTION", "REPAIR", "TAX_INVOICE", "BILLING", "RECEIPT", "LEDGER"]} />
       {!type && (
         <div className="flex flex-wrap gap-2">
           {kinds.map((k) => <Link key={k} href={href({ type: k })} className="rounded-full border border-navy/20 bg-white px-3 py-1.5 text-[13px] text-navy hover:border-blue hover:text-blue">{n(DOC_PLACES[k].nav)} <span className="text-xs text-navy/50">{counts.find((c) => c.type === k)?._count ?? 0}</span></Link>)}

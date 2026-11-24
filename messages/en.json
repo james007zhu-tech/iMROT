@@ -3539,6 +3539,7 @@
     "k_TRADE_QUOTE": "Trading quote",
     "k_INSPECTION": "Inspection report",
     "k_REPAIR": "Repair report",
-    "k_LEDGER": "Cash book"
+    "k_LEDGER": "Cash book",
+    "linkLead": "Records from the old system (Jiandaoyun):"
   }
 }

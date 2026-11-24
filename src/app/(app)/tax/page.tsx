@@ -1,3 +1,4 @@
+import { LegacyLink } from "@/components/LegacyLink";
 import { localIso } from "@/lib/dates";
 import { fxMark } from "@/lib/fx-label";
 import Link from "next/link";
@@ -56,6 +57,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ d
   return (
     <div className="space-y-4">
       <PageHeader title={title} newHref={businessClosureOn() ? `/tax?doc=${doc}&new=1` : undefined} newLabel={dn("new", { name: title })} />
+      <LegacyLink me={me} kinds={[doc === "ti" ? "TAX_INVOICE" : doc === "rc" ? "RECEIPT" : "BILLING"]} />
       {isNew && <ReadyOrders type={doc === "iv" ? "IV" : doc === "rc" ? "RC" : "TI"} title={title} />}
       {body}
       <p className="text-sm"><Link href={`/tax?doc=${doc}${showVoid ? "" : "&void=1"}`} className="text-blue hover:underline">{t(showVoid ? "hideVoided" : "showVoided")}</Link></p>
