@@ -1775,6 +1775,7 @@ model LegacyDoc {
   refs        String[] /// the other numbers the record names (检测单号, 报价单号, 发票号, 客户 PO) — verbatim
   data        Json /// { fields: [[label, value]], lines: { <子表单>: [[ [label, value] ]] } }
   match       Json? /// { customer: how, asset: how, note }
+  files       Json? /// pictures the old record carried (明细账 交易凭证): [{ url, name }] — web copies, the originals stay with the export
   submittedBy String?
   submittedAt DateTime?
   importedAt  DateTime   @default(now())

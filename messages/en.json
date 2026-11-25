@@ -3541,6 +3541,9 @@
     "k_REPAIR": "Repair report",
     "k_LEDGER": "Cash book",
     "linkLead": "Records from the old system (Jiandaoyun):",
-    "oldTag": "Old system"
+    "oldTag": "Old system",
+    "pictures": "Photos",
+    "picNameplate": "Nameplate",
+    "picOverview": "Overview / cabinet layout"
   }
 }

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { LegacyDocs } from "@/components/LegacyDocs";
 import { confirmSerial, looseDocsOf, relinkDoc } from "@/server/asset-first";
 import { maskName } from "@/lib/mask";
-import { PageHeader, btnGhost } from "@/components/ui";
+import { Card, PageHeader, btnGhost } from "@/components/ui";
 import { reportsFor } from "@/lib/order-steps";
 import { notFound, redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
@@ -94,6 +94,9 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
   }
   const input = "w-full rounded border px-2 py-1.5 text-sm";
   const te = await getTranslations("eventType");
+  const lg = await getTranslations("legacy");
+  // 照片 (朱总 2026-11-25): the pictures taken over from the old system's 设备初始档案 — nameplates first
+  const photos = ((Array.isArray(asset.photos) ? asset.photos : []) as { url: string; kind?: string; name?: string }[]).sort((a, b) => (a.kind === "NAMEPLATE" ? 0 : 1) - (b.kind === "NAMEPLATE" ? 0 : 1));
   const locale = await getLocale();
   const fmt = (d: Date | null | undefined) => (d ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(d) : "—");
   const orders = Array.from(new Map(asset.orderLinks.map((l) => [l.serviceOrder.no, l.serviceOrder])).values());
@@ -225,6 +228,13 @@ export default async function AssetDetail({ params, searchParams }: { params: Pr
               <ul>{asset.model.bom.map((b) => <li key={b.id}><Link className="font-mono text-blue underline" href={`/parts/${b.part.sku}`}>{b.part.sku}</Link> {b.part.name} ×{b.qty}</li>)}{asset.model.bom.length === 0 && <li className="text-navy/70">{t("none")}</li>}</ul></div>
           </div>
         </Section>
+      )}
+      {photos.length > 0 && (
+        <Card title={`${lg("pictures")} · ${photos.length}`}>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+            {photos.map((f) => <a key={f.url} href={f.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border bg-white">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={f.url} alt={f.name ?? ""} loading="lazy" className="h-36 w-full object-cover" /><span className="block truncate px-2 py-1 text-xs text-navy/70">{lg(f.kind === "NAMEPLATE" ? "picNameplate" : "picOverview")}</span></a>)}
+          </div>
+        </Card>
       )}
       <LegacyDocs me={me} where={{ assetId: asset.id }} more={`/documents/legacy?asset=${asset.code}`} />
     </div>

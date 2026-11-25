@@ -20,6 +20,7 @@ export default async function LegacyOne({ params }: { params: Promise<{ id: stri
   const data = x.data as { fields: Pair[]; lines: Record<string, Pair[][]> };
   const match = (x.match ?? {}) as { customer?: string | null; asset?: string | null };
   const show = (label: string) => !legacyFieldHidden(me, label);
+  const pics = (Array.isArray(x.files) ? x.files : []) as { url: string; name?: string }[];
   const names = can.customerNames(me);
   const fields = data.fields.filter(([k]) => show(k) && (names || !/客户|customer|company|公司|地址|address|税号|tax id|总部/i.test(k)));
   const refs = x.refs.length ? await prisma.legacyDoc.findMany({ where: { no: { in: x.refs }, kind: { in: legacyKinds(me) } }, select: { id: true, no: true, kind: true } }) : [];
@@ -39,6 +40,13 @@ export default async function LegacyOne({ params }: { params: Promise<{ id: stri
           {fields.map(([k, v], i) => <div key={i} className={v.length > 60 ? "sm:col-span-2 lg:col-span-3" : ""}><dt className="text-navy/60">{k}</dt><dd className="whitespace-pre-wrap break-words">{v}</dd></div>)}
         </dl>
       </Card>
+      {pics.length > 0 && (
+        <Card title={`${l("pictures")} · ${pics.length}`}>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {pics.map((f) => <a key={f.url} href={f.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border bg-white">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={f.url} alt={f.name ?? ""} loading="lazy" className="h-40 w-full object-cover" /></a>)}
+          </div>
+        </Card>
+      )}
       {Object.entries(data.lines).map(([g, rows]) => {
         const cols = [...new Set(rows.flatMap((r) => r.map(([k]) => k)))].filter(show);
         if (!cols.length) return null;

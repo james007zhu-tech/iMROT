@@ -3541,6 +3541,9 @@
     "k_REPAIR": "维修报告",
     "k_LEDGER": "明细账",
     "linkLead": "原系统（简道云）的历史记录在这里：",
-    "oldTag": "原系统"
+    "oldTag": "原系统",
+    "pictures": "照片",
+    "picNameplate": "铭牌",
+    "picOverview": "外观 / 柜内布局"
   }
 }

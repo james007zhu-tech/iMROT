@@ -3541,6 +3541,9 @@
     "k_REPAIR": "รายงานซ่อม",
     "k_LEDGER": "สมุดเงินสด",
     "linkLead": "ข้อมูลย้อนหลังจากระบบเดิม (Jiandaoyun):",
-    "oldTag": "ระบบเดิม"
+    "oldTag": "ระบบเดิม",
+    "pictures": "รูปภาพ",
+    "picNameplate": "ป้ายชื่อเครื่อง",
+    "picOverview": "ภาพรวม / ภายในตู้"
   }
 }
