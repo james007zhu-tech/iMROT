@@ -72,7 +72,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
           <table className="w-full min-w-[820px] text-right text-[13px]">
             <thead><tr className="border-b text-xs text-navy/70"><th className="py-1 text-left">{t("month")}</th>{cols.map((c) => <th key={c} className="px-1.5 py-1 font-semibold">{t(`rep_${c}`)}</th>)}</tr></thead>
             <tbody>
-              {r.months.map((m) => <tr key={m.month} className="border-b border-navy/10"><td className="py-1 text-left font-mono">{m.month}</td>{cols.map((c) => <td key={c} className={`px-1.5 py-1 tabular-nums ${c === "result" ? "font-semibold" : ""} ${(c === "result" || c === "vatNet") && (m[c] as number) < 0 ? "text-alert-ink" : ""}`}>{(m[c] as number) === 0 ? "—" : <Link href={det(c, monthSpan(m.month))} className={num}>{money(m[c] as number)}</Link>}</td>)}</tr>)}
+              {r.months.map((m) => <tr key={m.month} className="border-b border-navy/10"><td className="whitespace-nowrap py-1 text-left font-mono">{m.month}</td>{cols.map((c) => <td key={c} className={`px-1.5 py-1 tabular-nums ${c === "result" ? "font-semibold" : ""} ${(c === "result" || c === "vatNet") && (m[c] as number) < 0 ? "text-alert-ink" : ""}`}>{(m[c] as number) === 0 ? "—" : <Link href={det(c, monthSpan(m.month))} className={num}>{money(m[c] as number)}</Link>}</td>)}</tr>)}
               <tr className="font-semibold text-navy"><td className="py-1.5 text-left">{t("total")}</td>{cols.map((c) => <td key={c} className="px-1.5 py-1.5 tabular-nums">{(r.total[c] as number) === 0 ? "—" : <Link href={det(c)} className={num}>{money(r.total[c] as number)}</Link>}</td>)}</tr>
             </tbody>
           </table>

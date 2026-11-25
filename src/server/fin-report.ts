@@ -3,6 +3,7 @@
  * invoices, expense claims, payroll. THB only (foreign-currency invoices are listed beside it, unconverted).
  * It is not the statutory ledger: the accountant's books remain the record for filing.
  */
+import { dayAt, legacyFinance, oldHref } from "@/server/legacy-fin";
 import { fifoOf } from "@/server/fifo";
 import { localIso } from "@/lib/dates";
 import { prisma } from "@/lib/db";
@@ -63,6 +64,10 @@ export async function financeReport(entityId: string, period: number | Range, op
   for (const x of sPaid) { const m = x.paidAt && at(x.paidAt); if (m) m.paidSuppliers += Number(x.amount); }
   for (const x of exps) { const m = months.find((y) => y.month === localIso(x.spentOn)!.slice(0, 7)); if (m) { m.expenses += Number(x.amount) - Number(x.vatAmount ?? 0); m.vatIn += Number(x.vatAmount ?? 0); } }
   for (const x of runs) { const m = months.find((y) => y.month === x.month); if (m) m.payroll += Number((x.totals as { employerCost?: number }).employerCost ?? 0); }
+  // 历史数据 (朱总 2026-11-25): the old system's invoices and cash book count in their own months — see legacy-fin.ts
+  const old = await legacyFinance(entityId, range.from, range.to);
+  for (const x of old.invoices) { const m = months.find((y) => y.month === x.day.slice(0, 7)); if (m) { m.revenue += x.subtotal; m.vatOut += x.vat; } }
+  for (const x of old.cash) { const m = x.line && months.find((y) => y.month === x.day.slice(0, 7)); if (m && x.line) { m[x.line] += x.signed; if (x.line === "purchases") m.paidSuppliers += x.signed; } }
   for (const m of months) { for (const k of Object.keys(m) as (keyof MonthRow)[]) if (k !== "month") (m[k] as number) = r2(m[k] as number); m.result = r2(m.revenue - m.purchases - m.expenses - m.payroll); m.vatNet = r2(m.vatOut - m.vatIn); }
   const total = months.reduce((s, m) => { for (const k of Object.keys(m) as (keyof MonthRow)[]) if (k !== "month") (s[k] as number) = r2((s[k] as number) + (m[k] as number)); return s; }, { month: typeof period === "number" ? String(year) : `${range.from} → ${range.to}`, revenue: 0, vatOut: 0, collected: 0, whtByCustomers: 0, purchases: 0, vatIn: 0, paidSuppliers: 0, expenses: 0, payroll: 0, result: 0, vatNet: 0 } as MonthRow);
 
@@ -82,9 +87,9 @@ export async function financeReport(entityId: string, period: number | Range, op
     arOverdue: arRows.filter((i) => i.due && i.due < now).sort((a, b) => a.due!.getTime() - b.due!.getTime()).slice(0, 10),
     apOverdue: apRows.filter((i) => i.due < now).sort((a, b) => a.due.getTime() - b.due.getTime()).slice(0, 10),
     // net of 贷项单, so the two breakdowns add up to the revenue line above (需求清单 v3 P1-28)
-    byMode: group([...tis.map((x) => ({ k: x.serviceOrder.mode as string, v: Number(x.subtotal) })), ...cns.map((x) => ({ k: x.taxInvoice.serviceOrder.mode as string, v: -Number(x.subtotal) }))], (x) => x.k, (x) => x.v),
-    byCustomer: group([...tis.map((x) => ({ k: x.serviceOrder.customer.name, v: Number(x.subtotal) })), ...cns.map((x) => ({ k: x.taxInvoice.serviceOrder.customer.name, v: -Number(x.subtotal) }))], (x) => x.k, (x) => x.v).slice(0, 8),
-    byExpense: group(exps, (x) => x.category, (x) => Number(x.amount) - Number(x.vatAmount ?? 0)),
+    byMode: group([...tis.map((x) => ({ k: x.serviceOrder.mode as string, v: Number(x.subtotal) })), ...cns.map((x) => ({ k: x.taxInvoice.serviceOrder.mode as string, v: -Number(x.subtotal) })), ...old.invoices.map((x) => ({ k: x.mode, v: x.subtotal }))], (x) => x.k, (x) => x.v),
+    byCustomer: group([...tis.map((x) => ({ k: x.serviceOrder.customer.name, v: Number(x.subtotal) })), ...cns.map((x) => ({ k: x.taxInvoice.serviceOrder.customer.name, v: -Number(x.subtotal) })), ...old.invoices.map((x) => ({ k: x.customer, v: x.subtotal }))], (x) => x.k, (x) => x.v).slice(0, 8),
+    byExpense: group([...exps.map((x) => ({ k: x.category, v: Number(x.amount) - Number(x.vatAmount ?? 0) })), ...old.cash.filter((x) => x.line === "expenses").map((x) => ({ k: x.sub, v: x.signed }))], (x) => x.k, (x) => x.v),
     foreign: group(foreign, (x) => x.currency, (x) => Number(x.amountDue)),
     otherCurrencyOpen: openInv.filter((i) => i.currency !== "THB").length + openAp.filter((i) => i.currency !== "THB").length,
   };
@@ -106,7 +111,7 @@ export function guessAccount(text: string, currency: string, accounts: { id: str
   if (has("cash", "现金", "เงินสด")) return "CASH";
   return "";
 }
-async function cashMoves(entityId: string, from: Date, to: Date, opts: { withPayroll: boolean; includeTest?: boolean }, known: Set<string>): Promise<CashRow[]> {
+async function cashMoves(entityId: string, from: Date, to: Date, opts: { withPayroll: boolean; includeTest?: boolean }, known: Set<string>, labelOf: Map<string, string> = new Map()): Promise<CashRow[]> {
   const [rcs, pays, exps, runs] = await Promise.all([
     prisma.receipt.findMany({ where: { voidedAt: null, receivedAt: { gte: from, lt: to }, invoice: { serviceOrder: { entityId } } }, select: { no: true, receivedAt: true, currency: true, cashAmount: true, account: true, bankRef: true, invoice: { select: { serviceOrder: { select: { no: true, customer: { select: { name: true } } } } } } } }),
     prisma.supplierPayment.findMany({ where: { entityId, status: "PAID", paidAt: { gte: from, lt: to } }, select: { no: true, paidAt: true, amount: true, account: true, paymentRef: true, supplierInvoice: { select: { currency: true, invoiceNo: true, supplier: { select: { name: true } } } } } }),
@@ -114,11 +119,17 @@ async function cashMoves(entityId: string, from: Date, to: Date, opts: { withPay
     opts.withPayroll ? prisma.payrollRun.findMany({ where: { entityId, status: "PAID", paidAt: { gte: from, lt: to } }, select: { month: true, paidAt: true, totals: true } }) : Promise.resolve([]),
   ]);
   const acc = (x: string | null) => (x && known.has(x) ? x : ""); // a hand-written account is not one of ours until finance says which
+  // 历史数据: every line of the old cash book, under the account it names (现金 / 开泰银行 / 中行 → ours in that currency)
+  const dayOf = (d: Date) => new Date(d.getTime() + 7 * 3600_000).toISOString().slice(0, 10);
+  const lastDay = new Date(to.getTime() - 1);
+  const accts = [...known].map((id) => ({ id, label: labelOf.get(id) ?? id }));
+  const oldCash: CashRow[] = (await legacyFinance(entityId, from.getTime() <= 0 ? null : dayOf(from), dayOf(lastDay))).cash.map((x) => ({ date: dayAt(x.day), no: x.no || "原系统", who: x.payee || x.detail.slice(0, 40), account: /现金/.test(x.account) ? "CASH" : guessAccount(x.account, x.currency, accts), currency: x.currency, inAmt: x.dir === "in" ? x.amount : 0, outAmt: x.dir === "out" ? x.amount : 0, ref: `${x.category} · ${x.sub}`, href: oldHref(x.id) }));
   return [
     ...rcs.filter((x) => opts.includeTest || !isTest(x.no)).map((x) => ({ date: x.receivedAt, no: x.no, who: x.invoice.serviceOrder.customer.name, account: acc(x.account), currency: x.currency, inAmt: Number(x.cashAmount), outAmt: 0, ref: x.bankRef ?? "", href: pdfOf(x.no), rcNo: acc(x.account) ? undefined : x.no, hint: acc(x.account) ? undefined : x.account ?? "" })),
     ...pays.filter((x) => opts.includeTest || !isTest(x.supplierInvoice.invoiceNo, x.supplierInvoice.supplier.name)).map((x) => ({ date: x.paidAt!, no: x.no, who: x.supplierInvoice.supplier.name, account: acc(x.account), currency: x.supplierInvoice.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paymentRef ?? "", href: pvOf(x.no) })),
     ...exps.map((x) => ({ date: x.paidAt!, no: x.no ?? "", who: x.employee.name, account: x.paidBy === "PETTY_CASH" ? "PETTY_CASH" : "", currency: x.currency, inAmt: 0, outAmt: Number(x.amount), ref: x.paidRef ?? "", href: exOf(x.no ?? "") })),
     ...runs.map((x) => ({ date: x.paidAt!, no: `PAYROLL ${x.month}`, who: "", account: "", currency: "THB", inAmt: 0, outAmt: Number((x.totals as { net?: number }).net ?? 0) + Number((x.totals as { reimbursement?: number }).reimbursement ?? 0), ref: "", href: `/people/payroll/${x.month}` })),
+    ...oldCash,
   ].filter((x) => x.inAmt > 0 || x.outAmt > 0).sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 /**
@@ -130,7 +141,7 @@ export async function cashJournal(entityId: string, range: Range, opts: { withPa
   const { from, to } = bounds(range);
   const { payAccounts } = await import("@/server/pay");
   const list = await payAccounts(entityId), labels = new Map(list.map((a) => [a.id, a.label])), known = new Set(list.map((a) => a.id));
-  const [rows, before] = await Promise.all([cashMoves(entityId, from, to, opts, known), cashMoves(entityId, new Date(0), from, opts, known)]);
+  const [rows, before] = await Promise.all([cashMoves(entityId, from, to, opts, known, labels), cashMoves(entityId, new Date(0), from, opts, known, labels)]);
   const ccyOf = (a: { id: string; label: string }) => /\b([A-Z]{3})\b/.exec(a.label.replace(/^[A-Za-z]+\s/, ""))?.[1] ?? "THB";
   const keys = [...new Set([...list.map((a) => `${a.id}|${ccyOf(a)}`), ...[...rows, ...before].map((x) => `${x.account}|${x.currency}`)])];
   const accounts = keys.map((k) => { const [account, currency] = k.split("|"); const mine = rows.filter((x) => x.account === account && x.currency === currency), old = before.filter((x) => x.account === account && x.currency === currency);
@@ -181,7 +192,7 @@ export async function simpleBalance(entityId: string, asOf: string, opts: { incl
   // has no account of ours yet). Same movements as the detail lists, so each line adds up to its list.
   const { payAccounts } = await import("@/server/pay");
   const accs = await payAccounts(entityId);
-  const thb = (await cashMoves(entityId, new Date(0), end, { withPayroll: false, includeTest: opts.includeTest }, new Set(accs.map((x) => x.id)))).filter((x) => x.currency === "THB");
+  const thb = (await cashMoves(entityId, new Date(0), end, { withPayroll: false, includeTest: opts.includeTest }, new Set(accs.map((x) => x.id)), new Map(accs.map((x) => [x.id, x.label])))).filter((x) => x.currency === "THB");
   const onHand = (x: { account: string }) => x.account === "CASH" || x.account === "PETTY_CASH";
   const cashHand = r2(thb.filter(onHand).reduce((a, x) => a + x.inAmt - x.outAmt, 0)), cashBank = r2(thb.filter((x) => !onHand(x)).reduce((a, x) => a + x.inAmt - x.outAmt, 0));
   void cashIn; void cashOut;
@@ -235,7 +246,7 @@ export async function reportDetail(entityId: string, range: Range, kind: DetailK
   } else if (kind === "bsCash" || kind === "bsCashHand" || kind === "bsCashBank") { // 资产负债表 → 现金银行: every receipt and payment the system holds up to the day (派修单 v5 P0-1)
     const { payAccounts } = await import("@/server/pay");
     const list = await payAccounts(entityId), labels = new Map(list.map((x) => [x.id, x.label]));
-    rows = (await cashMoves(entityId, new Date(0), to, { withPayroll: false, includeTest: opts.includeTest }, new Set(list.map((x) => x.id)))).filter((x) => x.currency === "THB" && !x.no.startsWith("PAYROLL"))
+    rows = (await cashMoves(entityId, new Date(0), to, { withPayroll: false, includeTest: opts.includeTest }, new Set(list.map((x) => x.id)), labels)).filter((x) => x.currency === "THB" && !x.no.startsWith("PAYROLL"))
       .filter((x) => kind === "bsCash" || (kind === "bsCashHand") === (x.account === "CASH" || x.account === "PETTY_CASH"))
       .map((x) => ({ date: x.date, no: x.no, who: x.who, note: labels.get(x.account) ?? x.ref, amount: x.inAmt - x.outAmt, href: x.href }));
   } else if (kind === "bsAr") {
@@ -264,5 +275,12 @@ export async function reportDetail(entityId: string, range: Range, kind: DetailK
       .map((x) => ({ date: x.paidAt, no: x.whtCertNo ?? x.no, who: x.supplierInvoice.supplier.name, note: x.no, amount: Number(x.whtAmount), href: `/finance/payables/wht/${x.id}` }));
   }
   rows.sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0));
+  // 历史数据: the old system's invoices and cash-book lines behind the same figure; each opens its archived record
+  if (["revenue", "vatOut", "collected", "purchases", "paidSuppliers", "expenses", "payroll"].includes(kind)) {
+    const old = await legacyFinance(entityId, range.from, range.to);
+    if (kind === "revenue" || kind === "vatOut") rows.push(...old.invoices.filter((x) => (!opts.mode || x.mode === opts.mode) && (!opts.customer || x.customer === opts.customer) && (kind === "revenue" || x.vat)).map((x) => ({ date: dayAt(x.day), no: x.no, who: x.customer, note: "原系统", amount: kind === "revenue" ? x.subtotal : x.vat, href: oldHref(x.id) })));
+    else if (!opts.mode && !opts.customer) { const line = kind === "paidSuppliers" ? "purchases" : kind; rows.push(...old.cash.filter((x) => x.line === line && (!opts.category || x.sub === opts.category)).map((x) => ({ date: dayAt(x.day), no: x.no || "原系统", who: x.payee || x.detail.slice(0, 40), note: `${x.sub} · ${x.detail}`.slice(0, 80), amount: x.signed, href: oldHref(x.id) }))); }
+    rows.sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0));
+  }
   return { rows, total: r2(rows.reduce((a, x) => a + x.amount, 0)) };
 }
