@@ -17,7 +17,7 @@ type Rec = { data_id: string; kind: "asset" | "ledger"; uaid: string | null; fil
 (async () => {
   const mode = process.env.MODE ?? "dry";
   const recs = JSON.parse(await readFile(process.env.FILE ?? ".dev-ops/photos-manifest.json", "utf8")) as Rec[];
-  const rows = await prisma.$queryRaw<{ id: string; code: string; lid: string | null; has: boolean }[]>`select id, code, configuration->'legacy'->>'id' as lid, "nameplatePhoto" is not null as has from "Asset"`;
+  const rows = await prisma.$queryRaw<{ id: string; code: string; lid: string | null; was: string | null; has: boolean }[]>`select id, code, configuration->'legacy'->>'id' as lid, configuration->>'renumberedFrom' as was, "nameplatePhoto" is not null as has from "Asset"`;
   const byLid = new Map(rows.filter((r) => r.lid).map((r) => [r.lid!, r]));
   const docs = new Map((await prisma.legacyDoc.findMany({ where: { kind: "LEDGER" }, select: { id: true, legacyId: true } })).map((d) => [d.legacyId, d.id]));
   const on = async (f: string) => access(path.join(UPLOADS_DIR, f)).then(() => true, () => false);
@@ -28,7 +28,9 @@ type Rec = { data_id: string; kind: "asset" | "ledger"; uaid: string | null; fil
     for (const f of r.files) { if (!f.f) continue; if (!(await on(f.f))) { absent++; continue; } files.push({ url: `/api/uploads/${f.f}`, kind: f.field === "n" ? "NAMEPLATE" : f.field === "o" ? "OVERVIEW" : "RECEIPT", name: f.orig, source: "JDY" }); }
     if (!files.length) continue;
     if (r.kind === "asset") {
-      const a = byLid.get(r.data_id);
+      // the six machines the old system registered after 11-19 came in on 11-23 under a new number, without the old record's id
+      const late = r.uaid ? rows.filter((x) => !x.lid && x.was === r.uaid) : [];
+      const a = byLid.get(r.data_id) ?? (late.length === 1 ? late[0] : undefined);
       if (!a) { noAsset.push(`${r.uaid ?? ""}(${r.data_id.slice(-6)})`); continue; }
       todoA.push({ id: a.id, photos: files, nameplate: a.has ? null : files.find((f) => f.kind === "NAMEPLATE")?.url ?? null }); assets++; pics += files.length;
     } else {
