@@ -1,8 +1,12 @@
 # Dev image for the Mac mini (OrbStack / Docker Desktop). The repo is bind-mounted at /app;
 # node_modules and .next live in container volumes so the host's darwin binaries are untouched.
 FROM node:22-bookworm-slim
-RUN apt-get update \
- && apt-get install -y --no-install-recommends libreoffice-writer fonts-noto-cjk fonts-texgyre curl ca-certificates openssl git procps poppler-utils \
+# LibreOffice comes from bookworm-backports (25.2): Debian's own 7.4 lays a floating table out inline, so the signature
+# block of every printed paper sat right under the text instead of at the foot of the page (朱总 2026-11-25, QTTH261125001).
+RUN echo "deb http://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends -t bookworm-backports libreoffice-writer \
+ && apt-get install -y --no-install-recommends fonts-noto-cjk fonts-texgyre curl ca-certificates openssl git procps poppler-utils \
  && rm -rf /var/lib/apt/lists/* \
  # DCiT fonts: Thai Sarabun (Google Fonts); Helvetica renders as TeX Gyre Heros (metric-compatible clone) when converting to PDF
  && mkdir -p /usr/share/fonts/truetype/sarabun \
