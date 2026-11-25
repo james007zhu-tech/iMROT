@@ -208,6 +208,8 @@ def totals_block(doc, rows, note_lines=None, left_lines=None):
     """Totals at the right; optional notes/bank lines at the left."""
     t = doc.add_table(rows=1, cols=2); set_widths(t, [5600, 4266]); no_borders(t)
     lc, rc = t.rows[0].cells; margins(lc, 0, 0, 0, 200); margins(rc, 0, 0, 0, 0)
+    # the totals never break across two pages (seen 2026-11-25: 小计 at the foot of page 1, VAT and total on page 2)
+    t.rows[0]._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
     lc.paragraphs[0].text = ""
     if left_lines:
         for block in left_lines:
