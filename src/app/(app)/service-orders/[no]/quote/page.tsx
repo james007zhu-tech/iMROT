@@ -1,3 +1,4 @@
+import { BelowMinAlert, RowMinNote } from "@/components/LiveMin";
 import { fifoOf, systemCost } from "@/server/fifo";
 import { belowMinLines } from "@/lib/margin";
 import { assertOrderAccess } from "@/server/scope";
@@ -119,7 +120,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
           {!edit && <Alert>{u(items ? "quoteItemsNote" : "quoteReadOnly")}</Alert>}
           {edit && order.priceHint && <Alert>{u("priceHintFrom")}：{order.priceHint}</Alert>}
           {seeCost && order.marginPct != null && Number(order.marginPct) < floor && <Alert>{u("marginBelowFloor", { pct: (Number(order.marginPct) * 100).toFixed(1), floor: Math.round(floor * 100) })}</Alert>}
-          {below.length > 0 && <Alert>{u("belowMinNote", { list: below.map((x) => `#${x.n} ${x.price.toFixed(2)} < ${x.min.toFixed(2)}`).join("、") })}</Alert>}
+          {seeCost && <BelowMinAlert rows={ROWS} floor={floor} label={u("belowMinNote", { list: "{list}" })} initial={below.map((x) => `#${x.n} ${x.price.toFixed(2)} < ${x.min.toFixed(2)}`).join("、")} />}
           {partner && seeHist && <p className="mb-2 text-xs text-navy/70">{u("partnerQuoteNote")}{[...partnerCosts].map(([a, c]) => ` · ${a}: ${c.toFixed(2)}`).join("")}</p>}
           <div className={`hidden gap-2 text-xs text-navy/70 xl:grid ${cols}`}><span>{t("asset")}</span><span>{u("partSku")}</span><span>{u("descEn")}</span><span>{u("descTh")}</span><span>{t("qty")}</span><span>{u("uom")}</span>{seePrice && <span>{t("price")}</span>}{seeCost && <span>{u("unitCost")}</span>}{estCol && <span>{u("estCost")}</span>}</div>
           <RevealRows initial={Math.max(lines.length, 2)} addLabel={u("addLine")}>
@@ -138,7 +139,7 @@ export default async function Quote({ params, searchParams }: { params: Promise<
                   ? <input type="text" readOnly disabled tabIndex={-1} aria-readonly="true" value={u("estSys")} placeholder={u("estCost")} className={`${inputCls} bg-[#F1F4F8] text-navy/70`} />
                   : <input name={`c${i}`} type="number" step="0.01" min="0" defaultValue={l?.costEst && l.unitCost != null ? Number(l.unitCost) : ""} placeholder={u("estPh")} className={`${inputCls} ${badCost.includes(i + 1) ? "field-bad" : ""}`} />; })()}
                 {estCol && (badCost.includes(i + 1) || (!!l && Number(l.qty) > 0 && l.unitCost == null && l.costRef == null && !(Number(partOf(l)?.lastCost ?? 0) > 0))) && <span className="text-[11px] font-semibold text-[#C0392B] row-note">{u("estMissingRow", { n: i + 1 })}</span>}
-                {estCol && l && Number(l.qty) > 0 && byPrice.get(i) && <span className={`text-[11px] row-note ${Number(l.unitPrice ?? 0) > 0 && Number(l.unitPrice) < byPrice.get(i)!.min - 0.005 ? "font-semibold text-alert-ink" : "text-navy/70"}`}>{u("priceHint", { n: i + 1, suggest: byPrice.get(i)!.suggest.toFixed(2), min: byPrice.get(i)!.min.toFixed(2) })}{Number(l.unitPrice ?? 0) > 0 && Number(l.unitPrice) < byPrice.get(i)!.min - 0.005 ? ` ${u("priceBelowMin")}` : ""}</span>}
+                {estCol && l && Number(l.qty) > 0 && byPrice.get(i) && <RowMinNote i={i} min={byPrice.get(i)!.min} text={u("priceHint", { n: i + 1, suggest: byPrice.get(i)!.suggest.toFixed(2), min: byPrice.get(i)!.min.toFixed(2) })} belowText={u("priceBelowMin")} initialBelow={Number(l.unitPrice ?? 0) > 0 && Number(l.unitPrice) < byPrice.get(i)!.min - 0.005} />}
                 {l?.costEst && (seeCost || estCol) && <span className="row-note"><span className="rounded bg-[#E5E9EF] px-1.5 py-0.5 text-[11px] text-navy/70">{u("estTag")}</span>{seeCost && <span className="ml-1 text-[11px] text-navy/70">{u("estByRow", { n: i + 1 })}</span>}</span>}
                 {seeCost && srcOf.get(i) && <span className="text-[11px] text-navy/70 row-note">{u("costSrc", { n: i + 1, src: srcOf.get(i)! })}</span>}
               </div>); })}
