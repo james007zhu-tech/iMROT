@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       }
     } else body = await req.json();
     // files handed over earlier in this conversation stay in front of the model (the client sends back their refs)
-    if (scope.kind === "staff") for (const a of (body.attachments ?? []).slice(-5)) {
+    if (scope.kind === "staff") for (const a of (body.attachments ?? []).slice(-8)) {
       const m = /^\/api\/uploads\/([A-Za-z0-9._-]+)$/.exec(String(a?.url ?? ""));
       if (!m || files.some((f) => f.url === a.url)) continue;
       const bytes = await readFile(nodePath.join(UPLOADS_DIR, m[1])).catch(() => null);

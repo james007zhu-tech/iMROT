@@ -25,6 +25,9 @@ export default async function SupplierPage({ params, searchParams }: { params: P
       <PageHeader back={{ href: "/suppliers", label: u("suppliers") }} title={<span><span className="font-mono">{s.code}</span> {s.name}</span>} badge={<>{s.isPartner && <Tag>{u("partnerRepair")}</Tag>}{avg != null && <Tag>{u("partnerScore")} {avg}</Tag>}</>}
         actions={<Link href={`/suppliers/new?id=${s.id}`} className={btnGhost}>{t("edit")}</Link>} />
       <Flash ok={ok} error={error} />
+      {Array.isArray(s.files) && s.files.length > 0 && <Card title={u("supplierPapers")}>
+        <ul className="space-y-1 text-sm">{(s.files as { name: string; url: string }[]).map((f) => <li key={f.url}><a href={f.url} target="_blank" rel="noreferrer" className="text-blue hover:underline">{f.name}</a></li>)}</ul>
+      </Card>}
       <Card title={u("partnerProfile")}>
         <form action={savePartnerAction.bind(null, code)} className="space-y-3">
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="isPartner" defaultChecked={s.isPartner} /> {u("isPartner")}</label>

@@ -14,6 +14,7 @@ type Action = { type: "navigate" | "fill_form" | "dashboard" | "confirm" | "done
  * Floating assistant available on every page: type, dictate (Web Speech API), or attach a nameplate photo.
  * Answers come with record numbers; drafts can be written into the form on the current page with one tap.
  */
+const MAX_FILES = 8; // per message: a company's papers come as several files (certificate, ภ.พ.20, bank book, cards)
 export function AiAssistant({ scope, variant = "float", suggestions = [], seed, greeting }: { scope: "staff" | "portal"; variant?: "float" | "page"; suggestions?: string[]; seed?: string; greeting?: string }) {
   const t = useTranslations("ai");
   const locale = useLocale();
@@ -25,6 +26,7 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
   const [busy, setBusy] = useState(false);
   const [voiceHint, setVoiceHint] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const shot = useRef(new WeakSet<File>()); // the files that came through the camera icon — counted on that icon
   const kept = useRef<{ name: string; url: string }[]>([]);
   const [formInfo, setFormInfo] = useState<FormInfo | null>(null);
   // opened on a page with a form, the assistant is that form's helper (朱总 2026-11-10); a new page starts afresh
@@ -153,16 +155,18 @@ export function AiAssistant({ scope, variant = "float", suggestions = [], seed, 
         ) : null)}
     </div>
   );
+  /** how many files wait behind this icon (朱总 2026-11-27: "上传完附件/图片后，在对应的图标边上加上一个数字") */
+  const badge = (n: number) => n > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-blue px-1 text-[11px] font-bold leading-none text-white" aria-label={String(n)}>{n}</span>;
   const tools = (
     <>
       <button type="button" onClick={toggleVoice} title={t("voice")} className={`h-10 w-10 shrink-0 rounded-full ${listening ? "bg-alert/100 text-white" : "bg-blue/8"}`}><Icon name="mic" /></button>
-      {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("attach")}><Icon name="clip" /><input type="file" multiple accept="application/pdf,image/*,.txt,.csv,.eml" className="hidden" onChange={(e) => { setFiles((f) => [...f, ...Array.from(e.target.files ?? [])].slice(0, 5)); e.target.value = ""; }} /></label>}
-      {scope === "staff" && <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("photo")}><Icon name="camera" /><input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && void attachPhoto(e.target.files[0])} /></label>}
+      {scope === "staff" && <label className="relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("attach")}><Icon name="clip" />{badge(files.filter((f) => !shot.current.has(f)).length)}<input type="file" multiple accept="application/pdf,image/*,.txt,.csv,.eml" className="hidden" onChange={(e) => { const picked = Array.from(e.target.files ?? []); e.target.value = ""; setFiles((f) => [...f, ...picked].slice(0, MAX_FILES)); }} /></label>}
+      {scope === "staff" && <label className="relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue/8" title={t("photo")}><Icon name="camera" />{badge(files.filter((f) => shot.current.has(f)).length)}<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; if (variant === "page") { shot.current.add(f); setFiles((x) => [...x, f].slice(0, MAX_FILES)); } else void attachPhoto(f); }} /></label>}
     </>
   );
   const chips = files.length > 0 && <div className="flex w-full flex-wrap gap-1.5 pb-1">{files.map((f, k) => <span key={k} className="flex items-center gap-1 rounded-full bg-blue/10 px-2.5 py-1 text-xs text-navy"><Icon name="clip" /> {f.name}<button type="button" onClick={() => setFiles((x) => x.filter((_, n) => n !== k))} className="text-navy/60">✕</button></span>)}</div>;
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(input); } };
-  const drop = { onDragOver: (e: React.DragEvent) => e.preventDefault(), onDrop: (e: React.DragEvent) => { if (scope !== "staff" || !e.dataTransfer.files.length) return; e.preventDefault(); setFiles((f) => [...f, ...Array.from(e.dataTransfer.files)].slice(0, 5)); } };
+  const drop = { onDragOver: (e: React.DragEvent) => e.preventDefault(), onDrop: (e: React.DragEvent) => { if (scope !== "staff" || !e.dataTransfer.files.length) return; e.preventDefault(); const dropped = Array.from(e.dataTransfer.files); setFiles((f) => [...f, ...dropped].slice(0, MAX_FILES)); } };
   /** big = the home page: the text on top across the full width, the tools in one row under it (as in the Claude app) */
   const composer = (big: boolean) => big ? (
     <form onSubmit={(e) => { e.preventDefault(); void send(input); }} {...drop} className="rounded-3xl border border-navy/20 bg-white px-3 pb-2.5 pt-3 shadow-sm focus-within:border-blue">

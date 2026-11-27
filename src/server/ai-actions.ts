@@ -16,7 +16,7 @@ import { addContact, createCustomer } from "@/server/crm";
 import { onboardAsset, findModelByCode } from "@/server/alm";
 import { advanceServiceOrder, catchUpOrder, confirmCustomerPo, createServiceOrder, poLinesFromQuote } from "@/server/slm";
 import { setQuoteLines } from "@/server/slm-docs";
-import { autoInquiryForOrder } from "@/server/purchasing";
+import { autoInquiryForOrder, createSupplier } from "@/server/purchasing";
 import { deliveryPlan, issueDelivery, signDelivery } from "@/server/delivery";
 import { issueProforma } from "@/server/export";
 import { issueInvoice, issueTaxInvoice } from "@/server/to";
@@ -26,7 +26,7 @@ import { fileExpense } from "@/server/expense";
 import { setOrderSales } from "@/server/payroll";
 import { recordTraining } from "@/server/training";
 import { dictItems } from "@/server/dict";
-import { hasRole } from "@/lib/caps";
+import { can, hasRole } from "@/lib/caps";
 
 type In = Record<string, unknown>;
 export interface ActionCtx { employeeCode: string }
@@ -60,6 +60,13 @@ async function employeeBy(q: unknown, selfCode: string) {
   throw new Error(hits.length ? `several employees match "${s}": ${hits.map((h) => `${h.code} ${h.name}`).join("; ")} — ask which one` : `no employee matches "${s}"`);
 }
 
+/** Papers handed over in the conversation, kept on the supplier file: only files this system saved. */
+function supplierFiles(v: unknown): { name: string; url: string }[] {
+  const out = ((v as { name?: string; url?: string }[] | undefined) ?? []).filter((f) => f?.url).map((f) => ({ name: String(f.name ?? "file"), url: String(f.url) }));
+  for (const f of out) if (!/^\/api\/uploads\/[A-Za-z0-9._-]+$/.test(f.url)) throw new Error("files[].url must be the url of a file attached in this conversation");
+  return out;
+}
+
 const TOOLS: ActionTool[] = [
   { name: "create_customer", tier: "auto",
     description: "Create a customer file. Thai companies need the 13-digit tax ID and the Thai name; overseas companies (overseas=true) need only the name. Contacts are optional.",
@@ -68,6 +75,35 @@ const TOOLS: ActionTool[] = [
       const actor = await prisma.employee.findUniqueOrThrow({ where: { code: ctx.employeeCode }, include: { entity: true } });
       const c = await createCustomer({ actorCode: actor.code, entityCode: actor.entity.code, overseas: !!i.overseas, name: str(i.name)!, nameLocal: str(i.nameLocal) ?? "", taxId: str(i.taxId) ?? "", branchCode: str(i.branchCode) ?? "00000", addressEn: str(i.addressEn), addressLocal: str(i.addressLocal), phone: str(i.phone), paymentTermDays: num(i.paymentTermDays) ?? 30, defaultCurrency: str(i.currency) ?? "THB", source: "AI assistant", plants: [{ code: "HQ", name: str(i.name)!, address: str(i.addressEn) ?? str(i.addressLocal) }], contacts: (i.contacts as In[] | undefined)?.map((k) => ({ name: str(k.name)!, title: str(k.title), phone: str(k.phone), email: str(k.email), birthday: str(k.birthday) })) ?? [] });
       return { ok: true, summary: `${c.code} ${c.name}`, href: `/customers/${c.code}`, data: { code: c.code } };
+    } },
+  { name: "create_supplier", tier: "auto",
+    description: "Create a supplier file (STH…) — for the MD and purchasing. Take every value from what the person said or attached (company certificate / DBD, ภ.พ.20 VAT certificate, quotation, business card): name (English), nameLocal (Thai or Chinese), taxId (Thai: 13 digits) and branchCode (00000 = head office), address, the contact person with phone and e-mail, currency, payment terms. files = the {name, url} of the attached papers to keep on the supplier file. Never invent a tax ID, phone or e-mail; leave out what is not given. If a supplier with this tax ID or name already exists, use update_supplier instead.",
+    input_schema: obj({ name: S, nameLocal: S, taxId: S, branchCode: S, address: S, contactName: S, phone: S, email: S, currency: S, paymentTerms: S, leadTimeDays: N, files: { type: "array", items: obj({ name: S, url: S }, ["name", "url"]) } }, ["name"]),
+    run: async (i, ctx) => {
+      const files = supplierFiles(i.files);
+      const dup = await prisma.supplier.findFirst({ where: { name: { equals: str(i.name)!, mode: "insensitive" } }, select: { code: true, name: true } });
+      if (dup) throw new Error(`supplier ${dup.code} ${dup.name} already exists — use update_supplier to add what is new`);
+      const sp = await createSupplier({ actorCode: ctx.employeeCode, name: str(i.name)!, nameLocal: str(i.nameLocal), taxId: str(i.taxId)?.replace(/[\s-]/g, ""), branchCode: str(i.branchCode), address: str(i.address), contactName: str(i.contactName), phone: str(i.phone), email: str(i.email), currency: str(i.currency) ?? "THB", paymentTerms: str(i.paymentTerms), leadTimeDays: num(i.leadTimeDays) });
+      if (files.length) await prisma.supplier.update({ where: { id: sp.id }, data: { files } });
+      return { ok: true, summary: `${sp.code} ${sp.name}${files.length ? ` + ${files.length} file(s)` : ""}`, href: `/suppliers/${sp.code}`, data: { code: sp.code } };
+    } },
+  { name: "update_supplier", tier: "auto",
+    description: "Complete or correct an existing supplier file (code STH… or name): only the fields given are changed; files are added to the ones already kept. For the MD and purchasing.",
+    input_schema: obj({ supplier: S, name: S, nameLocal: S, taxId: S, branchCode: S, address: S, contactName: S, phone: S, email: S, currency: S, paymentTerms: S, leadTimeDays: N, files: { type: "array", items: obj({ name: S, url: S }, ["name", "url"]) } }, ["supplier"]),
+    run: async (i, ctx) => {
+      const actor = await prisma.employee.findUniqueOrThrow({ where: { code: ctx.employeeCode } });
+      if (!can.purchase(actor)) throw new Error("FORBIDDEN: suppliers are kept by the MD and purchasing");
+      const q = str(i.supplier)!;
+      const like = { contains: q.replace(/\b(co\.?,?\s*ltd\.?|company limited|limited|ltd\.?)\b/gi, "").trim(), mode: "insensitive" as const };
+      const hits = (await prisma.supplier.findUnique({ where: { code: q.toUpperCase() } }).then((x) => (x ? [x] : null))) ?? await prisma.supplier.findMany({ where: { OR: [{ name: like }, { nameLocal: like }] }, take: 6 });
+      if (!hits.length) throw new Error(`no supplier matches "${q}" — create it with create_supplier`);
+      if (hits.length > 1) throw new Error(`several suppliers match "${q}": ${hits.map((h) => `${h.code} ${h.name}`).join("; ")} — ask which one`);
+      const sp = hits[0], files = supplierFiles(i.files);
+      const old = (sp.files as { name: string; url: string }[] | null) ?? [];
+      const data = { name: str(i.name), nameLocal: str(i.nameLocal), taxId: str(i.taxId)?.replace(/[\s-]/g, ""), branchCode: str(i.branchCode), address: str(i.address), contactName: str(i.contactName), phone: str(i.phone), email: str(i.email), currency: str(i.currency), paymentTerms: str(i.paymentTerms), leadTimeDays: num(i.leadTimeDays) };
+      const changed = Object.entries(data).filter(([, v]) => v != null).map(([k]) => k);
+      await prisma.supplier.update({ where: { id: sp.id }, data: { ...data, ...(files.length ? { files: [...old, ...files.filter((f) => !old.some((o) => o.url === f.url))] } : {}) } });
+      return { ok: true, summary: `${sp.code} ${sp.name}: ${[...changed, ...(files.length ? [`${files.length} file(s)`] : [])].join(", ") || "nothing to change"}`, href: `/suppliers/${sp.code}` };
     } },
   { name: "add_contact", tier: "auto", description: "Add a contact person to a customer (birthday as MM-DD feeds the message centre).",
     input_schema: obj({ customer: S, name: S, title: S, phone: S, email: S, lineId: S, birthday: S }, ["customer", "name"]),

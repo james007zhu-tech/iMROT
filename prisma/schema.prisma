@@ -1230,6 +1230,7 @@ model Supplier {
   countryCode  String              @default("TH")
   paymentMode  SupplierPaymentMode @default(PER_ORDER) /// TH partners: MONTHLY (月结 15 天); others per order (decided 2026-11-08)
   paymentDays  Int? /// MONTHLY: days after month end (15)
+  files        Json? /// [{name,url}] — company papers kept on the supplier file (DBD certificate, ภ.พ.20, bank book …), 2026-11-27
   createdAt    DateTime            @default(now())
 
   quotes   SupplierQuote[]
