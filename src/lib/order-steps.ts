@@ -12,6 +12,7 @@ export interface OrderShape {
   trade?: boolean; /// 贸易: no machine — quote, customer PO, stock out, DNTH; the signed DNTH stands in for acceptance
   stockOuts?: number; /// OBTH lines issued against the order
   project?: { planned: boolean; invoiceDue: number }; /// 自动化项目: plan saved? done instalments not yet invoiced
+  consulting?: boolean; /// 服务咨询: no goods, no machine — quote, customer PO, the service, then the customer's signed confirmation; never a DNTH
   intl?: boolean; /// 国际贸易: after the OBTH comes the shipment (CI + PL), then the B/L — no customer signature, no TITH
   buying?: "QUOTE" | "ORDER" | "RECEIVE"; /// 贸易: goods for this order are still on their way — supplier quotes awaited, a POTH to raise, or a POTH to receive
   declineOpen?: string[]; /// 客户拒绝报价: what still blocks closing (declineCloseBlockers) — present only on a declined order
@@ -42,6 +43,16 @@ export function nextSteps(o: OrderShape): { primary: StepKey | null; also: StepK
       case "IN_PROGRESS": case "ACCEPTANCE_PENDING": return { primary: "project", also: ["deliver", "stockOut", ...(o.invoicesUnpaid ? (["payment"] as StepKey[]) : []), "plan"] };
       case "ACCEPTED": case "INVOICED": return p.invoiceDue ? { primary: "project", also: o.invoicesUnpaid ? ["payment"] : [] } : o.invoicesUnpaid ? { primary: "payment", also: ["project"] } : { primary: "archive", also: ["project"] };
       default: break;
+    }
+  }
+  if (o.consulting) {
+    // 服务咨询 (2026-11-27): quote → customer PO → service → acceptance on the customer's signed sheet → TITH
+    switch (o.status) {
+      case "RECEIVED": case "ASSIGNED": case "DIAGNOSING": return { primary: "quote", also: [] };
+      case "QUOTE_PENDING": return { primary: "confirm", also: ["quote"] };
+      case "IN_PROGRESS": case "ACCEPTANCE_PENDING": return { primary: "accept", also: [] };
+      case "ACCEPTED": return { primary: "invoice", also: ["archive"] };
+      default: break; // INVOICED onwards as for every order
     }
   }
   if (o.trade && o.intl) {

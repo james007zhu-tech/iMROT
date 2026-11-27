@@ -2,32 +2,42 @@
  * 业务模式 (朱总 2026-11-09). The mode is picked first when an order is created and never changes; it decides the
  * documents, the margin floor and the inquiry/quote route. Pure — src/server/modes.ts reads the MD's floors.
  */
-export const MODES = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE", "AUTOMATION_PROJECT", "DOMESTIC_TRADE", "INTERNATIONAL_TRADE"] as const;
+export const MODES = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE", "AUTOMATION_PROJECT", "DOMESTIC_TRADE", "INTERNATIONAL_TRADE", "SERVICE_CONSULTING"] as const;
 export type Mode = (typeof MODES)[number];
 export type Kind = "REPAIR" | "MAINTENANCE" | "OVERHAUL" | "CONTRACT" | "PARTS_SALE";
 
 /** Floors decided 2026-11-09; the MD can change them on /admin (ModeRule). A quote below its floor needs the MD. */
 export const DEFAULT_MARGIN_FLOOR: Record<Mode, number> = {
   REPAIR: 0.5, PARTNER_REPAIR: 0.33, MAINTENANCE: 0.5, AUTOMATION_PROJECT: 0.2, DOMESTIC_TRADE: 0.2, INTERNATIONAL_TRADE: 0.1,
+  SERVICE_CONSULTING: 0.5, // 服务咨询 (2026-11-27): set like the other labour businesses until the MD decides otherwise on /admin
 };
 
 /** Sub-types a mode allows; the first is the default. 维保 is the only mode with a choice. */
 export const MODE_KINDS: Record<Mode, Kind[]> = {
   REPAIR: ["REPAIR"], PARTNER_REPAIR: ["REPAIR"], MAINTENANCE: ["MAINTENANCE", "OVERHAUL", "CONTRACT"],
   AUTOMATION_PROJECT: ["REPAIR"], DOMESTIC_TRADE: ["PARTS_SALE"], INTERNATIONAL_TRADE: ["PARTS_SALE"],
+  SERVICE_CONSULTING: ["REPAIR"],
 };
 
 /** Every mode is open since 2026-11-09 (flows 国际贸易-流程图-v1 and 自动化项目-流程图-v1). */
-export const OPEN_MODES: readonly Mode[] = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE", "AUTOMATION_PROJECT", "DOMESTIC_TRADE", "INTERNATIONAL_TRADE"];
+export const OPEN_MODES: readonly Mode[] = ["REPAIR", "PARTNER_REPAIR", "MAINTENANCE", "AUTOMATION_PROJECT", "DOMESTIC_TRADE", "INTERNATIONAL_TRADE", "SERVICE_CONSULTING"];
 
 /** Trade orders carry SKUs only — no ATH (decided 2026-11-09; the one exception to "every record carries an asset"). */
 /** An automation project starts without one too: what it delivers may be registered as an ATH after SAT (open point, 朱总). */
-export const modeNeedsAsset = (m: Mode): boolean => m !== "DOMESTIC_TRADE" && m !== "INTERNATIONAL_TRADE" && m !== "AUTOMATION_PROJECT";
+export const modeNeedsAsset = (m: Mode): boolean => m !== "DOMESTIC_TRADE" && m !== "INTERNATIONAL_TRADE" && m !== "AUTOMATION_PROJECT" && m !== "SERVICE_CONSULTING";
 export const isProjectMode = (m: string | null | undefined): boolean => m === "AUTOMATION_PROJECT";
 /** Orders without a machine (trade, projects): a quote the customer turns down is simply cancelled — no 客户拒绝报价 step. */
-export const quoteJustCancels = (m: string | null | undefined): boolean => isTradeMode(m) || isProjectMode(m);
+export const quoteJustCancels = (m: string | null | undefined): boolean => isTradeMode(m) || isProjectMode(m) || isConsultingMode(m);
 export const isPartnerMode = (m: string | null | undefined): boolean => m === "PARTNER_REPAIR";
 export const isTradeMode = (m: string | null | undefined): boolean => m === "DOMESTIC_TRADE" || m === "INTERNATIONAL_TRADE";
+/**
+ * 服务咨询 (朱总 2026-11-27): technical service and consulting — nothing is shipped and no machine is on the order.
+ * QTTH → customer PO → the service → the customer's signed confirmation (acceptance sheet) → TITH → IVTH → RCTH.
+ * No DNTH, no stock, no purchase for stock; every PO line is a service line.
+ */
+export const isConsultingMode = (m: string | null | undefined): boolean => m === "SERVICE_CONSULTING";
+/** Orders opened as customer + item lines (no machine): trade, and 服务咨询 whose lines are the services asked for. */
+export const isItemMode = (m: string | null | undefined): boolean => isTradeMode(m) || isConsultingMode(m);
 
 /** A trade order's QTTH renders as a quotation (30) and order confirmation (31) — no equipment, no findings. */
 export const TRADE_QUOTE_TEMPLATE = "30";

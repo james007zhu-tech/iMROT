@@ -24,7 +24,7 @@ import { nextSteps, reportsFor, stepHref, type StepKey } from "@/lib/order-steps
 import { businessClosureOn } from "@/lib/closure";
 import { pdfAvailable } from "@/server/office";
 import { marginFloor } from "@/server/modes";
-import { isTradeMode, quoteJustCancels, reopenBlocker } from "@/lib/modes";
+import { isTradeMode, isItemMode, isConsultingMode, quoteJustCancels, reopenBlocker } from "@/lib/modes";
 import { exportCloseBlockers, incotermLine, requiredExportDocs, type TradeTerms } from "@/lib/export";
 import { invoiceDue, nextMilestone, type ProjectInfo } from "@/lib/project";
 import { declineCloseBlockers, feeTotal, undoDeclineBlocker, type DeclineFee } from "@/lib/decline";
@@ -76,7 +76,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     invoicesUnpaid: order.invoices.filter((i) => !i.paidAt && !i.cancelledAt).length, hasAcceptance: !!order.acceptance,
     partner: order.mode === "PARTNER_REPAIR",
     project: order.mode === "AUTOMATION_PROJECT" ? { planned: !!(order.project as ProjectInfo | null)?.solution || ((order.requestLines as unknown[] | null) ?? []).length > 0, invoiceDue: invoiceDue(msShape).length } : undefined,
-    trade: isTradeMode(order.mode), intl: order.mode === "INTERNATIONAL_TRADE", stockOuts: order.stockMovements.filter((m) => m.direction === "OUT").length,
+    consulting: isConsultingMode(order.mode), trade: isTradeMode(order.mode), intl: order.mode === "INTERNATIONAL_TRADE", stockOuts: order.stockMovements.filter((m) => m.direction === "OUT").length,
     declineOpen, buying,
   };
   // With invoicing and payments switched off (BUSINESS_CLOSURE), the order never points at those steps (trial 2026-11-05).
@@ -236,7 +236,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             <Field label={u("projectScope")}><Value className="whitespace-pre-line">{(order.project as ProjectInfo | null)?.scope ?? "—"}</Value></Field>
             <div className="flex flex-wrap gap-1.5 text-xs">{order.milestones.map((m) => <span key={m.id} className={`rounded-full border px-2 py-0.5 ${m.doneAt ? "border-navy bg-navy text-white" : nextMilestone(msShape)?.seq === m.seq ? "border-blue text-blue" : "border-navy/25 text-navy/60"}`}>{m.seq}. {u(`phase_${m.phase}`)}{m.payPct ? ` ${Math.round(Number(m.payPct) * 100)}%` : ""}</span>)}</div>
             {atts.length > 0 && <div className="mt-2 flex flex-wrap gap-2 text-xs">{atts.map((a) => <a key={a.url} href={a.url} target="_blank" className="rounded-full border border-navy/35 bg-white px-2.5 py-0.5 font-semibold"><Icon name="doc" /> {a.name}</a>)}</div>}
-          </Card> : isTradeMode(order.mode) ? <Card title={u("customerAndInquiry")}>
+          </Card> : isItemMode(order.mode) ? <Card title={u("customerAndInquiry")}>
             <Grid>
               <Field label={t("customer")}><Value>{order.customer.name}</Value></Field>
               <Field label={u("customerInquiryRef")}><Value className="font-mono">{order.customerRef ?? "—"}</Value></Field>

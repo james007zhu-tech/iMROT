@@ -11,7 +11,7 @@ import { allocateNumber } from "@/lib/numbering-db";
 import { audit } from "@/server/audit";
 import { findPart, normPartNo, stockOnHand } from "@/server/scm";
 import { poLinesFromQuote, progressOrder, type PoLine } from "@/server/slm";
-import { isTradeMode } from "@/lib/modes";
+import { isTradeMode, isConsultingMode } from "@/lib/modes";
 import { RETURN_UNREPAIRED, returnRemark } from "@/lib/decline";
 import { hasRole } from "@/lib/caps";
 
@@ -160,6 +160,7 @@ export const DeliveryInput = z.object({
 export async function issueDelivery(input: z.input<typeof DeliveryInput>) {
   const d = DeliveryInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { decline: true } });
+  if (isConsultingMode(order.mode)) throw new Error(`NO_DELIVERY_FOR_SERVICE:${order.no}`); // 服务咨询: nothing is shipped — acceptance is on the customer's signed confirmation
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
   // 客户拒绝报价: the return DNTH always says the machine goes back unrepaired, whatever else the remark says
   if (order.decline) { const note = returnRemark(order.decline.toldAt); if (!d.remark?.includes("Returned unrepaired")) d.remark = d.remark ? `${note}\n${d.remark}` : note; }

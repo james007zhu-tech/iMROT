@@ -16,7 +16,7 @@ import type { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { canTransitionOrder } from "@/lib/lifecycle";
 import { quoteMayGoOut } from "@/lib/margin";
 import { autoInquiryForOrder, raisePurchaseOrdersForOrder } from "@/server/purchasing";
-import { MODES, OPEN_MODES, TRADE_QUOTE_TEMPLATE, isTradeMode, quoteJustCancels, kindFor, modeFromKind, modeNeedsAsset, requestLinesFrom } from "@/lib/modes";
+import { MODES, OPEN_MODES, TRADE_QUOTE_TEMPLATE, isTradeMode, isConsultingMode, isItemMode, quoteJustCancels, kindFor, modeFromKind, modeNeedsAsset, requestLinesFrom } from "@/lib/modes";
 import { declineCloseBlockers } from "@/lib/decline";
 import { declineShapeOf } from "@/server/decline";
 
@@ -96,10 +96,11 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
   const mode = data.mode ?? modeFromKind(data.kind ?? "REPAIR");
   if (!OPEN_MODES.includes(mode)) throw new Error(`MODE_NOT_OPEN:${mode}`);
   if (modeNeedsAsset(mode) && data.assetCodes.length === 0) throw new Error("ASSET_REQUIRED");
-  const trade = isTradeMode(mode);
-  const requestLines = trade ? requestLinesFrom(data.requestLines ?? []) : [];
-  if (trade && !requestLines.length) throw new Error("ITEM_LINES_REQUIRED");
-  if (trade && data.assetCodes.length) throw new Error("TRADE_HAS_NO_ASSET"); // decided 2026-11-09: SKUs only
+  const trade = isTradeMode(mode), items = isItemMode(mode); // 服务咨询 opens like trade: customer + the services asked for
+  // 服务咨询: a service is not a stock item — a line never carries a SKU
+  const requestLines = items ? requestLinesFrom(data.requestLines ?? []).map((l) => (isConsultingMode(mode) ? { ...l, sku: undefined, unit: l.unit === "pcs" ? "lot" : l.unit } : l)) : [];
+  if (items && !requestLines.length) throw new Error("ITEM_LINES_REQUIRED");
+  if (items && data.assetCodes.length) throw new Error("TRADE_HAS_NO_ASSET"); // decided 2026-11-09: SKUs only
   // 国际贸易 (2026-11-09): quoted in the terms' currency on Incoterms; the terms are fixed with the order
   const terms = mode === "INTERNATIONAL_TRADE" ? tradeTermsFrom(data.tradeTerms ?? {}) : undefined;
   // 自动化项目 (2026-11-09): a name and scope now; solution, BOM and milestones on the plan page
@@ -141,11 +142,11 @@ export async function createServiceOrder(input: z.input<typeof CreateServiceOrde
         project: project as Prisma.InputJsonValue | undefined,
         reportedAt: data.reportedAt,
         attachments: data.attachments as Prisma.InputJsonValue | undefined,
-        requestLines: trade ? (requestLines as Prisma.InputJsonValue) : undefined,
+        requestLines: items ? (requestLines as Prisma.InputJsonValue) : undefined,
         assets: { create: assets.map((a, i) => ({ assetId: a.id, isPrimary: i === 0 })) },
       },
     });
-    await tx.document.create({ data: { no, type: "QT", entityId: creator.entityId, countryCode: no.slice(2, 4), customerId: data.customerId, serviceOrderId: order.id, createdById: creator.id, templateCode: trade || project ? TRADE_QUOTE_TEMPLATE : undefined } });
+    await tx.document.create({ data: { no, type: "QT", entityId: creator.entityId, countryCode: no.slice(2, 4), customerId: data.customerId, serviceOrderId: order.id, createdById: creator.id, templateCode: items || project ? TRADE_QUOTE_TEMPLATE : undefined } });
     if (project) await createMilestones(tx, order.id);
     // 设备优先: what these machines were received with or inspected for before any QTTH existed now belongs to this one
     const adopted = await adoptLooseDocs(tx, order, assets.map((a) => a.id));
@@ -257,7 +258,8 @@ const SERVICE_UNITS = /^(h|hr|hrs|hour|hours|ชม\.?|小时|lot|job|ครั�
 /** The PO lines a quote implies — what the customer is expected to order. Labour and other service items are not delivered. */
 export async function poLinesFromQuote(no: string): Promise<PoLine[]> {
   const o = await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, include: { lines: { orderBy: { lineNo: "asc" }, include: { part: true } } } });
-  return o.lines.map((l) => ({ lineNo: l.lineNo, description: l.description, qty: Number(l.qty), unit: l.unit, isService: !l.partId && SERVICE_UNITS.test(l.unit.trim()) || /labou?r|service|ค่าแรง|ค่าบริการ|工时|人工|服务费/i.test(l.description), assetCode: l.assetCode ?? undefined, partSku: l.part?.sku }));
+  const allService = isConsultingMode(o.mode); // 服务咨询: nothing on the order is delivered
+  return o.lines.map((l) => ({ lineNo: l.lineNo, description: l.description, qty: Number(l.qty), unit: l.unit, isService: allService || !l.partId && SERVICE_UNITS.test(l.unit.trim()) || /labou?r|service|ค่าแรง|ค่าบริการ|工时|人工|服务费/i.test(l.description), assetCode: l.assetCode ?? undefined, partSku: l.part?.sku }));
 }
 
 /** Customer confirmed the quote with a PO: keep the PO number verbatim, the PO lines and the scan, then start the work. */
@@ -273,6 +275,7 @@ export async function confirmCustomerPo(input: { no: string; actorCode: string; 
     if (pending.length) throw new Error(`QUOTE_COST_PENDING:${pending.join("、")}`);
   }
   if (!input.poLines.length) throw new Error("PO_LINES_REQUIRED");
+  if (isConsultingMode(o.mode)) input = { ...input, poLines: input.poLines.map((l) => ({ ...l, isService: true })) }; // whatever the form sent
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: input.actorCode } });
   const merged = [...((o.attachments as { name: string; url: string; kind: string }[] | null) ?? []), ...(input.attachments ?? [])];
   if (again) {

@@ -9,7 +9,7 @@ import { fxFields, rateForNew } from "@/server/fx";
 import { audit } from "@/server/audit";
 import { can, hasRole } from "@/lib/caps";
 import { mayOpenOrder, mayAccept } from "@/server/scope";
-import { isTradeMode } from "@/lib/modes";
+import { isTradeMode, isConsultingMode } from "@/lib/modes";
 import { localIso } from "@/lib/dates";
 import { EXPORT_VAT_RATE } from "@/lib/export";
 import { z } from "zod";
@@ -527,6 +527,8 @@ export async function missingForAcceptance(no: string): Promise<string[]> {
     if (!o.deliveries.some((d) => d.status === "SIGNED")) missing.push("DNTH");
     return missing;
   }
+  // 服务咨询 (2026-11-27): no machine, no goods — nothing but the customer's signed confirmation, which acceptEvidence asks for
+  if (isConsultingMode(o.mode)) return missing;
   // N-34 (2026-11-18): a trade order has no inspection and no repair report — what it needs is the delivery note the customer signed
   if (isTradeMode(o.mode)) { if (!o.deliveries.some((d) => d.status === "SIGNED")) missing.push("DNTH"); return missing; }
   // 维保 (trial finding 2026-11-14): a maintenance visit is accepted on its PMTH; an INTH is optional there, as the document chain says

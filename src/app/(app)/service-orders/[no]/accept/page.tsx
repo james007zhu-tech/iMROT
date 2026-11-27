@@ -2,7 +2,7 @@ import { assertOrderAccess } from "@/server/scope";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/db";
 import { acceptEvidence, attachAcceptSheet, missingForAcceptance, recordAcceptance } from "@/server/slm-docs";
-import { isTradeMode } from "@/lib/modes";
+import { isTradeMode, isConsultingMode } from "@/lib/modes";
 import { currentEmployee } from "@/server/auth";
 import { mayAccept } from "@/server/scope";
 import { guarded } from "@/lib/action-result";
@@ -25,12 +25,13 @@ export default async function Accept({ params, searchParams }: { params: Promise
   // 备件：已出库 i/n (V4-P0-10) — the person signing sees whether the quoted parts really left the store
   const partsQuoted = order.lines.filter((l) => l.partId).length, partsLeft = (await issueNeeds(no))?.lines.length ?? 0;
   const [contacts, me, missing] = await Promise.all([prisma.contact.findMany({ where: { customerId: order.customerId }, orderBy: { name: "asc" } }), currentEmployee(), missingForAcceptance(no)]);
-  const required = ["INTH", order.kind === "MAINTENANCE" || order.kind === "CONTRACT" ? "PMTH" : "RPTH", ...(order.repairJobs.some((j) => j.location === "WORKSHOP") ? ["ERTH", "DNTH"] : [])];
+  const consulting = isConsultingMode(order.mode); // 服务咨询: no INTH / RPTH — only the customer's signed confirmation
+  const required = consulting ? [] : ["INTH", order.kind === "MAINTENANCE" || order.kind === "CONTRACT" ? "PMTH" : "RPTH", ...(order.repairJobs.some((j) => j.location === "WORKSHOP") ? ["ERTH", "DNTH"] : [])];
   // Deliverables default to the job's tests (what was proven), then parts and the parameter backup.
   const job = order.repairJobs.at(-1);
   const tests = ((job?.tests as { test: string; criterion?: string; result?: string }[] | null) ?? []).map((x) => ({ d: x.test, c: x.criterion ?? "", r: x.result ?? "" }));
   const parts = ((job?.partsReplaced as { partSku: string; newSerial?: string }[] | null) ?? []);
-  const rows = [...tests, ...(parts.length ? [{ d: u("partsReplaced"), c: u("newSerialRecorded"), r: parts.map((p) => p.newSerial ?? p.partSku).join(" / ") }] : []), ...(job?.configBackupRef ? [{ d: u("paramBackup"), c: u("fileArchived"), r: job.configBackupRef }] : [])];
+  const rows = consulting ? order.lines.map((l) => ({ d: l.description, c: order.customerRef ?? "", r: "" })) : [...tests, ...(parts.length ? [{ d: u("partsReplaced"), c: u("newSerialRecorded"), r: parts.map((p) => p.newSerial ?? p.partSku).join(" / ") }] : []), ...(job?.configBackupRef ? [{ d: u("paramBackup"), c: u("fileArchived"), r: job.configBackupRef }] : [])];
   const today = localIso(new Date())!.slice(0, 10);
   // 验收依据 (派修单 v5 P1-11)
   const trade = isTradeMode(order.mode), evidence = await acceptEvidence(order), canSign = await mayAccept(me, order.id);
@@ -79,12 +80,12 @@ export default async function Accept({ params, searchParams }: { params: Promise
         </form>}
       </Card>
       <form id="f" action={save} className="space-y-4">
-        <Card title={u("acceptChecklist")}>
+        {!consulting && <Card title={u("acceptChecklist")}>
           <ul className="grid gap-1 text-sm md:grid-cols-2">
             {required.map((k) => <li key={k} className={missing.includes(k) ? "font-semibold text-alert-ink" : ""}>{missing.includes(k) ? "✗" : "✓"} {k} · {u(`doc_${k}`)}</li>)}
           </ul>
           {missing.length > 0 && <Alert>{u("acceptMissingDocs", { docs: missing.join(", ") })}</Alert>}
-        </Card>
+        </Card>}
         <Card title={u("deliverables")}>
           <div className="hidden grid-cols-3 gap-2 text-xs text-navy/70 md:grid"><span>{u("deliverable")}</span><span>{t("criterion")}</span><span>{t("result")}</span></div>
           <RevealRows initial={Math.max(rows.length, 1)} addLabel={u("addDeliverable")}>

@@ -849,6 +849,7 @@ enum BusinessMode {
   AUTOMATION_PROJECT /// 自动化项目
   DOMESTIC_TRADE /// 国内贸易
   INTERNATIONAL_TRADE /// 国际贸易
+  SERVICE_CONSULTING /// 服务咨询 (朱总 2026-11-27) — no goods, no machine: quote, customer PO, the service, the customer's signed confirmation, TITH. No DNTH.
 }
 
 /// Minimum gross margin per business mode; a quote below it needs the MD (rule decided 2026-11-09, MD edits on /admin).

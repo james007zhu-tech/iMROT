@@ -17,6 +17,8 @@ export const CHAINS: Record<BusinessMode, ChainStep[]> = {
   MAINTENANCE: [s("QT"), s("ER", true), s("IN", true), s("CPO"), s("OB", true), s("PM"), s("DN", true), s("AC"), ...MONEY],
   AUTOMATION_PROJECT: [s("QT"), s("CPO"), s("PR", true), s("PO", true), s("DN"), s("AC"), ...MONEY],
   DOMESTIC_TRADE: [s("QT"), s("CPO"), s("PR", true), s("PO", true), s("IB", true), s("OB"), s("DN"), ...MONEY],
+  // 服务咨询 (2026-11-27): nothing is shipped — the customer's signed confirmation is the acceptance, then the money
+  SERVICE_CONSULTING: [s("QT"), s("CPO"), s("AC"), ...MONEY],
   // export: zero-rated, no TITH; the commercial invoice and packing list ride on the shipment (DNTH)
   INTERNATIONAL_TRADE: [s("QT"), s("CPO"), s("PR", true), s("PO", true), s("PF", true), s("OB"), s("DN"), s("IV"), s("RC")],
 };

@@ -38,9 +38,9 @@ export default async function Confirm({ params, searchParams }: { params: Promis
         </Card>
         <Card title={u("poLines")}>
           <Table head={[u("poLine"), u("descPo"), t("qty"), u("uom"), u("serviceNoDelivery")]}>
-            {lines.map((l, i) => <tr key={l.lineNo}><td>{l.lineNo}</td><td><input name={`d${i}`} defaultValue={l.description} className={inputCls} /></td><td><input name={`q${i}`} type="number" step="0.001" defaultValue={l.qty} className={inputCls} /></td><td>{l.unit}</td><td><input type="checkbox" name={`s${i}`} defaultChecked={l.isService} /></td></tr>)}
+            {lines.map((l, i) => <tr key={l.lineNo}><td>{l.lineNo}</td><td><input name={`d${i}`} defaultValue={l.description} className={inputCls} /></td><td><input name={`q${i}`} type="number" step="0.001" defaultValue={l.qty} className={inputCls} /></td><td>{l.unit}</td><td><input type="checkbox" name={`s${i}`} defaultChecked={l.isService} disabled={order.mode === "SERVICE_CONSULTING"} />{order.mode === "SERVICE_CONSULTING" && <input type="hidden" name={`s${i}`} value="on" />}</td></tr>)}
           </Table>
-          <p className="text-xs text-navy/70">{u("poLinesNote")}</p>
+          <p className="text-xs text-navy/70">{u(order.mode === "SERVICE_CONSULTING" ? "poLinesNoteService" : "poLinesNote")}</p>
         </Card>
       </form>
     </StepPage>

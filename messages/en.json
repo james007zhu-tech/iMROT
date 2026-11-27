@@ -1554,7 +1554,7 @@
     "unitShort": "Unit",
     "rpt30": "Quotation",
     "rpt31": "Order confirmation",
-    "err_ITEM_LINES_REQUIRED": "A trade order needs at least one item line",
+    "err_ITEM_LINES_REQUIRED": "The order needs at least one item or service line",
     "err_TRADE_HAS_NO_ASSET": "A trade order carries SKUs only, no ATH",
     "docType_PR": "Supplier inquiry",
     "docType_PO": "Purchase order",
@@ -2892,7 +2892,16 @@
     "pickLoading": "Loading…",
     "custAssetsMore": "First {shown} of {total} machines",
     "custAssetsAll": "See all on the equipment list",
-    "err_OT_IN_FIGURE": "This overtime is already in this month’s figure and cannot be carried on; use 补算 to recount"
+    "err_OT_IN_FIGURE": "This overtime is already in this month’s figure and cannot be carried on; use 补算 to recount",
+    "mode_SERVICE_CONSULTING": "Service & consulting",
+    "modeSub_SERVICE_CONSULTING": "บริการและที่ปรึกษา · 服务咨询",
+    "modeDesc_SERVICE_CONSULTING": "Technical service and consulting: no goods, no delivery note; invoiced after the customer signs the confirmation.",
+    "modeNoGoods": "No goods, no DNTH, no ATH",
+    "serviceLines": "Services",
+    "serviceItem": "Service item",
+    "serviceLinesHint": "One service per line (e.g. Technical service and consulting, 1 lot). No SKU, no stock, no delivery.",
+    "poLinesNoteService": "A service & consulting order has no goods: every line is a service line and no delivery note is raised. When the work is done, upload the confirmation signed by the customer to accept and invoice.",
+    "err_NO_DELIVERY_FOR_SERVICE": "{detail} is a service & consulting order: there are no goods and no delivery note; upload the confirmation signed by the customer and accept"
   },
   "role": {
     "MD": "MD Managing Director",

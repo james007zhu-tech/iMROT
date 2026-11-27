@@ -20,7 +20,7 @@ import { AssetPicker } from "@/components/AssetPicker";
 import { ScanButton } from "@/components/ScanButton";
 import { Card, Field, Grid, PageHeader, Table, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 import { ModeCards } from "@/components/ModeCards";
-import { MODES, MODE_KINDS, OPEN_MODES, isProjectMode, isTradeMode, modeNeedsAsset, type Mode } from "@/lib/modes";
+import { MODES, MODE_KINDS, OPEN_MODES, isProjectMode, isTradeMode, isConsultingMode, modeNeedsAsset, type Mode } from "@/lib/modes";
 import { modeRules } from "@/server/modes";
 import { EXPORT_CURRENCIES, INCOTERMS, SHIP_MODES } from "@/lib/export";
 
@@ -46,7 +46,8 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
   const trade = isTradeMode(initialMode);
   const intl = initialMode === "INTERNATIONAL_TRADE";
   const proj = isProjectMode(initialMode); // 自动化项目: customer + project card; BOM and milestones on the plan page
-  const noAsset = trade || proj;
+  const svc = isConsultingMode(initialMode); // 服务咨询: customer + the services asked for — no SKU, no machine
+  const noAsset = trade || proj || svc;
   // 贸易: customer + SKU lines; the datalist shows what is on the shelf
   const plants = proj ? await prisma.plant.findMany({ where: { customer: cScope }, orderBy: { code: "asc" }, include: { customer: { select: { name: true } } } }) : [];
   const [customers, parts, stock] = noAsset ? await Promise.all([
@@ -115,11 +116,11 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       <FormMemory formId="f" />
       <Card title={u("businessMode")}>
         <ModeCards form="f" initial={initialMode} inputCls={inputCls}
-          cards={modes.map((m) => ({ mode: m, name: u(`mode_${m}`), sub: u(`modeSub_${m}`), desc: u(`modeDesc_${m}`), floor: u("marginFloorTag", { pct: Math.round(floors[m] * 100) }), assetNote: u(m === "AUTOMATION_PROJECT" ? "modeAssetTbd" : modeNeedsAsset(m) ? (m === "MAINTENANCE" ? "modeAssetMany" : "modeAsset") : "modeSkuOnly"), open: OPEN_MODES.includes(m) }))}
+          cards={modes.map((m) => ({ mode: m, name: u(`mode_${m}`), sub: u(`modeSub_${m}`), desc: u(`modeDesc_${m}`), floor: u("marginFloorTag", { pct: Math.round(floors[m] * 100) }), assetNote: u(m === "AUTOMATION_PROJECT" ? "modeAssetTbd" : modeNeedsAsset(m) ? (m === "MAINTENANCE" ? "modeAssetMany" : "modeAsset") : m === "SERVICE_CONSULTING" ? "modeNoGoods" : "modeSkuOnly"), open: OPEN_MODES.includes(m) }))}
           kinds={MODE_KINDS.MAINTENANCE.map((k) => ({ value: k, label: t(k) }))}
           labels={{ kind: u("maintenanceKind"), reason: u("partnerReason"), reasonPh: u("partnerReasonPh"), soon: u("modeComingSoon") }} />
       </Card>
-      <UploadRecognize kind={proj ? "project" : "service"} formId="f" lineFields={trade ? { sku: "ls", description: "ld", qty: "lq", unit: "lu", neededBy: "ln", hsCode: "lh", origin: "lo" } : undefined} title={u(trade ? "upTradeTitle" : proj ? "upProjectTitle" : "upServiceTitle")} hint={u(trade ? "upTradeHint" : proj ? "upProjectHint" : "upServiceHint")} />
+      <UploadRecognize kind={proj ? "project" : "service"} formId="f" lineFields={trade ? { sku: "ls", description: "ld", qty: "lq", unit: "lu", neededBy: "ln", hsCode: "lh", origin: "lo" } : svc ? { description: "ld", qty: "lq", unit: "lu", neededBy: "ln" } : undefined} title={u(trade || svc ? "upTradeTitle" : proj ? "upProjectTitle" : "upServiceTitle")} hint={u(trade || svc ? "upTradeHint" : proj ? "upProjectHint" : "upServiceHint")} />
       <form id="f" action={submit} className="space-y-4">
 {noAsset ? (<>
         <Card title={u("customerAndInquiry")}>
@@ -154,22 +155,22 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
           </Grid>
           <p className="text-xs text-navy/70">{u("tradeTermsHint")}</p>
         </Card>}
-        {!proj && <Card title={u("itemLines")}>
-          <PartDropdown formId="f" sku="ls" name="ld" unit="lu" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, unit: p.unit, onHand: onHand.get(p.id) ?? 0 }))} />
-          <Table head={["#", u("partSku"), t("description"), t("qty"), u("unitShort"), u("neededBy"), ...(intl ? [u("hsCode"), u("origin")] : [])]}>
+        {!proj && <Card title={u(svc ? "serviceLines" : "itemLines")}>
+          {!svc && <PartDropdown formId="f" sku="ls" name="ld" unit="lu" labels={{ none: u("partNotListed"), onHand: u("briefOnHand"), own: u("partOfModel") }} parts={parts.map((p) => ({ sku: p.sku, vendorPartNo: p.vendorPartNo, name: p.name, unit: p.unit, onHand: onHand.get(p.id) ?? 0 }))} />}
+          <Table head={["#", ...(svc ? [] : [u("partSku")]), svc ? u("serviceItem") : t("description"), t("qty"), u("unitShort"), u("neededBy"), ...(intl ? [u("hsCode"), u("origin")] : [])]}>
             {Array.from({ length: TRADE_ROWS }, (_, i) => (
               <tr key={i}>
                 <td className="w-8 text-navy/60">{i + 1}</td>
-                <td><input name={`ls${i}`} list="trade-parts" className={`${inputCls} font-mono`} /></td>
+                {!svc && <td><input name={`ls${i}`} list="trade-parts" className={`${inputCls} font-mono`} /></td>}
                 <td><input name={`ld${i}`} className={inputCls} /></td>
                 <td className="w-24"><input name={`lq${i}`} type="number" min={0} step="0.001" required={i === 0} className={inputCls} /></td>
-                <td className="w-20"><input name={`lu${i}`} defaultValue="pcs" className={inputCls} /></td>
+                <td className="w-20"><input name={`lu${i}`} defaultValue={svc ? "lot" : "pcs"} className={inputCls} /></td>
                 <td className="w-40"><input name={`ln${i}`} type="date" className={inputCls} /></td>
                 {intl && <><td className="w-32"><input name={`lh${i}`} placeholder="8504.40" className={`${inputCls} font-mono`} /></td><td className="w-20"><input name={`lo${i}`} placeholder="DE" className={`${inputCls} uppercase`} /></td></>}
               </tr>
             ))}
           </Table>
-          <p className="text-xs text-navy/70">{u("itemLinesHint")}</p>
+          <p className="text-xs text-navy/70">{u(svc ? "serviceLinesHint" : "itemLinesHint")}</p>
         </Card>}
         </>) : (<>
         <Card title={u("whichAsset")}>
