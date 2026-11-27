@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { errorCode, errorStatus } from "@/lib/errors";
-import { saveUpload } from "@/lib/uploads";
+import { saveUpload, UPLOADS_DIR } from "@/lib/uploads";
+import { readFile } from "node:fs/promises";
+import nodePath from "node:path";
+
+const TYPES: Record<string, string> = { ".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".txt": "text/plain", ".csv": "text/csv", ".eml": "text/plain" };
+export const maxDuration = 300;
 import { sessionContactId, sessionEmployeeCode } from "@/server/auth";
 import { recognizeDocuments } from "@/server/recognize";
 import { RECOGNIZE, type RecognizeKind } from "@/lib/recognize";
@@ -22,9 +27,27 @@ export async function POST(req: Request) {
       const saved = await saveUpload(f, RECOGNIZE[kind].attachKind.toLowerCase());
       files.push({ ...saved, original: f.name, mediaType: f.type || "application/octet-stream", bytes: Buffer.from(await f.arrayBuffer()) });
     }
-    const r = await recognizeDocuments(kind, files.map((f) => ({ name: f.original, url: f.url, mediaType: f.mediaType, bytes: f.bytes })), String(form.get("text") || "") || undefined, String(form.get("context") || "") || undefined, liveFields(form.get("form")));
+    // 先存后读 (朱总 2026-11-27: "已经提交了签字文件，但是页面无法识别"): the page first saves the files (saveOnly) and has
+    // them on the form at once; reading them comes second, from the saved copies, and a reading that fails or is slow
+    // never costs the upload.
+    const fallback = files.map((f) => ({ name: f.original, url: f.url, kind: RECOGNIZE[kind].attachKind }));
+    if (form.get("saveOnly")) return NextResponse.json({ attachments: fallback });
+    try { for (const a of JSON.parse(String(form.get("saved") || "[]")) as { name?: string; url?: string }[]) {
+      const m = /^\/api\/uploads\/([A-Za-z0-9._-]+)$/.exec(String(a?.url ?? ""));
+      const bytes = m ? await readFile(nodePath.join(UPLOADS_DIR, m[1])).catch(() => null) : null;
+      if (m && bytes) files.push({ name: m[1], url: a.url!, original: String(a.name ?? m[1]).slice(0, 200), mediaType: TYPES[nodePath.extname(m[1]).toLowerCase()] ?? "application/octet-stream", bytes });
+    } } catch { /* no saved refs */ }
+    const saved = files.map((f) => ({ name: f.original, url: f.url, kind: RECOGNIZE[kind].attachKind }));
+    let r: Awaited<ReturnType<typeof recognizeDocuments>>;
+    try {
+      r = await recognizeDocuments(kind, files.map((f) => ({ name: f.original, url: f.url, mediaType: f.mediaType, bytes: f.bytes })), String(form.get("text") || "") || undefined, String(form.get("context") || "") || undefined, liveFields(form.get("form")));
+    } catch (e) {
+      if (!saved.length) throw e;
+      console.warn(`[recognize] ${kind}: reading failed, files kept — ${errorCode(e)}`);
+      return NextResponse.json({ fields: {}, uncertain: [], usedModel: false, notes: "read-failed", attachments: saved });
+    }
     const kindLabel = r.docKind && RECOGNIZE[kind].accept?.includes(r.docKind.toUpperCase()) ? r.docKind.toUpperCase() : RECOGNIZE[kind].attachKind;
-    return NextResponse.json({ ...r, attachments: files.map((f) => ({ name: f.original, url: f.url, kind: kindLabel })) });
+    return NextResponse.json({ ...r, attachments: saved.map((f) => ({ ...f, kind: kindLabel })) });
   } catch (e) {
     return NextResponse.json({ error: errorCode(e) }, { status: errorStatus(e) });
   }

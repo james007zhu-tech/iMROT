@@ -2907,7 +2907,8 @@
     "rfqAnySupplier": "Pick a supplier (none = generic)",
     "rfqNoEmail": "This supplier has no e-mail on file: add it in the supplier list, or type the recipient in the e-mail",
     "rfqAttachHint": "Opens in your own mail program with recipient, subject and item list filled in; download the inquiry PDF first and attach it by hand",
-    "supplierPapers": "Company papers"
+    "supplierPapers": "Company papers",
+    "savedNotRead": "The file is saved and attached to this record; its content could not be read — please fill in the fields below by hand"
   },
   "role": {
     "MD": "MD Managing Director",

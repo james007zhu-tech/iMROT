@@ -52,12 +52,23 @@ export function UploadRecognize({ kind, formId, title, hint, initial = [], lineF
       if (context) fd.set("context", context);
       const live = document.getElementById(formId);
       if (live instanceof HTMLFormElement) fd.set("form", JSON.stringify(describeForm(live))); // the form itself: any field can be filled by name
-      files.forEach((f) => fd.append("file", f));
+      // 先存后读: the files are saved and on the form within a second; reading them follows and may fail without losing them
+      let savedNow: Att[] = [];
+      if (files.length) {
+        const up = new FormData(); up.set("kind", kind); up.set("saveOnly", "1"); files.forEach((f) => up.append("file", f));
+        const r0 = await fetch("/api/ai/recognize", { method: "POST", body: up });
+        const j0 = await r0.json();
+        if (!r0.ok) throw new Error(j0.error ?? r0.statusText);
+        savedNow = j0.attachments as Att[];
+        setAtts((a) => [...a, ...savedNow]);
+        fd.set("saved", JSON.stringify(savedNow));
+      }
       const r = await fetch("/api/ai/recognize", { method: "POST", body: fd });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? r.statusText);
-      if (j.rejected) { setMsg({ tone: "warn", text: t(kind === "customer" ? "rejectedDoc" : "rejectedDocGeneric", { kind: j.docKind || "?" }) }); return; }
-      setAtts((a) => [...a, ...(j.attachments as Att[])]);
+      const j = await r.json().catch(() => ({ error: r.statusText }));
+      if (!r.ok) { if (savedNow.length) { setMsg({ tone: "warn", text: t("savedNotRead") }); return; } throw new Error(j.error ?? r.statusText); }
+      if (j.notes === "read-failed") { setMsg({ tone: "warn", text: t("savedNotRead") }); return; }
+      if (j.rejected) { if (savedNow.length) setAtts((a) => a.filter((x) => !savedNow.some((y) => y.url === x.url))); setMsg({ tone: "warn", text: t(kind === "customer" ? "rejectedDoc" : "rejectedDocGeneric", { kind: j.docKind || "?" }) }); return; }
+      { const got = j.attachments as Att[]; setAtts((a) => [...a.filter((x) => !got.some((y) => y.url === x.url)), ...got]); } // the same files, now under the kind the reading found
       const uncertain = new Set<string>((j.uncertain as string[] | undefined) ?? []);
       let n = fill(formId, j.fields as Record<string, string>, uncertain);
       // dictated rows arrive as row fields (d0, q0 …); a document's printed items arrive as lines — never both into the same rows

@@ -2907,7 +2907,8 @@
     "rfqAnySupplier": "先选供应商（不选＝通用）",
     "rfqNoEmail": "这家供应商档案里没有邮箱，请在供应商名录里补上，或在邮件里手填收件人",
     "rfqAttachHint": "在您自己的邮件程序里打开，收件人、标题和物料清单已填好；询价单 PDF 请先下载再手动添加为附件",
-    "supplierPapers": "公司资料文件"
+    "supplierPapers": "公司资料文件",
+    "savedNotRead": "文件已保存并附在本单上；内容没有读出来，请手动填写下面的字段"
   },
   "role": {
     "MD": "MD 董事总经理",

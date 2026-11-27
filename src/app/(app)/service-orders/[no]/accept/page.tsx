@@ -53,13 +53,22 @@ export default async function Accept({ params, searchParams }: { params: Promise
       const me = await currentEmployee(); await assertOrderAccess(me, no);
       const deliverables = Array.from({ length: ROWS }, (_, i) => ({ deliverable: str(f, `d${i}`) ?? "", criterion: str(f, `c${i}`), result: str(f, `r${i}`) })).filter((x) => x.deliverable);
       const status = f.get("status") as "ACCEPTED" | "CONDITIONAL" | "REJECTED";
+      // 客户签字文件先落到单上 (朱总 2026-11-27): whatever was handed over as the signed sheet — in the upload box on top, or
+      // as a PDF in the signature field — is kept on the order before anything else is checked, so a form sent back for
+      // another reason (the tick, the open items) does not lose it. A photo in the signature field stays a signature only.
+      const sigFile = f.get("signaturePhoto");
+      const sigUp = sigFile instanceof File && sigFile.size > 0 ? await saveUpload(sigFile, "signature") : null;
+      const sigIsDoc = !!sigUp && sigFile instanceof File && (sigFile.type === "application/pdf" || /\.pdf$/i.test(sigFile.name));
+      const handed = [...atts(f).map((a) => ({ name: (a as { name?: string }).name || a.url.split("/").pop() || "acceptance", url: a.url })), ...(sigIsDoc ? [{ name: (sigFile as File).name, url: sigUp!.url }] : [])];
+      const cur = handed.length ? await prisma.serviceOrder.findUniqueOrThrow({ where: { no }, select: { id: true, no: true, mode: true, acceptSheet: true } }) : null;
+      if (cur && !isTradeMode(cur.mode) && !(await acceptEvidence(cur))) await attachAcceptSheet({ orderNos: [no], actorCode: me.code, files: handed });
       if (status === "CONDITIONAL" && !str(f, "punchList")) throw new Error("CONDITIONAL_NEEDS_PUNCH");
       if (status !== "REJECTED" && !f.get("confirmLock")) throw new Error("ACCEPTANCE_CONFIRM_REQUIRED");
       const contactId = str(f, "contactId");
       const contact = contactId ? await prisma.contact.findUnique({ where: { id: contactId } }) : null;
       // The customer's signature: a photo taken here, else the signed form from the upload box, else what the portal already has.
       const photo = f.get("signaturePhoto");
-      const signed = photo instanceof File && photo.size > 0 ? (await saveUpload(photo, "signature")).url : atts(f).find((a) => a.kind === "ACCEPTANCE")?.url ?? atts(f)[0]?.url;
+      const signed = photo instanceof File && photo.size > 0 && sigUp ? sigUp.url : atts(f).find((a) => a.kind === "ACCEPTANCE")?.url ?? atts(f)[0]?.url;
       await recordAcceptance({ serviceOrderNo: no, actorCode: me.code, deliverables, status, punchList: str(f, "punchList"), acceptedAt: dayNow(str(f, "acceptedAt")), warrantyStart: str(f, "warrantyStart") ? new Date(str(f, "warrantyStart")!) : undefined, warrantyTerms: str(f, "warrantyTerms"), customerContactId: contactId, customerSignatory: str(f, "customerSignatory") ?? contact?.name, signatureUrl: signed, dcitSignatory: str(f, "dcitSignatory") ?? me.name, sheet: atts(f).map((a) => ({ name: (a as { name?: string }).name, url: a.url })) });
       return { ok: no, to: `/service-orders/${no}` };
     }, `/service-orders/${no}/accept`);
@@ -102,7 +111,7 @@ export default async function Accept({ params, searchParams }: { params: Promise
             <Field label={u("acceptSignature")}>
               <div className="flex flex-wrap items-center gap-2">
                 {order.acceptance?.signatureUrl && <a href={order.acceptance.signatureUrl} target="_blank" className="rounded-full border border-navy/35 bg-tint px-2.5 py-1 text-xs font-semibold text-navy">✓ {u("signedOn", { date: shortDate(order.acceptance.acceptedAt) })}</a>}
-                <input name="signaturePhoto" type="file" accept="image/*" capture="environment" className={inputCls} />
+                <input name="signaturePhoto" type="file" accept="image/*,application/pdf" className={inputCls} />
               </div>
             </Field>
             <Field label={u("dcitRep")}><input name="dcitSignatory" defaultValue={me.name} className={inputCls} /></Field>
