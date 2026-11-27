@@ -27,7 +27,7 @@ export async function MessageCenter({ notices, total }: { notices: Notice[]; tot
               {/* a plain link, a full page load: the tap answers at once on a phone (a client-side transition behind
                   85 prefetches left the MD waiting on a list that did not move — 派修单 v3 第 14 条) */}
               <a href={n.href} className="-my-2.5 min-w-0 flex-1 py-2.5 text-[13.5px] leading-snug text-navy hover:text-blue active:bg-tint">
-                <span className="block">{t(`k_${n.kind}`, { ref: n.ref })}</span>
+                <span className="block">{t(`k_${n.kind}`, { ref: n.ref, who: n.who ?? "" })}</span>
                 <span className="block text-xs text-navy/60">{[n.who, when(n)].filter(Boolean).join("  ·  ")}</span>
               </a>
               {ASKABLE.has(n.kind) && <Link prefetch={false} href={`/home?ask=${encodeURIComponent(t(`ask_${n.kind}`, { ref: n.ref }))}`} className="shrink-0 rounded-full border border-blue/40 px-2 py-0.5 text-xs font-semibold text-blue hover:bg-blue hover:text-white">{t("ask")}</Link>}
