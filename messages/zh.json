@@ -2901,7 +2901,12 @@
     "serviceItem": "服务项目",
     "serviceLinesHint": "每行写一项服务（例如：技术服务与咨询 1 lot）。没有物料号，不走库存和送货。",
     "poLinesNoteService": "服务咨询单没有货物：全部按服务行处理，不开送货单；做完后上传客户签字的确认单即可验收、开票。",
-    "err_NO_DELIVERY_FOR_SERVICE": "{detail} 是服务咨询单，没有货物，不开送货单；请上传客户签字的确认单后验收"
+    "err_NO_DELIVERY_FOR_SERVICE": "{detail} 是服务咨询单，没有货物，不开送货单；请上传客户签字的确认单后验收",
+    "rfqDownload": "下载询价单",
+    "rfqEmail": "发询价邮件",
+    "rfqAnySupplier": "先选供应商（不选＝通用）",
+    "rfqNoEmail": "这家供应商档案里没有邮箱，请在供应商名录里补上，或在邮件里手填收件人",
+    "rfqAttachHint": "在您自己的邮件程序里打开，收件人、标题和物料清单已填好；询价单 PDF 请先下载再手动添加为附件"
   },
   "role": {
     "MD": "MD 董事总经理",
@@ -3073,7 +3078,8 @@
     "k_quoteCost": "报价 {ref} 有行待补成本",
     "k_rcApprove": "收款 {ref} 等你批准",
     "k_rcConfirm": "收款 {ref} 已批准：上传回单确认",
-    "k_fxApprove": "{ref} 的手动汇率超过 2%，等你批准"
+    "k_fxApprove": "{ref} 的手动汇率超过 2%，等你批准",
+    "k_prthOpen": "询价 {ref} 等你找供应商报价"
   },
   "reports": {
     "searchPh": "报告号、设备编号、序列号、客户",

@@ -21,7 +21,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ no: string }> }
   if (refused) return refused;
   let r: Awaited<ReturnType<typeof renderDocument>> | undefined;
   try {
-    r = await renderDocument(no, u.searchParams.get("template") ?? undefined);
+    r = await renderDocument(no, u.searchParams.get("template") ?? undefined, { supplierId: u.searchParams.get("supplier") ?? undefined });
     const wantPdf = u.searchParams.get("format") === "pdf";
     const file = wantPdf && r.pdfPath ? r.pdfPath : r.docxPath;
     const ext = file.endsWith(".pdf") ? ".pdf" : ".docx";

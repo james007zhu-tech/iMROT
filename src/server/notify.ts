@@ -144,6 +144,9 @@ export async function noticesFor(me: { id: string; code: string; role: string },
   // PO 审批 (MD 2026-11-17): every draft POTH purchasing has handed over waits in the MD's list
   if (hasRole(me, "MD")) for (const po of await prisma.purchaseOrder.findMany({ where: { status: "DRAFT", approvalAskedAt: { not: null }, approvedAt: null }, select: { no: true, total: true, currency: true, supplier: { select: { name: true } } }, take: 60 }))
     push("poApprove", 0, po.no, `/purchasing/orders/${po.no}`, `${po.supplier.name} · ${po.currency} ${Number(po.total).toFixed(2)}`);
+  // 询价申请 (朱总 2026-11-27): a PRTH nobody has put a supplier quote on yet stands in purchasing's list until one is entered
+  if (hasRole(me, "PURCHASING")) for (const q of await prisma.purchaseInquiry.findMany({ where: { status: "OPEN", quotes: { none: {} } }, select: { no: true, neededBy: true, createdAt: true, requestedBy: { select: { name: true } }, serviceOrder: { select: { no: true } } }, orderBy: { createdAt: "asc" }, take: 60 }))
+    push("prthOpen", q.neededBy && q.neededBy < today ? -Math.max(1, Math.floor((today.getTime() - q.neededBy.getTime()) / 86400000)) : 0, q.no, `/purchasing/inquiries/${q.no}`, [q.requestedBy.name, q.serviceOrder?.no].filter(Boolean).join(" · "));
   // 验收后通知财务开票 (需求清单 v4 V4-P0-05): the moment an order is accepted it stands in finance's list — number,
   // customer, amount — and opens on its invoice. Sales can press 催财务开票; after 48 hours both are reminded.
   if (hasRole(me, "FINANCE", "MD", "SALES")) {

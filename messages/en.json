@@ -2901,7 +2901,12 @@
     "serviceItem": "Service item",
     "serviceLinesHint": "One service per line (e.g. Technical service and consulting, 1 lot). No SKU, no stock, no delivery.",
     "poLinesNoteService": "A service & consulting order has no goods: every line is a service line and no delivery note is raised. When the work is done, upload the confirmation signed by the customer to accept and invoice.",
-    "err_NO_DELIVERY_FOR_SERVICE": "{detail} is a service & consulting order: there are no goods and no delivery note; upload the confirmation signed by the customer and accept"
+    "err_NO_DELIVERY_FOR_SERVICE": "{detail} is a service & consulting order: there are no goods and no delivery note; upload the confirmation signed by the customer and accept",
+    "rfqDownload": "Download inquiry",
+    "rfqEmail": "E-mail inquiry",
+    "rfqAnySupplier": "Pick a supplier (none = generic)",
+    "rfqNoEmail": "This supplier has no e-mail on file: add it in the supplier list, or type the recipient in the e-mail",
+    "rfqAttachHint": "Opens in your own mail program with recipient, subject and item list filled in; download the inquiry PDF first and attach it by hand"
   },
   "role": {
     "MD": "MD Managing Director",
@@ -3073,7 +3078,8 @@
     "k_quoteCost": "Quote {ref} has lines waiting for a cost",
     "k_rcApprove": "Receipt on {ref} waits for your approval",
     "k_rcConfirm": "Receipt on {ref} approved: upload the slip to confirm",
-    "k_fxApprove": "The hand-set rate on {ref} is over 2 %: waits for you"
+    "k_fxApprove": "The hand-set rate on {ref} is over 2 %: waits for you",
+    "k_prthOpen": "Inquiry {ref} is waiting for supplier quotes"
   },
   "reports": {
     "searchPh": "Report no., machine, serial, customer",

@@ -238,7 +238,7 @@ async function packingListFields(no: string, doc: ExportDoc, o: ExportOrder, com
 }
 
 /** Build the field map for one document. Returns template code + values. */
-async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ template: string; values: FieldValues }> {
+async function buildFieldsRaw(no: string, templateHint?: string, opts?: RenderOpts): Promise<{ template: string; values: FieldValues }> {
   const doc = await prisma.document.findUniqueOrThrow({ where: { no }, include: { entity: true, customer: true, createdBy: true, serviceOrder: { include: { plant: true, customer: true, assets: { include: { asset: { include: { model: { include: { series: { include: { brand: true } } } } } } } } } } } });
   const o = doc.serviceOrder;
   const a = o?.assets[0]?.asset;
@@ -390,10 +390,12 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
     case "PR": {
       const inq = await prisma.purchaseInquiry.findUniqueOrThrow({ where: { no }, include: { requestedBy: true, quotes: { include: { supplier: true } } } });
       const lines = inq.lines as { lineNo: number; partSku?: string; vendorPartNo?: string; description: string; qty: number; unit: string; assetCode?: string }[];
-      const sup = inq.quotes.find((q) => q.selected)?.supplier ?? inq.quotes[0]?.supplier; // addressed to the chosen supplier when one exists, otherwise generic
+      // addressed to the supplier picked on the page; otherwise to the chosen quote's supplier when one exists, otherwise generic
+      const picked = opts?.supplierId ? await prisma.supplier.findUnique({ where: { id: opts.supplierId } }) : null;
+      const sup = picked ?? inq.quotes.find((q) => q.selected)?.supplier ?? inq.quotes[0]?.supplier;
       // 合作维修: the partner never learns who the customer is — no QTTH, no customer PO, only the machines (ATH)
-      const ref = inq.kind === "SUBCONTRACT" ? [...new Set(lines.map((l) => l.assetCode).filter(Boolean))].join("\n") : [o?.no, o?.customerRef ? `PO ${o.customerRef}` : ""].filter(Boolean).join("\n");
-      return { template: "24", values: { ...(inq.kind === "SUBCONTRACT" ? partnerSafe(common) : common), ISSUE_DATE: d(inq.createdAt), NEEDED_BY: d(inq.neededBy) || "—", REFERENCE: ref || "—",
+      const ref = inq.kind === "SUBCONTRACT" ? [...new Set(lines.map((l) => l.assetCode).filter(Boolean))].join("\n") : (o?.no ?? ""); // 询价不带客户信息: our own order number only, never the customer's PO
+      return { template: "24", values: { ...partnerSafe(common), ISSUE_DATE: d(inq.createdAt), NEEDED_BY: d(inq.neededBy) || "—", REFERENCE: ref || "—",
         SUPPLIER_NAME: sup?.name ?? "", SUPPLIER_ATTN: sup?.contactName ? `Attn: ${sup.contactName}` : "", SUPPLIER_EMAIL: sup?.email ?? "", SUPPLIER_PHONE: sup?.phone ?? "",
         REQUESTED_BY: inq.requestedBy.name, REQUESTER_PHONE: inq.requestedBy.phone ?? "", NOTE: inq.note ?? "", APPROVED_BY: doc.entity.signatoryName ?? "",
         L_NO: lines.map((l, i) => l.lineNo ?? i + 1), L_PART: lines.map((l) => l.vendorPartNo ?? l.partSku ?? "—"), L_DESC: lines.map((l) => l.description), L_QTY: lines.map((l) => String(Number(l.qty))), L_UNIT: lines.map((l) => l.unit ?? "pcs"), L_REMARK: lines.map((l) => l.assetCode ? `for ${l.assetCode}` : "") } };
@@ -443,8 +445,10 @@ async function buildFieldsRaw(no: string, templateHint?: string): Promise<{ temp
  * Customer-facing documents never print a customer person's full name (decision 2026-11-04): every contact name of
  * this customer, and any signatory typed by hand, is replaced by its masked form wherever it appears in a field.
  */
-export async function buildFields(no: string, templateHint?: string): Promise<{ template: string; values: FieldValues }> {
-  const r = await buildFieldsRaw(no, templateHint);
+/** supplierId: address a PRTH to this supplier (朱总 2026-11-27: pick the supplier, then download / e-mail the inquiry). */
+export type RenderOpts = { supplierId?: string };
+export async function buildFields(no: string, templateHint?: string, opts?: RenderOpts): Promise<{ template: string; values: FieldValues }> {
+  const r = await buildFieldsRaw(no, templateHint, opts);
   const doc = await prisma.document.findUniqueOrThrow({ where: { no }, select: { customerId: true, serviceOrderId: true } });
   const [contacts, acc, dns] = await Promise.all([
     doc.customerId ? prisma.contact.findMany({ where: { customerId: doc.customerId }, select: { name: true } }) : Promise.resolve([]),
@@ -468,8 +472,8 @@ export function reportFileBase(no: string, template: string): string {
  * silently not converted and the PDF of an earlier render with the same file name was handed out).
  * The caller reads the files and calls cleanup(). PDF conversion: convertToPdf in ./office.
  */
-export async function renderDocument(no: string, template?: string): Promise<Rendered> {
-  const { template: tpl, values } = await buildFields(no, template);
+export async function renderDocument(no: string, template?: string, opts?: RenderOpts): Promise<Rendered> {
+  const { template: tpl, values } = await buildFields(no, template, opts);
   const code = template ?? tpl;
   const file = TEMPLATE_FILES[code];
   if (!file) throw new Error(`unknown template ${code}`);

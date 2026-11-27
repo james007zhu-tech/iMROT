@@ -10,6 +10,7 @@ import { guarded } from "@/lib/action-result";
 import { Flash } from "@/components/Flash";
 import { UploadRecognize } from "@/components/UploadRecognize";
 import { FormMemory } from "@/components/FormMemory";
+import { InquirySend } from "@/components/InquirySend";
 import { Card, Field, Grid, PageHeader, Table, Tag, btnBlue, btnGhost, btnPrimary, inputCls } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +67,14 @@ export default async function Inquiry({ params, searchParams }: { params: Promis
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/purchasing/inquiries", label: u("inquiries") }} title={<span className="font-mono">{inq.no}</span>} badge={<><Tag hot={inq.status === "OPEN"}>{ts(inq.status)}</Tag>{sub && <Tag>{u("partnerRepair")}</Tag>}</>}
-        actions={seeCost && inq.status === "COMPARED" && inq.orders.length === 0 && !inq.serviceOrder?.lockedAt ? <form action={raisePo}><button className={btnBlue}>{u("raisePo")} →</button></form> : null} />
+        actions={<>
+          {/* 选供应商 → 下载询价单 / 发询价邮件 (朱总 2026-11-27) */}
+          {inq.status !== "CANCELLED" && <InquirySend no={inq.no} sender={me.name} neededBy={localIso(inq.neededBy)?.slice(0, 10) ?? null}
+            suppliers={suppliers.map((x) => ({ id: x.id, name: x.name, email: x.email, contactName: x.contactName }))}
+            lines={lines.map((l, i) => ({ lineNo: l.lineNo ?? i + 1, part: l.vendorPartNo ?? l.partSku ?? "", description: l.description, qty: Number(l.qty), unit: l.unit ?? "pcs" }))}
+            labels={{ download: u("rfqDownload"), email: u("rfqEmail"), supplier: u("supplier"), any: u("rfqAnySupplier"), noEmail: u("rfqNoEmail"), attachHint: u("rfqAttachHint") }} />}
+          {seeCost && inq.status === "COMPARED" && inq.orders.length === 0 && !inq.serviceOrder?.lockedAt ? <form action={raisePo}><button className={btnBlue}>{u("raisePo")} →</button></form> : null}
+        </>} />
       <Flash ok={ok} error={error} />
       <Card title={u("inquiryHeader")}>
         <div className="grid gap-2 text-sm md:grid-cols-4">
