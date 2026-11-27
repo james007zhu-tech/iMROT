@@ -70,11 +70,10 @@ export async function findPart(key: string | null | undefined) {
  * One IBTH / OBTH document = one number, any number of SKU lines (decision 2026-11-04).
  * Each line moves exactly one SKU, so stock on hand stays per SKU; an OUT line into an asset writes PART_REPLACED.
  */
-export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
+export async function recordStockDoc(input: z.input<typeof StockDocInput>, opts: { costFromPo?: boolean } = {}) {
   const d = StockDocInput.parse(input);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
-  if (!hasRole(actor, "MD", "PURCHASING", "ENGINEER")) throw new Error("NO_PERMISSION"); // 六角色: 出入库归 PUR; ENG 领料、退料
-  if (d.direction === "IN" && !d.serviceOrderNo && !hasRole(actor, "MD", "PURCHASING")) throw new Error("STOCK_IN_PUR"); // 入库归 PUR: an engineer only hands back what an order drew (v5 P1-12)
+  if (!can.stock(actor)) throw new Error("NO_PERMISSION"); // 出入库: MD, PUR and — since 2026-11-27 (朱总) — the engineers, in and out
   const { found, unknown, ambiguous } = await resolveParts(d.lines.map((l) => l.partSku));
   if (ambiguous.length) throw new Error(`AMBIGUOUS_SKU:${ambiguous.join("; ")}`);
   if (unknown.length) throw new Error(`UNKNOWN_SKU:${unknown.join(",")}`);
@@ -116,7 +115,8 @@ export async function recordStockDoc(input: z.input<typeof StockDocInput>) {
     if (short.length) throw new Error(`STOCK_SHORT:${short.join("; ")}`);
   }
   // 成本只给看得到成本的人填: a unit cost typed by anyone else is not taken (采购或财务补)
-  if (!can.cost(actor)) for (const l of d.lines) l.unitCost = undefined;
+  // A receipt on a purchase order carries the PO's price, not a figure typed here, so it stands whoever receives the goods.
+  if (!can.cost(actor) && !opts.costFromPo) for (const l of d.lines) l.unitCost = undefined;
 
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: d.direction === "IN" ? "IB" : "OB", createdByEmployeeCode: actor.code, entityId: actor.entityId, date: d.movedAt });

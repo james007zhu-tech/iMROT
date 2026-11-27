@@ -312,7 +312,7 @@ export async function raisePurchaseOrdersForOrder(no: string, actorCode: string)
 
 /** Goods arrived: one IBTH (one or more lines) against the POTH; the PO goes PARTIAL or RECEIVED. */
 export async function receivePurchaseOrder(input: { poNo: string; actorCode: string; supplierRef?: string; movedAt?: Date; received: { lineNo: number; qty: number; batch?: string }[]; newParts?: { lineNo: number; brandCode?: string; vendorPartNo: string; name: string }[]; confirmedLines?: number[]; attachments?: { name: string; url: string; kind?: string }[] }) {
-  await actorWith(input.actorCode, can.purchase); // 六角色: 入库归 PUR
+  await actorWith(input.actorCode, can.stock); // 到货入库: whoever runs the store — PUR, the MD, the engineers (朱总 2026-11-27)
   const po = await prisma.purchaseOrder.findUniqueOrThrow({ where: { no: input.poNo }, include: { serviceOrder: true } });
   if (po.status === "CANCELLED" || po.status === "RECEIVED") throw new Error(`PO_CLOSED:${po.no}`);
   if (!po.approvedAt) throw new Error(`PO_NOT_APPROVED:${po.no}`); // nothing is received on a PO the MD has not approved
@@ -344,7 +344,7 @@ export async function receivePurchaseOrder(input: { poNo: string; actorCode: str
   }
   if (missing.length) throw new Error(`PO_LINE_NO_SKU:${missing.join("、")}`);
   if (unconfirmed.length) throw new Error(`PO_LINE_SKU_UNCONFIRMED:${unconfirmed.join("、")}`);
-  const ib = await recordStockDoc({ actorCode: input.actorCode, direction: "IN", serviceOrderNo: po.serviceOrder?.no, supplierRef: input.supplierRef ?? po.supplierRef ?? undefined, costCurrency: po.currency, movedAt: input.movedAt, lines: take.map((r) => { const l = lines.find((x) => x.lineNo === r.lineNo)!; return { partSku: (l.partSku || l.vendorPartNo)!, qty: r.qty, batch: r.batch, unitCost: l.unitPrice }; }) });
+  const ib = await recordStockDoc({ actorCode: input.actorCode, direction: "IN", serviceOrderNo: po.serviceOrder?.no, supplierRef: input.supplierRef ?? po.supplierRef ?? undefined, costCurrency: po.currency, movedAt: input.movedAt, lines: take.map((r) => { const l = lines.find((x) => x.lineNo === r.lineNo)!; return { partSku: (l.partSku || l.vendorPartNo)!, qty: r.qty, batch: r.batch, unitCost: l.unitPrice }; }) }, { costFromPo: true });
   // the line keeps the library's SKU from now on, so the next receipt and the stock page agree on the part
   const skuOf = new Map(take.map((r, i) => [r.lineNo, ib.lines[i]?.part?.sku]));
   const updatedLines = lines.map((l) => { const r = take.find((x) => x.lineNo === l.lineNo); return r ? { ...l, partSku: skuOf.get(l.lineNo) ?? l.partSku, receivedQty: round2(l.receivedQty + r.qty) } : l; });

@@ -29,7 +29,7 @@ export default async function Movement({ searchParams }: { searchParams: Promise
   const seeCost = can.cost(me);
   const [parts, orders, whs] = await Promise.all([
     prisma.part.findMany({ orderBy: { sku: "asc" }, select: { sku: true, vendorPartNo: true, name: true, unit: true } }),
-    prisma.serviceOrder.findMany({ where: { AND: [await orderScope(me), { status: { in: ["ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } }] }, include: { customer: true }, orderBy: { reportedAt: "desc" } }),
+    prisma.serviceOrder.findMany({ where: { AND: [can.stock(me) ? {} : await orderScope(me), { status: { in: ["ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING"] } }] }, include: { customer: true }, orderBy: { reportedAt: "desc" } }),
     prisma.stockMovement.groupBy({ by: ["warehouse"] }),
   ]);
   const warehouses = [...new Set(["RAYONG", ...whs.map((w) => w.warehouse)])];

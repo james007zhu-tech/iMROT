@@ -68,8 +68,12 @@ export const can = {
   customerMoney: is("MD", "FINANCE", "SALES"),
   /** see suppliers and purchase orders (Sales: arrival status) */
   purchasing: is("MD", "FINANCE", "PURCHASING", "SALES"),
-  /** suppliers, inquiries, purchase orders, receiving, parts master: create and change */
+  /** suppliers, inquiries, purchase orders, parts master: create and change */
   purchase: is("MD", "PURCHASING"),
+  /** 出入库: stock in (also goods arriving on a purchase order) and stock out — 朱总 2026-11-27: the engineers too
+   *  (Fluke, Art and 方工 run the store). Cost stays with those who see it: an engineer's receipt keeps the PO price, a
+   *  unit cost they would type is not taken. */
+  stock: is("MD", "PURCHASING", "ENGINEER"),
   /** everyone's staff file and pay */
   staff: is("MD", "HR"),
   /** staff pay figures (finance reviews the payroll) */
@@ -103,7 +107,7 @@ export const ROLE_MENU: Record<Exclude<Role, "MD">, string[]> = {
   PURCHASING: [...HOME, ...DOCS, ...SELF, "knowledge", "opportunities", "deliveryNotes", "suppliers", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut", "dictionary"],
   SALES: [...HOME, ...DOCS, ...SELF, ...ALM, ...REPORTS, "receiving", "deliveryNotes", "acceptance", "projects", "customers", "opportunities", "inquiries", "purchaseOrders", "stock",
     "statements", "proforma", "billing", "taxInvoices", "receipts"],
-  ENGINEER: [...HOME, ...DOCS, ...SELF, ...ALM, ...REPORTS, "receiving", "acceptance", "projects", "customers", "opportunities", "inquiries", "stock", "stockOut"],
+  ENGINEER: [...HOME, ...DOCS, ...SELF, ...ALM, ...REPORTS, "receiving", "acceptance", "projects", "customers", "opportunities", "inquiries", "purchaseOrders", "stock", "stockIn", "stockOut"], // 出入库 since 2026-11-27
 };
 export const menuAllows = (who: Who, key: string) => rolesOf(who).some((r) => r === "MD" || (ROLE_MENU[r as Exclude<Role, "MD">] ?? HOME).includes(key));
 /** The roles a menu entry belongs to — for 「无权限，此功能属于 XX 角色」. */
@@ -118,7 +122,7 @@ const PATH_RULES: [RegExp, (who: Who) => boolean][] = [
   [/^\/purchasing\/inquiries\/new/, is("MD", "PURCHASING", "SALES", "ENGINEER")],
   [/^\/parts\/new/, can.purchase],
   [/^\/parts\/movement\/[A-Z-]+\d/, is("MD", "PURCHASING", "ENGINEER", "FINANCE")], // one IBTH / OBTH, to read (N-28)
-  [/^\/parts\/movement/, is("MD", "PURCHASING", "ENGINEER")],
+  [/^\/parts\/movement/, can.stock],
   [/^\/service-orders\/new/, is("MD", "SALES", "ENGINEER")],
   [/^\/service-orders\/[^/]+\/(invoice|payment)/, can.invoiceStatus],
   [/^\/service-reports/, can.reports],
@@ -134,13 +138,12 @@ const PATH_RULES: [RegExp, (who: Who) => boolean][] = [
   [/^\/statements/, can.invoiceStatus],
 ];
 /**
- * 入库归 PUR (权限表 2026-11-16; 派修单 v5 P1-12): the stock form opened for a receipt belongs to the MD and purchasing.
- * An engineer uses the same form to draw parts (direction=OUT) and to hand parts of an order back (direction=IN with
- * that order) — nothing else. The query decides, so the rule reads the whole address.
+ * The stock form opened for a receipt belongs to those who run the store: the MD, purchasing and — since 2026-11-27
+ * (朱总) — the engineers (until then 入库归 PUR, 派修单 v5 P1-12). The query decides, so the rule reads the whole address.
  */
 function ruleFor(pathWithQuery: string): ((who: Who) => boolean) | null {
   const [path, q = ""] = pathWithQuery.split("?");
-  if (/^\/parts\/movement\/?$/.test(path)) { const sp = new URLSearchParams(q); if (sp.get("direction") !== "OUT" && !sp.get("order")) return is("MD", "PURCHASING"); }
+  if (/^\/parts\/movement\/?$/.test(path)) { const sp = new URLSearchParams(q); if (sp.get("direction") !== "OUT" && !sp.get("order")) return can.stock; }
   for (const [re, ok] of PATH_RULES) if (re.test(path)) return ok;
   return null;
 }
