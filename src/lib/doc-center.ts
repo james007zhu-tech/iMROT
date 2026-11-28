@@ -32,7 +32,7 @@ export const DOC_PLACES: Record<string, DocPlace> = {
   TI: { nav: "taxInvoices", open: onOrder("/invoice"), step: { path: "invoice", statuses: ["ACCEPTED", "DECLINED"] } },
   RC: { nav: "receipts", open: onOrder("/payment"), step: { path: "payment", statuses: ["INVOICED"] } },
   PV: { nav: "paymentVouchers", open: () => "/finance/payables", newHref: "/finance/payables" },
-  BL: { nav: "statements", open: (no) => `/statements/${no}` },
+  BL: { nav: "statements", open: (no) => `/statements/${no}`, newHref: "/statements/new" },
 };
 
 export const DOC_TYPES = Object.keys(DOC_PLACES);

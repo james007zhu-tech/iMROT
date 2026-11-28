@@ -134,6 +134,7 @@ const PATH_RULES: [RegExp, (who: Who) => boolean][] = [
   [/^\/admin\/dictionary/, can.purchase],
   [/^\/admin/, can.bank],
   [/^\/people\/new/, can.staff],
+  [/^\/statements\/new/, can.invoice], // 新建 BLTH: finance and the MD (朱总 2026-11-28)
   [/^\/statements\/?$/, can.finance], // the list: finance and the MD (派修单 v3 第 7 条)
   [/^\/statements/, can.invoiceStatus],
 ];

@@ -210,21 +210,40 @@ export async function recordPayment(input: z.input<typeof PaymentInput>, approve
   });
 }
 
-/** BLTH — monthly statement listing this customer's unpaid IVTH for a period (YYMM). Credit customers only. */
-export async function issueMonthlyStatement(customerCode: string, period: string, actorCode: string) {
+/**
+ * 已开票未回款 — what may go on a BLTH: this customer's invoices that stand (not cancelled, their TITH not voided), are
+ * not fully paid, and are on no statement yet.
+ */
+export const billableWhere = (customerId?: string): Prisma.InvoiceWhereInput => ({
+  ...(customerId ? { serviceOrder: { customerId } } : {}), paidAt: null, cancelledAt: null, statementId: null, taxInvoice: { is: { voidedAt: null } },
+});
+const openOf = (i: { amountDue: Prisma.Decimal; paidAmount: Prisma.Decimal | null; whtAmount: Prisma.Decimal | null }) => round2(Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0));
+
+/**
+ * BLTH — the statement (ใบวางบิล) of a customer's issued, unpaid tax invoices for a month (YYMM).
+ * 朱总 2026-11-28: finance picks the customer, sees every invoiced and unpaid TITH, ticks the ones to bill, and the
+ * BLTH of that month is made from them. `invoiceIds` are the ticked ones; without them, every billable invoice.
+ * A customer billed this way is a 月结 customer from then on (the 2026-11-08 rule kept statements to credit customers;
+ * a customer who is sent a statement is one).
+ */
+export async function issueMonthlyStatement(customerCode: string, period: string, actorCode: string, invoiceIds?: string[]) {
   await actorWith(actorCode, can.invoice); // 统一角色权限表
   assertBusinessClosure("BL");
+  if (!/^\d{2}(0[1-9]|1[0-2])$/.test(period)) throw new Error("BL_PERIOD");
   const customer = await prisma.customer.findUniqueOrThrow({ where: { code: customerCode } });
-  if (!customer.monthlyStatement) throw new Error(`${customerCode} is not a monthly-statement customer`);
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: actorCode } });
-  const invoices = await prisma.invoice.findMany({ where: { serviceOrder: { customerId: customer.id }, paidAt: null, statementId: null, cancelledAt: null } });
-  if (!invoices.length) throw new Error("nothing to bill");
+  const invoices = await prisma.invoice.findMany({ where: { ...billableWhere(customer.id), ...(invoiceIds ? { id: { in: invoiceIds } } : {}) }, orderBy: { issuedAt: "asc" } });
+  if (!invoices.length) throw new Error("BL_NOTHING");
+  if (invoiceIds && invoices.length !== new Set(invoiceIds).size) throw new Error("BL_NOT_BILLABLE"); // one of the ticked invoices was paid, voided or billed meanwhile
+  if (new Set(invoices.map((i) => i.currency)).size > 1) throw new Error("BL_ONE_CURRENCY");
   const currency = invoices[0].currency;
-  const total = round2(invoices.reduce((s, i) => s + Number(i.amountDue) - Number(i.paidAmount ?? 0) - Number(i.whtAmount ?? 0), 0));
+  const total = round2(invoices.reduce((s, i) => s + openOf(i), 0));
   return prisma.$transaction(async (tx) => {
     const no = await allocateNumber(tx, { prefix: "BL", createdByEmployeeCode: actor.code, entityId: customer.entityId });
     const bl = await tx.monthlyStatement.create({ data: { no, customerId: customer.id, period, issuedAt: new Date(), currency, total, invoices: { connect: invoices.map((i) => ({ id: i.id })) } } });
     await tx.document.create({ data: { no, type: "BL", entityId: customer.entityId, countryCode: countryOfNo(no), customerId: customer.id, createdById: actor.id } });
+    if (!customer.monthlyStatement) await tx.customer.update({ where: { id: customer.id }, data: { monthlyStatement: true } });
+    await audit(actor.id, "STATEMENT_ISSUED", no, { customer: customer.code, period, currency, total, invoices: invoices.map((i) => i.no) }, tx);
     return bl;
   });
 }
