@@ -46,11 +46,13 @@ export async function resolveParts(keys: string[]) {
   const unknown: string[] = [], ambiguous: string[] = [];
   for (const key of wanted) {
     const n = normPartNo(key);
+    // '\\s+' — two backslashes: in a template literal a single one is dropped, the database then saw 's+' and took the
+    // letter s out instead of the spaces, so a part number with a space in it (or a small s) was "unknown" (朱总 2026-11-28)
     const hits = await prisma.$queryRaw<{ id: string; sku: string; vendor: string }[]>`
       SELECT id, sku, "vendorPartNo" AS vendor FROM "Part"
-      WHERE upper(regexp_replace(sku, '\s+', '', 'g')) = ${n}
-         OR upper(regexp_replace("vendorPartNo", '\s+', '', 'g')) = ${n}
-         OR upper(regexp_replace(sku, '\s+', '', 'g')) LIKE ${"%-" + n.replace(/[\\%_]/g, "\\$&")}
+      WHERE upper(regexp_replace(sku, '\\s+', '', 'g')) = ${n}
+         OR upper(regexp_replace("vendorPartNo", '\\s+', '', 'g')) = ${n}
+         OR upper(regexp_replace(sku, '\\s+', '', 'g')) LIKE ${"%-" + n.replace(/[\\%_]/g, "\\$&")}
       LIMIT 20`;
     const exact = hits.filter((h) => normPartNo(h.sku) === n);
     const pick = exact.length ? exact : hits;
