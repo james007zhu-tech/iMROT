@@ -2937,7 +2937,13 @@
     "err_BL_PERIOD": "Choose the month of the BLTH",
     "err_BL_NOT_BILLABLE": "One of the ticked invoices has just been paid, voided or put on another BLTH — refresh and tick again",
     "err_BL_ONE_CURRENCY": "One BLTH holds one currency — create them per currency",
-    "lastReceived": "Last received"
+    "lastReceived": "Last received",
+    "step_requote": "Change price / cost",
+    "requoteLocked": "This order is accepted: until it is invoiced the unit prices, costs and wording may still be changed — not the lines, quantities or part numbers (those are what the customer accepted). A cost recognised before must be recognised again after saving.",
+    "requoteAfterPo": "The customer PO is confirmed: prices and costs may still be changed here. If lines or quantities change, the customer PO is confirmed again.",
+    "err_QUOTE_AFTER_INVOICE": "{detail} is invoiced: the quote can no longer be changed — void the invoice first",
+    "err_QUOTE_LOCKED_MD": "{detail} is accepted: before invoicing only the MD may change prices and costs",
+    "err_QUOTE_LOCKED_ITEMS": "{detail} is accepted: only unit prices, costs and wording may change — not the lines, quantities or part numbers"
   },
   "role": {
     "MD": "MD Managing Director",

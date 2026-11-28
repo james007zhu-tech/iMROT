@@ -107,7 +107,9 @@ export default async function Quote({ params, searchParams }: { params: Promise<
   const estCol = edit && !seeCost && !partnerMode; // Sales: its own estimate, only where the system has no cost (朱总 2026-11-18)
   const cols = seeCost || estCol ? "md:grid-cols-4 xl:grid-cols-[120px_150px_2fr_2fr_70px_60px_100px_100px]" : seePrice ? "md:grid-cols-4 xl:grid-cols-[120px_150px_2fr_2fr_70px_60px_100px]" : "md:grid-cols-3 xl:grid-cols-[120px_150px_2fr_2fr_70px_60px]";
   return (
-    <StepPage order={order} title={u("step_quote")} ok={ok === "quoteItemsSaved" ? u("quoteItemsSaved") : ok === "priceHintSent" ? u("priceHintSent") : ok} error={error} kind="quote" uploadTitle={u("upQuoteTitle")} uploadHint={u("upQuoteHint")} lineFields={{ description: "d", qty: "q", unit: "u", unitPrice: "c" }} saveLabel={edit ? u("saveQuote") : items ? u("saveQuoteItems") : ""}>
+    <StepPage order={order} title={["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(order.status) ? u("step_requote") : u("step_quote")} ok={ok === "quoteItemsSaved" ? u("quoteItemsSaved") : ok === "priceHintSent" ? u("priceHintSent") : ok} error={error} kind="quote" uploadTitle={u("upQuoteTitle")} uploadHint={u("upQuoteHint")} lineFields={{ description: "d", qty: "q", unit: "u", unitPrice: "c" }} saveLabel={edit ? (["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(order.status) ? t("save") : u("saveQuote")) : items ? u("saveQuoteItems") : ""}>
+      {/* 开票前可改价格和成本 (朱总 2026-11-28) */}
+      {order.lockedAt ? <Alert>{u("requoteLocked")}</Alert> : ["IN_PROGRESS", "ACCEPTANCE_PENDING"].includes(order.status) ? <Alert>{u("requoteAfterPo")}</Alert> : null}
       <form id="f" action={save}>
         <Card title={u("quoteLines")}>
           {(() => { // 缺成本: one red banner of its own, in every view that carries a cost column (MD Q2; Jessie 2026-11-18)

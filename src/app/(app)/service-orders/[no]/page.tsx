@@ -101,9 +101,14 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   }
   const handedToFinance = !!primary0 && money(primary0) && !seeInv; // 验收完成 → 已通知财务开票
   const also = (businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k))).filter(mine);
+  // 开票前可改价格和成本 (朱总 2026-11-28): the quote stays reachable after the customer's PO and after acceptance, until an
+  // invoice stands on the order — before acceptance for whoever prices (Sales, the MD), after it for the MD alone
+  const revise = ["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(order.status) && !dec && order.mode !== "AUTOMATION_PROJECT" && can.editPrice(me) && (!order.lockedAt || hasRole(me, "MD"))
+    && !order.taxInvoices.some((x) => !x.voidedAt) && !order.invoices.some((x) => !x.cancelledAt);
+  if (revise && !also.includes("quote") && primary !== "quote") also.push("quote");
   // 成本决算 (朱总 2026-11-28): before the invoice the real cost is settled — the step says so and opens on that card
   const settleFirst = order.status === "ACCEPTED" && !order.costConfirmedAt && !order.decline;
-  const stepLabel = (s: StepKey) => (s === "buy" ? u(`step_buy_${buying ?? "QUOTE"}`) : s === "invoice" && settleFirst ? u("step_settle") : u(`step_${s}`));
+  const stepLabel = (s: StepKey) => (s === "buy" ? u(`step_buy_${buying ?? "QUOTE"}`) : s === "invoice" && settleFirst ? u("step_settle") : s === "quote" && ["IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(order.status) ? u("step_requote") : u(`step_${s}`));
   const hrefOf = (s: StepKey) => (s === "buy" ? buyHref : s === "invoice" && order.status === "ACCEPTED" && !order.costConfirmedAt && !order.decline ? `${stepHref(order.no, s)}#cost` : stepHref(order.no, s));
   // a quote for machines is declined (its own step), not cancelled; a declined order closes from its own card
   const transitions = dec ? [] : ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => (s !== "CLOSED" || mayClose) && s === "CLOSED" || (s === "CANCELLED" && !(order.status === "QUOTE_PENDING" && !quoteJustCancels(order.mode))));

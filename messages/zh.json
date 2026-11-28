@@ -2937,7 +2937,13 @@
     "err_BL_PERIOD": "请选择 BLTH 的月份",
     "err_BL_NOT_BILLABLE": "勾选的发票里有的刚被收款、作废或已上了别的 BLTH，请刷新后重选",
     "err_BL_ONE_CURRENCY": "一张 BLTH 只能一种币种，请按币种分开生成",
-    "lastReceived": "最近入库"
+    "lastReceived": "最近入库",
+    "step_requote": "改价格 / 成本",
+    "requoteLocked": "这张单已验收：开票前仍可改单价、成本和品名，但不能增减行、不能改数量和料号（那是客户验收的内容）。保存后，已认可的成本要重新认可。",
+    "requoteAfterPo": "客户 PO 已确认：这里仍可改价格和成本。增减行或改数量后，要重新确认客户 PO。",
+    "err_QUOTE_AFTER_INVOICE": "{detail} 已经开票，报价不能再改；要改先作废发票",
+    "err_QUOTE_LOCKED_MD": "{detail} 已验收：开票前只有总经理可以改价格和成本",
+    "err_QUOTE_LOCKED_ITEMS": "{detail} 已验收：只能改单价、成本和品名，不能增减行、不能改数量或料号"
   },
   "role": {
     "MD": "MD 董事总经理",

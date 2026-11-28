@@ -24,7 +24,7 @@ import { assetStatusForWork, canTransitionAsset } from "@/lib/lifecycle";
 import { belowMinLines, costTotal, marginApprovalFor, marginPct, missingCostLines } from "@/lib/margin";
 import { marginFloor } from "@/server/modes";
 import { assertNotLocked, progressOrder } from "@/server/slm";
-import type { AssetStatus, Prisma } from "@prisma/client";
+import { Prisma, type AssetStatus } from "@prisma/client";
 
 const TestRow = z.object({ key: z.string().optional(), test: z.string(), criterion: z.string().optional(), result: z.string().optional(), recordId: z.string().optional(), pass: z.boolean().optional() });
 /** What the repair will need, as the engineer sees it at inspection (internal, not on the report). */
@@ -171,7 +171,17 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   const d = QuoteLinesInput.parse(input);
   const order = await prisma.serviceOrder.findUniqueOrThrow({ where: { no: d.serviceOrderNo }, include: { entity: true, assets: true } });
   const actor = await prisma.employee.findUniqueOrThrow({ where: { code: d.actorCode } });
-  assertNotLocked(order);
+  // 开票前可改价格和成本 (朱总 2026-11-28: "在开发票之前，应该是允许修改报价单价格和成本的…请留下这个灵活性").
+  // Until an invoice stands on the order the quote may still be revised. Before acceptance that was already so. After
+  // acceptance the order stays locked for everything else — stock, purchasing, what was delivered — and the lock gives
+  // way here only: the MD may change unit prices, costs and wording; the lines themselves and their quantities are
+  // what the customer accepted and stay. A cost recognised before the change is recognised again.
+  const billed = (await prisma.taxInvoice.count({ where: { serviceOrderId: order.id, voidedAt: null } })) + (await prisma.invoice.count({ where: { serviceOrderId: order.id, cancelledAt: null } })) > 0;
+  const open = ["RECEIVED", "ASSIGNED", "DIAGNOSING", "QUOTE_PENDING", "IN_PROGRESS", "ACCEPTANCE_PENDING", "ACCEPTED"].includes(order.status);
+  if (!open && !billed) assertNotLocked(order); // a declined or closed order is locked as before
+  if (billed || !open) throw new Error(`QUOTE_AFTER_INVOICE:${order.no}`);
+  const afterAcceptance = !!order.lockedAt;
+  if (afterAcceptance && !hasRole(actor, "MD")) throw new Error(`QUOTE_LOCKED_MD:${order.no}`);
   if (!(await mayOpenOrder(actor, order.id))) throw new Error("NO_PERMISSION");
   // 只有销售和 MD 定价 (需求清单 v3 P0-04). The shop floor and 内勤 save what the job needs — parts, quantities, hours,
   // wording; the prices already on the quote stay as they are, new lines carry none, and the quote goes nowhere:
@@ -231,6 +241,11 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
   // 需求清单 v3 P0-07: what is quoted changed after the customer's PO was confirmed → the PO on file no longer says
   // what will be delivered. Mark it; delivery waits until the PO is confirmed again (confirmCustomerPo clears the mark).
   const sig = (ls: { sku?: string | null; description: string; qty: unknown }[]) => ls.map((l) => `${l.sku?.trim() || l.description.trim()}|${Number(l.qty)}`).sort().join("\n");
+  if (afterAcceptance) {
+    const was = await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, orderBy: { lineNo: "asc" }, include: { part: { select: { sku: true } } } });
+    const same = was.length === d.lines.length && was.every((b, i) => Math.abs(Number(b.qty) - d.lines[i].qty) < 1e-9 && (b.part?.sku ?? "") === (d.lines[i].partSku ? parts.found.get(d.lines[i].partSku!.trim())?.sku ?? d.lines[i].partSku!.trim() : ""));
+    if (!same) throw new Error(`QUOTE_LOCKED_ITEMS:${order.no}`);
+  }
   const poStale = Array.isArray(order.poLines) && order.poLines.length > 0 && order.status !== "QUOTE_PENDING"
     && sig((await prisma.quoteLine.findMany({ where: { serviceOrderId: order.id }, include: { part: { select: { sku: true } } } })).map((l) => ({ sku: l.part?.sku, description: l.description, qty: l.qty }))) !== sig(d.lines.map((l) => ({ sku: l.partSku ? parts.found.get(l.partSku.trim())?.sku ?? l.partSku : null, description: l.description, qty: l.qty })));
 
@@ -253,8 +268,12 @@ export async function setQuoteLines(input: z.input<typeof QuoteLinesInput>) {
         subtotal: t.subtotal, vatAmount: t.vatAmount, total: t.total, ...fxFields(fxr), totalCny: fx ? Math.round(t.total * Number(fx) * 100) / 100 : undefined,
         costTotal: cost, marginPct: pct, marginApproval: approval, marginApprovedById: null, marginApprovedAt: null, marginNote: null,
         ...(d.warrantyDays !== undefined ? { warrantyDays: d.warrantyDays } : {}),
+        // a revised quote is another cost picture: what finance / the MD recognised before no longer stands
+        ...(order.costConfirmedAt ? { costConfirmedAt: null, costConfirmedBy: null, costActual: null, costDetail: Prisma.DbNull } : {}),
       },
     });
+    if (order.status !== "RECEIVED" && order.status !== "ASSIGNED" && order.status !== "DIAGNOSING" && order.status !== "QUOTE_PENDING" && !itemsOnly)
+      await audit(actor.id, afterAcceptance ? "QUOTE_REVISED_AFTER_ACCEPTANCE" : "QUOTE_REVISED_AFTER_PO", order.no, { status: order.status, total: { from: Number(order.total ?? 0), to: t.total }, cost: { from: Number(order.costTotal ?? 0), to: cost }, marginPct: pct, costRecognitionCleared: !!order.costConfirmedAt }, tx);
     for (const link of itemsOnly || costPending.length ? [] : order.assets) {
       await tx.assetEvent.create({ data: { assetId: link.assetId, type: "QUOTED", actorId: actor.id, serviceOrderId: order.id, sourceDocNo: order.no, summary: `${order.currency} ${t.total.toFixed(2)} · ${d.lines.length} lines`, payload: { ...t, costTotal: cost, marginPct: pct, marginApproval: approval } as unknown as Prisma.InputJsonValue } });
     }
