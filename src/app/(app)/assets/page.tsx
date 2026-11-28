@@ -12,8 +12,11 @@ import { currentEmployee } from "@/server/auth";
 export const dynamic = "force-dynamic";
 const PAGE = 20;
 
-export default async function AssetsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; customerId?: string; brand?: string; type?: string; age?: string; page?: string }> }) {
-  const { q, status, customerId, brand, type, age, page } = await searchParams;
+import { sortOf } from "@/lib/sort";
+import type { Prisma } from "@prisma/client";
+export default async function AssetsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; customerId?: string; brand?: string; type?: string; age?: string; page?: string; sort?: string }> }) {
+  const { q, status, customerId, brand, type, age, page, sort } = await searchParams;
+  const so = sortOf<Prisma.AssetOrderByWithRelationInput>(sort, { created: (d) => ({ createdAt: d }), code: (d) => ({ code: d }), serial: (d) => ({ serialNumber: d }), customer: (d) => ({ customer: { name: d } }), status: (d) => ({ status: d }), type: (d) => ({ type: d }) }, "-created", { q, status, customerId, brand, type, age });
   const [t, u, ts, te, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("assetStatus"), getTranslations("eventType"), getLocale()]);
   const p = Math.max(1, Number(page) || 1);
   const me = await currentEmployee();
@@ -28,7 +31,7 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
     OR: q ? [{ code: { contains: q, mode: "insensitive" as const } }, { serialNumber: { contains: q, mode: "insensitive" as const } }, { location: { contains: q, mode: "insensitive" as const } }, { customer: { name: { contains: q, mode: "insensitive" as const } } }] : undefined,
   };
   const [assets, total, byStatus, customers, brands, all] = await Promise.all([
-    prisma.asset.findMany({ where, include: { model: { include: { series: { include: { brand: true } } } }, customer: { select: { name: true } }, plant: { select: { code: true } }, events: { orderBy: { occurredAt: "desc" }, take: 1 } }, orderBy: { createdAt: "desc" }, skip: (p - 1) * PAGE, take: PAGE }),
+    prisma.asset.findMany({ where, include: { model: { include: { series: { include: { brand: true } } } }, customer: { select: { name: true } }, plant: { select: { code: true } }, events: { orderBy: { occurredAt: "desc" }, take: 1 } }, orderBy: so.orderBy, skip: (p - 1) * PAGE, take: PAGE }),
     prisma.asset.count({ where }),
     prisma.asset.groupBy({ by: ["status"], where: aScope, _count: true }),
     prisma.customer.findMany({ where: cScope, select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -64,7 +67,7 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
   };
   const count = (s: string) => byStatus.find((b) => b.status === s)?._count ?? 0;
   const fmt = new Intl.DateTimeFormat(locale, { month: "2-digit", day: "2-digit" });
-  const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}), ...(customerId ? { customerId } : {}), ...(brand ? { brand } : {}), ...(type ? { type } : {}), ...(age ? { age } : {}), page: String(n) })}`;
+  const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}), ...(customerId ? { customerId } : {}), ...(brand ? { brand } : {}), ...(type ? { type } : {}), ...(age ? { age } : {}), ...(so.key ? { sort: so.key } : {}), page: String(n) })}`;
   return (
     <div className="space-y-4">
       <PageHeader title={t("assets")} badge={<Tag>{ts("IN_SERVICE")} {count("IN_SERVICE")} · {u("underService")} {count("REPAIR") + count("MAINTENANCE") + count("OVERHAUL") + count("ACCEPTANCE")} · {ts("SPARE")} {count("SPARE")}</Tag>}
@@ -84,7 +87,7 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
         <button className={btnGhost}>{t("search")}</button>
       </form>
       <div className="rounded-xl border bg-white p-2">
-        <Table head={[t("assetCode"), t("type"), u("brandSeriesModel"), t("serial"), u("customerPlant"), t("location"), t("status"), u("latestEvent")]}>
+        <Table head={[so.th("code", t("assetCode")), so.th("type", t("type")), u("brandSeriesModel"), so.th("serial", t("serial")), so.th("customer", u("customerPlant")), t("location"), so.th("status", t("status")), so.th("created", u("latestEvent"))]}>
           {assets.map((a) => (
             <tr key={a.id}>
               <td><Link href={`/assets/${a.code}`} className="font-mono text-blue hover:underline">{a.code}</Link></td>

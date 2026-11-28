@@ -7,16 +7,19 @@ import { PageHeader, Table, Tag } from "@/components/ui";
 export const dynamic = "force-dynamic";
 
 /** Suppliers — master data behind PRTH / POTH. */
-export default async function Suppliers({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
-  const { ok, error } = await searchParams;
+import { sortOf } from "@/lib/sort";
+import type { Prisma } from "@prisma/client";
+export default async function Suppliers({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; sort?: string }> }) {
+  const { ok, error, sort } = await searchParams;
+  const so = sortOf<Prisma.SupplierOrderByWithRelationInput>(sort, { code: (d) => ({ code: d }), name: (d) => ({ name: d }), po: (d) => ({ orders: { _count: d } }) }, "code");
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
-  const suppliers = await prisma.supplier.findMany({ orderBy: { code: "asc" }, include: { _count: { select: { orders: true, quotes: true } } } });
+  const suppliers = await prisma.supplier.findMany({ orderBy: so.orderBy, include: { _count: { select: { orders: true, quotes: true } } } });
   return (
     <div className="space-y-4">
       <PageHeader back={{ href: "/parts", label: t("nav_scm") }} title={u("suppliers")} badge={<Tag>{suppliers.length}</Tag>} newHref="/suppliers/new" newLabel={u("newSupplier")} />
       <Flash ok={ok} error={error} />
       <div className="rounded-xl border bg-white p-2">
-        <Table head={["STH", t("name"), t("taxId"), t("currency"), u("paymentTerms"), u("leadTime"), "POTH", u("contactName")]}>
+        <Table head={[so.th("code", "STH"), so.th("name", t("name")), t("taxId"), t("currency"), u("paymentTerms"), u("leadTime"), so.th("po", "POTH"), u("contactName")]}>
           {suppliers.map((s) => <tr key={s.id}><td className="font-mono">{s.code ? <Link href={`/suppliers/${s.code}`} className="text-blue hover:underline">{s.code}</Link> : ""}</td><td><Link href={s.code ? `/suppliers/${s.code}` : `/suppliers/new?id=${s.id}`} className="font-semibold text-blue hover:underline">{s.name}</Link>{s.isPartner ? <span className="ml-1"><Tag>{u("partnerRepair")}</Tag></span> : null}{s.nameLocal ? <span className="block text-xs text-navy/70">{s.nameLocal}</span> : null}{s.capabilities.length ? <span className="block text-xs text-navy/60">{s.capabilities.join(" · ")}</span> : null}</td><td className="font-mono">{s.taxId ?? ""}</td><td>{s.currency}</td><td>{s.paymentTerms ?? ""}</td><td>{s.leadTimeDays != null ? `${s.leadTimeDays} d` : ""}</td><td>{s._count.orders}</td><td>{s.contactName ?? ""}{s.phone ? ` · ${s.phone}` : ""}</td></tr>)}
           {suppliers.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-navy/60">{u("noSuppliers")}</td></tr>}
         </Table>

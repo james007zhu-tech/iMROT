@@ -101,8 +101,10 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   }
   const handedToFinance = !!primary0 && money(primary0) && !seeInv; // 验收完成 → 已通知财务开票
   const also = (businessClosureOn() ? steps.also : steps.also.filter((k) => !money(k))).filter(mine);
-  const stepLabel = (s: StepKey) => (s === "buy" ? u(`step_buy_${buying ?? "QUOTE"}`) : u(`step_${s}`));
-  const hrefOf = (s: StepKey) => (s === "buy" ? buyHref : stepHref(order.no, s));
+  // 成本决算 (朱总 2026-11-28): before the invoice the real cost is settled — the step says so and opens on that card
+  const settleFirst = order.status === "ACCEPTED" && !order.costConfirmedAt && !order.decline;
+  const stepLabel = (s: StepKey) => (s === "buy" ? u(`step_buy_${buying ?? "QUOTE"}`) : s === "invoice" && settleFirst ? u("step_settle") : u(`step_${s}`));
+  const hrefOf = (s: StepKey) => (s === "buy" ? buyHref : s === "invoice" && order.status === "ACCEPTED" && !order.costConfirmedAt && !order.decline ? `${stepHref(order.no, s)}#cost` : stepHref(order.no, s));
   // a quote for machines is declined (its own step), not cancelled; a declined order closes from its own card
   const transitions = dec ? [] : ORDER_TRANSITIONS[order.status as OrderStatus].filter((s) => (s !== "CLOSED" || mayClose) && s === "CLOSED" || (s === "CANCELLED" && !(order.status === "QUOTE_PENDING" && !quoteJustCancels(order.mode))));
   // "项目完成" (flow step 10): the person confirms the close once the money is in; the system no longer closes by itself.

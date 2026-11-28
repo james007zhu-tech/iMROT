@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { can, hasRole } from "@/lib/caps";
 import { fxFields, rateFor } from "@/server/fx";
 import { fxMark } from "@/lib/fx-label";
@@ -137,7 +138,7 @@ export default async function Invoice({ params, searchParams }: { params: Promis
       {!mayIssue && !active && <Alert>{u(stage ? "invoiceByFinance" : "invoiceNotYet")}</Alert>}
       {mayIssue && !active && whyNot && <Alert>{u(`invoiceWhyNot_${whyNot}`)}</Alert>}
       {active && <Alert>{u("tiExistsNotice", { no: active.no })}</Alert>}
-      {cost && (frozen || (!active && stage)) && <Card title={<>{u("costCard")} {frozen ? <Tag>{u("costFrozenTag")}</Tag> : null} {costOk ? <Tag>{u("costOkTag", { by: order.costConfirmedBy ?? "", at: localIso(order.costConfirmedAt!)!.slice(0, 16).replace("T", " ") })}</Tag> : <Tag hot>{order.costConfirmedAt ? u("costChangedTag") : u("costWaitTag")}</Tag>}</>} accent={!costOk}>
+      {cost && (frozen || (!active && stage)) && <div id="cost" className="scroll-mt-20"><Card title={<>{u("costCard")} {frozen ? <Tag>{u("costFrozenTag")}</Tag> : null} {costOk ? <Tag>{u("costOkTag", { by: order.costConfirmedBy ?? "", at: localIso(order.costConfirmedAt!)!.slice(0, 16).replace("T", " ") })}</Tag> : <Tag hot>{order.costConfirmedAt ? u("costChangedTag") : u("costWaitTag")}</Tag>}</>} accent={!costOk}>
         <p className="mb-2 text-sm">{u("costSay")}</p>
         <Table head={[u("costKind"), u("costRef"), u("costWhat"), t("qty"), u("unitCost"), t("amount")]}>
           {([["costParts", cost.parts], ["costPurchases", cost.purchases], ["costLabour", cost.labour], ["costExpenses", cost.expenses]] as const).flatMap(([k, rows]) => rows.map((r, i) => <tr key={`${k}${i}`}>
@@ -162,7 +163,13 @@ export default async function Invoice({ params, searchParams }: { params: Promis
           {!costOk && cost.missing.length > 0 && <div className="mt-2"><Field label={u("costGapNote")} required><input name="note" required className={inputCls} /></Field></div>}
           {!costOk && <button className="mt-2 min-h-11 rounded-lg bg-navy px-4 text-sm font-semibold text-white">{u("costOkBtn")}</button>}
         </form>
-      </Card>}
+        {/* 成本决算的入口 (朱总 2026-11-28): a cost that is not in the system yet is put in from here, then chosen above */}
+        {!costOk && !frozen && <div className="mt-3 rounded-lg border border-hair bg-[#F6F8FB] p-3 text-sm">
+          <p className="font-semibold">{u("costAddTitle")}</p>
+          <p className="mt-1 text-navy/75">{u("costAddHint")}</p>
+          <p className="mt-2 flex flex-wrap gap-2"><Link href={`/finance/expenses/new?order=${order.no}`} className="inline-flex min-h-10 items-center whitespace-nowrap rounded-lg border border-navy/45 bg-white px-3 font-semibold">{u("costAddExpense")} →</Link><Link href="/finance/expenses" className="inline-flex min-h-10 items-center whitespace-nowrap rounded-lg border border-navy/45 bg-white px-3 font-semibold">{u("costApproveExpense")} →</Link></p>
+        </div>}
+      </Card></div>}
       {canIssue && taxInvoices.length > 0 && <Alert>{u("tiReissueNotice")}</Alert>}
       {canIssue && <form id="f" action={save} className="space-y-4">
         <label className="flex items-start gap-2 rounded-lg border border-[#E6A23C] bg-[#FFF4E5] p-3 text-sm text-[#7A4A00]"><input type="checkbox" name="checked" required className="mt-1" /><span>{u("invoiceDraftCheck", { total: sum.total.toFixed(2), customer: order.customer.name })}</span></label>

@@ -16,8 +16,10 @@ import { can } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; page?: string; mode?: string }> }) {
-  const { status, q, page, mode } = await searchParams;
+import { sortOf } from "@/lib/sort";
+export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; page?: string; mode?: string; sort?: string }> }) {
+  const { status, q, page, mode, sort } = await searchParams;
+  const so = sortOf<Prisma.ServiceOrderOrderByWithRelationInput>(sort, { date: (d) => ({ reportedAt: d }), no: (d) => ({ no: d }), customer: (d) => ({ customer: { name: d } }), status: (d) => ({ status: d }), mode: (d) => ({ mode: d }), total: (d) => ({ total: { sort: d, nulls: "last" as const } }) }, "-date", { q, status, mode });
   const p = Math.max(1, Number(page) || 1);
   const [t, u, ts, locale] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("orderStatus"), getLocale()]);
   const me = await currentEmployee();
@@ -32,7 +34,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
     prisma.serviceOrder.findMany({
       where,
       include: { customer: { select: { name: true } }, assignee: { select: { name: true } }, assets: { include: { asset: { select: { code: true } } } } },
-      orderBy: { reportedAt: "desc" }, skip: (p - 1) * PAGE_SIZE, take: PAGE_SIZE,
+      orderBy: so.orderBy, skip: (p - 1) * PAGE_SIZE, take: PAGE_SIZE,
     }),
     prisma.serviceOrder.count({ where }),
   ]);
@@ -40,7 +42,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const oldKinds: LegacyKindKey[] = status ? [] : !mode ? ["QUOTE", "TRADE_QUOTE"] : /TRADE/.test(mode) ? ["TRADE_QUOTE"] : mode === "REPAIR" ? ["QUOTE"] : [];
   const old = await legacyTail(me, oldKinds, { q: q?.trim() || undefined, page: p, size: PAGE_SIZE, liveTotal: total });
   const lg = await getTranslations("legacy");
-  const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}), ...(mode ? { mode } : {}), page: String(n) })}`;
+  const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}), ...(mode ? { mode } : {}), ...(so.key ? { sort: so.key } : {}), page: String(n) })}`;
   const fmt = new Intl.DateTimeFormat(locale, { year: "2-digit", month: "2-digit", day: "2-digit" });
   return (
     <div className="space-y-4">
@@ -52,7 +54,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         <button className={btnGhost}>{t("search")}</button>
       </form>
       <div className="rounded-xl border bg-white p-2">
-        <Table head={["QTTH", t("customer"), t("assets"), t("symptom"), u("businessMode"), t("reportedAt"), t("assignee"), t("status"), ...(seePrice ? [t("total")] : [])]}>
+        <Table head={[so.th("no", "QTTH"), so.th("customer", t("customer")), t("assets"), t("symptom"), so.th("mode", u("businessMode")), so.th("date", t("reportedAt")), t("assignee"), so.th("status", t("status")), ...(seePrice ? [so.th("total", t("total"))] : [])]}>
           {orders.map((o) => (
             <tr key={o.id}>
               <td><Link href={`/service-orders/${o.no}`} className="font-mono text-blue hover:underline">{o.no}</Link>{o.customerRef ? <span className="block font-mono text-xs text-navy/60">{o.customerRef}</span> : null}</td>

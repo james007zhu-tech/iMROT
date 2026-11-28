@@ -2734,7 +2734,7 @@
     "estByRow": "Line {n}: the cost is Sales' estimate",
     "estNote": "Costs on a quote may be estimates. At invoicing the system brings the real cost (purchases, parts issued, hours worked) for finance or the MD to recognise.",
     "err_QUOTE_EST_REQUIRED": "Line {detail}: enter an estimated cost",
-    "costCard": "Real cost of this order",
+    "costCard": "Cost settlement · real cost of this order",
     "costOkTag": "Recognised {by} {at}",
     "costWaitTag": "To be recognised",
     "costChangedTag": "Changed: recognise again",
@@ -2908,7 +2908,12 @@
     "rfqNoEmail": "This supplier has no e-mail on file: add it in the supplier list, or type the recipient in the e-mail",
     "rfqAttachHint": "Opens in your own mail program with recipient, subject and item list filled in; download the inquiry PDF first and attach it by hand",
     "supplierPapers": "Company papers",
-    "savedNotRead": "The file is saved and attached to this record; its content could not be read — please fill in the fields below by hand"
+    "savedNotRead": "The file is saved and attached to this record; its content could not be read — please fill in the fields below by hand",
+    "step_settle": "Settle cost → invoice",
+    "costAddTitle": "Cost not in the system yet?",
+    "costAddHint": "Book what this order cost (subcontract or consulting fees, travel …) as an expense on this order and have it approved; back here, pick it under “Source” above and confirm the cost. If nothing was spent, pick “nothing spent (0)”.",
+    "costAddExpense": "Book a cost on this order",
+    "costApproveExpense": "Approve expenses"
   },
   "role": {
     "MD": "MD Managing Director",

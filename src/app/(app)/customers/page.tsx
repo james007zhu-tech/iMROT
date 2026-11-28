@@ -8,24 +8,27 @@ import { btnGhost, inputCls, PAGE_SIZE, PageHeader, Pager, Table, Tag } from "@/
 
 export const dynamic = "force-dynamic";
 
-export default async function Customers({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }) {
-  const { q, page } = await searchParams;
+import { sortOf } from "@/lib/sort";
+import type { Prisma } from "@prisma/client";
+export default async function Customers({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; sort?: string }> }) {
+  const { q, page, sort } = await searchParams;
+  const so = sortOf<Prisma.CustomerOrderByWithRelationInput>(sort, { code: (d) => ({ code: d }), name: (d) => ({ name: d }), plants: (d) => ({ plants: { _count: d } }), assets: (d) => ({ assets: { _count: d } }), orders: (d) => ({ serviceOrders: { _count: d } }) }, "code", { q });
   const p = Math.max(1, Number(page) || 1);
   const [t, u] = await Promise.all([getTranslations("common"), getTranslations("ui")]);
   const me = await currentEmployee();
   const where = { AND: [await customerScope(me), q ? { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { nameLocal: { contains: q, mode: "insensitive" as const } }, { code: { contains: q, mode: "insensitive" as const } }, { taxId: { contains: q } }] } : {}] };
   const [customers, total] = await Promise.all([
-    prisma.customer.findMany({ where, orderBy: { code: "asc" }, include: { entity: true, _count: { select: { assets: true, serviceOrders: true, plants: true } } }, skip: (p - 1) * PAGE_SIZE, take: PAGE_SIZE }),
+    prisma.customer.findMany({ where, orderBy: so.orderBy, include: { entity: true, _count: { select: { assets: true, serviceOrders: true, plants: true } } }, skip: (p - 1) * PAGE_SIZE, take: PAGE_SIZE }),
     prisma.customer.count({ where }),
   ]);
   const full = can.customerMoney(me); // 税号、开票信息 are not for the shop floor
-  const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), page: String(n) })}`;
+  const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(so.key ? { sort: so.key } : {}), page: String(n) })}`;
   return (
     <div className="space-y-4">
       <PageHeader title={u("customers")} badge={<Tag>{total}</Tag>} newHref={can.customers(me) ? "/customers/new" : undefined} newLabel={u("newCustomer")} />
-      <form className="flex gap-2"><input name="q" defaultValue={q} placeholder={u("searchCustomers")} className={`${inputCls} max-w-sm`} /><button className={btnGhost}>{t("search")}</button></form>
+      <form className="flex gap-2">{so.key && <input type="hidden" name="sort" value={so.key} />}<input name="q" defaultValue={q} placeholder={u("searchCustomers")} className={`${inputCls} max-w-sm`} /><button className={btnGhost}>{t("search")}</button></form>
       <div className="rounded-xl border bg-white p-2">
-        <Table head={["CTH", t("customer"), ...(full ? [t("taxId")] : []), u("legalEntity"), u("plants"), t("assets"), t("serviceOrders")]}>
+        <Table head={[so.th("code", "CTH"), so.th("name", t("customer")), ...(full ? [t("taxId")] : []), u("legalEntity"), so.th("plants", u("plants")), so.th("assets", t("assets")), so.th("orders", t("serviceOrders"))]}>
           {customers.map((c) => (
             <tr key={c.id}>
               <td><Link href={`/customers/${c.code}`} className="font-mono text-blue hover:underline">{c.code}</Link></td>

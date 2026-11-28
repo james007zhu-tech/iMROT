@@ -10,15 +10,18 @@ import { PageHeader, Table, Tag } from "@/components/ui";
 export const dynamic = "force-dynamic";
 
 /** POTH — purchase orders and how much of each has arrived. */
-export default async function PurchaseOrders({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; st?: string }> }) {
-  const { ok, error, st } = await searchParams;
+import { sortOf } from "@/lib/sort";
+import type { Prisma } from "@prisma/client";
+export default async function PurchaseOrders({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; st?: string; sort?: string }> }) {
+  const { ok, error, st, sort } = await searchParams;
+  const so = sortOf<Prisma.PurchaseOrderOrderByWithRelationInput>(sort, { date: (d) => ({ createdAt: d }), no: (d) => ({ no: d }), status: (d) => ({ status: d }), supplier: (d) => ({ supplier: { name: d } }) }, "-date", { st });
   const [t, u, ts] = await Promise.all([getTranslations("common"), getTranslations("ui"), getTranslations("poStatus")]);
   const me = await currentEmployee();
   const seeCost = can.cost(me); // 单价、金额 only for those who see cost; the rest see what has arrived
   // 派修单 v5 P2-1: one state for the badge, the list filter and the banner — 草稿 → 待 MD 批准 → 已批准 → 已发供应商 → 部分收货 / 已收货
   const stage = (r: { status: string; approvalAskedAt: Date | null; approvedAt: Date | null }) => (r.status !== "DRAFT" ? r.status : r.approvedAt ? "APPROVED" : r.approvalAskedAt ? "WAIT_MD" : "DRAFT");
   const label = (k: string) => (k === "WAIT_MD" || k === "APPROVED" ? u(`poStage_${k}`) : ts(k));
-  const all = await prisma.purchaseOrder.findMany({ orderBy: { createdAt: "desc" }, take: 200, include: { supplier: { select: { name: true } }, serviceOrder: { select: { no: true } }, inquiry: { select: { no: true } }, createdBy: { select: { name: true } } } });
+  const all = await prisma.purchaseOrder.findMany({ orderBy: so.orderBy, take: 200, include: { supplier: { select: { name: true } }, serviceOrder: { select: { no: true } }, inquiry: { select: { no: true } }, createdBy: { select: { name: true } } } });
   const rows = st ? all.filter((r) => stage(r) === st) : all;
   return (
     <div className="space-y-4">
@@ -26,7 +29,7 @@ export default async function PurchaseOrders({ searchParams }: { searchParams: P
       <Flash ok={ok} error={error} />
       <div className="flex flex-wrap gap-2 text-sm">{["", "DRAFT", "WAIT_MD", "APPROVED", "SENT", "PARTIAL", "RECEIVED", "CANCELLED"].map((k) => <Link key={k} href={k ? `/purchasing/orders?st=${k}` : "/purchasing/orders"} className={`whitespace-nowrap rounded-full border px-3 py-1 ${(st ?? "") === k ? "border-navy bg-navy text-white" : "border-navy/30 bg-white text-navy"}`}>{k ? label(k) : t("all")} · {k ? all.filter((r) => stage(r) === k).length : all.length}</Link>)}</div>
       <div className="rounded-xl border bg-white p-2">
-        <Table head={["POTH", t("status"), u("supplier"), "PRTH", "QTTH", ...(seeCost ? [t("total")] : []), u("received"), u("expectedAt"), t("date")]}>
+        <Table head={[so.th("no", "POTH"), so.th("status", t("status")), so.th("supplier", u("supplier")), "PRTH", "QTTH", ...(seeCost ? [t("total")] : []), u("received"), u("expectedAt"), t("date")]}>
           {rows.map((r) => { const ls = r.lines as { qty: number; receivedQty: number }[]; const got = ls.reduce((s, l) => s + l.receivedQty, 0), all = ls.reduce((s, l) => s + l.qty, 0); return (
             <tr key={r.id}>
               <td><Link href={`/purchasing/orders/${r.no}`} className="font-mono text-blue hover:underline">{r.no}</Link></td>
