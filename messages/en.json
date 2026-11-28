@@ -2913,7 +2913,12 @@
     "costAddTitle": "Cost not in the system yet?",
     "costAddHint": "Book what this order cost (subcontract or consulting fees, travel …) as an expense on this order and have it approved; back here, pick it under “Source” above and confirm the cost. If nothing was spent, pick “nothing spent (0)”.",
     "costAddExpense": "Book a cost on this order",
-    "costApproveExpense": "Approve expenses"
+    "costApproveExpense": "Approve expenses",
+    "costStanding": "Quoted cost (no record)",
+    "costSrcNoIssue": "No stock issue: counted at the system cost the quote carried",
+    "costSrcKeep": "Cost written on the quote, no record: counted as written",
+    "costChoiceKeep": "Cost written on the quote {amount} (no record, counted)",
+    "costKeepHint": "A cost written on the quote without a record behind it is counted in the total by default. If it is in fact one of the purchase orders, expenses or hours above, pick that record under “Source” so it is not counted twice; if nothing was spent, pick “nothing spent (0)”."
   },
   "role": {
     "MD": "MD Managing Director",

@@ -13,7 +13,7 @@ import { guarded } from "@/lib/action-result";
 import { businessClosureOn } from "@/lib/closure";
 import { Alert, Card, Field, Grid, Table, Tag, Value, btnGhost, inputCls } from "@/components/ui";
 import { StepPage, dayNow, loadOrder, str } from "../_shell";
-import { confirmOrderCost, costChoices, isSettled, lineCosts, openCostItems, orderCost, type LineCost, type OrderCost } from "@/server/job-cost";
+import { confirmOrderCost, costChoices, isSettled, lineCosts, openCostItems, orderCost, standingTotal, type LineCost, type OrderCost } from "@/server/job-cost";
 import { declineInvoiceLines } from "@/server/decline";
 import { totals } from "@/lib/money";
 
@@ -66,10 +66,15 @@ export default async function Invoice({ params, searchParams }: { params: Promis
   const seeCost = can.invoice(me);
   // 开票即结算 (朱总 2026-11-18 11:59): with a tax invoice standing, what was recognised is frozen and shown as it was
   const frozen = seeCost && !!order.costDetail && (await isSettled(order.id));
-  const snap = order.costDetail as unknown as (OrderCost & { lines?: LineCost[]; map?: Record<string, string>; note?: string | null }) | null;
+  const snap = order.costDetail as unknown as (OrderCost & { lines?: LineCost[]; map?: Record<string, string>; note?: string | null; recordsTotal?: number; standing?: number }) | null;
   const cost: OrderCost | null = !seeCost ? null : frozen ? snap : await orderCost(order.id);
-  const costOk = frozen || (!!order.costConfirmedAt && !!cost && Math.abs(cost.total - Number(order.costActual ?? 0)) <= 0.005);
-  const costLines: LineCost[] = !cost ? [] : frozen || costOk ? snap?.lines ?? [] : await lineCosts(order.id, cost, snap?.map ?? {});
+  // 总成本 = 系统单据 + 报价时写、没有单据的成本 (朱总 2026-11-28)
+  const liveLines: LineCost[] = !cost || frozen ? [] : await lineCosts(order.id, cost, snap?.map ?? {});
+  const records = !cost ? 0 : frozen ? snap?.recordsTotal ?? cost.total : cost.total;
+  const standing = !cost ? 0 : frozen ? snap?.standing ?? 0 : standingTotal(liveLines);
+  const grand = Math.round((records + standing) * 100) / 100;
+  const costOk = frozen || (!!order.costConfirmedAt && !!cost && Math.abs(grand - Number(order.costActual ?? 0)) <= 0.005);
+  const costLines: LineCost[] = !cost ? [] : frozen || costOk ? snap?.lines ?? [] : liveLines;
   const choices = cost ? costChoices(cost) : [];
   const openItems = cost && !frozen ? await openCostItems(order) : [];
   async function okCost(f: FormData) {
@@ -144,10 +149,13 @@ export default async function Invoice({ params, searchParams }: { params: Promis
           {([["costParts", cost.parts], ["costPurchases", cost.purchases], ["costLabour", cost.labour], ["costExpenses", cost.expenses]] as const).flatMap(([k, rows]) => rows.map((r, i) => <tr key={`${k}${i}`}>
             <td className="whitespace-nowrap">{u(k)}</td><td className="whitespace-nowrap font-mono text-xs">{r.ref}</td><td>{r.what}{r.note ? <span className="block text-xs text-navy/60">{r.note}</span> : null}</td>
             <td className="whitespace-nowrap tabular-nums">{r.qty} {r.unit}</td><td className={`text-right tabular-nums ${r.unitCost == null ? "font-semibold text-alert-ink" : ""}`}>{r.unitCost == null ? u("costNone") : r.unitCost.toFixed(2)}</td><td className="text-right tabular-nums">{r.amount.toFixed(2)}</td></tr>))}
-          {cost.total === 0 && <tr><td colSpan={6} className="text-navy/60">{u("costEmpty")}</td></tr>}
+          {standing > 0 && costLines.filter((l) => l.stands && l.real != null).map((l) => <tr key={`st${l.lineNo}`}>
+            <td className="whitespace-nowrap">{u("costStanding")}</td><td className="whitespace-nowrap font-mono text-xs">#{l.lineNo}</td><td>{l.description}<span className="block text-xs text-navy/60">{u(l.source === "NO_ISSUE" ? "costSrcNoIssue" : "costSrcKeep")}</span></td>
+            <td className="whitespace-nowrap tabular-nums">1</td><td className="text-right tabular-nums">{l.real!.toFixed(2)}</td><td className="text-right tabular-nums">{l.real!.toFixed(2)}</td></tr>)}
+          {grand === 0 && <tr><td colSpan={6} className="text-navy/60">{u("costEmpty")}</td></tr>}
         </Table>
-        <p className="mt-2 text-right text-[13px]">{u("costParts")} {cost.partsTotal.toFixed(2)} · {u("costPurchases")} {cost.purchasesTotal.toFixed(2)} · {u("costLabour")} {cost.labourTotal.toFixed(2)}（{cost.hours} h）· {u("costExpenses")} {cost.expensesTotal.toFixed(2)}</p>
-        <p className="text-right text-sm"><b>{u("costActualTotal")} {order.currency} {cost.total.toFixed(2)}</b> · {u("costQuoted")} {order.costTotal != null ? Number(order.costTotal).toFixed(2) : "—"} · {u("costRealMargin")} {sum.subtotal > 0 ? `${(((sum.subtotal - cost.total) / sum.subtotal) * 100).toFixed(1)}%` : "—"}</p>
+        <p className="mt-2 text-right text-[13px]">{u("costParts")} {cost.partsTotal.toFixed(2)} · {u("costPurchases")} {cost.purchasesTotal.toFixed(2)} · {u("costLabour")} {cost.labourTotal.toFixed(2)}（{cost.hours} h）· {u("costExpenses")} {cost.expensesTotal.toFixed(2)}{standing > 0 ? ` · ${u("costStanding")} ${standing.toFixed(2)}` : ""}</p>
+        <p className="text-right text-sm"><b>{u("costActualTotal")} {order.currency} {grand.toFixed(2)}</b> · {u("costQuoted")} {order.costTotal != null ? Number(order.costTotal).toFixed(2) : "—"} · {u("costRealMargin")} {sum.subtotal > 0 ? `${(((sum.subtotal - grand) / sum.subtotal) * 100).toFixed(1)}%` : "—"}</p>
         {cost.missing.length > 0 && <Alert>{u("costMissing", { list: cost.missing.join("、") })}</Alert>}
         {openItems.length > 0 && <Alert>{u("costOpenItems", { list: openItems.join("、") })}</Alert>}
         {snap?.note && costOk && <p className="mt-1 text-xs text-navy/70">{u("costNoteWas")}：{snap.note}</p>}
@@ -158,8 +166,9 @@ export default async function Invoice({ params, searchParams }: { params: Promis
               <td>{l.lineNo}</td><td>{l.description}{l.est ? <span className="ml-1 whitespace-nowrap rounded bg-[#E5E9EF] px-1.5 py-0.5 text-[11px] text-navy/70">{u("estTag")}</span> : null}</td>
               <td className="whitespace-nowrap text-right tabular-nums">{l.quoted != null ? l.quoted.toFixed(2) : "—"}</td><td>→</td>
               <td className={`whitespace-nowrap text-right tabular-nums ${l.real == null ? "font-semibold text-[#C0392B]" : ""}`}>{l.real != null ? l.real.toFixed(2) : u("costNotReplaced")}</td>
-              <td>{l.est && !costOk ? <select name={`m${l.lineNo}`} defaultValue={l.choice ?? ""} className={`${inputCls} min-w-40`}><option value="">{u("costPick")}</option>{choices.map((x) => <option key={x.id} value={x.id}>{x.id === "none" ? u("costChoiceNone") : x.id === "labour" ? `${u("costLabour")} · ${x.label} = ${x.amount.toFixed(2)}` : `${x.label} = ${x.amount.toFixed(2)}`}</option>)}</select> : l.source === "SYSTEM" ? u("costSrcSystem") : l.choice === "none" ? u("costChoiceNone") : l.source}</td></tr>)}
+              <td>{(l.ask ?? l.est) && !costOk ? <select name={`m${l.lineNo}`} defaultValue={l.choice ?? ""} className={`${inputCls} min-w-40`}>{l.est ? <option value="">{u("costPick")}</option> : <option value="keep">{u("costChoiceKeep", { amount: (l.quoted ?? 0).toFixed(2) })}</option>}{choices.map((x) => <option key={x.id} value={x.id}>{x.id === "none" ? u("costChoiceNone") : x.id === "labour" ? `${u("costLabour")} · ${x.label} = ${x.amount.toFixed(2)}` : `${x.label} = ${x.amount.toFixed(2)}`}</option>)}</select> : l.source === "SYSTEM" ? u("costSrcSystem") : l.source === "NO_ISSUE" ? u("costSrcNoIssue") : l.source === "QUOTE" ? u("costSrcKeep") : l.choice === "none" ? u("costChoiceNone") : l.source}</td></tr>)}
           </Table>
+          {!costOk && costLines.some((l) => l.ask && !l.est) && <p className="mt-1 text-xs text-navy/70">{u("costKeepHint")}</p>}
           {!costOk && cost.missing.length > 0 && <div className="mt-2"><Field label={u("costGapNote")} required><input name="note" required className={inputCls} /></Field></div>}
           {!costOk && <button className="mt-2 min-h-11 rounded-lg bg-navy px-4 text-sm font-semibold text-white">{u("costOkBtn")}</button>}
         </form>

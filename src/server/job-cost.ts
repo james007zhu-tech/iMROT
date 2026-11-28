@@ -69,7 +69,7 @@ export async function orderCost(orderId: string): Promise<OrderCost> {
   const expenses: CostRow[] = [];
   for (const c of claims) {
     const net = await toOrder(r2(Number(c.amount) - Number(c.vatAmount ?? 0)), c.currency, c.createdAt);
-    expenses.push({ ref: c.receiptNo ?? c.id.slice(-6), what: c.vendor ?? "", qty: 1, unit: "", unitCost: net, amount: net });
+    expenses.push({ ref: c.receiptNo ?? c.id.slice(-6), what: [c.description, c.vendor].filter(Boolean).join(" · "), qty: 1, unit: "", unitCost: net, amount: net });
   }
   const sum = (rows: CostRow[]) => r2(rows.reduce((s, r) => s + r.amount, 0));
   const partsTotal = sum(parts), purchasesTotal = sum(purchases), labourTotal = sum(labour), expensesTotal = sum(expenses);
@@ -84,7 +84,21 @@ export async function orderCost(orderId: string): Promise<OrderCost> {
  *     reports, one purchase line, one expense claim, or "nothing was spent". Until every estimate is replaced the
  *     cost cannot be recognised and no invoice is written.
  */
-export type LineCost = { lineNo: number; description: string; est: boolean; quoted: number | null; real: number | null; source: string; choice?: string };
+export type LineCost = { lineNo: number; description: string; est: boolean; quoted: number | null; real: number | null; source: string; choice?: string;
+  /** finance / the MD decides this line's source (a Sales estimate, or a cost written on the quote without any paper behind it) */
+  ask?: boolean;
+  /** the real cost is the figure the quote carried — no system record stands behind it, so it is added to the records' total */
+  stands?: boolean };
+/**
+ * 报价时写的成本算进总成本 (朱总 2026-11-28: "总成本应该是认可后的报销金额加上 90947 之和，而不仅仅是报销部分").
+ * The by-line table and the total said two different things: a line whose real cost was the quote's own figure showed
+ * that figure, yet the total held the system's records only. Now the total is the records plus every such line:
+ *   · a line without a part number whose cost the MD / finance wrote on the quote — it stands ("keep") unless finance
+ *     says it is one of the records above (then that record replaces it, so nothing is counted twice) or nothing (0);
+ *   · a line with a part number that was never issued to the order — the system cost the quote carried.
+ */
+export const KEEP = "keep";
+export const standingTotal = (lines: LineCost[]) => r2(lines.reduce((s, l) => s + (l.stands && l.real != null ? l.real : 0), 0));
 export type CostChoice = { id: string; label: string; amount: number };
 export function costChoices(c: OrderCost): CostChoice[] {
   return [
@@ -101,11 +115,15 @@ export async function lineCosts(orderId: string, c: OrderCost, map: Record<strin
     const quoted = l.unitCost != null ? r2(Number(l.unitCost) * Number(l.qty)) : null;
     if (!l.costEst) {
       const issued = l.part ? c.parts.filter((p) => p.what.startsWith(l.part!.sku)) : [];
-      return issued.length ? { lineNo: l.lineNo, description: l.description, est: false, quoted, real: r2(issued.reduce((s, p) => s + p.amount, 0)), source: [...new Set(issued.map((p) => p.ref))].join(" ") }
-        : { lineNo: l.lineNo, description: l.description, est: false, quoted, real: quoted, source: "SYSTEM" };
+      if (issued.length) return { lineNo: l.lineNo, description: l.description, est: false, quoted, real: r2(issued.reduce((s, p) => s + p.amount, 0)), source: [...new Set(issued.map((p) => p.ref))].join(" ") };
+      if (!quoted) return { lineNo: l.lineNo, description: l.description, est: false, quoted, real: quoted, source: "SYSTEM" };
+      if (l.part) return { lineNo: l.lineNo, description: l.description, est: false, quoted, real: quoted, source: "NO_ISSUE", stands: true };
+      const id = map[String(l.lineNo)] ?? KEEP, pick = id === KEEP ? null : choices.find((x) => x.id === id);
+      return pick ? { lineNo: l.lineNo, description: l.description, est: false, quoted, real: pick.amount, source: pick.label, choice: pick.id, ask: true }
+        : { lineNo: l.lineNo, description: l.description, est: false, quoted, real: quoted, source: "QUOTE", choice: KEEP, ask: true, stands: true };
     }
     const pick = choices.find((x) => x.id === map[String(l.lineNo)]);
-    return { lineNo: l.lineNo, description: l.description, est: true, quoted, real: pick ? pick.amount : null, source: pick ? pick.label : "", choice: pick?.id };
+    return { lineNo: l.lineNo, description: l.description, est: true, quoted, real: pick ? pick.amount : null, source: pick ? pick.label : "", choice: pick?.id, ask: true };
   });
 }
 
@@ -139,17 +157,20 @@ export async function confirmOrderCost(input: { no: string; actorCode: string; m
   const lines = await lineCosts(order.id, c, input.map ?? {});
   const left = lines.filter((l) => l.est && l.real == null).map((l) => l.lineNo);
   if (left.length) throw new Error(`COST_EST_LEFT:${left.join("、")}`);
-  const used = lines.filter((l) => l.choice && l.choice !== "none").map((l) => l.choice!);
+  const used = lines.filter((l) => l.choice && l.choice !== "none" && l.choice !== KEEP).map((l) => l.choice!);
   if (new Set(used).size !== used.length) throw new Error("COST_CHOICE_TWICE");
+  const standing = standingTotal(lines), total = r2(c.total + standing); // the records, plus the quote's own figures that stand
   if (c.missing.length && !input.note?.trim()) throw new Error(`COST_GAPS_NEED_NOTE:${c.missing.join("、")}`);
-  await prisma.serviceOrder.update({ where: { id: order.id }, data: { costActual: c.total, costDetail: { ...c, lines, map: input.map ?? {}, note: input.note?.trim() || null } as unknown as Prisma.InputJsonValue, costConfirmedAt: new Date(), costConfirmedBy: actor.code } });
-  await audit(actor.id, "COST_CONFIRMED", order.no, { total: c.total, parts: c.partsTotal, purchases: c.purchasesTotal, labour: c.labourTotal, hours: c.hours, expenses: c.expensesTotal, quoted: order.costTotal != null ? Number(order.costTotal) : null, missing: c.missing, note: input.note?.trim() || null, lines: lines.map((l) => ({ n: l.lineNo, est: l.est, quoted: l.quoted, real: l.real, source: l.source })) });
-  return c;
+  await prisma.serviceOrder.update({ where: { id: order.id }, data: { costActual: total, costDetail: { ...c, recordsTotal: c.total, standing, total, lines, map: input.map ?? {}, note: input.note?.trim() || null } as unknown as Prisma.InputJsonValue, costConfirmedAt: new Date(), costConfirmedBy: actor.code } });
+  await audit(actor.id, "COST_CONFIRMED", order.no, { total, records: c.total, standing, parts: c.partsTotal, purchases: c.purchasesTotal, labour: c.labourTotal, hours: c.hours, expenses: c.expensesTotal, quoted: order.costTotal != null ? Number(order.costTotal) : null, missing: c.missing, note: input.note?.trim() || null, lines: lines.map((l) => ({ n: l.lineNo, est: l.est, quoted: l.quoted, real: l.real, source: l.source })) });
+  return { ...c, recordsTotal: c.total, standing, total };
 }
 
 /** Before an invoice is written: recognised, and still what the system shows (a later issue or purchase asks again). */
 export async function assertCostConfirmed(order: { id: string; no: string; costConfirmedAt: Date | null; costActual: Prisma.Decimal | null }) {
   if (!order.costConfirmedAt) throw new Error(`COST_NOT_CONFIRMED:${order.no}`);
-  const now = (await orderCost(order.id)).total;
+  const kept = (await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id }, select: { costDetail: true } })).costDetail as { map?: Record<string, string> } | null;
+  const c = await orderCost(order.id);
+  const now = r2(c.total + standingTotal(await lineCosts(order.id, c, kept?.map ?? {})));
   if (Math.abs(now - Number(order.costActual ?? 0)) > 0.005) throw new Error(`COST_CHANGED:${now.toFixed(2)}`);
 }
