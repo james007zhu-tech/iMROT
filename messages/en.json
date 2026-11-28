@@ -2936,7 +2936,8 @@
     "err_BL_NOTHING": "Tick at least one invoice",
     "err_BL_PERIOD": "Choose the month of the BLTH",
     "err_BL_NOT_BILLABLE": "One of the ticked invoices has just been paid, voided or put on another BLTH — refresh and tick again",
-    "err_BL_ONE_CURRENCY": "One BLTH holds one currency — create them per currency"
+    "err_BL_ONE_CURRENCY": "One BLTH holds one currency — create them per currency",
+    "lastReceived": "Last received"
   },
   "role": {
     "MD": "MD Managing Director",

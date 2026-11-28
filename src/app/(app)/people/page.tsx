@@ -14,13 +14,16 @@ export const dynamic = "force-dynamic";
 const day = (v: Date | null | undefined) => (v ? localIso(v)!.slice(0, 10) : "—");
 
 /** OPD · employees — the MD sees the list; everyone else lands on their own file (decision 2026-11-08). */
-export default async function People({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; all?: string }> }) {
-  const { ok, error, all } = await searchParams;
+import { sortOf } from "@/lib/sort";
+import type { Prisma } from "@prisma/client";
+export default async function People({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; all?: string; sort?: string }> }) {
+  const { ok, error, all, sort } = await searchParams;
+  const so = sortOf<Prisma.EmployeeOrderByWithRelationInput>(sort, { code: (d) => ({ code: d }), name: (d) => ({ name: d }), role: (d) => ({ role: d }), joined: (d) => ({ joinedAt: { sort: d, nulls: "last" } }) }, "code", { all });
   const me = await currentEmployee();
   if (!can.staff(me)) redirect(`/people/${me.code}`);
   const [t, c, r] = await Promise.all([getTranslations("ui"), getTranslations("common"), getTranslations("role")]);
   const employees = await prisma.employee.findMany({
-    where: all ? {} : { active: true }, orderBy: { code: "asc" },
+    where: all ? {} : { active: true }, orderBy: so.orderBy,
     include: { entity: true, credentials: { where: { expiresAt: { not: null } } }, reviews: { orderBy: { reviewedAt: "desc" }, take: 1 } },
   });
   const now = new Date();
@@ -31,7 +34,7 @@ export default async function People({ searchParams }: { searchParams: Promise<{
         actions={<><Link href="/people/overtime" className="text-sm text-blue hover:underline">{t("overtime")}</Link><Link href={all ? "/people" : "/people?all=1"} className="text-sm text-blue hover:underline">{all ? t("empShowActive") : t("empShowAll")}</Link></>} />
       <Flash ok={ok} error={error} />
       <div className="rounded-xl border bg-white p-2">
-        <Table head={[c("code"), c("name"), c("role"), t("legalEntity"), t("joinedAt"), t("empContactsShort"), t("empCredentialExpiry"), t("empLatestReview"), c("status")]}>
+        <Table head={[so.th("code", c("code")), so.th("name", c("name")), so.th("role", c("role")), t("legalEntity"), so.th("joined", t("joinedAt")), t("empContactsShort"), t("empCredentialExpiry"), t("empLatestReview"), c("status")]}>
           {employees.map((e) => {
             const alerts = credentialAlerts(e.credentials, now);
             const due = probationDue(e, e.reviews, now);

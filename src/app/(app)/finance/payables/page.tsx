@@ -17,10 +17,13 @@ import { can, hasRole } from "@/lib/caps";
 export const dynamic = "force-dynamic";
 
 /** 应付 — supplier invoices by due date (TH partners: monthly, 15 days after month end; others per order). Paying issues a PVTH. */
-export default async function Payables({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; all?: string; pv?: string }> }) {
-  const { ok, error, all, pv } = await searchParams;
+import { sortOf } from "@/lib/sort";
+import type { Prisma } from "@prisma/client";
+export default async function Payables({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string; all?: string; pv?: string; sort?: string }> }) {
+  const { ok, error, all, pv, sort } = await searchParams;
+  const so = sortOf<Prisma.SupplierInvoiceOrderByWithRelationInput[]>(sort, { due: (d) => [{ status: "asc" }, { dueDate: d }], supplier: (d) => [{ supplier: { name: d } }, { dueDate: "asc" }], no: (d) => [{ invoiceNo: d }], subtotal: (d) => [{ subtotal: d }], status: (d) => [{ status: d }, { dueDate: "asc" }] }, "due", { all, pv });
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
-  const rows = await prisma.supplierInvoice.findMany({ where: pv ? { payments: { some: { no: pv } } } : all ? {} : { status: "OPEN" }, orderBy: [{ status: "asc" }, { dueDate: "asc" }], take: 200, include: { supplier: true, payments: { orderBy: { requestedAt: "asc" } }, purchaseOrder: { select: { no: true, kind: true, serviceOrder: { select: { no: true } } } } } });
+  const rows = await prisma.supplierInvoice.findMany({ where: pv ? { payments: { some: { no: pv } } } : all ? {} : { status: "OPEN" }, orderBy: so.orderBy, take: 200, include: { supplier: true, payments: { orderBy: { requestedAt: "asc" } }, purchaseOrder: { select: { no: true, kind: true, serviceOrder: { select: { no: true } } } } } });
   const accounts = await payAccounts(me.entityId), acct = new Map(accounts.map((a) => [a.id, a.label]));
   // 派修单 v5 P1-3: today's Bank of China rate to THB for every foreign currency an account or an invoice on this page is in
   const fxNow: Record<string, { rate: number; date: string }> = {};
@@ -36,7 +39,7 @@ export default async function Payables({ searchParams }: { searchParams: Promise
         actions={<Link href={all ? "/finance/payables" : "/finance/payables?all=1"} className="text-sm text-blue hover:underline">{all ? u("openOnly") : u("showAll")}</Link>} />
       <Flash ok={ok} error={error} />
       <div className="rounded-xl border bg-white p-2">
-        <Table head={[u("dueDate"), u("supplier"), u("supplierInvoiceNo"), "POTH", t("subtotal"), t("vat"), t("wht"), u("payableAmount"), t("status"), ""]}>
+        <Table head={[so.th("due", u("dueDate")), so.th("supplier", u("supplier")), so.th("no", u("supplierInvoiceNo")), "POTH", so.th("subtotal", t("subtotal")), t("vat"), t("wht"), u("payableAmount"), so.th("status", t("status")), ""]}>
           {rows.map((r) => {
             const overdue = r.status === "OPEN" && r.dueDate < today;
             return <tr key={r.id} id={`inv-${r.id}`} className="scroll-mt-24 target:bg-tint target:outline target:outline-2 target:outline-blue">

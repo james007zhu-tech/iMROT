@@ -24,7 +24,8 @@ const day = (d?: Date | null) => (d ? localIso(d)!.slice(0, 10) : "");
  * /documents?type=AC    验收 — acceptance records (they carry no number of their own; listed by order)
  * ?new=1                where to start a new one: the form, or the orders that are ready for this step
  */
-export default async function Documents({ searchParams }: { searchParams: Promise<{ type?: string; q?: string; page?: string; new?: string }> }) {
+import { sortOf } from "@/lib/sort";
+export default async function Documents({ searchParams }: { searchParams: Promise<{ type?: string; q?: string; page?: string; new?: string; sort?: string }> }) {
   const sp = await searchParams;
   const me = await currentEmployee();
   const scope = await orderScope(me);
@@ -36,7 +37,8 @@ export default async function Documents({ searchParams }: { searchParams: Promis
   const [t, n, d, u] = await Promise.all([getTranslations("common"), getTranslations("nav"), getTranslations("docs"), getTranslations("ui")]);
   const place = type && type !== "AC" ? DOC_PLACES[type] : undefined;
   const title = type === "AC" ? n("acceptance") : place ? n(place.nav) : n("documents");
-  const href = (o: { type?: string; page?: number; new?: boolean }) => `/documents?${new URLSearchParams({ ...((o.type ?? type) ? { type: (o.type ?? type)! } : {}), ...(q ? { q } : {}), ...(o.page ? { page: String(o.page) } : {}), ...(o.new ? { new: "1" } : {}) })}`;
+  const so = sortOf<Prisma.DocumentOrderByWithRelationInput[]>(sp.sort, { date: (x) => [{ issuedAt: x }, { no: x }], no: (x) => [{ no: x }], customer: (x) => [{ customer: { name: x } }, { no: "desc" }], order: (x) => [{ serviceOrder: { no: x } }, { no: "desc" }], by: (x) => [{ createdBy: { name: x } }, { no: "desc" }] }, "-date", { type, q });
+  const href = (o: { type?: string; page?: number; new?: boolean }) => `/documents?${new URLSearchParams({ ...((o.type ?? type) ? { type: (o.type ?? type)! } : {}), ...(q ? { q } : {}), ...(so.key && o.type === undefined ? { sort: so.key } : {}), ...(o.page ? { page: String(o.page) } : {}), ...(o.new ? { new: "1" } : {}) })}`;
   const like = (v: string) => ({ contains: v, mode: "insensitive" as const });
 
   const step = type ? newStep(type) : undefined;
@@ -61,14 +63,14 @@ export default async function Documents({ searchParams }: { searchParams: Promis
       mine,
       q ? { OR: [{ no: like(q) }, { customer: { name: like(q) } }, { serviceOrder: { no: like(q) } }, { serviceOrder: { customerRef: like(q) } }] } : {},
     ] };
-    const [rows, c] = await Promise.all([prisma.document.findMany({ where, orderBy: [{ issuedAt: "desc" }, { no: "desc" }], skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE, include: { customer: { select: { name: true } }, serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, createdBy: { select: { name: true } } } }), prisma.document.count({ where })]);
+    const [rows, c] = await Promise.all([prisma.document.findMany({ where, orderBy: so.orderBy, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE, include: { customer: { select: { name: true } }, serviceOrder: { select: { no: true, customer: { select: { name: true } } } }, createdBy: { select: { name: true } } } }), prisma.document.count({ where })]);
     // the old system's papers of the same kind follow in the same list (朱总 2026-11-24)
     const oldKinds: LegacyKindKey[] = type === "QT" ? ["QUOTE", "TRADE_QUOTE"] : type === "IN" ? ["INSPECTION"] : type === "RP" ? ["REPAIR"] : type === "TI" ? ["TAX_INVOICE"] : type === "RC" ? ["RECEIPT"] : type === "BL" ? ["BILLING"] : type ? [] : ["QUOTE", "TRADE_QUOTE", "INSPECTION", "REPAIR", "TAX_INVOICE", "BILLING", "RECEIPT"];
     const old = await legacyTail(me, oldKinds, { q, page, size: PAGE_SIZE, liveTotal: c });
     const lg = await getTranslations("legacy");
     total = c + old.total;
     body = (
-      <Table head={[d("no"), ...(type ? [] : [d("kind")]), d("date"), t("customer"), d("order"), d("by"), ""]}>
+      <Table head={[so.th("no", d("no")), ...(type ? [] : [d("kind")]), so.th("date", d("date")), so.th("customer", t("customer")), so.th("order", d("order")), so.th("by", d("by")), ""]}>
         {rows.map((x) => {
           const p = DOC_PLACES[x.type];
           return (
@@ -109,7 +111,7 @@ export default async function Documents({ searchParams }: { searchParams: Promis
         </div>
       )}
       {sp.new && type && step && <ReadyOrders type={type} title={title} />}
-      <form className="flex max-w-md gap-2">{type && <input type="hidden" name="type" value={type} />}<input name="q" defaultValue={q} placeholder={d("searchPh")} className="w-full rounded-lg border px-3 py-2 text-sm" /><button className="whitespace-nowrap rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy">{t("search")}</button></form>
+      <form className="flex max-w-md gap-2">{type && <input type="hidden" name="type" value={type} />}{so.key && <input type="hidden" name="sort" value={so.key} />}<input name="q" defaultValue={q} placeholder={d("searchPh")} className="w-full rounded-lg border px-3 py-2 text-sm" /><button className="whitespace-nowrap rounded-lg border border-navy/45 bg-white px-4 text-sm font-semibold text-navy">{t("search")}</button></form>
       {body}
       <Pager page={page} total={total} href={(p) => href({ page: p })} prev={u("prevPage")} next={u("nextPage")} />
     </div>

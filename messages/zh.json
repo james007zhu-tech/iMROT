@@ -2936,7 +2936,8 @@
     "err_BL_NOTHING": "请至少勾选一张发票",
     "err_BL_PERIOD": "请选择 BLTH 的月份",
     "err_BL_NOT_BILLABLE": "勾选的发票里有的刚被收款、作废或已上了别的 BLTH，请刷新后重选",
-    "err_BL_ONE_CURRENCY": "一张 BLTH 只能一种币种，请按币种分开生成"
+    "err_BL_ONE_CURRENCY": "一张 BLTH 只能一种币种，请按币种分开生成",
+    "lastReceived": "最近入库"
   },
   "role": {
     "MD": "MD 董事总经理",

@@ -9,17 +9,31 @@ import { btnGhost, inputCls, PAGE_SIZE, PageHeader, Pager, Table, Tag } from "@/
 export const dynamic = "force-dynamic";
 
 import { sortOf } from "@/lib/sort";
+import { localIso } from "@/lib/dates";
 import type { Prisma } from "@prisma/client";
 export default async function Parts({ searchParams }: { searchParams: Promise<{ q?: string; movement?: string; order?: string; page?: string; sort?: string }> }) {
   const { q, movement, order, page, sort } = await searchParams;
-  const so = sortOf<Prisma.PartOrderByWithRelationInput>(sort, { sku: (d) => ({ sku: d }), name: (d) => ({ name: d }), brand: (d) => ({ brand: { name: d } }) }, "sku", { q, movement, order });
+  const so = sortOf<Prisma.PartOrderByWithRelationInput>(sort, { sku: (d) => ({ sku: d }), name: (d) => ({ name: d }), brand: (d) => ({ brand: { name: d } }), cost: (d) => ({ lastCost: { sort: d, nulls: "last" } }),
+    received: () => ({ sku: "asc" }), onhand: () => ({ sku: "asc" }) }, "sku", { q, movement, order }); // received / onhand are worked out from the stock movements, below
   const pg = Math.max(1, Number(page) || 1);
   const [t, u, me] = await Promise.all([getTranslations("common"), getTranslations("ui"), currentEmployee()]);
   const seeCost = can.cost(me);
   const where = q ? { OR: [{ sku: { contains: q, mode: "insensitive" as const } }, { name: { contains: q, mode: "insensitive" as const } }] } : undefined;
   const total = await prisma.part.count({ where });
   const qs = (n: number) => `?${new URLSearchParams({ ...(q ? { q } : {}), ...(movement ? { movement } : {}), ...(order ? { order } : {}), ...(so.key ? { sort: so.key } : {}), page: String(n) })}`;
-  const parts = await prisma.part.findMany({ where, skip: (pg - 1) * PAGE_SIZE, take: PAGE_SIZE, orderBy: so.orderBy, include: { brand: true, movements: { select: { direction: true, qty: true, warehouse: true } }, _count: { select: { bomLines: true } } } });
+  // 按入库时间 / 库存数量排序 (朱总 2026-11-28): neither is a column of the part — the last receipt and the quantity on hand come from the movements
+  const lastIn = new Map((await prisma.stockMovement.groupBy({ by: ["partId"], where: { direction: "IN", partId: { not: null }, reversalOf: null, reversedBy: null }, _max: { movedAt: true } })).map((g) => [g.partId!, g._max.movedAt]));
+  let pageIds: string[] | null = null;
+  if (so.field === "received" || so.field === "onhand") {
+    const ids = (await prisma.part.findMany({ where, select: { id: true, sku: true }, orderBy: { sku: "asc" } }));
+    const qty = so.field === "onhand" ? new Map<string, number>() : null;
+    if (qty) for (const g of await prisma.stockMovement.groupBy({ by: ["partId", "direction"], where: { partId: { not: null } }, _sum: { qty: true } })) qty.set(g.partId!, (qty.get(g.partId!) ?? 0) + (g.direction === "IN" ? 1 : -1) * Number(g._sum.qty ?? 0));
+    const val = (id: string) => (qty ? qty.get(id) ?? 0 : lastIn.get(id)?.getTime() ?? null);
+    ids.sort((a, b) => { const x = val(a.id), y = val(b.id); if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1; return so.desc ? y - x : x - y; }); // never received: last, either way
+    pageIds = ids.slice((pg - 1) * PAGE_SIZE, pg * PAGE_SIZE).map((x) => x.id);
+  }
+  const found = await prisma.part.findMany({ where: pageIds ? { id: { in: pageIds } } : where, ...(pageIds ? {} : { skip: (pg - 1) * PAGE_SIZE, take: PAGE_SIZE, orderBy: so.orderBy }), include: { brand: true, movements: { select: { direction: true, qty: true, warehouse: true } }, _count: { select: { bomLines: true } } } });
+  const parts = pageIds ? pageIds.map((id) => found.find((x) => x.id === id)!).filter(Boolean) : found;
   const fifo = seeCost ? await fifoOf(parts.map((p) => p.id)) : new Map(); // N-41: 库存金额 = what is left in the batches at their own costs — the same figure as the report and the part page
   const onHand = (p: (typeof parts)[number]) => p.movements.reduce((s, m) => s + (m.direction === "IN" ? 1 : -1) * Number(m.qty), 0);
   // more than one warehouse holding the part: say where it lies (the figure itself is the sum — the same one every page shows)
@@ -30,9 +44,9 @@ export default async function Parts({ searchParams }: { searchParams: Promise<{ 
       <PageHeader title={t("parts")} badge={<Tag>{total}</Tag>} actions={<><Link href="/purchasing/inquiries" className="text-sm text-blue hover:underline">PRTH →</Link>{can.purchasing(me) && <><Link href="/purchasing/orders" className="text-sm text-blue hover:underline">POTH →</Link><Link href="/suppliers" className="text-sm text-blue hover:underline">{u("suppliers")} →</Link></>}<Link href={mvHref} className={btnGhost}>{u("newMovement")}</Link></>} newHref="/parts/new" newLabel={u("newPart")} />
       <form className="flex gap-2">{so.key && <input type="hidden" name="sort" value={so.key} />}<input name="q" defaultValue={q} placeholder={u("searchParts")} className={`${inputCls} max-w-sm`} /><button className={btnGhost}>{t("search")}</button></form>
       <div className="rounded-xl border bg-white p-2">
-        <Table head={[so.th("sku", t("sku")), so.th("name", t("name")), so.th("brand", t("brand")), t("onHand"), t("inBoms"), ...(seeCost ? [t("lastCost"), u("stockValue")] : [])]}>
-          {parts.map((p) => { const n = onHand(p); return <tr key={p.id}><td><Link href={`/parts/${p.sku}`} className="font-mono text-blue hover:underline">{p.sku}</Link></td><td>{p.name}{p.nameLocal ? <span className="block text-xs text-navy/70">{p.nameLocal}</span> : null}</td><td>{p.brand?.name ?? ""}</td><td>{p.safetyStock != null && n < p.safetyStock ? <Tag hot>{n}</Tag> : n}{where2(p) ? <span className="block text-xs text-navy/60">{where2(p)}</span> : null}</td><td>{p._count.bomLines}</td>{seeCost && <td>{p.lastCost != null ? `${p.lastCostCurrency} ${Number(p.lastCost).toFixed(2)}` : ""}</td>}{seeCost && <td className="whitespace-nowrap text-right tabular-nums">{fifo.get(p.id)?.value ? fifo.get(p.id)!.value.toFixed(2) : ""}</td>}</tr>; })}
-          {parts.length === 0 && <tr><td colSpan={7} className="py-6 text-center text-navy/60">{t("noParts")}</td></tr>}
+        <Table head={[so.th("sku", t("sku")), so.th("name", t("name")), so.th("brand", t("brand")), so.th("onhand", t("onHand")), so.th("received", u("lastReceived")), t("inBoms"), ...(seeCost ? [so.th("cost", t("lastCost")), u("stockValue")] : [])]}>
+          {parts.map((p) => { const n = onHand(p); return <tr key={p.id}><td><Link href={`/parts/${p.sku}`} className="font-mono text-blue hover:underline">{p.sku}</Link></td><td>{p.name}{p.nameLocal ? <span className="block text-xs text-navy/70">{p.nameLocal}</span> : null}</td><td>{p.brand?.name ?? ""}</td><td>{p.safetyStock != null && n < p.safetyStock ? <Tag hot>{n}</Tag> : n}{where2(p) ? <span className="block text-xs text-navy/60">{where2(p)}</span> : null}</td><td className="whitespace-nowrap">{lastIn.get(p.id) ? localIso(lastIn.get(p.id)!)!.slice(0, 10) : "—"}</td><td>{p._count.bomLines}</td>{seeCost && <td>{p.lastCost != null ? `${p.lastCostCurrency} ${Number(p.lastCost).toFixed(2)}` : ""}</td>}{seeCost && <td className="whitespace-nowrap text-right tabular-nums">{fifo.get(p.id)?.value ? fifo.get(p.id)!.value.toFixed(2) : ""}</td>}</tr>; })}
+          {parts.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-navy/60">{t("noParts")}</td></tr>}
         </Table>
         <Pager page={pg} total={total} href={qs} prev={u("prevPage")} next={u("nextPage")} />
       </div>

@@ -12,6 +12,8 @@ export function sortOf<O>(raw: string | undefined, cols: Record<string, (dir: "a
   return {
     /** the value to carry in page links and search forms ("" when it is the list's own order) */
     key: want === def ? "" : want,
+    /** the column and direction in force — for a list that sorts on a figure it works out itself (stock on hand, last receipt) */
+    field, desc,
     orderBy: cols[field](desc ? "desc" : "asc"),
     /** a column head that sorts */
     th: (f: string, label: React.ReactNode) => {
